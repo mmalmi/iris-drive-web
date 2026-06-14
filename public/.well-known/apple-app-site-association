@@ -1,0 +1,23 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": [
+          "J8PPJKD7TA.to.iris.drive.macos",
+          "J8PPJKD7TA.to.iris.drive.ios"
+        ],
+        "components": [
+          {
+            "/": "*"
+          }
+        ]
+      }
+    ]
+  },
+  "webcredentials": {
+    "apps": [
+      "J8PPJKD7TA.to.iris.drive.macos",
+      "J8PPJKD7TA.to.iris.drive.ios"
+    ]
+  }
+}

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Iris Files">
+  <rect width="512" height="512" rx="120" fill="#050507"/>
+  <path fill="#f5cf6b" d="M108 212c0-30 24-54 54-54h74c16 0 30 7 40 20l18 22h118c30 0 54 24 54 54v102c0 30-24 54-54 54H162c-30 0-54-24-54-54V212Z"/>
+  <path fill="#fff0be" d="M108 212c0-30 24-54 54-54h74c16 0 30 7 40 20l18 22h118c18 0 34 9 44 24H108v-12Z"/>
+  <rect width="228" height="24" x="144" y="264" fill="#b1801c" opacity=".38" rx="12"/>
+  <rect width="164" height="24" x="144" y="312" fill="#b1801c" opacity=".26" rx="12"/>
+</svg>
