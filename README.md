@@ -2,6 +2,9 @@
 
 Content-addressed file sync on Nostr.
 
+Source: <https://git.iris.to/#/npub1xdhnr9mrv47kkrn95k6cwecearydeh8e895990n3acntwvmgk2dsdeeycm/iris-drive-web>
+Live: <https://drive.iris.to/>
+
 ## Features
 
 - Content-addressed file sync with SHA256 merkle trees
