@@ -5,7 +5,7 @@
    */
   import { unzipSync } from 'fflate';
   import { open as openExtractModal, type ArchiveFileInfo } from '../Modals/ExtractModal.svelte';
-  import { getFileIcon } from '../../utils/fileIcon';
+  import { getFileIcon } from '@iris/hashtree-app/fileIcon';
 
   interface Props {
     data: Uint8Array;

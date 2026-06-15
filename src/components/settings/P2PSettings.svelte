@@ -9,7 +9,7 @@
   } from '../../stores/settings';
   import { appStore, formatBandwidth, formatBytes, refreshWebRTCStats, blockPeer, unblockPeer, getWebRTCStore } from '../../store';
   import { transportUsageStore } from '../../stores/transportUsage';
-  import BandwidthHistoryChart from '../BandwidthHistoryChart.svelte';
+  import BandwidthHistoryChart from '@iris/hashtree-app/BandwidthHistoryChart.svelte';
   import { UserRow } from '../User';
 
   interface Props {

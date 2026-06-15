@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { resolvePublishLabels } from '../src/nostr/publishLabels';
+import { resolvePublishLabels } from '@iris/hashtree-app/publishLabels';
 
 describe('resolvePublishLabels', () => {
   it('preserves existing labels when callers omit them on republish', () => {

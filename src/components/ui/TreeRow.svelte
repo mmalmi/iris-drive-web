@@ -6,7 +6,7 @@
   import type { TreeVisibility } from '@hashtree/core';
   import { Avatar } from '../User';
   import VisibilityIcon from '../VisibilityIcon.svelte';
-  import { getFileIcon } from '../../utils/fileIcon';
+  import { getFileIcon } from '@iris/hashtree-app/fileIcon';
 
   interface Props {
     /** URL to navigate to (optional - if not provided, renders as div) */

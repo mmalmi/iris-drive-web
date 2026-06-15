@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildRelayStatusSnapshot } from '../src/nostr/relayStatusSnapshot';
+import { buildRelayStatusSnapshot } from '@iris/hashtree-app/relayStatusSnapshot';
 
 describe('buildRelayStatusSnapshot', () => {
   it('tracks a daemon transport relay separately from configured upstream relays', () => {

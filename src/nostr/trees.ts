@@ -13,7 +13,7 @@ import { ndk } from './ndk';
 import { updateLocalRootCache } from '../treeRootCache';
 import { parseRoute } from '../utils/route';
 import { getRefResolver } from '../refResolver';
-import { resolvePublishLabels } from './publishLabels';
+import { resolvePublishLabels } from '@iris/hashtree-app/publishLabels';
 
 // Re-export visibility hex helpers from hashtree lib
 export { visibilityHex as linkKeyUtils } from '@hashtree/core';

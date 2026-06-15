@@ -1,4 +1,4 @@
-import { DEFAULT_PUBLIC_RELAYS } from '../lib/defaultRelays';
+import { DEFAULT_PUBLIC_RELAYS } from '@iris/hashtree-app/defaultRelays';
 import { canUseInjectedHtreeServerUrl } from '../lib/nativeHtree';
 
 export type WebRTCUploadRateLimitMode = 'auto' | 'custom';

@@ -5,9 +5,9 @@ import {
   buildRelayStatusSnapshot,
   relayInfoListsEqual,
   relayStatusMapsEqual,
-} from './relayStatusSnapshot';
+} from '@iris/hashtree-app/relayStatusSnapshot';
 
-export { normalizeRelayUrl } from './relayStatusSnapshot';
+export { normalizeRelayUrl } from '@iris/hashtree-app/relayStatusSnapshot';
 
 let relayTrackingInitialized = false;
 

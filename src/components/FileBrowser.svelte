@@ -11,15 +11,15 @@
   import FileBrowserTreeList from './FileBrowserTreeList.svelte';
   import ProtectedTreeNotice from './ProtectedTreeNotice.svelte';
   import { treeRootStore, routeStore, createTreesStore, type TreeEntry, currentDirCidStore, isViewingFileStore, resolvingPathStore, directoryEntriesStore, permalinkSnapshotStore } from '../stores';
-  import { readFilesFromDataTransfer, hasDirectoryItems } from '../utils/directory';
+  import { readFilesFromDataTransfer, hasDirectoryItems } from '@iris/hashtree-app/directory';
   import {
     buildDirHref as buildFileDirHref,
     buildEntryHref as buildFileEntryHref,
     buildTreeHref,
   } from './fileBrowserHrefs';
 
-  import { getFileIcon } from '../utils/fileIcon';
-  import { BREAKPOINTS } from '../utils/breakpoints';
+  import { getFileIcon } from '@iris/hashtree-app/fileIcon';
+  import { BREAKPOINTS } from '@iris/hashtree-app/breakpoints';
 
   function currentSnapshotForHref() {
     return isSnapshotPermalink ? permalinkSnapshot.snapshot : null;

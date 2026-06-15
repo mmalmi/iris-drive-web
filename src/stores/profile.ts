@@ -2,7 +2,7 @@ import { writable, type Readable } from 'svelte/store';
 import { nip19 } from 'nostr-tools';
 import { LRUCache } from '../utils/lruCache';
 import { KeyedEventEmitter } from '../utils/keyedEventEmitter';
-import { DEFAULT_PUBLIC_RELAYS } from '../lib/defaultRelays';
+import { DEFAULT_PUBLIC_RELAYS } from '@iris/hashtree-app/defaultRelays';
 import { configureNdkRelays, ndk } from '../nostr/ndk';
 
 export interface Profile {

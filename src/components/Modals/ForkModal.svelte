@@ -29,7 +29,7 @@
 <script lang="ts">
   import type { TreeVisibility } from '@hashtree/core';
   import { forkTree } from '../../actions/tree';
-  import VisibilityPicker from './VisibilityPicker.svelte';
+  import VisibilityPicker from '@iris/hashtree-app/VisibilityPicker.svelte';
 
   let isForking = $state(false);
   let error = $state('');

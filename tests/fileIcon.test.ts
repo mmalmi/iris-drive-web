@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getFileIcon } from '../src/utils/fileIcon';
+import { getFileIcon } from '@iris/hashtree-app/fileIcon';
 
 describe('getFileIcon', () => {
   it('treats DOS executables like generic files', () => {

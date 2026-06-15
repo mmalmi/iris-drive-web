@@ -32,7 +32,7 @@
   import { createFile, createFolder, createTree, createDocument } from '../../actions';
   import { routeStore } from '../../stores';
   import { navigate } from '../../lib/router.svelte';
-  import VisibilityPicker from './VisibilityPicker.svelte';
+  import VisibilityPicker from '@iris/hashtree-app/VisibilityPicker.svelte';
 
   let route = $derived($routeStore);
 

@@ -17,7 +17,7 @@
   import { getTree } from '../store';
   import { createZipFromDirectory, downloadBlob, ZipCancelledError } from '../utils/compression';
   import { setUploadProgress } from '../stores/upload';
-  import { readFilesFromWebkitDirectory, supportsDirectoryUpload } from '../utils/directory';
+  import { readFilesFromWebkitDirectory, supportsDirectoryUpload } from '@iris/hashtree-app/directory';
   import { routeStore, createTreesStore, permalinkSnapshotStore } from '../stores';
   import { supportsDocumentFeatures } from '../appType';
   import {

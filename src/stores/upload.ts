@@ -17,8 +17,8 @@ import { open as openExtractModal } from '../components/Modals/ExtractModal.svel
 import { open as openGitignoreModal } from '../components/Modals/GitignoreModal.svelte';
 import { isArchiveFile, getArchiveFileList } from '../utils/compression';
 import { nip19 } from 'nostr-tools';
-import type { FileWithPath, DirectoryReadResult } from '../utils/directory';
-import { findGitignoreFile, parseGitignoreFromFile, applyGitignoreFilter, applyDefaultIgnoreFilter } from '../utils/directory';
+import type { FileWithPath, DirectoryReadResult } from '@iris/hashtree-app/directory';
+import { findGitignoreFile, parseGitignoreFromFile, applyGitignoreFilter, applyDefaultIgnoreFilter } from '@iris/hashtree-app/directory';
 import { getTreeRootSync } from './treeRoot';
 import { settingsStore } from '../stores/settings';
 import { toast } from '../stores/toast';
