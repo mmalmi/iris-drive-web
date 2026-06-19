@@ -15,8 +15,8 @@ export const IRIS_FILES_APPS = ['files'] as const satisfies readonly IrisFilesAp
 const APP_BRANDS: Record<IrisFilesAppId, AppBrand> = {
   files: {
     id: 'files',
-    label: 'drive',
-    displayName: 'iris drive',
+    label: 'Drive',
+    displayName: 'Iris Drive',
     iconSvg: 'iris-drive-icon.svg',
     appleTouchPng: 'iris-drive-icon-180.png',
     pwa192Png: 'iris-drive-icon-192.png',

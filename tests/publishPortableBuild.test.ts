@@ -5,7 +5,7 @@ describe('publish-iris-build', () => {
   it('supports the drive portable publish plan', () => {
     expect(createPublishPlan('drive')).toMatchObject({
       name: 'drive',
-      appName: 'iris drive',
+      appName: 'Iris Drive',
       distDir: 'dist',
       treeName: 'drive',
     });

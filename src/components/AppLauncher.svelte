@@ -10,8 +10,8 @@
 
   // Default suggested apps
   const suggestions: AppBookmark[] = [
-    { url: `htree://${distributedOwner}/drive`, name: 'iris drive', icon: filesIconUrl, addedAt: 0 },
-    { url: 'https://iris.to', name: 'iris social', icon: socialIconUrl, addedAt: 0 },
+    { url: `htree://${distributedOwner}/drive`, name: 'Drive', icon: filesIconUrl, addedAt: 0 },
+    { url: 'https://iris.to', name: 'Social', icon: socialIconUrl, addedAt: 0 },
   ];
 
   let favorites = $derived($appsStore);

@@ -28,17 +28,18 @@ describe('iris-files app branding', () => {
     expect(source).not.toContain('iris-favicon.png');
   });
 
-  it('uses a lowercase browser page title', () => {
+  it('uses a product-cased browser page title', () => {
     const source = read('index.html');
     const brand = getAppBrand('files');
 
-    expect(source).toContain(`<title>iris ${brand.label}</title>`);
+    expect(source).toContain(`<title>${brand.displayName}</title>`);
   });
 
-  it('keeps the shared header logo on the iris app family name', () => {
+  it('keeps the shared header logo on the app name', () => {
     const source = read('src/components/Logo.svelte');
 
-    expect(source).toContain('>iris <span class="text-accent">{brand.label}</span>');
+    expect(source).toContain('>{brand.label}</span>');
+    expect(source).not.toContain('>iris <span');
   });
 
   it('uses the Drive install icons in the portable build config', () => {

@@ -140,7 +140,7 @@ describe('release-site', () => {
       workerCompatibilityDate: '2026-03-19',
     });
 
-    expect(plan.steps.at(-1)?.label).toBe('Deploy iris drive to Cloudflare Worker');
+    expect(plan.steps.at(-1)?.label).toBe('Deploy Iris Drive to Cloudflare Worker');
   });
 
   it('builds a Pages release plan when only a Pages project is configured', () => {
@@ -197,7 +197,7 @@ describe('release-site', () => {
       skipCloudflare: false,
     };
 
-    await expect(runRelease(options, runner)).rejects.toThrow('Build iris drive failed with exit code 1');
+    await expect(runRelease(options, runner)).rejects.toThrow('Build Iris Drive failed with exit code 1');
   });
 
   it('runs all configured release profiles', async () => {

@@ -11,7 +11,7 @@ const screenshotPath = path.join(appDir, 'test-results', 'files-iris-portable-sm
 async function main() {
   await runPortableSmoke({
     distDir,
-    title: 'iris drive',
+    title: 'Iris Drive',
     appName: 'drive',
     screenshotPath,
   });

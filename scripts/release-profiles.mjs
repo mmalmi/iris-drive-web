@@ -4,7 +4,7 @@ export const wranglerVersion = '4.78.0';
 export const releaseProfiles = {
   drive: {
     name: 'drive',
-    appName: 'iris drive',
+    appName: 'Iris Drive',
     distDir: 'dist',
     treeName: 'drive',
     defaultWorkerName: 'iris-drive',
@@ -21,7 +21,7 @@ export const releaseProfiles = {
   },
   files: {
     name: 'files',
-    appName: 'iris drive',
+    appName: 'Iris Drive',
     distDir: 'dist',
     treeName: 'files',
     defaultWorkerName: 'iris-files',
