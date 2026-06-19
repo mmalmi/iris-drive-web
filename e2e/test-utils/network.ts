@@ -1,6 +1,13 @@
-import { DEFAULT_E2E_PRODUCTION_RELAYS } from '../../src/lib/defaultRelays';
 import { expect } from '../fixtures';
 import { evaluateWithRetry, waitForAppShell, waitForOptionalWorkerAdapter, waitForTestHelpers, waitForWorkerAdapter } from './core';
+
+const DEFAULT_E2E_PRODUCTION_RELAYS = [
+  'wss://relay.damus.io',
+  'wss://relay.primal.net',
+  'wss://relay.nostr.band',
+  'wss://relay.snort.social',
+  'wss://temp.iris.to',
+];
 
 /**
  * Wait for at least one relay connection.
