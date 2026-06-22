@@ -42,13 +42,13 @@
   "dependencies": {
     "@fips/core": "github:mmalmi/fips-ts#602fed03486d2646c79abccf38550fc3ced9481d&path:/packages/core",
     "@fips/transport-webrtc": "github:mmalmi/fips-ts#602fed03486d2646c79abccf38550fc3ced9481d&path:/packages/transport-webrtc",
-    "@hashtree/core": "0.1.7",
-    "@hashtree/dexie": "0.1.5",
-    "@hashtree/fips-transport": "github:mmalmi/hashtree#51fb79e25e9a26c49fd5a591b26b5254c9ce0850&path:/ts/packages/hashtree-fips-transport",
-    "@hashtree/index": "0.1.8",
-    "@hashtree/merge": "0.1.1",
-    "@hashtree/nostr": "0.1.14",
-    "@hashtree/worker": "0.2.16",
+    "@hashtree/core": "link:../hashtree/ts/packages/hashtree",
+    "@hashtree/dexie": "link:../hashtree/ts/packages/hashtree-dexie",
+    "@hashtree/fips-transport": "link:../hashtree/ts/packages/hashtree-fips-transport",
+    "@hashtree/index": "link:../hashtree/ts/packages/hashtree-index",
+    "@hashtree/merge": "link:../hashtree/ts/packages/hashtree-merge",
+    "@hashtree/nostr": "link:../hashtree/ts/packages/hashtree-nostr",
+    "@hashtree/worker": "link:../hashtree/ts/packages/hashtree-worker",
     "@iris/hashtree-app": "file:../iris-kit/packages/hashtree-app",
     "@iris/release-tools": "file:../iris-kit/packages/release-tools",
     "@iris/svelte-ui": "file:../iris-kit/packages/svelte-ui",
@@ -121,12 +121,16 @@
     "overrides": {
       "@fips/core": "github:mmalmi/fips-ts#602fed03486d2646c79abccf38550fc3ced9481d&path:/packages/core",
       "@fips/transport-webrtc": "github:mmalmi/fips-ts#602fed03486d2646c79abccf38550fc3ced9481d&path:/packages/transport-webrtc",
-      "@hashtree/core": "0.1.7",
-      "@hashtree/fips-transport": "github:mmalmi/hashtree#51fb79e25e9a26c49fd5a591b26b5254c9ce0850&path:/ts/packages/hashtree-fips-transport",
-      "@hashtree/mesh": "0.1.3"
-    },
-    "patchedDependencies": {
-      "@hashtree/worker@0.2.16": "patches/@hashtree__worker@0.2.16.patch"
+      "@hashtree/core": "link:../hashtree/ts/packages/hashtree",
+      "@hashtree/fips-transport": "link:../hashtree/ts/packages/hashtree-fips-transport",
+      "@hashtree/mesh": "link:../hashtree/ts/packages/hashtree-mesh",
+      "@hashtree/collection": "link:../hashtree/ts/packages/hashtree-collection",
+      "@hashtree/dexie": "link:../hashtree/ts/packages/hashtree-dexie",
+      "@hashtree/git": "link:../hashtree/ts/packages/hashtree-git",
+      "@hashtree/index": "link:../hashtree/ts/packages/hashtree-index",
+      "@hashtree/merge": "link:../hashtree/ts/packages/hashtree-merge",
+      "@hashtree/nostr": "link:../hashtree/ts/packages/hashtree-nostr",
+      "@hashtree/worker": "link:../hashtree/ts/packages/hashtree-worker"
     }
   }
 }

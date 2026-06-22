@@ -7,14 +7,16 @@ settings:
 overrides:
   '@fips/core': github:mmalmi/fips-ts#602fed03486d2646c79abccf38550fc3ced9481d&path:/packages/core
   '@fips/transport-webrtc': github:mmalmi/fips-ts#602fed03486d2646c79abccf38550fc3ced9481d&path:/packages/transport-webrtc
-  '@hashtree/core': 0.1.7
-  '@hashtree/fips-transport': github:mmalmi/hashtree#51fb79e25e9a26c49fd5a591b26b5254c9ce0850&path:/ts/packages/hashtree-fips-transport
-  '@hashtree/mesh': 0.1.3
-
-patchedDependencies:
-  '@hashtree/worker@0.2.16':
-    hash: 42814302baaaa1bf8320ee5e3005d0ff05a35df212e97181a4d24156bc72161b
-    path: patches/@hashtree__worker@0.2.16.patch
+  '@hashtree/core': link:../hashtree/ts/packages/hashtree
+  '@hashtree/fips-transport': link:../hashtree/ts/packages/hashtree-fips-transport
+  '@hashtree/mesh': link:../hashtree/ts/packages/hashtree-mesh
+  '@hashtree/collection': link:../hashtree/ts/packages/hashtree-collection
+  '@hashtree/dexie': link:../hashtree/ts/packages/hashtree-dexie
+  '@hashtree/git': link:../hashtree/ts/packages/hashtree-git
+  '@hashtree/index': link:../hashtree/ts/packages/hashtree-index
+  '@hashtree/merge': link:../hashtree/ts/packages/hashtree-merge
+  '@hashtree/nostr': link:../hashtree/ts/packages/hashtree-nostr
+  '@hashtree/worker': link:../hashtree/ts/packages/hashtree-worker
 
 importers:
 
@@ -27,29 +29,29 @@ importers:
         specifier: github:mmalmi/fips-ts#602fed03486d2646c79abccf38550fc3ced9481d&path:/packages/transport-webrtc
         version: https://codeload.github.com/mmalmi/fips-ts/tar.gz/602fed03486d2646c79abccf38550fc3ced9481d#path:/packages/transport-webrtc(typescript@5.9.3)
       '@hashtree/core':
-        specifier: 0.1.7
-        version: 0.1.7
+        specifier: link:../hashtree/ts/packages/hashtree
+        version: link:../hashtree/ts/packages/hashtree
       '@hashtree/dexie':
-        specifier: 0.1.5
-        version: 0.1.5
+        specifier: link:../hashtree/ts/packages/hashtree-dexie
+        version: link:../hashtree/ts/packages/hashtree-dexie
       '@hashtree/fips-transport':
-        specifier: github:mmalmi/hashtree#51fb79e25e9a26c49fd5a591b26b5254c9ce0850&path:/ts/packages/hashtree-fips-transport
-        version: https://codeload.github.com/mmalmi/hashtree/tar.gz/51fb79e25e9a26c49fd5a591b26b5254c9ce0850#path:/ts/packages/hashtree-fips-transport(@fips/core@https://codeload.github.com/mmalmi/fips-ts/tar.gz/602fed03486d2646c79abccf38550fc3ced9481d#path:/packages/core)
+        specifier: link:../hashtree/ts/packages/hashtree-fips-transport
+        version: link:../hashtree/ts/packages/hashtree-fips-transport
       '@hashtree/index':
-        specifier: 0.1.8
-        version: 0.1.8
+        specifier: link:../hashtree/ts/packages/hashtree-index
+        version: link:../hashtree/ts/packages/hashtree-index
       '@hashtree/merge':
-        specifier: 0.1.1
-        version: 0.1.1
+        specifier: link:../hashtree/ts/packages/hashtree-merge
+        version: link:../hashtree/ts/packages/hashtree-merge
       '@hashtree/nostr':
-        specifier: 0.1.14
-        version: 0.1.14(typescript@5.9.3)
+        specifier: link:../hashtree/ts/packages/hashtree-nostr
+        version: link:../hashtree/ts/packages/hashtree-nostr
       '@hashtree/worker':
-        specifier: 0.2.16
-        version: 0.2.16(patch_hash=42814302baaaa1bf8320ee5e3005d0ff05a35df212e97181a4d24156bc72161b)(ndk-cache@file:../iris-kit/packages/ndk-cache(typescript@5.9.3))(ndk@file:../iris-kit/packages/ndk(typescript@5.9.3))(nostr-social-graph@1.0.33)(typescript@5.9.3)
+        specifier: link:../hashtree/ts/packages/hashtree-worker
+        version: link:../hashtree/ts/packages/hashtree-worker
       '@iris/hashtree-app':
         specifier: file:../iris-kit/packages/hashtree-app
-        version: file:../iris-kit/packages/hashtree-app(@hashtree/core@0.1.7)(svelte@5.56.3(@typescript-eslint/types@8.61.0))
+        version: file:../iris-kit/packages/hashtree-app(@hashtree/core@hashtree+ts+packages+hashtree)(svelte@5.56.3(@typescript-eslint/types@8.61.0))
       '@iris/release-tools':
         specifier: file:../iris-kit/packages/release-tools
         version: file:../iris-kit/packages/release-tools
@@ -962,51 +964,6 @@ packages:
     resolution: {path: /packages/transport-webrtc, tarball: https://codeload.github.com/mmalmi/fips-ts/tar.gz/602fed03486d2646c79abccf38550fc3ced9481d}
     version: 0.0.1
 
-  '@hashtree/collection@0.2.4':
-    resolution: {integrity: sha512-tAucDapYrdzbs4+2X0Cf6qPVpU1vSWpZf4imYBS+O0pjD6k9yaGquTb2YtUtUATwB9PSKfsT+9k+4iC7DFAz5g==}
-
-  '@hashtree/core@0.1.7':
-    resolution: {integrity: sha512-VoSt33mejcaZ1+tbJYpjOD2FnnJaXKEHZAFurbjqILxVNXJTxFjuHPYzqFVxI3i7vJF5dJ+5LYSKOEhy0Im5Jg==}
-
-  '@hashtree/dexie@0.1.5':
-    resolution: {integrity: sha512-FoKzaLQoTeIWMsTuGl9UMkt5zINoPICDWfcUiCkJIw6mzK+41EjeVYI39ypzv/oeC854sVC3NAOzgNU7BleVvg==}
-
-  '@hashtree/fips-transport@https://codeload.github.com/mmalmi/hashtree/tar.gz/51fb79e25e9a26c49fd5a591b26b5254c9ce0850#path:/ts/packages/hashtree-fips-transport':
-    resolution: {path: /ts/packages/hashtree-fips-transport, tarball: https://codeload.github.com/mmalmi/hashtree/tar.gz/51fb79e25e9a26c49fd5a591b26b5254c9ce0850}
-    version: 0.1.0
-    peerDependencies:
-      '@fips/core': '*'
-    peerDependenciesMeta:
-      '@fips/core':
-        optional: true
-
-  '@hashtree/index@0.1.8':
-    resolution: {integrity: sha512-obqQUpochJdja8QVkhDPwDPoNUD8XB/TmEQgNtgLwr+qmocGBoO3KQYA/BSO9mAoOVk8fj0a62GlSN0ArnL+YA==}
-
-  '@hashtree/merge@0.1.1':
-    resolution: {integrity: sha512-TKyeRv2zPUrzn+QAafhaM2jBsNyzm09ciJGe9alwiX+L7HiTjJSEkAd9fstBGn5so/2Jxlgnp+vUl5vSnTslOA==}
-
-  '@hashtree/mesh@0.1.3':
-    resolution: {integrity: sha512-ArvnFB5HnkU6J32nkix1WV4J40mdbqmC0IDY0+OOVnA/XBEuTXwRwYvOO/Na32ZqByWfACTnSHL5U509yon13Q==}
-
-  '@hashtree/nostr@0.1.14':
-    resolution: {integrity: sha512-3Lj7vSj03ePfq0qwGrr8yvkPH3BD+DbMSRidrNNWs8E5AdzmEzoYF3Lc9KqKjJ4Ft/0kDnERUeg9jaOG9mHGOA==}
-
-  '@hashtree/worker@0.2.16':
-    resolution: {integrity: sha512-MG5UuT4d3XFEofkllqcP0ItkMHOaqcg9F4t1NxQeAY653cp+l6W0QjAjiQ6CorcS91SvFKmGFxiryPp2Nv8uJQ==}
-    version: 0.2.16
-    peerDependencies:
-      ndk: '*'
-      ndk-cache: '*'
-      nostr-social-graph: '*'
-    peerDependenciesMeta:
-      ndk:
-        optional: true
-      ndk-cache:
-        optional: true
-      nostr-social-graph:
-        optional: true
-
   '@humanfs/core@0.19.2':
     resolution: {integrity: sha512-UhXNm+CFMWcbChXywFwkmhqjs3PRCmcSa/hfBgLIb7oQ5HNb1wS0icWsGtSAUNgefHeI+eBrA8I1fxmbHsGdvA==}
     engines: {node: '>=18.18.0'}
@@ -1039,7 +996,7 @@ packages:
   '@iris/hashtree-app@file:../iris-kit/packages/hashtree-app':
     resolution: {directory: ../iris-kit/packages/hashtree-app, type: directory}
     peerDependencies:
-      '@hashtree/core': 0.1.7
+      '@hashtree/core': 0.1.8
       svelte: ^5.0.0
 
   '@iris/release-tools@file:../iris-kit/packages/release-tools':
@@ -4610,67 +4567,6 @@ snapshots:
     transitivePeerDependencies:
       - typescript
 
-  '@hashtree/collection@0.2.4':
-    dependencies:
-      '@hashtree/core': 0.1.7
-      '@hashtree/index': 0.1.8
-
-  '@hashtree/core@0.1.7':
-    dependencies:
-      '@msgpack/msgpack': 3.1.3
-      '@noble/hashes': 2.0.1
-      '@scure/base': 2.0.0
-
-  '@hashtree/dexie@0.1.5':
-    dependencies:
-      '@hashtree/core': 0.1.7
-      dexie: 4.4.2
-
-  '@hashtree/fips-transport@https://codeload.github.com/mmalmi/hashtree/tar.gz/51fb79e25e9a26c49fd5a591b26b5254c9ce0850#path:/ts/packages/hashtree-fips-transport(@fips/core@https://codeload.github.com/mmalmi/fips-ts/tar.gz/602fed03486d2646c79abccf38550fc3ced9481d#path:/packages/core)':
-    dependencies:
-      '@hashtree/core': 0.1.7
-      '@hashtree/mesh': 0.1.3
-    optionalDependencies:
-      '@fips/core': https://codeload.github.com/mmalmi/fips-ts/tar.gz/602fed03486d2646c79abccf38550fc3ced9481d#path:/packages/core
-
-  '@hashtree/index@0.1.8':
-    dependencies:
-      '@hashtree/core': 0.1.7
-
-  '@hashtree/merge@0.1.1': {}
-
-  '@hashtree/mesh@0.1.3':
-    dependencies:
-      '@hashtree/core': 0.1.7
-      '@msgpack/msgpack': 3.1.3
-
-  '@hashtree/nostr@0.1.14(typescript@5.9.3)':
-    dependencies:
-      '@hashtree/collection': 0.2.4
-      '@hashtree/core': 0.1.7
-      '@hashtree/index': 0.1.8
-      '@hashtree/mesh': 0.1.3
-      '@msgpack/msgpack': 3.1.3
-      nostr-tools: 2.23.3(typescript@5.9.3)
-    transitivePeerDependencies:
-      - typescript
-
-  '@hashtree/worker@0.2.16(patch_hash=42814302baaaa1bf8320ee5e3005d0ff05a35df212e97181a4d24156bc72161b)(ndk-cache@file:../iris-kit/packages/ndk-cache(typescript@5.9.3))(ndk@file:../iris-kit/packages/ndk(typescript@5.9.3))(nostr-social-graph@1.0.33)(typescript@5.9.3)':
-    dependencies:
-      '@hashtree/core': 0.1.7
-      '@hashtree/dexie': 0.1.5
-      '@hashtree/mesh': 0.1.3
-      '@hashtree/nostr': 0.1.14(typescript@5.9.3)
-      '@msgpack/msgpack': 3.1.3
-      dexie: 4.4.2
-      nostr-tools: 2.23.3(typescript@5.9.3)
-    optionalDependencies:
-      ndk: file:../iris-kit/packages/ndk(typescript@5.9.3)
-      ndk-cache: file:../iris-kit/packages/ndk-cache(typescript@5.9.3)
-      nostr-social-graph: 1.0.33
-    transitivePeerDependencies:
-      - typescript
-
   '@humanfs/core@0.19.2':
     dependencies:
       '@humanfs/types': 0.15.0
@@ -4699,9 +4595,9 @@ snapshots:
       '@iconify/types': 2.0.0
       import-meta-resolve: 4.2.0
 
-  '@iris/hashtree-app@file:../iris-kit/packages/hashtree-app(@hashtree/core@0.1.7)(svelte@5.56.3(@typescript-eslint/types@8.61.0))':
+  '@iris/hashtree-app@file:../iris-kit/packages/hashtree-app(@hashtree/core@hashtree+ts+packages+hashtree)(svelte@5.56.3(@typescript-eslint/types@8.61.0))':
     dependencies:
-      '@hashtree/core': 0.1.7
+      '@hashtree/core': link:../hashtree/ts/packages/hashtree
       svelte: 5.56.3(@typescript-eslint/types@8.61.0)
 
   '@iris/release-tools@file:../iris-kit/packages/release-tools': {}
