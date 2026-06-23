@@ -1,14 +1,19 @@
 import { get } from 'svelte/store';
 import type { Hash, RefResolverSubscriptionMetadata, SubscribeVisibilityInfo, TreeVisibility } from '@hashtree/core';
+import { NDKEvent, type NDKFilter, type NDKSubscriptionOptions, NDKSubscriptionCacheUsage } from 'ndk';
+import type { Event as NostrToolsEvent } from 'nostr-tools';
 import { routeStore } from './route';
 import { getRefResolver, getResolverKey } from '../refResolver';
+import { driveRootDTag, KIND_DRIVE_ROOT, parseDriveRootEventForDevice } from '../drive/protocol';
 import { syncNativeTreeRootCache } from '../lib/nativeTreeRootCache';
 import {
   getTreeRootSubscriptionPlan,
   shouldStartTreeRootSubscription,
 } from '../lib/treeRootSubscriptionPlan';
 import { shouldWaitForLinkVisibleMetadata } from '../lib/treeRootRoutePolicy';
+import { getSecretKey, ndk, useNostrStore, type NostrState } from '../nostr';
 import { treeRootRegistry } from '../TreeRootRegistry';
+import { isIrisProfileId } from '../utils/route';
 import {
   getVisibilityInfoFromRegistry,
   subscriptionState,
@@ -70,6 +75,85 @@ export function updateSubscriptionCache(
   }));
 }
 
+function applyDriveRootEvent(
+  key: string,
+  rootScopeId: string,
+  driveId: string,
+  event: NostrToolsEvent,
+): void {
+  const secretKey = getSecretKey();
+  if (!secretKey) return;
+
+  let parsed;
+  try {
+    parsed = parseDriveRootEventForDevice(event, secretKey);
+  } catch (error) {
+    console.warn('[treeRoot] Ignoring unreadable IrisProfile drive root:', error);
+    return;
+  }
+
+  if (parsed.root_scope_id !== rootScopeId || parsed.drive_id !== driveId) return;
+
+  const entry = subscriptionState.get(key);
+  if (!entry) return;
+
+  const visibilityInfo: SubscribeVisibilityInfo = { visibility: 'private' };
+  const updated = treeRootRegistry.setFromResolver(rootScopeId, driveId, parsed.root.hash, parsed.published_at, {
+    key: parsed.root.key,
+    visibility: 'private',
+    labels: ['iris-drive'],
+  });
+  if (!updated) return;
+
+  entry.decryptedKey = parsed.root.key;
+  entry.listeners.forEach(listener => listener(parsed.root.hash, parsed.root.key, visibilityInfo, {
+    updatedAt: parsed.published_at,
+    eventId: event.id,
+  }));
+}
+
+function subscribeToDriveRootScope(key: string, rootScopeId: string, driveId: string): () => void {
+  const filter: NDKFilter = {
+    kinds: [KIND_DRIVE_ROOT],
+    '#d': [driveRootDTag(rootScopeId, driveId)],
+  };
+  const opts: NDKSubscriptionOptions = {
+    closeOnEose: false,
+    cacheUsage: NDKSubscriptionCacheUsage.ONLY_RELAY,
+  };
+
+  const attachSub = () => {
+    const sub = ndk.subscribe(filter, opts);
+    sub.on('event', (event: NDKEvent) => {
+      const rawEvent = event.rawEvent() as Partial<NostrToolsEvent>;
+      if (!rawEvent.id || !rawEvent.sig || !rawEvent.pubkey || !rawEvent.tags || typeof rawEvent.kind !== 'number') {
+        return;
+      }
+      applyDriveRootEvent(key, rootScopeId, driveId, rawEvent as NostrToolsEvent);
+    });
+    return sub;
+  };
+
+  let sub = attachSub();
+  let lastConnectedRelays = useNostrStore.getState().connectedRelays;
+  const relayUnsub = useNostrStore.subscribe((state: NostrState) => {
+    if (state.connectedRelays > 0 && lastConnectedRelays === 0) {
+      try {
+        sub.stop();
+      } catch {
+        // ignore
+      }
+      sub = attachSub();
+    }
+    lastConnectedRelays = state.connectedRelays;
+  });
+
+  return () => {
+    relayUnsub?.();
+    sub.stop();
+  };
+}
+
 
 /**
  * Start the resolver subscription after worker is ready
@@ -79,6 +163,29 @@ async function startResolverSubscription(
   key: string,
   options?: { force?: boolean; skipWorkerHydrate?: boolean }
 ): Promise<void> {
+  const state = subscriptionState.get(key);
+  if (!state) return; // Entry was deleted before worker was ready
+
+  // Don't create subscription if one already exists unless forced
+  if (state.unsubscribeResolver || state.unsubscribeWorker) {
+    if (!options?.force) return;
+    state.unsubscribeResolver?.();
+    state.unsubscribeResolver = null;
+    state.unsubscribeWorker?.();
+    state.unsubscribeWorker = null;
+    clearWorkerHydrateRetry(key);
+  }
+
+  const slashIndex = key.indexOf('/');
+  if (slashIndex <= 0 || slashIndex >= key.length - 1) return;
+  const npub = key.slice(0, slashIndex);
+  const treeName = key.slice(slashIndex + 1);
+
+  if (isIrisProfileId(npub)) {
+    state.unsubscribeResolver = subscribeToDriveRootScope(key, npub, treeName);
+    return;
+  }
+
   const workerReady = await Promise.race([
     waitForWorkerReady().then(() => true),
     new Promise<boolean>((resolve) => setTimeout(() => resolve(false), WORKER_READY_TIMEOUT_MS)),
@@ -87,23 +194,6 @@ async function startResolverSubscription(
     console.warn('[treeRoot] Worker not ready yet - subscribing anyway');
   }
 
-  const state = subscriptionState.get(key);
-  if (!state) return; // Entry was deleted before worker was ready
-
-  // Don't create subscription if one already exists unless forced
-  if (state.unsubscribeResolver || state.unsubscribeWorker) {
-  if (!options?.force) return;
-  state.unsubscribeResolver?.();
-  state.unsubscribeResolver = null;
-  state.unsubscribeWorker?.();
-  state.unsubscribeWorker = null;
-  clearWorkerHydrateRetry(key);
-  }
-
-  const slashIndex = key.indexOf('/');
-  if (slashIndex <= 0 || slashIndex >= key.length - 1) return;
-  const npub = key.slice(0, slashIndex);
-  const treeName = key.slice(slashIndex + 1);
   const currentRoute = get(routeStore);
   const hasRouteLinkKey = getResolverKey(currentRoute.npub ?? undefined, currentRoute.treeName ?? undefined) === key
     && !!currentRoute.params.get('k');

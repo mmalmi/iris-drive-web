@@ -12,6 +12,7 @@ import type { Hash, TreeVisibility } from '@hashtree/core';
 import { fromHex } from '@hashtree/core';
 import { treeRootRegistry } from './TreeRootRegistry';
 import { parseRoute } from './utils/route';
+import { publishIrisProfileDriveRootIfAvailable } from './drive/profileDriveRootPublish';
 
 /**
  * Initialize the publish function on the registry.
@@ -73,7 +74,8 @@ export async function initializePublishFn(): Promise<void> {
       labels: record.labels,
     });
 
-    return result?.success ?? false;
+    if (!result?.success) return false;
+    return publishIrisProfileDriveRootIfAvailable(treeName, rootCid);
   });
 }
 

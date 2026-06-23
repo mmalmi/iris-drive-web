@@ -6,7 +6,7 @@ import { writable, derived, get } from 'svelte/store';
 import { getQueryParamsFromHash } from '../lib/router.svelte';
 import { isNHash, isNPath, nhashDecode, npathDecode } from '@hashtree/core';
 import { nip19 } from 'nostr-tools';
-import type { RouteInfo } from '../utils/route';
+import { isIrisDriveRouteScope, type RouteInfo } from '../utils/route';
 
 // Store for the current hash
 export const currentHash = writable<string>(typeof window !== 'undefined' ? window.location.hash : '');
@@ -93,8 +93,8 @@ export function parseRouteFromHash(hash: string): RouteInfo {
     return { npub: null, treeName: null, cid: null, path: [], isPermalink: false, params: emptyParams, compareBranches: null };
   }
 
-  // User routes
-  if (parts[0]?.startsWith('npub')) {
+  // User / IrisProfile routes
+  if (isIrisDriveRouteScope(parts[0])) {
     const npub = parts[0];
 
     // Special user routes (profile, follows, edit)

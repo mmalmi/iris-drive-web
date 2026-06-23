@@ -14,6 +14,7 @@ import { updateLocalRootCache } from '../treeRootCache';
 import { parseRoute } from '../utils/route';
 import { getRefResolver } from '../refResolver';
 import { resolvePublishLabels } from '@iris/hashtree-app/publishLabels';
+import { publishIrisProfileDriveRootIfAvailable } from '../drive/profileDriveRootPublish';
 
 // Re-export visibility hex helpers from hashtree lib
 export { visibilityHex as linkKeyUtils } from '@hashtree/core';
@@ -91,6 +92,11 @@ export async function saveHashtree(
 
   if (!result?.success) {
     return { success: false, linkKey: result?.linkKey ? toHex(result.linkKey) : undefined };
+  }
+
+  const driveRootPublished = await publishIrisProfileDriveRootIfAvailable(name, rootCid);
+  if (!driveRootPublished) {
+    return { success: false, linkKey: result.linkKey ? toHex(result.linkKey) : undefined };
   }
 
   return {

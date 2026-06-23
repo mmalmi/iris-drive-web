@@ -188,7 +188,7 @@ export async function createFolder(page: any, folderName: string) {
  * Use this to reset state between tests or create a fresh user.
  */
 export async function clearAllStorage(page: any) {
-  await page.evaluate(async () => {
+  await evaluateWithRetry(page, async () => {
     const dbs = await indexedDB.databases();
     await Promise.all(dbs.map((db) => new Promise<void>((resolve) => {
       if (!db.name) {
@@ -202,7 +202,7 @@ export async function clearAllStorage(page: any) {
     })));
     localStorage.clear();
     sessionStorage.clear();
-  });
+  }, undefined, 6);
 }
 
 /**

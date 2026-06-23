@@ -21,7 +21,7 @@ import { generateSecretKey, getPublicKey, nip19 } from 'nostr-tools';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const appDir = path.resolve(__dirname, '..');
-const defaultIrisDriveRepo = path.resolve(appDir, '../../../iris-drive');
+const defaultIrisDriveRepo = path.resolve(appDir, '../iris-drive');
 
 function repoRoot(): string {
   return process.env.IRIS_DRIVE_REPO || defaultIrisDriveRepo;
@@ -67,16 +67,71 @@ function configureNativeBlossom(configDir: string): void {
   runIdriveJson(configDir, ['blossom-servers', 'add', getTestBlossomUrl()]);
 }
 
-async function prepareFreshPage(page: Page, relayUrl: string, nsec?: string): Promise<void> {
+type StoredIrisIdentitySessionForTest = {
+  schema: 1;
+  profileId: string;
+  appKeyNsec: string;
+  status: 'active';
+  rosterOps: Array<{
+    op_id: string;
+    signer_pubkey: string;
+    content: unknown;
+    event_json: string;
+  }>;
+  createdAt: number;
+  label?: string;
+};
+
+function readNativeIrisIdentitySession(configDir: string, label = 'native-e2e'): StoredIrisIdentitySessionForTest {
+  const nsec = fs.readFileSync(path.join(configDir, 'key'), 'utf8').trim();
+  const configToml = fs.readFileSync(path.join(configDir, 'config.toml'), 'utf8');
+  const profileId = configToml.match(/\[profile\][\s\S]*?profile_id = "([^"]+)"/)?.[1];
+  if (!profileId) {
+    throw new Error('Native config is missing profile_id');
+  }
+  const rosterOps = Array.from(configToml.matchAll(/event_json = '([^']+)'/g)).map((match) => {
+    const eventJson = match[1];
+    const event = JSON.parse(eventJson);
+    return {
+      op_id: event.id,
+      signer_pubkey: event.pubkey,
+      content: JSON.parse(event.content),
+      event_json: eventJson,
+    };
+  });
+  if (rosterOps.length === 0) {
+    throw new Error('Native config is missing IrisProfile roster ops');
+  }
+
+  return {
+    schema: 1,
+    profileId,
+    appKeyNsec: nsec,
+    status: 'active',
+    rosterOps,
+    createdAt: Math.floor(Date.now() / 1000),
+    label,
+  };
+}
+
+async function prepareFreshPage(
+  page: Page,
+  relayUrl: string,
+  nsec?: string,
+  irisIdentitySession?: StoredIrisIdentitySessionForTest,
+): Promise<void> {
   setupPageErrorHandler(page);
   await page.goto('/');
   await clearAllStorage(page);
   await presetLocalRelayInDB(page, relayUrl);
   if (nsec) {
-    await page.evaluate((secret: string) => {
+    await page.evaluate(({ secret, session }) => {
       localStorage.setItem('hashtree:loginType', 'nsec');
       localStorage.setItem('hashtree:nsec', secret);
-    }, nsec);
+      if (session) {
+        localStorage.setItem('iris:identity:session', JSON.stringify(session));
+      }
+    }, { secret: nsec, session: irisIdentitySession ?? null });
   }
   await page.reload({ waitUntil: 'domcontentloaded' });
   await waitForAppReady(page, 60000);
@@ -215,11 +270,11 @@ test.describe('Iris Drive web interop', () => {
       runIdriveJson(configDir, ['import', workDir]);
       const publish = runIdriveJson(configDir, ['publish', '--relay', relayUrl, '--timeout', '2']);
       expect(publish.published_files_root).toBe(true);
-      expect(publish.drive_iris_to_url).toBe(`https://drive.iris.to/#/${init.owner_npub}/main`);
+      expect(publish.drive_iris_to_url).toBe(`https://drive.iris.to/#/${init.profile_id}/main`);
 
-      const ownerNsec = fs.readFileSync(path.join(configDir, 'owner_key'), 'utf8').trim();
+      const ownerNsec = fs.readFileSync(path.join(configDir, 'key'), 'utf8').trim();
       await prepareFreshPage(page, relayUrl, ownerNsec);
-      await expectTreeFile(page, init.owner_npub, 'main', fileName, content);
+      await expectTreeFile(page, init.profile_id, 'main', fileName, content);
     } finally {
       fs.rmSync(configDir, { recursive: true, force: true });
       fs.rmSync(workDir, { recursive: true, force: true });
@@ -250,28 +305,70 @@ test.describe('Iris Drive web interop', () => {
   test('drive web publish is readable from native idrive', async ({ page, relayUrl }) => {
     test.skip(!fs.existsSync(repoRoot()), 'iris-drive repo not available');
 
-    const owner = generateNsec();
     const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'iris-drive-web-native-'));
     const fileName = 'web-native.txt';
     const content = `web to native ${Date.now()}`;
 
     try {
-      await prepareFreshPage(page, relayUrl, owner.nsec);
+      configureNativeBlossom(configDir);
+      const init = runIdriveJson(configDir, ['init', '--label', 'native-e2e']);
+      const identitySession = readNativeIrisIdentitySession(configDir);
+      await prepareFreshPage(page, relayUrl, identitySession.appKeyNsec, identitySession);
       await createPrivateDriveTree(page);
-      await page.goto(`/#/${encodeURIComponent(owner.npub)}/main`);
+      const appKeyNpub = init.current_app_key_npub;
+      await page.goto(`/#/${encodeURIComponent(appKeyNpub)}/main`);
       await waitForAppReady(page, 60000);
-      await waitForRemoteTreeRoot(page, owner.npub, 'main');
+      await waitForRemoteTreeRoot(page, appKeyNpub, 'main');
       await createFileWithContent(page, fileName, content);
       await flushPendingPublishes(page);
       await pushCurrentRootToBlossom(page, 'main');
 
-      configureNativeBlossom(configDir);
-      runIdriveJson(configDir, ['restore', owner.nsec, '--label', 'native-e2e']);
       const sync = runIdriveJson(configDir, ['sync', '--relay', relayUrl, '--timeout', '2']);
       expect(sync.files_root_event_seen).toBe(true);
-      expect(sync.files_root_event_outcome).toBe('applied');
+      expect(sync.drive_root_events_applied).toBeGreaterThan(0);
       expect(sync.blossom_download?.fetched ?? 0).toBeGreaterThan(0);
       expectNativeFile(configDir, fileName, content);
+    } finally {
+      fs.rmSync(configDir, { recursive: true, force: true });
+    }
+  });
+
+  test('native idrive device-link invite creates pending drive-web identity session', async ({ page, relayUrl }) => {
+    test.skip(!fs.existsSync(repoRoot()), 'iris-drive repo not available');
+
+    const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'iris-drive-link-web-'));
+
+    try {
+      const owner = runIdriveJson(configDir, ['init', '--label', 'native-admin']);
+      const invite = owner.app_key_link_invite?.url;
+      expect(invite).toEqual(expect.stringMatching(/^https:\/\/drive\.iris\.to\/invite\//));
+      const adminAppKeyNpub = owner.current_app_key_npub;
+      expect(adminAppKeyNpub).toEqual(expect.stringMatching(/^npub1/));
+      const decodedAdmin = nip19.decode(adminAppKeyNpub);
+      expect(decodedAdmin.type).toBe('npub');
+      const adminAppKeyPubkey = decodedAdmin.data as string;
+
+      await prepareFreshPage(page, relayUrl);
+      const linked = await page.evaluate(async (nativeInvite) => {
+        const { getCurrentIrisIdentitySession, linkDriveDevice } = await import('/src/nostr');
+        const result = await linkDriveDevice(nativeInvite);
+        const session = getCurrentIrisIdentitySession();
+        const stored = JSON.parse(localStorage.getItem('iris:identity:session') ?? 'null');
+        return {
+          linkedNpub: result?.npub ?? null,
+          session,
+          stored,
+        };
+      }, invite);
+
+      expect(linked.linkedNpub).toEqual(expect.stringMatching(/^npub1/));
+      expect(linked.session?.profileId).toBe(owner.profile_id);
+      expect(linked.session?.status).toBe('pending_device_link');
+      expect(linked.session?.pendingDeviceLink?.adminAppKeyPubkey).toBe(adminAppKeyPubkey);
+      expect(linked.session?.pendingDeviceLink?.profileId).toBe(owner.profile_id);
+      expect(linked.session?.pendingDeviceLink?.deviceAppKeyPubkey).toBeTruthy();
+      expect(linked.stored?.profileId).toBe(owner.profile_id);
+      expect(linked.stored?.status).toBe('pending_device_link');
     } finally {
       fs.rmSync(configDir, { recursive: true, force: true });
     }
