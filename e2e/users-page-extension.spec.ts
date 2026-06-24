@@ -2,7 +2,7 @@ import { test, expect } from './fixtures';
 import { safeReload, waitForAppReady } from './test-utils';
 
 test.describe('Users Page NIP-07 availability', () => {
-  test('shows extension login after reload when NIP-07 appears shortly after load', async ({ page }) => {
+  test('enables recovery extension option after reload when NIP-07 appears shortly after load', async ({ page }) => {
     await page.addInitScript(() => {
       const installNostr = () => {
         if ((window as Window & { nostr?: unknown }).nostr) return;
@@ -30,10 +30,14 @@ test.describe('Users Page NIP-07 availability', () => {
     await page.goto('/#/users');
     await waitForAppReady(page);
     await expect(page.getByTestId('generate-new-account')).toBeVisible();
-    await expect(page.getByTestId('extension-login')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByTestId('identity-recovery-section')).toHaveCount(0);
+    await page.getByTestId('add-existing-profile').click();
+    const extensionOption = page.getByRole('button', { name: 'Extension' });
+    await expect(extensionOption).toBeEnabled({ timeout: 5000 });
 
     await safeReload(page);
     await waitForAppReady(page);
-    await expect(page.getByTestId('extension-login')).toBeVisible({ timeout: 5000 });
+    await page.getByTestId('add-existing-profile').click();
+    await expect(page.getByRole('button', { name: 'Extension' })).toBeEnabled({ timeout: 5000 });
   });
 });

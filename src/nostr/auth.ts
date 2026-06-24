@@ -47,6 +47,7 @@ import {
 const STORAGE_KEY_NSEC = 'hashtree:nsec';
 const STORAGE_KEY_LOGIN_TYPE = 'hashtree:loginType';
 const STORAGE_KEY_IRIS_IDENTITY = 'iris:identity:session';
+const STORAGE_KEY_IRIS_IDENTITY_SESSIONS = 'iris:identity:sessions';
 const DRIVE_ROOT_NAME = 'main';
 
 // Private key (only set for nsec login)
@@ -213,7 +214,7 @@ export async function restoreSession(options: RestoreSessionOptions = {}): Promi
   // Migrate legacy single account to multi-account storage if needed
   const legacyLoginType = localStorage.getItem(STORAGE_KEY_LOGIN_TYPE);
   const legacyNsec = localStorage.getItem(STORAGE_KEY_NSEC);
-  const accountsState = accountsStore.getState();
+  let accountsState = accountsStore.getState();
 
   if (accountsState.accounts.length === 0 && (legacyLoginType || legacyNsec)) {
     if (legacyLoginType === 'nsec' && legacyNsec) {
@@ -225,6 +226,7 @@ export async function restoreSession(options: RestoreSessionOptions = {}): Promi
       }
     }
   }
+  accountsState = accountsStore.getState();
 
   const activeAccount = accountsState.accounts.find(
     a => a.pubkey === accountsState.activeAccountPubkey
@@ -238,7 +240,7 @@ export async function restoreSession(options: RestoreSessionOptions = {}): Promi
         await ensureTestDefaultFolders();
       }
       return result;
-    } else if (activeAccount.type === 'nsec' && activeAccount.nsec) {
+    } else if ((activeAccount.type === 'nsec' || activeAccount.type === 'drive_profile') && activeAccount.nsec) {
       logT('calling loginWithNsec');
       const result = await loginWithNsec(activeAccount.nsec, false);
       logT('loginWithNsec done');
@@ -384,6 +386,7 @@ export async function loginWithNsec(nsec: string, save = true): Promise<boolean>
 async function applySecretKey(
   nextKey: Uint8Array,
   defaultTrees: readonly DefaultTree[] = CLASSIC_DEFAULT_TREES,
+  accountOptions: { irisProfileId?: IrisProfileId } = {},
 ): Promise<{ nsec: string; npub: string }> {
   secretKey = nextKey;
   const pk = getPublicKey(nextKey);
@@ -400,9 +403,19 @@ async function applySecretKey(
   localStorage.setItem(STORAGE_KEY_LOGIN_TYPE, 'nsec');
   localStorage.setItem(STORAGE_KEY_NSEC, nsec);
 
-  const account = createAccountFromNsec(nsec);
+  const account = createAccountFromNsec(nsec, {
+    type: accountOptions.irisProfileId ? 'drive_profile' : 'nsec',
+    irisProfileId: accountOptions.irisProfileId,
+  });
   if (account) {
     accountsStore.addAccount(account);
+    if (accountOptions.irisProfileId) {
+      accountsStore.updateAccount(account.pubkey, {
+        type: 'drive_profile',
+        irisProfileId: accountOptions.irisProfileId,
+        nsec,
+      });
+    }
     accountsStore.setActiveAccount(pk);
     saveActiveAccountToStorage(pk);
   }
@@ -447,7 +460,9 @@ export async function createDriveProfile(): Promise<{ nsec: string; npub: string
     label: 'This device',
   });
   saveIrisIdentitySession(session);
-  return applySecretKey(appKeySecretKey, DRIVE_DEFAULT_TREES);
+  return applySecretKey(appKeySecretKey, DRIVE_DEFAULT_TREES, {
+    irisProfileId: session.profileId,
+  });
 }
 
 export async function linkDriveDevice(inviteInput: string): Promise<{ nsec: string; npub: string; session: IrisIdentitySession } | null> {
@@ -461,7 +476,9 @@ export async function linkDriveDevice(inviteInput: string): Promise<{ nsec: stri
   if (decoded.type !== 'nsec') return null;
   const appKeySecretKey = decoded.data as Uint8Array;
   saveIrisIdentitySession(session);
-  const login = await applySecretKey(appKeySecretKey, []);
+  const login = await applySecretKey(appKeySecretKey, [], {
+    irisProfileId: session.profileId,
+  });
   return { ...login, session };
 }
 
@@ -507,7 +524,9 @@ export async function recoverDriveProfileWithAppKey(
   }
   const appKeySecretKey = decoded.data as Uint8Array;
   return {
-    ...(await applySecretKey(appKeySecretKey, DRIVE_DEFAULT_TREES)),
+    ...(await applySecretKey(appKeySecretKey, DRIVE_DEFAULT_TREES, {
+      irisProfileId: activeSession.profileId,
+    })),
     session: activeSession,
   };
 }
@@ -676,7 +695,11 @@ export function logout() {
 
 function saveIrisIdentitySession(session: IrisIdentitySession): void {
   currentIrisIdentitySession = session;
-  localStorage.setItem(STORAGE_KEY_IRIS_IDENTITY, JSON.stringify(serializeDriveIdentitySession(session)));
+  const stored = serializeDriveIdentitySession(session);
+  const sessions = loadStoredIrisIdentitySessions();
+  sessions[session.appKeyPubkey] = stored;
+  localStorage.setItem(STORAGE_KEY_IRIS_IDENTITY_SESSIONS, JSON.stringify(sessions));
+  localStorage.setItem(STORAGE_KEY_IRIS_IDENTITY, JSON.stringify(stored));
 }
 
 function appendCurrentIrisIdentitySessionRosterOps(
@@ -689,6 +712,9 @@ function appendCurrentIrisIdentitySessionRosterOps(
   }
 
   const removed = removedAppKeyPubkey ? normalizeHexPubkey(removedAppKeyPubkey) : null;
+  if (removed) {
+    removeStoredIrisIdentitySession(removed);
+  }
   if (removed && currentIrisIdentitySession.appKeyPubkey === removed) {
     currentIrisIdentitySession = null;
     localStorage.removeItem(STORAGE_KEY_IRIS_IDENTITY);
@@ -709,20 +735,77 @@ function appendCurrentIrisIdentitySessionRosterOps(
 }
 
 function restoreStoredIrisIdentitySession(): IrisIdentitySession | null {
-  const raw = localStorage.getItem(STORAGE_KEY_IRIS_IDENTITY);
-  if (!raw) {
+  const activeAccountPubkey = accountsStore.getState().activeAccountPubkey;
+  const sessions = loadStoredIrisIdentitySessions();
+  const storedForActiveAccount = activeAccountPubkey ? sessions[activeAccountPubkey] : undefined;
+  if (storedForActiveAccount) {
+    return activateStoredIrisIdentitySession(storedForActiveAccount);
+  }
+
+  const legacyRaw = localStorage.getItem(STORAGE_KEY_IRIS_IDENTITY);
+  if (!legacyRaw) {
     currentIrisIdentitySession = null;
     return null;
   }
   try {
-    currentIrisIdentitySession = restoreDriveIdentitySession(JSON.parse(raw) as StoredIrisIdentitySession);
-    return currentIrisIdentitySession;
+    const legacyStored = JSON.parse(legacyRaw) as StoredIrisIdentitySession;
+    const legacySession = restoreDriveIdentitySession(legacyStored);
+    saveIrisIdentitySession(legacySession);
+    if (activeAccountPubkey && activeAccountPubkey !== legacySession.appKeyPubkey) {
+      currentIrisIdentitySession = null;
+      return null;
+    }
+    return activateStoredIrisIdentitySession(legacyStored);
   } catch (error) {
     console.warn('[auth] Ignoring invalid Iris identity session:', error);
     localStorage.removeItem(STORAGE_KEY_IRIS_IDENTITY);
     currentIrisIdentitySession = null;
     return null;
   }
+}
+
+function activateStoredIrisIdentitySession(stored: StoredIrisIdentitySession): IrisIdentitySession | null {
+  try {
+    const session = restoreDriveIdentitySession(stored);
+    currentIrisIdentitySession = session;
+    accountsStore.updateAccount(session.appKeyPubkey, {
+      type: 'drive_profile',
+      irisProfileId: session.profileId,
+      nsec: session.appKeyNsec,
+    });
+    localStorage.setItem(STORAGE_KEY_IRIS_IDENTITY, JSON.stringify(serializeDriveIdentitySession(session)));
+    return session;
+  } catch (error) {
+    console.warn('[auth] Ignoring invalid Iris identity session:', error);
+    currentIrisIdentitySession = null;
+    return null;
+  }
+}
+
+function loadStoredIrisIdentitySessions(): Record<string, StoredIrisIdentitySession> {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_IRIS_IDENTITY_SESSIONS);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    const sessions: Record<string, StoredIrisIdentitySession> = {};
+    for (const [appKeyPubkey, stored] of Object.entries(parsed)) {
+      const normalizedPubkey = normalizeHexPubkey(appKeyPubkey);
+      if (!normalizedPubkey || !stored || typeof stored !== 'object') continue;
+      sessions[normalizedPubkey] = stored as StoredIrisIdentitySession;
+    }
+    return sessions;
+  } catch {
+    return {};
+  }
+}
+
+function removeStoredIrisIdentitySession(appKeyPubkey: string): void {
+  const normalized = normalizeHexPubkey(appKeyPubkey);
+  if (!normalized) return;
+  const sessions = loadStoredIrisIdentitySessions();
+  delete sessions[normalized];
+  localStorage.setItem(STORAGE_KEY_IRIS_IDENTITY_SESSIONS, JSON.stringify(sessions));
 }
 
 function createDriveIdentitySession(options: {

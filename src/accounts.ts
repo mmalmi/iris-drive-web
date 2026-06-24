@@ -10,13 +10,14 @@ import { nip19, getPublicKey } from 'nostr-tools';
 const STORAGE_KEY_ACCOUNTS = 'hashtree:accounts';
 const STORAGE_KEY_ACTIVE_ACCOUNT = 'hashtree:activeAccount';
 
-export type AccountType = 'nsec' | 'extension';
+export type AccountType = 'nsec' | 'extension' | 'drive_profile';
 
 export interface Account {
   pubkey: string;
   npub: string;
   type: AccountType;
   nsec?: string; // Only for nsec accounts
+  irisProfileId?: string;
   addedAt: number;
 }
 
@@ -36,7 +37,7 @@ function createAccountsStore() {
     subscribe,
 
     setAccounts: (accounts: Account[]) => {
-      update(state => ({ ...state, accounts }));
+      update(state => ({ ...state, accounts: normalizeAccounts(accounts) }));
     },
 
     setActiveAccount: (pubkey: string | null) => {
@@ -45,13 +46,48 @@ function createAccountsStore() {
 
     addAccount: (account: Account) => {
       update(state => {
-        // Don't add duplicates
-        if (state.accounts.some(a => a.pubkey === account.pubkey)) {
-          return state;
+        const existingIndex = findMatchingAccountIndex(state.accounts, account);
+        if (existingIndex >= 0) {
+          const existing = state.accounts[existingIndex];
+          const merged: Account = {
+            ...existing,
+            ...account,
+            addedAt: existing.addedAt || account.addedAt,
+          };
+          const newAccounts = state.accounts.slice();
+          newAccounts[existingIndex] = merged;
+          let activeAccountPubkey = state.activeAccountPubkey;
+          if (activeAccountPubkey === existing.pubkey && existing.pubkey !== merged.pubkey) {
+            activeAccountPubkey = merged.pubkey;
+            saveActiveAccountToStorage(activeAccountPubkey);
+          }
+          saveAccountsToStorage(newAccounts);
+          return { ...state, accounts: newAccounts, activeAccountPubkey };
         }
         const newAccounts = [...state.accounts, account];
         saveAccountsToStorage(newAccounts);
         return { ...state, accounts: newAccounts };
+      });
+    },
+
+    updateAccount: (pubkey: string, patch: Partial<Account>) => {
+      update(state => {
+        const index = state.accounts.findIndex(
+          a => a.pubkey === pubkey || (patch.irisProfileId && a.irisProfileId === patch.irisProfileId)
+        );
+        if (index < 0) return state;
+        const existing = state.accounts[index];
+        const newAccounts = state.accounts.slice();
+        const updated = { ...existing, ...patch, pubkey };
+        newAccounts[index] = updated;
+        let activeAccountPubkey = state.activeAccountPubkey;
+        if (activeAccountPubkey === existing.pubkey && existing.pubkey !== updated.pubkey) {
+          activeAccountPubkey = updated.pubkey;
+          saveActiveAccountToStorage(activeAccountPubkey);
+        }
+        const normalizedAccounts = normalizeAccounts(newAccounts);
+        saveAccountsToStorage(normalizedAccounts);
+        return { ...state, accounts: normalizedAccounts, activeAccountPubkey };
       });
     },
 
@@ -93,6 +129,39 @@ export const accountsStore = createAccountsStore();
 // Legacy compatibility alias (matches Zustand API)
 export const useAccountsStore = accountsStore;
 
+export function getAccountIdentityKey(account: Pick<Account, 'irisProfileId' | 'pubkey' | 'type'>): string {
+  return account.irisProfileId ? `iris-profile:${account.irisProfileId}` : `${account.type}:${account.pubkey}`;
+}
+
+function isSameAccountIdentity(a: Account, b: Account): boolean {
+  if (a.irisProfileId && b.irisProfileId) {
+    return a.irisProfileId === b.irisProfileId;
+  }
+  return a.pubkey === b.pubkey;
+}
+
+function findMatchingAccountIndex(accounts: Account[], account: Account): number {
+  return accounts.findIndex(existing => isSameAccountIdentity(existing, account));
+}
+
+function normalizeAccounts(accounts: Account[]): Account[] {
+  return accounts.reduce<Account[]>((normalized, account) => {
+    const existingIndex = findMatchingAccountIndex(normalized, account);
+    if (existingIndex < 0) {
+      normalized.push(account);
+      return normalized;
+    }
+
+    const existing = normalized[existingIndex];
+    normalized[existingIndex] = {
+      ...existing,
+      ...account,
+      addedAt: existing.addedAt || account.addedAt,
+    };
+    return normalized;
+  }, []);
+}
+
 /**
  * Save accounts to localStorage (nsec stored for nsec accounts)
  */
@@ -102,6 +171,7 @@ function saveAccountsToStorage(accounts: Account[]) {
     npub: a.npub,
     type: a.type,
     nsec: a.nsec,
+    irisProfileId: a.irisProfileId,
     addedAt: a.addedAt,
   }));
   localStorage.setItem(STORAGE_KEY_ACCOUNTS, JSON.stringify(data));
@@ -141,7 +211,10 @@ export function saveActiveAccountToStorage(pubkey: string | null) {
 /**
  * Create account from nsec
  */
-export function createAccountFromNsec(nsec: string): Account | null {
+export function createAccountFromNsec(
+  nsec: string,
+  options: { type?: AccountType; irisProfileId?: string } = {},
+): Account | null {
   try {
     const decoded = nip19.decode(nsec);
     if (decoded.type !== 'nsec') return null;
@@ -150,8 +223,9 @@ export function createAccountFromNsec(nsec: string): Account | null {
     return {
       pubkey,
       npub: nip19.npubEncode(pubkey),
-      type: 'nsec',
+      type: options.type ?? 'nsec',
       nsec,
+      irisProfileId: options.irisProfileId,
       addedAt: Date.now(),
     };
   } catch {
@@ -190,7 +264,11 @@ export function hasNostrExtension(): boolean {
  * Initialize accounts store from localStorage
  */
 export function initAccountsStore() {
-  const accounts = loadAccountsFromStorage();
+  const storedAccounts = loadAccountsFromStorage();
+  const accounts = normalizeAccounts(storedAccounts);
+  if (accounts.length !== storedAccounts.length) {
+    saveAccountsToStorage(accounts);
+  }
   const activeAccountPubkey = getActiveAccountFromStorage();
 
   accountsStore.setState({
