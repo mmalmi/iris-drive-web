@@ -33,12 +33,17 @@ test.describe('Users Page NIP-07 availability', () => {
     await expect(page.getByTestId('identity-recovery-section')).toHaveCount(0);
     await page.getByTestId('add-existing-profile').click();
     await expect(page).toHaveURL(/#\/users\/existing/);
-    const extensionOption = page.getByRole('button', { name: 'Extension' });
+    const extensionOption = page.getByRole('button', { name: 'Browser extension' });
     await expect(extensionOption).toBeEnabled({ timeout: 5000 });
+    const extensionBox = await extensionOption.boundingBox();
+    const seedBox = await page.getByRole('button', { name: 'Seed phrase' }).boundingBox();
+    expect(extensionBox).not.toBeNull();
+    expect(seedBox).not.toBeNull();
+    expect(extensionBox!.y).toBeLessThan(seedBox!.y);
 
     await safeReload(page);
     await waitForAppReady(page);
     await expect(page).toHaveURL(/#\/users\/existing/);
-    await expect(page.getByRole('button', { name: 'Extension' })).toBeEnabled({ timeout: 5000 });
+    await expect(page.getByRole('button', { name: 'Browser extension' })).toBeEnabled({ timeout: 5000 });
   });
 });
