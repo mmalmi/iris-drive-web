@@ -17,6 +17,7 @@ overrides:
   '@hashtree/merge': link:../hashtree/ts/packages/hashtree-merge
   '@hashtree/nostr': link:../hashtree/ts/packages/hashtree-nostr
   '@hashtree/worker': link:../hashtree/ts/packages/hashtree-worker
+  nostr-social-graph: link:../nostr-social-graph/ts
 
 importers:
 
@@ -52,6 +53,9 @@ importers:
       '@iris/hashtree-app':
         specifier: file:../iris-kit/packages/hashtree-app
         version: file:../iris-kit/packages/hashtree-app(@hashtree/core@hashtree+ts+packages+hashtree)(svelte@5.56.3(@typescript-eslint/types@8.61.0))
+      '@iris/identity':
+        specifier: link:../iris-kit/packages/identity
+        version: link:../iris-kit/packages/identity
       '@iris/release-tools':
         specifier: file:../iris-kit/packages/release-tools
         version: file:../iris-kit/packages/release-tools
@@ -122,8 +126,8 @@ importers:
         specifier: file:../iris-kit/packages/ndk-cache
         version: file:../iris-kit/packages/ndk-cache(typescript@5.9.3)
       nostr-social-graph:
-        specifier: 1.0.33
-        version: 1.0.33
+        specifier: link:../nostr-social-graph/ts
+        version: link:../nostr-social-graph/ts
       nostr-tools:
         specifier: 2.23.3
         version: 2.23.3(typescript@5.9.3)
@@ -1588,9 +1592,6 @@ packages:
   '@types/chai@5.2.3':
     resolution: {integrity: sha512-Mw558oeA9fFbv65/y4mHtXDs9bPnFMZAL/jxdPFUpOHHIXX91mcgEHbS5Lahr+pwZFR8A7GQleRWeI6cGFC2UA==}
 
-  '@types/cors@2.8.19':
-    resolution: {integrity: sha512-mFNylyeyqN93lfe/9CSxOGREz8cpzAhH+E93xJ4xWQf62V8sQ/24reV2nyzUWM6H6Xji+GGHpkbLe7pVoUEskg==}
-
   '@types/deep-eql@4.0.2':
     resolution: {integrity: sha512-c9h9dVVMigMPc4bwTvC5dxqtqJZwQPePsWjPlpSOnojbor6pGqdk541lfA7AqFQr5pB1BRdq0juY9db81BwyFw==}
 
@@ -1990,10 +1991,6 @@ packages:
 
   core-js-compat@3.49.0:
     resolution: {integrity: sha512-VQXt1jr9cBz03b331DFDCCP90b3fanciLkgiOoy8SBHy06gNf+vQ1A3WFLqG7I8TipYIKeYK9wxd0tUrvHcOZA==}
-
-  cors@2.8.6:
-    resolution: {integrity: sha512-tJtZBBHA6vjIAaF6EnIaq6laBBP9aq/Y3ouVJjEfoHbRBcHBAHYcMh/w8LDrk2PvIMMq8gmopa5D4V8RmbrxGw==}
-    engines: {node: '>= 0.10'}
 
   crelt@1.0.6:
     resolution: {integrity: sha512-VQ2MBenTq1fWZUH9DJNGti7kKv6EeAuYr3cLwxUWhIu1baTaXh4Ib5W2CqHVqib4/MqbYGJqiL3Zb8GJZr3l4g==}
@@ -2753,9 +2750,6 @@ packages:
     resolution: {integrity: sha512-Uzmd6LXpouKo8EUK68IjH4+E01w/hXyV3R3g/geCJo+rXLNfh1xucB+LOzYEOQPSiUK3h/xZf0cQGcSsmyL2Og==}
     engines: {node: '>=18'}
 
-  nostr-social-graph@1.0.33:
-    resolution: {integrity: sha512-wZyQYy3QaBrYWyO2tWzMt2f+sGvM811SVJ/IE7+8/KyuYZzlgOa9XYBqu6eKX+r8fcNVzHqbGe7In1ME2to6Dw==}
-
   nostr-tools@2.23.3:
     resolution: {integrity: sha512-AALyt9k8xPdF4UV2mlLJ2mgCn4kpTB0DZ8t2r6wjdUh6anfx2cTVBsHUlo9U0EY/cKC5wcNyiMAmRJV5OVEalA==}
     peerDependencies:
@@ -2766,10 +2760,6 @@ packages:
 
   nostr-wasm@0.1.0:
     resolution: {integrity: sha512-78BTryCLcLYv96ONU8Ws3Q1JzjlAt+43pWQhIl86xZmWeegYCNLPml7yQ+gG3vR6V5h4XGj+TxO+SS5dsThQIA==}
-
-  object-assign@4.1.1:
-    resolution: {integrity: sha512-rJgTQnkUnH1sFw8yT6VSU3zD3sWmu6sZhIseY8VX+GRu3P6F7Fu+JNDoXfklElbLJSnc3FUQHVe4cU5hj+BcUg==}
-    engines: {node: '>=0.10.0'}
 
   object-inspect@1.13.4:
     resolution: {integrity: sha512-W67iLl4J2EXEGTbfeHCffrjDfitvLANg0UlX3wFUUSTx92KXRFegMHUVgSqE+wvhAbi4WqjGg9czysTV2Epbew==}
@@ -3443,10 +3433,6 @@ packages:
 
   utrie@1.0.2:
     resolution: {integrity: sha512-1MLa5ouZiOmQzUbjbu9VmjLzn1QLXBhwpUa7kdLUQK+KQ5KA9I1vk5U4YHe/X2Ch7PYnJfWuWT+VbuxbGwljhw==}
-
-  vary@1.1.2:
-    resolution: {integrity: sha512-BNGbWLfd0eUPabhkXUVm0j8uuvREyTh5ovRa/dyow/BqAbZJyC+5fU+IzQOzmAKzYqYRAISoRhdQr3eIZ/PXqg==}
-    engines: {node: '>= 0.8'}
 
   vite-plugin-pwa@1.2.0:
     resolution: {integrity: sha512-a2xld+SJshT9Lgcv8Ji4+srFJL4k/1bVbd1x06JIkvecpQkwkvCncD1+gSzcdm3s+owWLpMJerG3aN5jupJEVw==}
@@ -5097,10 +5083,6 @@ snapshots:
       '@types/deep-eql': 4.0.2
       assertion-error: 2.0.1
 
-  '@types/cors@2.8.19':
-    dependencies:
-      '@types/node': 25.9.3
-
   '@types/deep-eql@4.0.2': {}
 
   '@types/dompurify@3.2.0':
@@ -5600,11 +5582,6 @@ snapshots:
   core-js-compat@3.49.0:
     dependencies:
       browserslist: 4.28.2
-
-  cors@2.8.6:
-    dependencies:
-      object-assign: 4.1.1
-      vary: 1.1.2
 
   crelt@1.0.6: {}
 
@@ -6433,11 +6410,6 @@ snapshots:
 
   node-releases@2.0.47: {}
 
-  nostr-social-graph@1.0.33:
-    dependencies:
-      '@types/cors': 2.8.19
-      cors: 2.8.6
-
   nostr-tools@2.23.3(typescript@5.9.3):
     dependencies:
       '@noble/ciphers': 2.1.1
@@ -6451,8 +6423,6 @@ snapshots:
       typescript: 5.9.3
 
   nostr-wasm@0.1.0: {}
-
-  object-assign@4.1.1: {}
 
   object-inspect@1.13.4: {}
 
@@ -7266,8 +7236,6 @@ snapshots:
   utrie@1.0.2:
     dependencies:
       base64-arraybuffer: 1.0.2
-
-  vary@1.1.2: {}
 
   vite-plugin-pwa@1.2.0(vite@6.4.1(@types/node@25.9.3)(jiti@2.7.0)(terser@5.48.0))(workbox-build@7.4.1)(workbox-window@7.4.1):
     dependencies:

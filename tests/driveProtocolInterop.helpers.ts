@@ -1,12 +1,9 @@
 import { finalizeEvent, getPublicKey } from 'nostr-tools';
 import { fromHex, type CID } from '@hashtree/core';
 import {
-  IRIS_PROFILE_FACET_ACCEPTANCE_SCHEMA,
-  KIND_IRIS_PROFILE_FACET_ACCEPTANCE,
   KIND_SHARE_MEMBER_ROSTER_OP,
-  irisProfileFacetAcceptanceDTag,
-  parseIrisProfileFacetAcceptanceEvent,
   shareMemberRosterOpDTag,
+  signIrisProfileFacetAcceptance,
   signIrisProfileRosterOp,
   type IrisProfileKeyPurpose,
   type IrisProfileRosterOp,
@@ -159,22 +156,11 @@ export function facetAcceptance(
 ): SignedIrisProfileFacetAcceptance {
   const facetPubkey = getPublicKey(secretKey);
   const nonce = `${facetPubkey.slice(0, 12)}-${acceptedAt}`;
-  const event = finalizeEvent({
-    kind: KIND_IRIS_PROFILE_FACET_ACCEPTANCE,
-    content: JSON.stringify({
-      schema: IRIS_PROFILE_FACET_ACCEPTANCE_SCHEMA,
-      profile_id: profileId,
-      facet_pubkey: facetPubkey,
-      purposes,
-      client_nonce: nonce,
-      accepted_at: acceptedAt,
-    }),
-    created_at: acceptedAt,
-    tags: [
-      ['d', irisProfileFacetAcceptanceDTag(profileId, nonce)],
-      ['i', profileId],
-      ['p', facetPubkey],
-    ],
-  }, secretKey);
-  return parseIrisProfileFacetAcceptanceEvent(event);
+  return signIrisProfileFacetAcceptance({
+    signerSecretKey: secretKey,
+    profileId,
+    purposes,
+    clientNonce: nonce,
+    acceptedAt,
+  });
 }

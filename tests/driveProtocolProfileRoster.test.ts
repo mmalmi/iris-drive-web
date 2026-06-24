@@ -15,7 +15,6 @@ import {
   buildIrisProfileRosterOpEvent,
   driveRootDTag,
   encodeShareInvite,
-  irisProfileRosterOpDTag,
   irisProfileRosterParentIds,
   isDriveRootEventNewer,
   parseAppKeysEvent,
@@ -73,11 +72,12 @@ describe('iris-drive protocol profile rosters', () => {
     expect(verifyEvent(addEvent)).toBe(true);
     expect(addEvent.kind).toBe(KIND_IRIS_PROFILE_ROSTER_OP);
     expect(addEvent.pubkey).toBe(adminPubkey);
-    expect(addEvent.tags).toContainEqual([
-      'd',
-      irisProfileRosterOpDTag(profileId, '123e4567-e89b-42d3-a456-426614174071'),
-    ]);
-    expect(addEvent.tags).toContainEqual(['i', profileId]);
+    expect(addEvent.content).toBe('');
+    expect(addEvent.tags.some(([name]) => name === 'd')).toBe(false);
+    expect(addEvent.tags).toContainEqual(['i', profileId, 'subject']);
+    expect(addEvent.tags).toContainEqual(['type', 'nostr_identity_roster_op']);
+    expect(addEvent.tags).toContainEqual(['op', 'add_key']);
+    expect(addEvent.tags).toContainEqual(['key_pubkey', phonePubkey]);
     expect(addEvent.tags).toContainEqual(['p', phonePubkey]);
 
     const parsedAdd = parseIrisProfileRosterOpEvent(addEvent);
@@ -100,7 +100,10 @@ describe('iris-drive protocol profile rosters', () => {
     });
     const acceptanceEvent = JSON.parse(acceptance.event_json);
 
-    expect(acceptanceEvent.tags).toContainEqual(['e', parsedAdd.op_id]);
+    expect(acceptanceEvent.content).toBe('');
+    expect(acceptanceEvent.tags).toContainEqual(['type', 'nostr_identity_key_acceptance']);
+    expect(acceptanceEvent.tags).toContainEqual(['key_pubkey', phonePubkey]);
+    expect(acceptanceEvent.tags).toContainEqual(['roster_op_id', parsedAdd.op_id]);
     expect(acceptance.signer_pubkey).toBe(phonePubkey);
     expect(projectIrisProfileRoster(profileId, [parsedAdd]).active_facets[phonePubkey]).toBeTruthy();
   });

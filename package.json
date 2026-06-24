@@ -50,6 +50,7 @@
     "@hashtree/nostr": "link:../hashtree/ts/packages/hashtree-nostr",
     "@hashtree/worker": "link:../hashtree/ts/packages/hashtree-worker",
     "@iris/hashtree-app": "file:../iris-kit/packages/hashtree-app",
+    "@iris/identity": "link:../iris-kit/packages/identity",
     "@iris/release-tools": "file:../iris-kit/packages/release-tools",
     "@iris/svelte-ui": "file:../iris-kit/packages/svelte-ui",
     "@msgpack/msgpack": "^3.1.2",
@@ -73,7 +74,7 @@
     "minidenticons": "^4.2.1",
     "ndk": "file:../iris-kit/packages/ndk",
     "ndk-cache": "file:../iris-kit/packages/ndk-cache",
-    "nostr-social-graph": "1.0.33",
+    "nostr-social-graph": "link:../nostr-social-graph/ts",
     "nostr-tools": "2.23.3",
     "nostr-wasm": "^0.1.0",
     "prismjs": "^1.29.0",
@@ -130,7 +131,8 @@
       "@hashtree/index": "link:../hashtree/ts/packages/hashtree-index",
       "@hashtree/merge": "link:../hashtree/ts/packages/hashtree-merge",
       "@hashtree/nostr": "link:../hashtree/ts/packages/hashtree-nostr",
-      "@hashtree/worker": "link:../hashtree/ts/packages/hashtree-worker"
+      "@hashtree/worker": "link:../hashtree/ts/packages/hashtree-worker",
+      "nostr-social-graph": "link:../nostr-social-graph/ts"
     }
   }
 }
