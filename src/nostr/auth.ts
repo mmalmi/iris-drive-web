@@ -807,6 +807,19 @@ function loadStoredIrisIdentitySessions(): Record<string, StoredIrisIdentitySess
   }
 }
 
+export function getStoredIrisIdentitySessionForAccount(appKeyPubkey: string): IrisIdentitySession | null {
+  const normalized = normalizeHexPubkey(appKeyPubkey);
+  if (!normalized) return null;
+  const stored = loadStoredIrisIdentitySessions()[normalized];
+  if (!stored) return null;
+  try {
+    return restoreDriveIdentitySession(stored);
+  } catch (error) {
+    console.warn('[auth] Ignoring invalid Iris identity session:', error);
+    return null;
+  }
+}
+
 function removeStoredIrisIdentitySession(appKeyPubkey: string): void {
   const normalized = normalizeHexPubkey(appKeyPubkey);
   if (!normalized) return;

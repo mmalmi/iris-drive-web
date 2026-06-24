@@ -154,8 +154,10 @@ test.describe('Users Page', () => {
 
     const accountItems = page.getByTestId('account-item');
     await expect(accountItems).toHaveCount(2);
-    await expect(accountItems.first()).toContainText('019ed693...a91e');
-    await expect(accountItems.nth(1)).toContainText('019ed693...a92f');
+    await expect(accountItems.first()).toContainText('Electric Fountain');
+    await expect(accountItems.nth(1)).toContainText('Verdant Field');
+    await expect(accountItems.first()).not.toContainText('019ed693');
+    await expect(accountItems.nth(1)).not.toContainText('019ed693');
 
     await accountItems.nth(1).click();
     await page.waitForTimeout(500);

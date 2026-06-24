@@ -279,9 +279,32 @@ test.describe('Users Page recovery login', () => {
       exercise: async (targetPage) => {
         await expect(targetPage.getByRole('button', { name: 'Browser extension' })).toBeVisible();
         await targetPage.getByRole('button', { name: 'Browser extension' }).click();
-        await targetPage.getByRole('button', { name: 'Recover app key' }).click();
+        await expect(targetPage.getByRole('button', { name: 'Recover app key' })).toHaveCount(0);
       },
     });
+  });
+
+  test('offers Create new when Browser extension has no Drive identity', async ({ page, relayUrl }) => {
+    const recoverySecretKey = generateSecretKey();
+    const profile: RecoveryProfile = {
+      profileId: crypto.randomUUID(),
+      recoverySecretKey,
+      recoveryPubkey: getPublicKey(recoverySecretKey),
+      recoveryNsec: nip19.nsecEncode(recoverySecretKey),
+    };
+
+    await installNip07Extension(page, profile);
+    await prepareRecoveryPage(page, relayUrl);
+    await page.getByRole('button', { name: 'Browser extension' }).click();
+    await expect(page).toHaveURL(/#\/users\/no_existing/, { timeout: 30000 });
+    await expect(page.getByRole('button', { name: 'Recover app key' })).toHaveCount(0);
+    await expect(page.getByTestId('identity-recovery-create-new-view')).toBeVisible({ timeout: 30000 });
+    await expect(page.getByText('No existing Drive user found for that key')).toBeVisible();
+    await expect(page.getByTestId('create-new-after-recovery-miss')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Browser extension' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Seed phrase' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Link device' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Secret key' })).toHaveCount(0);
   });
 
   test('logs in with Link device recovery', async ({ page, relayUrl }) => {

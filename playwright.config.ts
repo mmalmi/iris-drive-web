@@ -104,7 +104,7 @@ export default defineConfig({
       timeout: 5000,
     },
     {
-      command: `pnpm run build:deps && pnpm exec vite --port ${appPort} --strictPort`,
+      command: `pnpm run build:deps && pnpm exec vite --force --port ${appPort} --strictPort`,
       url: appBaseUrl,
       // Avoid silently reusing a non-test Vite instance (e.g. maps dev server).
       // Fresh app server startup is slower but deterministic for E2E.

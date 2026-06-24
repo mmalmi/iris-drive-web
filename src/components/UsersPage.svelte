@@ -17,9 +17,10 @@
   import { createDriveProfile, recoverDriveProfileWithAppKey, restoreSession, waitForNostrExtension } from '../nostr';
   import { driveRootPath } from '../drive/setup';
   import { Avatar, Name } from './User';
+  import IdentityName from './User/IdentityName.svelte';
   import { BackButton } from './ui';
 
-  type UsersMode = 'list' | 'existing';
+  type UsersMode = 'list' | 'existing' | 'no_existing';
 
   interface Props {
     mode?: UsersMode;
@@ -33,6 +34,10 @@
   let creatingProfile = $state(false);
   let confirmingRemove = $state<string | null>(null); // pubkey of account being removed
   let isExistingMode = $derived(mode === 'existing');
+  let isNoExistingMode = $derived(mode === 'no_existing');
+  let isSecondaryMode = $derived(isExistingMode || isNoExistingMode);
+  let headerTitle = $derived(isNoExistingMode ? 'Create new' : isExistingMode ? 'Sign in' : 'Users');
+  let backHref = $derived(isNoExistingMode ? '/users/existing' : '/users');
 
   // Store values
   let accountsState = $derived($accountsStore);
@@ -84,10 +89,6 @@
     confirmingRemove = null;
   }
 
-  function shortProfileId(profileId: string): string {
-    return `${profileId.slice(0, 8)}...${profileId.slice(-4)}`;
-  }
-
   async function handleGenerateNew() {
     if (creatingProfile) return;
     creatingProfile = true;
@@ -113,30 +114,42 @@
       });
       navigate(driveRootPath(profile.npub));
     } catch (error) {
-      recoveryError = error instanceof Error ? error.message : 'Recovery failed';
+      const message = error instanceof Error ? error.message : 'Recovery failed';
+      if (isRecoveryIdentityMiss(message)) {
+        navigate('/users/no_existing');
+        return;
+      }
+      recoveryError = message;
     } finally {
       recoveryBusy = false;
     }
   }
 
+  function handleRecoveryMethodChange() {
+    recoveryError = '';
+  }
+
+  function isRecoveryIdentityMiss(message: string): boolean {
+    return message.includes('No Drive identity found') || message.includes('No identity roster events found');
+  }
 </script>
 
 <div class="flex-1 flex flex-col min-h-0 bg-surface-0 p-6 max-w-2xl mx-auto w-full">
   <!-- Header -->
   <div class="flex items-center gap-4 mb-6">
-    {#if isExistingMode}
+    {#if isSecondaryMode}
       <button
         type="button"
         class="btn-circle btn-ghost shrink-0"
         aria-label="Back to users"
         title="Back"
-        onclick={() => navigate('/users')}
+        onclick={() => navigate(backHref)}
         disabled={recoveryBusy || creatingProfile}
         data-testid="back-to-profile-actions"
       >
         <span class="i-lucide-arrow-left"></span>
       </button>
-      <h1 class="text-xl font-semibold">Sign in</h1>
+      <h1 class="text-xl font-semibold">{headerTitle}</h1>
     {:else}
       <BackButton href="/" />
       <h1 class="text-xl font-semibold">Users</h1>
@@ -151,7 +164,23 @@
         error={recoveryError}
         submitLabel="Recover app key"
         nostrAvailable={hasExtension}
+        onMethodChange={handleRecoveryMethodChange}
         onSubmit={handleRecovery}
+      />
+    </div>
+  {:else if isNoExistingMode}
+    <div class="identity-recovery-shell bg-surface-1 rounded-lg p-4 space-y-3" data-testid="identity-recovery-create-screen">
+      <IdentityRecoveryPanel
+        methodLayout="column"
+        disabled={recoveryBusy || creatingProfile}
+        showCreateNew={true}
+        createNewTitle="No existing Drive user found for that key"
+        createNewLabel="Create new"
+        createNewBusy={creatingProfile}
+        createNewDisabled={recoveryBusy || creatingProfile}
+        createNewTestId="create-new-after-recovery-miss"
+        onCreateNew={handleGenerateNew}
+        onCreateNewBack={() => navigate('/users/existing')}
       />
     </div>
   {:else}
@@ -181,7 +210,7 @@
           <div class="flex-1 min-w-0">
             <div class="font-medium truncate">
               {#if account.irisProfileId}
-                <span>{shortProfileId(account.irisProfileId)}</span>
+                <IdentityName profileId={account.irisProfileId} appKeyPubkey={account.pubkey} />
               {:else}
                 <Name pubkey={account.pubkey} />
               {/if}

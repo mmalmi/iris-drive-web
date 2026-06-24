@@ -45,6 +45,7 @@ export {
   recoverDriveProfileWithAppKey,
   removeDriveProfileAppKeyWithRecovery,
   getCurrentIrisIdentitySession,
+  getStoredIrisIdentitySessionForAccount,
   waitForNostrExtension,
   initReadonlyBackend,
   initReadonlyWorker,
