@@ -1,4 +1,5 @@
 export * from './protocolTypes';
+export * from './deviceLink';
 export * from './protocolJson';
 export * from './protocolRoots';
 export * from './protocolDtags';

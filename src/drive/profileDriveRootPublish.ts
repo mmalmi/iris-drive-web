@@ -1,6 +1,6 @@
 import { toHex, type CID } from '@hashtree/core';
 import { getPublicKey } from 'nostr-tools';
-import type { IrisIdentitySession } from '@iris/identity';
+import type { IrisIdentitySession } from './deviceLink';
 import { NDKEvent, getCurrentIrisIdentitySession, getSecretKey, ndk } from '../nostr';
 import { publishEventWithFallback } from '../lib/nostrPublish';
 import {

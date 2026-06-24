@@ -2,20 +2,23 @@ import { getPublicKey, generateSecretKey, nip19 } from 'nostr-tools';
 import { expect, test, type Page } from './fixtures';
 import { clearAllStorage, setupPageErrorHandler, waitForAppReady } from './test-utils';
 
+const profileId = '019ed693-4110-7352-8cc3-be90158ba91e';
+
 function keypair(): { nsec: string; npub: string } {
   const secret = generateSecretKey();
+  const pubkey = getPublicKey(secret);
   return {
     nsec: nip19.nsecEncode(secret),
-    npub: nip19.npubEncode(getPublicKey(secret)),
+    npub: nip19.npubEncode(pubkey),
   };
 }
 
-function inviteLink(ownerNpub: string, adminDeviceNpub: string): string {
+function inviteLink(adminAppKeyNpub: string): string {
   const payload = Buffer
     .from(JSON.stringify({
       v: 1,
-      ownerNpub,
-      adminDeviceNpub,
+      profileId,
+      adminAppKeyNpub,
       linkSecret: 'drive-setup-e2e-secret',
     }))
     .toString('base64url');
@@ -89,15 +92,32 @@ test.describe('Drive setup', () => {
     await expectDriveRoute(page, owner.npub);
   });
 
-  test('auto-opens the owner drive when an invite link is entered', async ({ page }) => {
-    const owner = keypair();
+  test('creates a pending linked-device session when an invite link is entered', async ({ page }) => {
     const admin = keypair();
     await openFreshSetup(page);
 
     await page.getByRole('button', { name: 'Sign in' }).click();
     await page.getByRole('button', { name: 'Link this app' }).click();
 
-    await page.getByLabel('Owner public key or invite link').fill(inviteLink(owner.npub, admin.npub));
-    await expectDriveRoute(page, owner.npub);
+    await page.getByLabel('Owner public key or invite link').fill(inviteLink(admin.npub));
+    const linkedNpubHandle = await page.waitForFunction((expectedProfileId: string) => {
+      const store = (window as unknown as {
+        __nostrStore?: { getState?: () => { npub?: string } };
+      }).__nostrStore;
+      const stored = JSON.parse(localStorage.getItem('iris:identity:session') ?? 'null');
+      if (
+        stored?.status === 'pending_device_link'
+        && stored?.profileId === expectedProfileId
+        && stored?.pendingDeviceLink?.adminAppKeyPubkey
+        && store?.getState?.().npub
+      ) {
+        return store.getState().npub;
+      }
+      return null;
+    }, profileId);
+    const linkedNpub = await linkedNpubHandle.jsonValue() as string;
+
+    expect(linkedNpub).not.toBe(admin.npub);
+    await expectDriveRoute(page, linkedNpub);
   });
 });

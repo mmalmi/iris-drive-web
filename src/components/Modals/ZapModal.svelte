@@ -24,7 +24,7 @@
   import { ndk, nostrStore } from '../../nostr';
   import { createProfileStore } from '../../stores/profile';
   import { NDKEvent } from 'ndk';
-  import CopyText from '../CopyText.svelte';
+  import CopyText from '@iris/svelte-ui/CopyText.svelte';
   import { getBtcUsdRate, usdToSats } from '../../utils/btcRate';
   import { walletStore, payInvoice } from '../../stores/wallet';
 

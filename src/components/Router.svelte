@@ -15,6 +15,7 @@
   import EditProfilePage from './EditProfilePage.svelte';
 
   // Route handlers
+  import DeviceInviteRoute from '../routes/DeviceInviteRoute.svelte';
   import HomeRoute from '../routes/HomeRoute.svelte';
   import ShareDialogRoute from '../routes/ShareDialogRoute.svelte';
   import ShareInviteRoute from '../routes/ShareInviteRoute.svelte';
@@ -25,6 +26,7 @@
   // Note: More specific routes must come before less specific ones
   const routePatterns = [
     { pattern: '/', component: HomeRoute },
+    { pattern: '/invite/:payload', component: DeviceInviteRoute },
     { pattern: '/share', component: ShareDialogRoute },
     { pattern: '/share-invite/:payload', component: ShareInviteRoute },
     { pattern: '/settings', component: SettingsLayout },
@@ -66,6 +68,8 @@
 <div class="flex-1 flex flex-col lg:flex-row min-h-0">
   {#if route.component === HomeRoute}
     <HomeRoute />
+  {:else if route.component === DeviceInviteRoute}
+    <DeviceInviteRoute payload={route.params.payload || ''} />
   {:else if route.component === ShareDialogRoute}
     <ShareDialogRoute />
   {:else if route.component === ShareInviteRoute}

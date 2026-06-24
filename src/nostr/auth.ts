@@ -15,10 +15,21 @@ import {
 import { stopWebRTC } from '../store';
 import { needsMigrations, runMigrations } from '../migrations';
 import { initWallet, disposeWallet } from '../stores/wallet';
+import {
+  createPendingDeviceLinkSession,
+  parseDeviceLinkInvite,
+  projectIrisProfileRoster,
+  signIrisProfileRosterOp,
+  type IrisIdentitySession,
+  type IrisProfileCapabilities,
+  type IrisProfileId,
+  type StoredIrisIdentitySession,
+} from '../drive/protocol';
 
 // Storage keys
 const STORAGE_KEY_NSEC = 'hashtree:nsec';
 const STORAGE_KEY_LOGIN_TYPE = 'hashtree:loginType';
+const STORAGE_KEY_IRIS_IDENTITY = 'iris:identity:session';
 const DRIVE_ROOT_NAME = 'main';
 
 // Private key (only set for nsec login)
@@ -47,6 +58,16 @@ const DRIVE_DEFAULT_TREES: readonly DefaultTree[] = [
   { name: DRIVE_ROOT_NAME, visibility: 'private' },
 ];
 
+let currentIrisIdentitySession: IrisIdentitySession | null = null;
+
+const DRIVE_APP_KEY_ADMIN_CAPABILITIES: IrisProfileCapabilities = {
+  can_write_roots: true,
+  can_admin_profile: true,
+  can_recover_app_keys: true,
+  can_receive_key_wraps: true,
+  can_decrypt_key_epochs: true,
+};
+
 /**
  * Get the secret key for decryption (only available for nsec login)
  */
@@ -60,6 +81,10 @@ export function getSecretKey(): Uint8Array | null {
 export function getNsec(): string | null {
   if (!secretKey) return null;
   return nip19.nsecEncode(secretKey);
+}
+
+export function getCurrentIrisIdentitySession(): IrisIdentitySession | null {
+  return currentIrisIdentitySession;
 }
 
 /**
@@ -134,6 +159,7 @@ export async function restoreSession(options: RestoreSessionOptions = {}): Promi
 
   initAccountsStore();
   logT('initAccountsStore');
+  restoreStoredIrisIdentitySession();
 
   // Migrate legacy single account to multi-account storage if needed
   const legacyLoginType = localStorage.getItem(STORAGE_KEY_LOGIN_TYPE);
@@ -366,7 +392,28 @@ export async function generateNewKey(): Promise<{ nsec: string; npub: string }> 
 }
 
 export async function createDriveProfile(): Promise<{ nsec: string; npub: string }> {
-  return applySecretKey(generateSecretKey(), DRIVE_DEFAULT_TREES);
+  const appKeySecretKey = generateSecretKey();
+  const session = createDriveIdentitySession({
+    appKeySecretKey,
+    label: 'This device',
+  });
+  saveIrisIdentitySession(session);
+  return applySecretKey(appKeySecretKey, DRIVE_DEFAULT_TREES);
+}
+
+export async function linkDriveDevice(inviteInput: string): Promise<{ nsec: string; npub: string; session: IrisIdentitySession } | null> {
+  const invite = parseDeviceLinkInvite(inviteInput);
+  if (!invite) return null;
+  const session = createPendingDeviceLinkSession({
+    invite,
+    label: 'This device',
+  });
+  const decoded = nip19.decode(session.appKeyNsec);
+  if (decoded.type !== 'nsec') return null;
+  const appKeySecretKey = decoded.data as Uint8Array;
+  saveIrisIdentitySession(session);
+  const login = await applySecretKey(appKeySecretKey, []);
+  return { ...login, session };
 }
 
 /**
@@ -473,6 +520,140 @@ export function logout() {
 
   localStorage.removeItem(STORAGE_KEY_LOGIN_TYPE);
   localStorage.removeItem(STORAGE_KEY_NSEC);
+  currentIrisIdentitySession = null;
+}
+
+function saveIrisIdentitySession(session: IrisIdentitySession): void {
+  currentIrisIdentitySession = session;
+  localStorage.setItem(STORAGE_KEY_IRIS_IDENTITY, JSON.stringify(serializeDriveIdentitySession(session)));
+}
+
+function restoreStoredIrisIdentitySession(): IrisIdentitySession | null {
+  const raw = localStorage.getItem(STORAGE_KEY_IRIS_IDENTITY);
+  if (!raw) {
+    currentIrisIdentitySession = null;
+    return null;
+  }
+  try {
+    currentIrisIdentitySession = restoreDriveIdentitySession(JSON.parse(raw) as StoredIrisIdentitySession);
+    return currentIrisIdentitySession;
+  } catch (error) {
+    console.warn('[auth] Ignoring invalid Iris identity session:', error);
+    localStorage.removeItem(STORAGE_KEY_IRIS_IDENTITY);
+    currentIrisIdentitySession = null;
+    return null;
+  }
+}
+
+function createDriveIdentitySession(options: {
+  profileId?: IrisProfileId;
+  appKeySecretKey: Uint8Array;
+  createdAt?: number;
+  clientNonce?: string;
+  label?: string;
+}): IrisIdentitySession {
+  const appKeyPubkey = getPublicKey(options.appKeySecretKey);
+  const profileId = options.profileId ?? randomProfileId();
+  const createdAt = options.createdAt ?? currentUnixSeconds();
+  const label = options.label ?? 'This device';
+  const bootstrap = signIrisProfileRosterOp({
+    signerSecretKey: options.appKeySecretKey,
+    profileId,
+    createdAt,
+    clientNonce: options.clientNonce ?? randomClientNonce(),
+    op: {
+      op: 'add_facet',
+      facet: {
+        pubkey: appKeyPubkey,
+        purposes: ['app_key'],
+        capabilities: DRIVE_APP_KEY_ADMIN_CAPABILITIES,
+        added_at: createdAt,
+        label,
+      },
+    },
+  });
+
+  return {
+    profileId,
+    appKeyPubkey,
+    appKeyNpub: nip19.npubEncode(appKeyPubkey),
+    appKeyNsec: nip19.nsecEncode(options.appKeySecretKey),
+    status: 'active',
+    rosterOps: [bootstrap],
+    createdAt,
+    label,
+  };
+}
+
+function serializeDriveIdentitySession(session: IrisIdentitySession): StoredIrisIdentitySession {
+  return {
+    schema: 1,
+    profileId: session.profileId,
+    appKeyNsec: session.appKeyNsec,
+    status: session.status,
+    rosterOps: session.rosterOps,
+    createdAt: session.createdAt,
+    ...(session.label ? { label: session.label } : {}),
+    ...(session.pendingDeviceLink ? { pendingDeviceLink: session.pendingDeviceLink } : {}),
+  };
+}
+
+function restoreDriveIdentitySession(stored: StoredIrisIdentitySession): IrisIdentitySession {
+  if (stored.schema !== 1) {
+    throw new Error(`unsupported Iris identity session schema ${stored.schema}`);
+  }
+  const decoded = nip19.decode(stored.appKeyNsec);
+  if (decoded.type !== 'nsec') {
+    throw new Error('stored Iris identity AppKey is not an nsec');
+  }
+  const appKeySecretKey = decoded.data as Uint8Array;
+  const appKeyPubkey = getPublicKey(appKeySecretKey);
+  const rosterOps = Array.isArray(stored.rosterOps) ? stored.rosterOps : [];
+
+  if (stored.status === 'active') {
+    const projection = projectIrisProfileRoster(stored.profileId, rosterOps);
+    if (!projection.active_facets[appKeyPubkey]) {
+      throw new Error('stored Iris identity AppKey is not active in its Drive roster');
+    }
+  } else if (stored.status !== 'pending_device_link') {
+    throw new Error(`unsupported Iris identity session status ${stored.status}`);
+  }
+
+  return {
+    profileId: stored.profileId,
+    appKeyPubkey,
+    appKeyNpub: nip19.npubEncode(appKeyPubkey),
+    appKeyNsec: stored.appKeyNsec,
+    status: stored.status,
+    rosterOps,
+    createdAt: Number.isFinite(stored.createdAt) ? stored.createdAt : currentUnixSeconds(),
+    ...(stored.label ? { label: stored.label } : {}),
+    ...(stored.pendingDeviceLink ? { pendingDeviceLink: stored.pendingDeviceLink } : {}),
+  };
+}
+
+function currentUnixSeconds(): number {
+  return Math.floor(Date.now() / 1000);
+}
+
+function randomClientNonce(): string {
+  return globalThis.crypto?.randomUUID?.() ?? `nonce-${Math.random().toString(36).slice(2)}`;
+}
+
+function randomProfileId(): IrisProfileId {
+  return globalThis.crypto?.randomUUID?.() ?? fallbackUuidV4();
+}
+
+function fallbackUuidV4(): string {
+  const bytes = new Uint8Array(16);
+  globalThis.crypto?.getRandomValues?.(bytes);
+  if (!bytes.some(Boolean)) {
+    for (let i = 0; i < bytes.length; i += 1) bytes[i] = Math.floor(Math.random() * 256);
+  }
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 // ============================================================================

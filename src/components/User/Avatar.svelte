@@ -1,6 +1,6 @@
 <script lang="ts">
+  import { coolName } from '@iris/svelte-ui/profile';
   import { createProfileStore, getProfileName } from '../../stores/profile';
-  import { animalName } from '../../utils/animalName';
   import Minidenticon from './Minidenticon.svelte';
   import Badge from './Badge.svelte';
   import ProxyImg from '../ProxyImg.svelte';
@@ -24,7 +24,7 @@
     imgError = false;
   });
 
-  let name = $derived(getProfileName(profile ?? undefined, pubkey) || (pubkey ? animalName(pubkey) : ''));
+  let name = $derived(getProfileName(profile ?? undefined, pubkey) || (pubkey ? coolName(pubkey) : ''));
 
   // Auto-select badge size based on avatar size
   function getBadgeSize(avatarSize: number): 'sm' | 'md' | 'lg' {

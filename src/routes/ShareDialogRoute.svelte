@@ -1,5 +1,5 @@
 <script lang="ts">
-  import CopyText from '../components/CopyText.svelte';
+  import CopyText from '@iris/svelte-ui/CopyText.svelte';
   import { currentFullHash } from '../lib/router.svelte';
   import {
     parseShareDialogPath,

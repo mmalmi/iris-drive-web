@@ -5,6 +5,7 @@ import {
 } from '@hashtree/core';
 import type { NDKEvent } from 'ndk';
 import {
+  HASHTREE_ROOT_KINDS,
   buildTreeEventSnapshotPermalink,
   compareTreeEventSnapshots as compareStoredTreeEventSnapshots,
   fetchLatestTreeEventSnapshot as fetchStoredLatestTreeEventSnapshot,
@@ -158,7 +159,7 @@ export async function readTreeEventSnapshot(snapshotCid: CID): Promise<TreeEvent
 
 async function fetchTreeEvents(pubkey: string, treeName: string): Promise<StoredNostrEvent[]> {
   const ndkEvents = await ndk.fetchEvents({
-    kinds: [30078],
+    kinds: [...HASHTREE_ROOT_KINDS],
     authors: [pubkey],
     '#d': [treeName],
     limit: SNAPSHOT_FETCH_LIMIT,
@@ -183,7 +184,7 @@ async function fetchTreeEvents(pubkey: string, treeName: string): Promise<Stored
   const pool = new SimplePool();
   try {
     const rawEvents = await pool.querySync(relayUrls, {
-      kinds: [30078],
+      kinds: [...HASHTREE_ROOT_KINDS],
       authors: [pubkey],
       '#d': [treeName],
       limit: SNAPSHOT_FETCH_LIMIT,

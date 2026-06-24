@@ -1,17 +1,22 @@
 <script lang="ts">
   import Logo from './Logo.svelte';
-  import { createDriveProfile, loginWithNsec, nostrStore } from '../nostr';
+  import { createDriveProfile, linkDriveDevice, loginWithNsec, nostrStore } from '../nostr';
   import { driveRootPath, isCompleteDeviceLinkOwnerInput, normalizeOwnerNpub } from '../drive/setup';
   import { navigate } from '../utils/navigate';
 
   type SetupMode = 'welcome' | 'create' | 'restore' | 'link';
+  interface Props {
+    initialOwnerInput?: string;
+  }
 
+  let { initialOwnerInput = '' }: Props = $props();
   let mode = $state<SetupMode>('welcome');
   let busy = $state(false);
   let nsecInput = $state('');
   let ownerInput = $state('');
   let submittedOwnerInput = $state('');
   let error = $state('');
+  let appliedInitialOwnerInput = $state('');
 
   let title = $derived(
     mode === 'create'
@@ -30,6 +35,16 @@
     mode = 'welcome';
     error = '';
   }
+
+  $effect(() => {
+    const value = initialOwnerInput.trim();
+    if (!value || value === appliedInitialOwnerInput) return;
+    appliedInitialOwnerInput = value;
+    mode = 'link';
+    ownerInput = value;
+    submittedOwnerInput = '';
+    error = '';
+  });
 
   $effect(() => {
     if (mode !== 'link' || busy) return;
@@ -80,10 +95,22 @@
     });
   }
 
-  function submitOwnerInput(value: string, force: boolean) {
+  async function submitOwnerInput(value: string, force: boolean) {
     const trimmed = value.trim();
     if (!trimmed) {
       if (force) error = 'Enter owner public key or invite link';
+      return;
+    }
+
+    if (trimmed.replace(/^nostr:/i, '').toLowerCase().startsWith('https://drive.iris.to/invite/')) {
+      submittedOwnerInput = trimmed;
+      const linked = await linkDriveDevice(trimmed);
+      if (!linked) {
+        error = 'Invalid owner public key or invite link';
+        return;
+      }
+      ownerInput = '';
+      navigate(driveRootPath(linked.npub));
       return;
     }
 

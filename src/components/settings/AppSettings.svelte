@@ -1,4 +1,5 @@
 <script lang="ts">
+  import CopyButton from '@iris/svelte-ui/CopyButton.svelte';
   import { shouldOpenSourceCodeLinkInNewTab } from '../../appType';
   import { getCanonicalGitRepositoryUrl } from '../../lib/shareUrls';
   import { getNsec } from '../../nostr';
@@ -9,21 +10,7 @@
   const hashtreeDevUrl = 'https://hashtree.cc/#/dev';
   const sourceCodeUrl = getCanonicalGitRepositoryUrl('hashtree');
 
-  // Secret key
   let nsec = $derived(getNsec());
-  let copiedNsec = $state(false);
-
-  async function copySecretKey() {
-    const key = getNsec();
-    if (!key) return;
-    try {
-      await navigator.clipboard.writeText(key);
-      copiedNsec = true;
-      setTimeout(() => (copiedNsec = false), 2000);
-    } catch (e) {
-      console.error('Failed to copy:', e);
-    }
-  }
 </script>
 
 <div class="space-y-6">
@@ -34,19 +21,15 @@
         Account
       </h3>
       <div class="bg-surface-2 rounded p-3">
-        <button
-          onclick={copySecretKey}
+        <CopyButton
+          text={nsec}
+          label="Copy secret key"
+          copiedLabel="Copied"
           class="btn-ghost flex items-center gap-2 text-sm w-full justify-start"
-          data-testid="copy-secret-key"
-        >
-          {#if copiedNsec}
-            <span class="i-lucide-check text-success"></span>
-            <span>Copied!</span>
-          {:else}
-            <span class="i-lucide-key"></span>
-            <span>Copy secret key</span>
-          {/if}
-        </button>
+          iconClass="i-lucide-key"
+          copiedIconClass="i-lucide-check text-success"
+          testId="copy-secret-key"
+        />
       </div>
     </div>
   {/if}

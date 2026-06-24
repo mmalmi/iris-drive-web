@@ -7,7 +7,7 @@
   import { searchUsers, indexUsers, type UserIndexEntry, type UserIndexEntryInput } from '../../stores/searchIndex';
   import { getProfileSync } from '../../stores/profile';
   import QRScanner from '../QRScanner.svelte';
-  import CopyText from '../CopyText.svelte';
+  import CopyText from '@iris/svelte-ui/CopyText.svelte';
   import Modal from '../ui/Modal.svelte';
   import { shortNpub } from '../../utils/format';
   import { extractNpubFromScan, titleCase, validateNpub } from './NpubAccessModal.utils';

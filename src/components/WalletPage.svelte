@@ -8,7 +8,7 @@
   import { nostrStore } from '../nostr';
   import { getSecretKey } from '../nostr/auth';
   import QRCode from 'qrcode';
-  import CopyText from './CopyText.svelte';
+  import CopyText from '@iris/svelte-ui/CopyText.svelte';
 
   type Tab = 'balance' | 'receive' | 'send' | 'mints';
 

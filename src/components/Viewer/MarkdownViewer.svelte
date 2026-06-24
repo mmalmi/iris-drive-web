@@ -1,10 +1,16 @@
 <script lang="ts">
   import { marked, type Tokens } from 'marked';
-  import { SvelteMap, SvelteURLSearchParams } from 'svelte/reactivity';
+  import { SvelteURLSearchParams } from 'svelte/reactivity';
   import { routeStore } from '../../stores';
   import { settingsStore } from '../../stores/settings';
   import { DEFAULT_IMGPROXY_CONFIG } from '../../utils/imgproxy';
   import { renderMarkdownHtml, type RenderMarkdownOptions } from '../../lib/markdown';
+  import {
+    clearMarkdownCopyButtonTimers,
+    handleMarkdownCopyButtonClick,
+    markdownCopyButtonHtml,
+    type MarkdownCopyTimerMap,
+  } from '@iris/svelte-ui/markdownCopy';
 
   interface Props {
     content: string;
@@ -33,7 +39,7 @@
   let contentEl: HTMLDivElement | undefined;
   let contentHeight = $state(0);
   let expanded = $state(false);
-  const copyResetTimers = new SvelteMap<HTMLButtonElement, ReturnType<typeof setTimeout>>();
+  const copyResetTimers: MarkdownCopyTimerMap = new Map();
 
   function slugify(text: string): string {
     return text
@@ -68,57 +74,15 @@
     const languageLabel = language ? escapeHtml(language) : 'Code';
     const languageClass = language ? '' : ' is-plain';
     const renderedCode = defaultCodeRenderer(token).trimEnd();
-    return `<div class="markdown-code-block"><div class="markdown-code-toolbar"><span class="markdown-code-language${languageClass}">${languageLabel}</span><button type="button" class="markdown-copy-button" aria-label="Copy code" title="Copy code"><span class="markdown-copy-button-label">Copy</span></button></div>${renderedCode}</div>\n`;
+    return `<div class="markdown-code-block"><div class="markdown-code-toolbar"><span class="markdown-code-language${languageClass}">${languageLabel}</span>${markdownCopyButtonHtml()}</div>${renderedCode}</div>\n`;
   };
-
-  function setCopyButtonLabel(button: HTMLButtonElement, label: string) {
-    const labelEl = button.querySelector('.markdown-copy-button-label');
-    if (labelEl) {
-      labelEl.textContent = label;
-    }
-  }
-
-  function resetCopyButton(button: HTMLButtonElement) {
-    const timer = copyResetTimers.get(button);
-    if (timer) {
-      clearTimeout(timer);
-      copyResetTimers.delete(button);
-    }
-    button.classList.remove('is-copied');
-    setCopyButtonLabel(button, 'Copy');
-  }
-
-  function markCopyButtonCopied(button: HTMLButtonElement) {
-    resetCopyButton(button);
-    button.classList.add('is-copied');
-    setCopyButtonLabel(button, 'Copied');
-    const timer = setTimeout(() => {
-      button.classList.remove('is-copied');
-      setCopyButtonLabel(button, 'Copy');
-      copyResetTimers.delete(button);
-    }, 2000);
-    copyResetTimers.set(button, timer);
-  }
-
-  async function handleCopyButtonClick(button: HTMLButtonElement) {
-    const code = button.closest('.markdown-code-block')?.querySelector('code');
-    const copyText = code?.textContent?.replace(/\n$/, '');
-    if (!copyText || !navigator.clipboard?.writeText) return;
-
-    try {
-      await navigator.clipboard.writeText(copyText);
-      markCopyButtonCopied(button);
-    } catch (error) {
-      console.error('Failed to copy markdown code block:', error);
-    }
-  }
 
   function handleContainerClick(event: MouseEvent) {
     const target = event.target as HTMLElement;
     const copyButton = target.closest('.markdown-copy-button') as HTMLButtonElement | null;
     if (copyButton) {
       event.preventDefault();
-      void handleCopyButtonClick(copyButton);
+      void handleMarkdownCopyButtonClick(copyButton, copyResetTimers);
       return;
     }
 
@@ -242,10 +206,7 @@
   $effect(() => {
     htmlContent;
     return () => {
-      for (const timer of copyResetTimers.values()) {
-        clearTimeout(timer);
-      }
-      copyResetTimers.clear();
+      clearMarkdownCopyButtonTimers(copyResetTimers);
     };
   });
 </script>

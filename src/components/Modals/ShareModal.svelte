@@ -24,7 +24,7 @@
 
 <script lang="ts">
   import QRCode from 'qrcode';
-  import CopyText from '../CopyText.svelte';
+  import CopyText from '@iris/svelte-ui/CopyText.svelte';
 
   let selectedUrl = $derived(options.find((option) => option.id === selectedOptionId)?.url ?? null);
   let qrDataUrl = $state<string | null>(null);

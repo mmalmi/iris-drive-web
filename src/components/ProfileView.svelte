@@ -9,7 +9,7 @@
   import { createFollowsStore, followPubkey, unfollowPubkey } from '../stores/follows';
   import ShareButton from './ShareButton.svelte';
   import { Avatar, Name, Badge, FollowedBy } from './User';
-  import CopyText from './CopyText.svelte';
+  import CopyText from '@iris/svelte-ui/CopyText.svelte';
   import ProxyImg from './ProxyImg.svelte';
   import { getFollowsMe, getFollowers, fetchUserFollows, fetchUserFollowers, socialGraphStore } from '../utils/socialGraph';
 

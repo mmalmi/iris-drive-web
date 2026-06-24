@@ -7,7 +7,7 @@
 import { nip19 } from 'nostr-tools';
 import { NDKEvent, type NDKFilter, type NDKSubscriptionOptions, NDKSubscriptionCacheUsage } from 'ndk';
 import { fromHex, toHex, type RefResolver } from '@hashtree/core';
-import { createNostrRefResolver, type NostrFilter, type NostrEvent, type VisibilityCallbacks } from '@hashtree/nostr';
+import { HASHTREE_ROOT_KIND, createNostrRefResolver, type NostrFilter, type NostrEvent, type VisibilityCallbacks } from '@hashtree/nostr';
 import { ndk, useNostrStore, encrypt, decrypt, type NostrState } from './nostr';
 import { parseRoute } from './utils/route';
 import { cacheTreeEventSnapshot } from './lib/treeEventSnapshots';
@@ -86,7 +86,7 @@ export function getRefResolver(): RefResolver {
             onEvent({
               id: e.id,
               pubkey: e.pubkey,
-              kind: e.kind ?? 30078,
+              kind: e.kind ?? HASHTREE_ROOT_KIND,
               content: e.content,
               tags: e.tags,
               created_at: e.created_at ?? 0,

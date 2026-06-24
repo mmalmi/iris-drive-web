@@ -25,7 +25,9 @@ function getFullHash(): string {
 }
 
 function directPathIsRoutable(pathname: string): boolean {
-  return pathname === '/share' || pathname.startsWith('/share-invite/');
+  return pathname === '/share'
+    || pathname.startsWith('/invite/')
+    || pathname.startsWith('/share-invite/');
 }
 
 function safeDecodeURIComponent(value: string): string {

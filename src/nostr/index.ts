@@ -40,6 +40,8 @@ export {
   loginWithNsec,
   generateNewKey,
   createDriveProfile,
+  linkDriveDevice,
+  getCurrentIrisIdentitySession,
   waitForNostrExtension,
   initReadonlyBackend,
   initReadonlyWorker,
