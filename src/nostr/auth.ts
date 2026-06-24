@@ -8,7 +8,10 @@ import {
   createIrisIdentitySignerFromNip46,
   createIrisIdentitySignerFromNsec,
   createIrisIdentitySignerFromSeedPhrase,
+  normalizeHexPubkey,
+  removeIrisAppKeyFromProfile,
   type IrisIdentityEventSigner,
+  type RemoveIrisAppKeyResult,
 } from '@iris/identity';
 import type { NDKFilter } from 'ndk';
 import { ndk, NDKNip46Signer, NDKPrivateKeySigner, NDKNip07Signer, NDKEvent } from './ndk';
@@ -26,6 +29,7 @@ import { needsMigrations, runMigrations } from '../migrations';
 import { initWallet, disposeWallet } from '../stores/wallet';
 import {
   createPendingDeviceLinkSession,
+  createIrisProfileDckRotateAfterRemovalOp,
   createIrisProfileDckRewrapOp,
   KIND_IRIS_PROFILE_ROSTER_OP,
   parseDeviceLinkInvite,
@@ -72,6 +76,20 @@ export interface DriveRecoveryAppKeyOptions {
   recovery: DriveRecoveryRequest;
   label?: string;
   rosterFetchTimeoutMs?: number;
+}
+
+export interface DriveRecoveryRemoveAppKeyOptions {
+  profileId: IrisProfileId;
+  recovery: DriveRecoveryRequest;
+  appKeyPubkey: string;
+  reason?: string;
+  rosterFetchTimeoutMs?: number;
+}
+
+export interface DriveRecoveryRemoveAppKeyResult {
+  removal: RemoveIrisAppKeyResult;
+  dckRotationOp: SignedIrisProfileRosterOp | null;
+  session: IrisIdentitySession | null;
 }
 
 type DefaultTree = {
@@ -494,6 +512,61 @@ export async function recoverDriveProfileWithAppKey(
   };
 }
 
+export async function removeDriveProfileAppKeyWithRecovery(
+  options: DriveRecoveryRemoveAppKeyOptions,
+): Promise<DriveRecoveryRemoveAppKeyResult> {
+  const profileId = normalizeProfileId(options.profileId);
+  const signer = await createRecoverySigner(options.recovery);
+  const rosterOps = await fetchIrisProfileRosterOps(profileId, options.rosterFetchTimeoutMs);
+  if (rosterOps.length === 0) {
+    throw new Error('No identity roster events found for that profile');
+  }
+
+  let dckRotationOp: SignedIrisProfileRosterOp | null = null;
+  const removal = await removeIrisAppKeyFromProfile({
+    profileId,
+    signer,
+    rosterOps,
+    appKeyPubkey: options.appKeyPubkey,
+    reason: options.reason,
+    clientNonce: randomClientNonce(),
+    rewrapSecrets: async (context) => {
+      dckRotationOp = await createIrisProfileDckRotateAfterRemovalOp({
+        profileId,
+        signer,
+        rosterOps,
+        parentRosterOp: context.rosterOp,
+      });
+      if (!dckRotationOp) {
+        return [{
+          secretId: 'drive-dck',
+          status: 'skipped',
+          detail: 'no existing Drive key epoch',
+        }];
+      }
+      return [{
+        secretId: 'drive-dck',
+        status: 'rotated',
+        epoch: dckRotationOp.content.op.op === 'rotate_key_epoch'
+          ? dckRotationOp.content.op.epoch
+          : undefined,
+      }];
+    },
+  });
+
+  await publishSignedIdentityEventJson(removal.rosterOp.event_json);
+  if (dckRotationOp) {
+    await publishSignedIdentityEventJson(dckRotationOp.event_json);
+  }
+
+  const session = appendCurrentIrisIdentitySessionRosterOps(
+    profileId,
+    [removal.rosterOp, ...(dckRotationOp ? [dckRotationOp] : [])],
+    removal.appKeyPubkey,
+  );
+  return { removal, dckRotationOp, session };
+}
+
 /**
  * Create default folders for a new user
  */
@@ -604,6 +677,35 @@ export function logout() {
 function saveIrisIdentitySession(session: IrisIdentitySession): void {
   currentIrisIdentitySession = session;
   localStorage.setItem(STORAGE_KEY_IRIS_IDENTITY, JSON.stringify(serializeDriveIdentitySession(session)));
+}
+
+function appendCurrentIrisIdentitySessionRosterOps(
+  profileId: IrisProfileId,
+  rosterOps: SignedIrisProfileRosterOp[],
+  removedAppKeyPubkey?: string,
+): IrisIdentitySession | null {
+  if (!currentIrisIdentitySession || currentIrisIdentitySession.profileId !== profileId) {
+    return currentIrisIdentitySession;
+  }
+
+  const removed = removedAppKeyPubkey ? normalizeHexPubkey(removedAppKeyPubkey) : null;
+  if (removed && currentIrisIdentitySession.appKeyPubkey === removed) {
+    currentIrisIdentitySession = null;
+    localStorage.removeItem(STORAGE_KEY_IRIS_IDENTITY);
+    return null;
+  }
+
+  const known = new Set(currentIrisIdentitySession.rosterOps.map((op) => op.op_id));
+  const newOps = rosterOps.filter((op) => !known.has(op.op_id));
+  if (newOps.length === 0) {
+    return currentIrisIdentitySession;
+  }
+  const session: IrisIdentitySession = {
+    ...currentIrisIdentitySession,
+    rosterOps: [...currentIrisIdentitySession.rosterOps, ...newOps],
+  };
+  saveIrisIdentitySession(session);
+  return session;
 }
 
 function restoreStoredIrisIdentitySession(): IrisIdentitySession | null {

@@ -43,6 +43,7 @@ export {
   createDriveProfile,
   linkDriveDevice,
   recoverDriveProfileWithAppKey,
+  removeDriveProfileAppKeyWithRecovery,
   getCurrentIrisIdentitySession,
   waitForNostrExtension,
   initReadonlyBackend,
@@ -54,6 +55,8 @@ export {
   decrypt,
   type DriveRecoveryAppKeyOptions,
   type DriveRecoveryMethod,
+  type DriveRecoveryRemoveAppKeyOptions,
+  type DriveRecoveryRemoveAppKeyResult,
   type DriveRecoveryRequest,
 } from './auth';
 
