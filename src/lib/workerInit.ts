@@ -22,7 +22,7 @@ import { refreshWebRTCStats, setBlossomBandwidth } from '../store';
 import { get } from 'svelte/store';
 import { createFollowsStore, getFollowsSync } from '../stores/follows';
 import { setupVersionCallback } from '../utils/socialGraph';
-import { ndk } from '../nostr/ndk';
+import { configureNdkRelays, ndk } from '../nostr/ndk';
 import { initRelayTracking } from '../nostr/relays';
 import { getAppType } from '../appType';
 import { logHtreeDebug } from './htreeDebug';
@@ -169,6 +169,9 @@ function syncRelays(): void {
 
   console.log('[WorkerInit] Syncing relays to worker:', relays.length, 'relays');
   (adapter as { setRelays: (relays: string[]) => void }).setRelays(relays);
+  void configureNdkRelays(relays, isTestMode ? 5000 : 3000).catch((error) => {
+    console.warn('[WorkerInit] Failed to sync relays to main NDK:', error);
+  });
 }
 
 let lastStorageMaxBytesHash = '';
