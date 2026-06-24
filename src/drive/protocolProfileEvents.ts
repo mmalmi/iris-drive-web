@@ -104,7 +104,7 @@ export function parseIrisProfileRosterOpEvent(event: Event): SignedIrisProfileRo
   const { profileId, nonce } = parseIrisProfileRosterOpDTag(dTag);
   requireValidSignature(event);
   const content = parseObject(event.content) as unknown as IrisProfileRosterOpContent;
-  if (content.schema !== 1) {
+  if (content.schema !== IRIS_PROFILE_ROSTER_SCHEMA) {
     throw new Error(`unsupported IrisProfile roster schema ${content.schema}`);
   }
   if (content.profile_id !== profileId) {
