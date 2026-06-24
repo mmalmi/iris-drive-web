@@ -1,7 +1,7 @@
 /**
  * Nostr Authentication and Encryption
  */
-import { generateSecretKey, getPublicKey, nip19, nip44, type Event as NostrToolsEvent } from 'nostr-tools';
+import { generateSecretKey, getPublicKey, nip19, nip44, verifyEvent, type Event as NostrToolsEvent } from 'nostr-tools';
 import {
   createAttachedIrisIdentitySession,
   createIrisIdentitySignerFromNip07,
@@ -31,8 +31,10 @@ import {
   createPendingDeviceLinkSession,
   createIrisProfileDckRotateAfterRemovalOp,
   createIrisProfileDckRewrapOp,
+  KIND_IRIS_PROFILE_FACET_ACCEPTANCE,
   KIND_IRIS_PROFILE_ROSTER_OP,
   parseDeviceLinkInvite,
+  parseIrisProfileFacetAcceptanceEvent,
   parseIrisProfileRosterOpEvent,
   projectIrisProfileRoster,
   signIrisProfileRosterOp,
@@ -73,7 +75,7 @@ export interface DriveRecoveryRequest {
 }
 
 export interface DriveRecoveryAppKeyOptions {
-  profileId: IrisProfileId;
+  profileId?: IrisProfileId;
   recovery: DriveRecoveryRequest;
   label?: string;
   rosterFetchTimeoutMs?: number;
@@ -485,11 +487,16 @@ export async function linkDriveDevice(inviteInput: string): Promise<{ nsec: stri
 export async function recoverDriveProfileWithAppKey(
   options: DriveRecoveryAppKeyOptions,
 ): Promise<{ nsec: string; npub: string; session: IrisIdentitySession }> {
-  const profileId = normalizeProfileId(options.profileId);
   const signer = await createRecoverySigner(options.recovery);
-  const rosterOps = await fetchIrisProfileRosterOps(profileId, options.rosterFetchTimeoutMs);
+  const explicitProfileId = options.profileId ? normalizeProfileId(options.profileId) : null;
+  const { profileId, rosterOps } = explicitProfileId
+    ? {
+        profileId: explicitProfileId,
+        rosterOps: await fetchIrisProfileRosterOps(explicitProfileId, options.rosterFetchTimeoutMs),
+      }
+    : await discoverRecoverableIrisProfileRoster(signer, options.rosterFetchTimeoutMs);
   if (rosterOps.length === 0) {
-    throw new Error('No identity roster events found for that profile');
+    throw new Error('No identity roster events found for that recovery key');
   }
 
   const { attachment, session } = await createAttachedIrisIdentitySession({
@@ -974,7 +981,12 @@ async function fetchIrisProfileRosterOps(
 
     sub.on('event', (event) => {
       try {
-        const signed = parseIrisProfileRosterOpEvent(event.rawEvent() as NostrToolsEvent);
+        const raw = event.rawEvent() as NostrToolsEvent;
+        if (!verifyEvent(raw)) {
+          console.warn('[auth] Ignoring Iris identity roster event with invalid signature');
+          return;
+        }
+        const signed = parseIrisProfileRosterOpEvent(raw);
         if (signed.content.profile_id === profileId) {
           byId.set(signed.op_id, signed);
         }
@@ -987,6 +999,96 @@ async function fetchIrisProfileRosterOps(
 
   return Array.from(byId.values())
     .sort((left, right) => left.content.created_at - right.content.created_at || left.op_id.localeCompare(right.op_id));
+}
+
+async function discoverRecoverableIrisProfileRoster(
+  signer: IrisIdentityEventSigner,
+  timeoutMs = 5000,
+): Promise<{ profileId: IrisProfileId; rosterOps: SignedIrisProfileRosterOp[] }> {
+  const signerPubkey = normalizeHexPubkey(await signer.getPublicKey());
+  if (!signerPubkey) throw new Error('Recovery signer pubkey is invalid');
+
+  const candidateProfileIds = await fetchIrisProfileIdsSelfReferencedByPubkey(signerPubkey, timeoutMs);
+  const recoverable: Array<{ profileId: IrisProfileId; rosterOps: SignedIrisProfileRosterOp[] }> = [];
+
+  for (const profileId of candidateProfileIds) {
+    const rosterOps = await fetchIrisProfileRosterOps(profileId, timeoutMs);
+    const projection = projectIrisProfileRoster(profileId, rosterOps);
+    const capabilities = projection.active_facets[signerPubkey]?.capabilities;
+    if (capabilities?.can_admin_profile || capabilities?.can_recover_app_keys) {
+      recoverable.push({ profileId, rosterOps });
+    }
+  }
+
+  if (recoverable.length === 0) {
+    throw new Error('No Drive identity found for that recovery key');
+  }
+
+  return recoverable.sort((left, right) => latestRosterTimestamp(right.rosterOps) - latestRosterTimestamp(left.rosterOps))[0];
+}
+
+async function fetchIrisProfileIdsSelfReferencedByPubkey(
+  pubkey: string,
+  timeoutMs = 5000,
+): Promise<IrisProfileId[]> {
+  await waitForWorkerAdapter(2000).catch(() => null);
+  const profileIds = new Set<IrisProfileId>();
+
+  await new Promise<void>((resolve) => {
+    let resolved = false;
+    const finish = () => {
+      if (resolved) return;
+      resolved = true;
+      clearTimeout(timer);
+      sub.stop();
+      resolve();
+    };
+    const filter: NDKFilter<number> = {
+      authors: [pubkey],
+      kinds: [KIND_IRIS_PROFILE_ROSTER_OP, KIND_IRIS_PROFILE_FACET_ACCEPTANCE],
+      '#p': [pubkey],
+      limit: 500,
+    };
+    const sub = ndk.subscribe(filter, { closeOnEose: true });
+    const timer = setTimeout(finish, timeoutMs);
+
+    sub.on('event', (event) => {
+      const raw = event.rawEvent() as NostrToolsEvent;
+      if (!verifyEvent(raw)) {
+        console.warn('[auth] Ignoring Iris identity self-reference event with invalid signature');
+        return;
+      }
+      const profileId = selfReferencedIrisProfileId(raw, pubkey);
+      if (profileId) {
+        profileIds.add(profileId);
+      }
+    });
+    sub.on('eose', finish);
+  });
+
+  return Array.from(profileIds).sort();
+}
+
+function selfReferencedIrisProfileId(event: NostrToolsEvent, pubkey: string): IrisProfileId | null {
+  if (normalizeHexPubkey(event.pubkey) !== pubkey) return null;
+  const tagsSelf = event.tags.some((tag) => tag[0] === 'p' && normalizeHexPubkey(tag[1] ?? '') === pubkey);
+  if (!tagsSelf) return null;
+
+  try {
+    return parseIrisProfileRosterOpEvent(event).content.profile_id;
+  } catch {
+    // This may be a key-acceptance fact event; try that next.
+  }
+
+  try {
+    return parseIrisProfileFacetAcceptanceEvent(event).content.profile_id;
+  } catch {
+    return null;
+  }
+}
+
+function latestRosterTimestamp(rosterOps: SignedIrisProfileRosterOp[]): number {
+  return rosterOps.reduce((latest, op) => Math.max(latest, op.content.created_at), 0);
 }
 
 async function publishSignedIdentityEventJson(eventJson: string): Promise<void> {

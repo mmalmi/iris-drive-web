@@ -19,13 +19,20 @@
   import { Avatar, Name } from './User';
   import { BackButton } from './ui';
 
+  type UsersMode = 'list' | 'existing';
+
+  interface Props {
+    mode?: UsersMode;
+  }
+
+  let { mode = 'list' }: Props = $props();
+
   // State
-  let recoveryProfileId = $state('');
   let recoveryError = $state('');
   let recoveryBusy = $state(false);
   let creatingProfile = $state(false);
-  let showingRecovery = $state(false);
   let confirmingRemove = $state<string | null>(null); // pubkey of account being removed
+  let isExistingMode = $derived(mode === 'existing');
 
   // Store values
   let accountsState = $derived($accountsStore);
@@ -81,18 +88,6 @@
     return `${profileId.slice(0, 8)}...${profileId.slice(-4)}`;
   }
 
-  function showRecoveryView() {
-    recoveryError = '';
-    showingRecovery = true;
-  }
-
-  function hideRecoveryView() {
-    if (recoveryBusy) return;
-    recoveryError = '';
-    recoveryProfileId = '';
-    showingRecovery = false;
-  }
-
   async function handleGenerateNew() {
     if (creatingProfile) return;
     creatingProfile = true;
@@ -108,23 +103,14 @@
   }
 
   async function handleRecovery(request: IdentityRecoveryRequest) {
-    const profileId = recoveryProfileId.trim();
-    if (!profileId) {
-      recoveryError = 'Enter your Iris user id';
-      return;
-    }
-
     if (recoveryBusy) return;
     recoveryBusy = true;
     recoveryError = '';
     try {
       const profile = await recoverDriveProfileWithAppKey({
-        profileId,
         recovery: request,
         label: 'Drive web',
       });
-      recoveryProfileId = '';
-      showingRecovery = false;
       navigate(driveRootPath(profile.npub));
     } catch (error) {
       recoveryError = error instanceof Error ? error.message : 'Recovery failed';
@@ -138,13 +124,13 @@
 <div class="flex-1 flex flex-col min-h-0 bg-surface-0 p-6 max-w-2xl mx-auto w-full">
   <!-- Header -->
   <div class="flex items-center gap-4 mb-6">
-    {#if showingRecovery}
+    {#if isExistingMode}
       <button
         type="button"
         class="btn-circle btn-ghost shrink-0"
         aria-label="Back to users"
         title="Back"
-        onclick={hideRecoveryView}
+        onclick={() => navigate('/users')}
         disabled={recoveryBusy || creatingProfile}
         data-testid="back-to-profile-actions"
       >
@@ -157,24 +143,10 @@
     {/if}
   </div>
 
-  {#if showingRecovery}
+  {#if isExistingMode}
     <div class="identity-recovery-shell bg-surface-1 rounded-lg p-4 space-y-3" data-testid="identity-recovery-section">
-      <label class="flex flex-col gap-1">
-        <span class="text-sm font-semibold text-text-3">Iris user id</span>
-        <input
-          type="text"
-          bind:value={recoveryProfileId}
-          placeholder="019e..."
-          class="input w-full"
-          autocomplete="off"
-          autocapitalize="none"
-          spellcheck="false"
-          disabled={recoveryBusy || creatingProfile}
-          data-testid="recovery-profile-id"
-        />
-      </label>
-
       <IdentityRecoveryPanel
+        methodLayout="column"
         disabled={recoveryBusy || creatingProfile}
         error={recoveryError}
         submitLabel="Recover app key"
@@ -272,7 +244,7 @@
 
       <button
         type="button"
-        onclick={showRecoveryView}
+        onclick={() => navigate('/users/existing')}
         class="btn-ghost w-full justify-center border border-surface-3"
         data-testid="add-existing-profile"
         disabled={creatingProfile}
@@ -297,5 +269,9 @@
     --surface-raised: rgb(var(--surface-0));
     --text: rgb(var(--text-1));
     --text-muted: rgb(var(--text-2));
+  }
+
+  .identity-recovery-shell :global(.recovery-methods) {
+    grid-template-columns: minmax(0, 1fr);
   }
 </style>

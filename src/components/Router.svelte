@@ -32,7 +32,8 @@
     { pattern: '/settings', component: SettingsLayout },
     { pattern: '/settings/*', component: SettingsLayout },
     { pattern: '/wallet', component: WalletPage },
-    { pattern: '/users', component: UsersPage },
+    { pattern: '/users/existing', component: UsersPage, staticParams: { usersMode: 'existing' } },
+    { pattern: '/users', component: UsersPage, staticParams: { usersMode: 'list' } },
     { pattern: '/:npub/follows', component: FollowsPage },
     { pattern: '/:npub/followers', component: FollowersPage },
     { pattern: '/:npub/edit', component: EditProfilePage },
@@ -55,7 +56,7 @@
     for (const route of routePatterns) {
       const match = matchRoute(route.pattern, path);
       if (match.matched) {
-        return { component: route.component, params: match.params };
+        return { component: route.component, params: { ...match.params, ...(route.staticParams ?? {}) } };
       }
     }
     return { component: HomeRoute, params: {} };
@@ -79,7 +80,7 @@
   {:else if route.component === WalletPage}
     <WalletPage />
   {:else if route.component === UsersPage}
-    <UsersPage />
+    <UsersPage mode={route.params.usersMode === 'existing' ? 'existing' : 'list'} />
   {:else if route.component === FollowsPage}
     <FollowsPage npub={route.params.npub} />
   {:else if route.component === FollowersPage}

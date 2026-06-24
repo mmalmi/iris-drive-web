@@ -66,18 +66,35 @@ test.describe('Users Page', () => {
 
     await expect(page.getByTestId('identity-recovery-section')).toHaveCount(0);
     await page.getByTestId('add-existing-profile').click();
+    await expect(page).toHaveURL(/#\/users\/existing/);
 
     await expect(page.getByTestId('identity-recovery-section')).toBeVisible();
     await expect(page.getByTestId('account-item')).toHaveCount(0);
     await expect(page.getByTestId('generate-new-account')).toHaveCount(0);
     await expect(page.getByTestId('add-existing-profile')).toHaveCount(0);
-    await expect(page.getByTestId('recovery-profile-id')).toBeVisible();
+    await expect(page.getByTestId('recovery-profile-id')).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'nsec' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Seed phrase' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Extension' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Remote signer' })).toBeVisible();
+    const methodButtons = [
+      page.getByRole('button', { name: 'nsec' }),
+      page.getByRole('button', { name: 'Seed phrase' }),
+      page.getByRole('button', { name: 'Extension' }),
+      page.getByRole('button', { name: 'Remote signer' }),
+    ];
+    const methodBoxes = await Promise.all(methodButtons.map((button) => button.boundingBox()));
+    for (const box of methodBoxes) {
+      expect(box).not.toBeNull();
+    }
+    const firstMethodBox = methodBoxes[0]!;
+    for (let index = 1; index < methodBoxes.length; index += 1) {
+      expect(Math.abs(methodBoxes[index]!.x - firstMethodBox.x)).toBeLessThan(2);
+      expect(methodBoxes[index]!.y).toBeGreaterThan(methodBoxes[index - 1]!.y);
+    }
 
     await page.getByTestId('back-to-profile-actions').click();
+    await expect(page).toHaveURL(/#\/users$/);
     await expect(page.getByTestId('identity-recovery-section')).toHaveCount(0);
     await expect(page.getByTestId('add-existing-profile')).toBeVisible();
   });
@@ -157,6 +174,7 @@ test.describe('Users Page', () => {
     await expect(page.getByTestId('add-with-nsec')).toHaveCount(0);
     await expect(page.locator('input[placeholder="nsec1..."]')).toHaveCount(0);
     await page.getByTestId('add-existing-profile').click();
+    await expect(page).toHaveURL(/#\/users\/existing/);
     await expect(page.locator('input[placeholder="nsec1..."]')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Recover app key' })).toBeVisible();
   });
