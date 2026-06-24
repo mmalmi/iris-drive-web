@@ -16,6 +16,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseIrisProfileRosterOpEvent } from '../src/drive/protocol';
 import { generateSecretKey, getPublicKey, nip19 } from 'nostr-tools';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -92,12 +93,7 @@ function readNativeIrisIdentitySession(configDir: string, label = 'native-e2e'):
   const rosterOps = Array.from(configToml.matchAll(/event_json = '([^']+)'/g)).map((match) => {
     const eventJson = match[1];
     const event = JSON.parse(eventJson);
-    return {
-      op_id: event.id,
-      signer_pubkey: event.pubkey,
-      content: JSON.parse(event.content),
-      event_json: eventJson,
-    };
+    return parseIrisProfileRosterOpEvent(event);
   });
   if (rosterOps.length === 0) {
     throw new Error('Native config is missing IrisProfile roster ops');
