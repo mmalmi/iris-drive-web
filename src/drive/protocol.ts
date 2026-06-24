@@ -7,6 +7,7 @@ export * from './protocolProfileEvents';
 export * from './protocolProfileNormalize';
 export * from './protocolProfileProjection';
 export * from './protocolProfileValidation';
+export * from './protocolRecovery';
 export * from './protocolShareAccess';
 export * from './protocolShareBase';
 export * from './protocolShareEvents';

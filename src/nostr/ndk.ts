@@ -7,7 +7,13 @@
  *
  * NIP-07 signing must happen in main thread (browser extension access).
  */
-import NDK, { NDKEvent, NDKPrivateKeySigner, NDKNip07Signer, type NostrEvent } from 'ndk';
+import NDK, {
+  NDKEvent,
+  NDKNip46Signer,
+  NDKPrivateKeySigner,
+  NDKNip07Signer,
+  type NostrEvent,
+} from 'ndk';
 import { getRuntimeHtreeServerUrl, getRuntimeNostrRelays } from '../lib/htreeRuntime';
 import {
   DEFAULT_RELAY_BANDWIDTH,
@@ -228,4 +234,4 @@ export async function waitForNdkRelayConnection(maxWaitMs = 5000): Promise<boole
 }
 
 // Re-export for convenience
-export { NDKEvent, NDKPrivateKeySigner, NDKNip07Signer, type NostrEvent };
+export { NDKEvent, NDKNip46Signer, NDKPrivateKeySigner, NDKNip07Signer, type NostrEvent };

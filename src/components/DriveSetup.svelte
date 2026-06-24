@@ -1,6 +1,8 @@
 <script lang="ts">
   import Logo from './Logo.svelte';
-  import { createDriveProfile, linkDriveDevice, loginWithNsec, nostrStore } from '../nostr';
+  import IdentityRecoveryPanel from '@iris/svelte-ui/IdentityRecoveryPanel.svelte';
+  import type { IdentityRecoveryRequest } from '@iris/svelte-ui';
+  import { createDriveProfile, linkDriveDevice, recoverDriveProfileWithAppKey } from '../nostr';
   import { driveRootPath, isCompleteDeviceLinkOwnerInput, normalizeOwnerNpub } from '../drive/setup';
   import { navigate } from '../utils/navigate';
 
@@ -12,7 +14,7 @@
   let { initialOwnerInput = '' }: Props = $props();
   let mode = $state<SetupMode>('welcome');
   let busy = $state(false);
-  let nsecInput = $state('');
+  let profileIdInput = $state('');
   let ownerInput = $state('');
   let submittedOwnerInput = $state('');
   let error = $state('');
@@ -72,25 +74,25 @@
     });
   }
 
-  async function handleRestore(event: SubmitEvent) {
-    event.preventDefault();
-    const nsec = nsecInput.trim();
-    if (!nsec) {
-      error = 'Enter your secret key';
+  async function handleRecovery(request: IdentityRecoveryRequest) {
+    const profileId = profileIdInput.trim();
+    if (!profileId) {
+      error = 'Enter your Iris profile id';
       return;
     }
 
     await runAction(async () => {
-      const success = await loginWithNsec(nsec);
-      if (!success) {
-        error = 'Invalid secret key';
+      try {
+        const profile = await recoverDriveProfileWithAppKey({
+          profileId,
+          recovery: request,
+          label: 'Drive web',
+        });
+        profileIdInput = '';
+        navigate(driveRootPath(profile.npub));
+      } catch (recoveryError) {
+        error = recoveryError instanceof Error ? recoveryError.message : 'Recovery failed';
         return;
-      }
-
-      const npub = nostrStore.getState().npub;
-      if (npub) {
-        nsecInput = '';
-        navigate(driveRootPath(npub));
       }
     });
   }
@@ -168,10 +170,60 @@
         Get native app
       </a>
     {:else}
-      <form
-        class="flex flex-col gap-4"
-        onsubmit={mode === 'create' ? handleCreate : mode === 'restore' ? handleRestore : handleLink}
-      >
+      {#if mode === 'restore'}
+        <div class="flex flex-col gap-4">
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              class="btn-circle btn-ghost shrink-0"
+              aria-label="Back"
+              title="Back"
+              onclick={goBack}
+              disabled={busy}
+            >
+              <span class="i-lucide-arrow-left"></span>
+            </button>
+            <h1 class="text-xl font-semibold">{title}</h1>
+          </div>
+
+          <label class="flex flex-col gap-1">
+            <span class="text-sm font-semibold text-text-3">Iris profile id</span>
+            <input
+              type="text"
+              class="input w-full"
+              bind:value={profileIdInput}
+              placeholder="019e..."
+              aria-label="Iris profile id"
+              autocomplete="off"
+              autocapitalize="none"
+              spellcheck="false"
+              disabled={busy}
+            />
+          </label>
+
+          <IdentityRecoveryPanel
+            disabled={busy || !profileIdInput.trim()}
+            error={error}
+            submitLabel="Recover app key"
+            nostrAvailable={typeof window !== 'undefined' && Boolean(window.nostr)}
+            onSubmit={handleRecovery}
+          />
+
+          <button
+            type="button"
+            class="btn-ghost w-full flex items-center justify-center gap-2"
+            onclick={() => selectMode('link')}
+            disabled={busy}
+          >
+            <span class="i-lucide-monitor-up"></span>
+            <span>Link this app</span>
+          </button>
+        </div>
+      {:else}
+        <form
+          class="flex flex-col gap-4"
+          onsubmit={mode === 'create' ? handleCreate : handleLink}
+        >
         <div class="flex items-center gap-2">
           <button
             type="button"
@@ -186,26 +238,7 @@
           <h1 class="text-xl font-semibold">{title}</h1>
         </div>
 
-        {#if mode === 'restore'}
-          <input
-            type="password"
-            class="input w-full"
-            bind:value={nsecInput}
-            placeholder="nsec1..."
-            aria-label="Secret key"
-            autocomplete="off"
-            disabled={busy}
-          />
-          <button
-            type="button"
-            class="btn-ghost w-full flex items-center justify-center gap-2"
-            onclick={() => selectMode('link')}
-            disabled={busy}
-          >
-            <span class="i-lucide-monitor-up"></span>
-            <span>Link this app</span>
-          </button>
-        {:else if mode === 'link'}
+        {#if mode === 'link'}
           <input
             type="text"
             class="input w-full"
@@ -224,20 +257,19 @@
         <button
           type="submit"
           class="btn-success w-full flex items-center justify-center gap-2"
-          disabled={busy || (mode === 'restore' && !nsecInput.trim()) || (mode === 'link' && !ownerInput.trim())}
+          disabled={busy || (mode === 'link' && !ownerInput.trim())}
         >
           {#if busy}
             <span class="i-lucide-loader-2 animate-spin"></span>
           {:else if mode === 'create'}
             <span class="i-lucide-plus"></span>
-          {:else if mode === 'restore'}
-            <span class="i-lucide-key-round"></span>
           {:else}
             <span class="i-lucide-monitor-up"></span>
           {/if}
           <span>{mode === 'link' ? 'Link app' : title}</span>
         </button>
       </form>
+      {/if}
     {/if}
   </section>
 </div>

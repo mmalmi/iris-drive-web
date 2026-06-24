@@ -21,6 +21,7 @@ export {
   ndk,
   signEvent,
   NDKEvent,
+  NDKNip46Signer,
   NDKPrivateKeySigner,
   NDKNip07Signer,
   type NostrEvent,
@@ -41,6 +42,7 @@ export {
   generateNewKey,
   createDriveProfile,
   linkDriveDevice,
+  recoverDriveProfileWithAppKey,
   getCurrentIrisIdentitySession,
   waitForNostrExtension,
   initReadonlyBackend,
@@ -50,6 +52,9 @@ export {
   getNsec,
   encrypt,
   decrypt,
+  type DriveRecoveryAppKeyOptions,
+  type DriveRecoveryMethod,
+  type DriveRecoveryRequest,
 } from './auth';
 
 // Tree management exports

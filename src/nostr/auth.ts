@@ -1,8 +1,17 @@
 /**
  * Nostr Authentication and Encryption
  */
-import { generateSecretKey, getPublicKey, nip19, nip44 } from 'nostr-tools';
-import { ndk, NDKPrivateKeySigner, NDKNip07Signer, NDKEvent } from './ndk';
+import { generateSecretKey, getPublicKey, nip19, nip44, type Event as NostrToolsEvent } from 'nostr-tools';
+import {
+  createAttachedIrisIdentitySession,
+  createIrisIdentitySignerFromNip07,
+  createIrisIdentitySignerFromNip46,
+  createIrisIdentitySignerFromNsec,
+  createIrisIdentitySignerFromSeedPhrase,
+  type IrisIdentityEventSigner,
+} from '@iris/identity';
+import type { NDKFilter } from 'ndk';
+import { ndk, NDKNip46Signer, NDKPrivateKeySigner, NDKNip07Signer, NDKEvent } from './ndk';
 import { nostrStore } from './store';
 import { initHashtreeBackend, getWorkerAdapter, updateFollowsSubscription, waitForWorkerAdapter } from '../lib/workerInit';
 import {
@@ -17,12 +26,16 @@ import { needsMigrations, runMigrations } from '../migrations';
 import { initWallet, disposeWallet } from '../stores/wallet';
 import {
   createPendingDeviceLinkSession,
+  createIrisProfileDckRewrapOp,
+  KIND_IRIS_PROFILE_ROSTER_OP,
   parseDeviceLinkInvite,
+  parseIrisProfileRosterOpEvent,
   projectIrisProfileRoster,
   signIrisProfileRosterOp,
   type IrisIdentitySession,
   type IrisProfileCapabilities,
   type IrisProfileId,
+  type SignedIrisProfileRosterOp,
   type StoredIrisIdentitySession,
 } from '../drive/protocol';
 
@@ -41,6 +54,24 @@ const isTestMode = !!import.meta.env.VITE_TEST_MODE;
 
 export interface RestoreSessionOptions {
   autoCreate?: boolean;
+}
+
+export type DriveRecoveryMethod = 'nsec' | 'seed_phrase' | 'nip07' | 'nip46';
+
+export interface DriveRecoveryRequest {
+  method: DriveRecoveryMethod;
+  nsec?: string;
+  seedWords?: string;
+  seedPassphrase?: string;
+  nip46Connection?: string;
+  nip46Relay?: string;
+}
+
+export interface DriveRecoveryAppKeyOptions {
+  profileId: IrisProfileId;
+  recovery: DriveRecoveryRequest;
+  label?: string;
+  rosterFetchTimeoutMs?: number;
 }
 
 type DefaultTree = {
@@ -416,6 +447,53 @@ export async function linkDriveDevice(inviteInput: string): Promise<{ nsec: stri
   return { ...login, session };
 }
 
+export async function recoverDriveProfileWithAppKey(
+  options: DriveRecoveryAppKeyOptions,
+): Promise<{ nsec: string; npub: string; session: IrisIdentitySession }> {
+  const profileId = normalizeProfileId(options.profileId);
+  const signer = await createRecoverySigner(options.recovery);
+  const rosterOps = await fetchIrisProfileRosterOps(profileId, options.rosterFetchTimeoutMs);
+  if (rosterOps.length === 0) {
+    throw new Error('No identity roster events found for that profile');
+  }
+
+  const { attachment, session } = await createAttachedIrisIdentitySession({
+    profileId,
+    signer,
+    rosterOps,
+    label: options.label ?? 'This app',
+    clientNonce: randomClientNonce(),
+  });
+  const dckRewrapOp = await createIrisProfileDckRewrapOp({
+    profileId,
+    signer,
+    rosterOps,
+    appKeyPubkey: attachment.appKeyPubkey,
+    parentRosterOp: attachment.rosterOp,
+  });
+  const activeSession: IrisIdentitySession = {
+    ...session,
+    rosterOps: dckRewrapOp ? [...session.rosterOps, dckRewrapOp] : session.rosterOps,
+  };
+
+  await publishSignedIdentityEventJson(attachment.rosterOp.event_json);
+  await publishSignedIdentityEventJson(attachment.facetAcceptance.event_json);
+  if (dckRewrapOp) {
+    await publishSignedIdentityEventJson(dckRewrapOp.event_json);
+  }
+  saveIrisIdentitySession(activeSession);
+
+  const decoded = nip19.decode(session.appKeyNsec);
+  if (decoded.type !== 'nsec') {
+    throw new Error('attached Drive AppKey is not an nsec');
+  }
+  const appKeySecretKey = decoded.data as Uint8Array;
+  return {
+    ...(await applySecretKey(appKeySecretKey, DRIVE_DEFAULT_TREES)),
+    session: activeSession,
+  };
+}
+
 /**
  * Create default folders for a new user
  */
@@ -630,6 +708,121 @@ function restoreDriveIdentitySession(stored: StoredIrisIdentitySession): IrisIde
     ...(stored.label ? { label: stored.label } : {}),
     ...(stored.pendingDeviceLink ? { pendingDeviceLink: stored.pendingDeviceLink } : {}),
   };
+}
+
+async function createRecoverySigner(recovery: DriveRecoveryRequest): Promise<IrisIdentityEventSigner> {
+  if (recovery.method === 'nsec') {
+    if (!recovery.nsec?.trim()) throw new Error('Enter your secret key');
+    return createIrisIdentitySignerFromNsec(recovery.nsec);
+  }
+  if (recovery.method === 'seed_phrase') {
+    if (!recovery.seedWords?.trim()) throw new Error('Enter your seed phrase');
+    return createIrisIdentitySignerFromSeedPhrase({
+      seedWords: recovery.seedWords,
+      ...(recovery.seedPassphrase !== undefined ? { passphrase: recovery.seedPassphrase } : {}),
+    });
+  }
+  if (recovery.method === 'nip07') {
+    const nostr = (window as unknown as { nostr?: Parameters<typeof createIrisIdentitySignerFromNip07>[0] }).nostr;
+    if (!nostr) throw new Error('No nostr extension found');
+    return createIrisIdentitySignerFromNip07(nostr);
+  }
+
+  const connection = recovery.nip46Connection?.trim();
+  if (!connection) throw new Error('Enter a remote signer');
+  const relay = recovery.nip46Relay?.trim();
+  const remoteSigner = new NDKNip46Signer(
+    ndk,
+    connection,
+    undefined,
+    relay ? [relay] : undefined,
+  );
+  remoteSigner.timeout = 30_000;
+  await remoteSigner.blockUntilReady();
+  return createIrisIdentitySignerFromNip46({
+    getPublicKey: async () => (await remoteSigner.user()).pubkey,
+    signEvent: async (draft) => {
+      const event = new NDKEvent(ndk);
+      event.kind = draft.kind;
+      event.content = draft.content;
+      event.tags = draft.tags.map((tag) => tag.slice());
+      event.created_at = draft.created_at;
+      await event.sign(remoteSigner);
+      return event.rawEvent() as NostrToolsEvent;
+    },
+    nip44Encrypt: (recipientPubkey, plaintext) => remoteSigner.encrypt(
+      ndk.getUser({ pubkey: recipientPubkey }),
+      plaintext,
+      'nip44',
+    ),
+    nip44Decrypt: (senderPubkey, ciphertext) => remoteSigner.decrypt(
+      ndk.getUser({ pubkey: senderPubkey }),
+      ciphertext,
+      'nip44',
+    ),
+  });
+}
+
+async function fetchIrisProfileRosterOps(
+  profileId: IrisProfileId,
+  timeoutMs = 5000,
+): Promise<SignedIrisProfileRosterOp[]> {
+  await waitForWorkerAdapter(2000).catch(() => null);
+  const byId = new Map<string, SignedIrisProfileRosterOp>();
+
+  await new Promise<void>((resolve) => {
+    let resolved = false;
+    const finish = () => {
+      if (resolved) return;
+      resolved = true;
+      clearTimeout(timer);
+      sub.stop();
+      resolve();
+    };
+    const filter: NDKFilter<number> = {
+      kinds: [KIND_IRIS_PROFILE_ROSTER_OP],
+      '#i': [profileId],
+      limit: 500,
+    };
+    const sub = ndk.subscribe(filter, { closeOnEose: true });
+    const timer = setTimeout(finish, timeoutMs);
+
+    sub.on('event', (event) => {
+      try {
+        const signed = parseIrisProfileRosterOpEvent(event.rawEvent() as NostrToolsEvent);
+        if (signed.content.profile_id === profileId) {
+          byId.set(signed.op_id, signed);
+        }
+      } catch (error) {
+        console.warn('[auth] Ignoring invalid Iris identity roster event:', error);
+      }
+    });
+    sub.on('eose', finish);
+  });
+
+  return Array.from(byId.values())
+    .sort((left, right) => left.content.created_at - right.content.created_at || left.op_id.localeCompare(right.op_id));
+}
+
+async function publishSignedIdentityEventJson(eventJson: string): Promise<void> {
+  const event = JSON.parse(eventJson) as NostrToolsEvent;
+  ndk.subManager.dispatchEvent(event as Parameters<typeof ndk.subManager.dispatchEvent>[0], undefined, true);
+  const adapter = getWorkerAdapter() ?? await waitForWorkerAdapter(5000);
+  if (adapter) {
+    await adapter.publish(event as Parameters<typeof adapter.publish>[0]);
+    return;
+  }
+
+  const ndkEvent = new NDKEvent(ndk, event);
+  await ndkEvent.publish();
+}
+
+function normalizeProfileId(profileId: IrisProfileId): IrisProfileId {
+  const trimmed = profileId.trim().toLowerCase();
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(trimmed)) {
+    throw new Error('Invalid Iris profile id');
+  }
+  return trimmed;
 }
 
 function currentUnixSeconds(): number {
