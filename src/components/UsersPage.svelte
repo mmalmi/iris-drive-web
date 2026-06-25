@@ -14,7 +14,8 @@
     hasNostrExtension,
     type Account,
   } from '../accounts';
-  import { createDriveProfile, recoverDriveProfileWithAppKey, restoreSession, waitForNostrExtension } from '../nostr';
+  import { createDriveProfile, linkDriveDevice, recoverDriveProfileWithAppKey, restoreSession, waitForNostrExtension } from '../nostr';
+  import { parseDeviceLinkInvite } from '../drive/protocol';
   import { driveRootPath } from '../drive/setup';
   import { Avatar, Name } from './User';
   import IdentityName from './User/IdentityName.svelte';
@@ -108,6 +109,15 @@
     recoveryBusy = true;
     recoveryError = '';
     try {
+      const linkInput = request.method === 'nip46' ? request.nip46Connection?.trim() : '';
+      if (linkInput && parseDeviceLinkInvite(linkInput)) {
+        const linked = await linkDriveDevice(linkInput);
+        if (!linked) {
+          throw new Error('Invalid Drive link');
+        }
+        navigate(driveRootPath(linked.npub));
+        return;
+      }
       const profile = await recoverDriveProfileWithAppKey({
         recovery: request,
         label: 'Drive web',
