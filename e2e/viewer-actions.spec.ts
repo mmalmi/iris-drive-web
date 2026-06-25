@@ -1,5 +1,10 @@
 import { test, expect } from './fixtures';
-import { setupPageErrorHandler, navigateToPublicFolder, presetLocalRelayInDB } from './test-utils.js';
+import {
+  clearAllStorage,
+  setupPageErrorHandler,
+  navigateToPublicFolder,
+  presetLocalRelayInDB,
+} from './test-utils.js';
 
 test.use({
   permissions: ['clipboard-read', 'clipboard-write'],
@@ -47,20 +52,11 @@ test.describe('Viewer Actions', () => {
 
   test.beforeEach(async ({ page }) => {
     setupPageErrorHandler(page);
-    await page.goto('/');
-
-    // Clear storage for fresh state
-    await page.evaluate(async () => {
-      const dbs = await indexedDB.databases();
-      for (const db of dbs) {
-        if (db.name) indexedDB.deleteDatabase(db.name);
-      }
-      localStorage.clear();
-      sessionStorage.clear();
-    });
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
+    await clearAllStorage(page);
 
     await presetLocalRelayInDB(page);
-    await page.reload();
+    await page.reload({ waitUntil: 'domcontentloaded' });
     await page.waitForTimeout(500);
     // Page ready - navigateToPublicFolder handles waiting
     await navigateToPublicFolder(page, { requireRelay: false });

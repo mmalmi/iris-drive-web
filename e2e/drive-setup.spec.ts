@@ -1,6 +1,14 @@
 import { getPublicKey, generateSecretKey, nip19 } from 'nostr-tools';
 import { expect, test, type Page } from './fixtures';
-import { clearAllStorage, setupPageErrorHandler, waitForAppReady } from './test-utils';
+import {
+  clearAllStorage,
+  presetLocalRelayInDB,
+  setupPageErrorHandler,
+  useLocalRelay,
+  waitForAppReady,
+  waitForRelayConnected,
+} from './test-utils';
+import { seedRecoverableProfile } from './identity-recovery-test-utils';
 
 const profileId = '019ed693-4110-7352-8cc3-be90158ba91e';
 
@@ -25,15 +33,22 @@ function inviteLink(adminAppKeyNpub: string): string {
   return `https://drive.iris.to/invite/${payload}`;
 }
 
-async function openFreshSetup(page: Page): Promise<void> {
+async function openFreshSetup(page: Page, relayUrl?: string): Promise<void> {
   setupPageErrorHandler(page);
   await page.addInitScript(() => {
     localStorage.setItem('hashtree:disableTestAutoCreate', '1');
   });
   await page.goto('/');
   await clearAllStorage(page);
+  if (relayUrl) {
+    await presetLocalRelayInDB(page, relayUrl);
+  }
   await page.reload({ waitUntil: 'domcontentloaded' });
   await waitForAppReady(page, 60000);
+  if (relayUrl) {
+    await useLocalRelay(page, relayUrl);
+    await waitForRelayConnected(page, 30000);
+  }
   await expect(page.getByTestId('drive-setup')).toBeVisible({ timeout: 30000 });
 }
 
@@ -66,18 +81,32 @@ test.describe('Drive setup', () => {
     await expectDriveRoute(page, await npubHandle.jsonValue());
   });
 
-  test('signs in with a secret key and keeps app linking under sign in', async ({ page }) => {
-    const owner = keypair();
-    await openFreshSetup(page);
+  test('signs in with secret key recovery and keeps app linking under sign in', async ({ page, relayUrl }) => {
+    const profile = await seedRecoverableProfile(relayUrl, generateSecretKey(), 'recovery_phrase');
+    await openFreshSetup(page, relayUrl);
 
     await expect(page.getByRole('button', { name: 'Link this app' })).toHaveCount(0);
     await page.getByRole('button', { name: 'Sign in' }).click();
-    await expect(page.getByLabel('Secret key')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Link this app' })).toBeVisible();
+    await expect(page.locator('input[placeholder="nsec1..."]')).toHaveCount(0);
 
-    await page.getByLabel('Secret key').fill(owner.nsec);
-    await page.getByRole('button', { name: 'Sign in' }).click();
-    await expectDriveRoute(page, owner.npub);
+    await page.getByLabel('Iris profile id').fill(profile.profileId);
+    await page.getByRole('button', { name: 'Secret key' }).click();
+    await page.locator('input[placeholder="nsec1..."]').fill(profile.recoveryNsec);
+    await page.getByRole('button', { name: 'Recover app key' }).click();
+
+    const recoveredNpubHandle = await page.waitForFunction((profileId: string) => {
+      const store = (window as unknown as {
+        __nostrStore?: { getState?: () => { npub?: string } };
+      }).__nostrStore;
+      const stored = JSON.parse(localStorage.getItem('iris:identity:session') ?? 'null');
+      if (stored?.status === 'active' && stored?.profileId === profileId && store?.getState?.().npub) {
+        return store.getState().npub;
+      }
+      return null;
+    }, profile.profileId, { timeout: 30000 });
+    const recoveredNpub = await recoveredNpubHandle.jsonValue() as string;
+    await expectDriveRoute(page, recoveredNpub);
   });
 
   test('auto-opens the owner drive when a link-app npub is entered', async ({ page }) => {
@@ -92,9 +121,9 @@ test.describe('Drive setup', () => {
     await expectDriveRoute(page, owner.npub);
   });
 
-  test('creates a pending linked-device session when an invite link is entered', async ({ page }) => {
+  test('creates a pending linked-device session when an invite link is entered', async ({ page, relayUrl }) => {
     const admin = keypair();
-    await openFreshSetup(page);
+    await openFreshSetup(page, relayUrl);
 
     await page.getByRole('button', { name: 'Sign in' }).click();
     await page.getByRole('button', { name: 'Link this app' }).click();
