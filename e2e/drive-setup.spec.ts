@@ -74,30 +74,33 @@ test.describe('Drive setup', () => {
 
     const npubHandle = await page.waitForFunction(() => {
       const store = (window as unknown as {
-        __nostrStore?: { getState?: () => { npub?: string } };
+        __nostrStore?: { getState?: () => { npub?: string; isLoggedIn?: boolean } };
       }).__nostrStore;
       return store?.getState?.().npub ?? null;
     }, undefined, { timeout: 30000 });
     await expectDriveRoute(page, await npubHandle.jsonValue());
   });
 
-  test('signs in with secret key recovery and keeps app linking under sign in', async ({ page, relayUrl }) => {
+  test('recovers with secret key and keeps device linking separate', async ({ page, relayUrl }) => {
     const profile = await seedRecoverableProfile(relayUrl, generateSecretKey(), 'recovery_phrase');
     await openFreshSetup(page, relayUrl);
 
-    await expect(page.getByRole('button', { name: 'Link this app' })).toHaveCount(0);
-    await page.getByRole('button', { name: 'Sign in' }).click();
-    await expect(page.getByRole('button', { name: 'Link this app' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Link device' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Recover profile' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Sign in' })).toHaveCount(0);
+    await page.getByRole('button', { name: 'Recover profile' }).click();
+    await expect(page.getByRole('heading', { name: 'Recover profile' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Link device' })).toHaveCount(0);
     await expect(page.locator('input[placeholder="nsec1..."]')).toHaveCount(0);
 
     await page.getByLabel('Iris profile id').fill(profile.profileId);
     await page.getByRole('button', { name: 'Secret key' }).click();
     await page.locator('input[placeholder="nsec1..."]').fill(profile.recoveryNsec);
-    await page.getByRole('button', { name: 'Recover app key' }).click();
+    await page.getByRole('button', { name: 'Recover profile' }).click();
 
     const recoveredNpubHandle = await page.waitForFunction((profileId: string) => {
       const store = (window as unknown as {
-        __nostrStore?: { getState?: () => { npub?: string } };
+        __nostrStore?: { getState?: () => { npub?: string; isLoggedIn?: boolean } };
       }).__nostrStore;
       const stored = JSON.parse(localStorage.getItem('iris:identity:session') ?? 'null');
       if (stored?.status === 'active' && stored?.profileId === profileId && store?.getState?.().npub) {
@@ -113,11 +116,10 @@ test.describe('Drive setup', () => {
     const owner = keypair();
     await openFreshSetup(page);
 
-    await page.getByRole('button', { name: 'Sign in' }).click();
-    await page.getByRole('button', { name: 'Link this app' }).click();
-    await expect(page.getByLabel('Owner public key or invite link')).toBeVisible();
+    await page.getByRole('button', { name: 'Link device' }).click();
+    await expect(page.getByLabel('Invite link or owner public key')).toBeVisible();
 
-    await page.getByLabel('Owner public key or invite link').fill(owner.npub);
+    await page.getByLabel('Invite link or owner public key').fill(owner.npub);
     await expectDriveRoute(page, owner.npub);
   });
 
@@ -125,11 +127,10 @@ test.describe('Drive setup', () => {
     const admin = keypair();
     await openFreshSetup(page, relayUrl);
 
-    await page.getByRole('button', { name: 'Sign in' }).click();
-    await page.getByRole('button', { name: 'Link this app' }).click();
+    await page.getByRole('button', { name: 'Link device' }).click();
 
-    await page.getByLabel('Owner public key or invite link').fill(inviteLink(admin.npub));
-    const linkedNpubHandle = await page.waitForFunction((expectedProfileId: string) => {
+    await page.getByLabel('Invite link or owner public key').fill(inviteLink(admin.npub));
+    const linkedPubkeyHandle = await page.waitForFunction((expectedProfileId: string) => {
       const store = (window as unknown as {
         __nostrStore?: { getState?: () => { npub?: string } };
       }).__nostrStore;
@@ -138,15 +139,18 @@ test.describe('Drive setup', () => {
         stored?.status === 'pending_device_link'
         && stored?.profileId === expectedProfileId
         && stored?.pendingDeviceLink?.adminAppKeyPubkey
-        && store?.getState?.().npub
+        && store?.getState?.().isLoggedIn === false
       ) {
-        return store.getState().npub;
+        return stored.pendingDeviceLink.deviceAppKeyPubkey;
       }
       return null;
     }, profileId);
-    const linkedNpub = await linkedNpubHandle.jsonValue() as string;
+    const linkedPubkey = await linkedPubkeyHandle.jsonValue() as string;
 
-    expect(linkedNpub).not.toBe(admin.npub);
-    await expectDriveRoute(page, linkedNpub);
+    const decodedAdmin = nip19.decode(admin.npub);
+    expect(decodedAdmin.type).toBe('npub');
+    expect(linkedPubkey).not.toBe(decodedAdmin.data);
+    await expect(page).toHaveURL(/#\/settings\/user/);
+    await expect(page.getByTestId('user-pending-link')).toBeVisible({ timeout: 30000 });
   });
 });

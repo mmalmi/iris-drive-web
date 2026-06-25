@@ -503,11 +503,18 @@ export async function linkDriveDevice(inviteInput: string): Promise<{ nsec: stri
   if (decoded.type !== 'nsec') return null;
   const appKeySecretKey = decoded.data as Uint8Array;
   saveIrisIdentitySession(session);
-  const login = await applySecretKey(appKeySecretKey, [], {
-    irisProfileId: session.profileId,
-  });
+  secretKey = null;
+  ndk.signer = undefined;
+  nostrStore.setPubkey(null);
+  nostrStore.setNpub(null);
+  nostrStore.setIsLoggedIn(false);
+  nostrStore.setSelectedTree(null);
+  accountsStore.setActiveAccount(null);
+  saveActiveAccountToStorage(null);
+  localStorage.removeItem(STORAGE_KEY_LOGIN_TYPE);
+  localStorage.removeItem(STORAGE_KEY_NSEC);
   await publishDriveDeviceLinkRequest(session, appKeySecretKey);
-  return { ...login, session };
+  return { nsec: session.appKeyNsec, npub: session.appKeyNpub, session };
 }
 
 export async function createDriveDeviceLinkInvite(): Promise<DriveDeviceLinkInvite> {
@@ -680,12 +687,13 @@ export async function activatePendingDriveDeviceLinkIfApproved(): Promise<IrisId
     rosterOps,
   };
   saveIrisIdentitySession(activeSession);
-  accountsStore.updateAccount(session.appKeyPubkey, {
-    type: 'drive_profile',
-    irisProfileId: session.profileId,
-    nsec: session.appKeyNsec,
+  const decoded = nip19.decode(session.appKeyNsec);
+  if (decoded.type !== 'nsec') {
+    throw new Error('Pending Drive AppKey is not an nsec');
+  }
+  await applySecretKey(decoded.data as Uint8Array, DRIVE_DEFAULT_TREES, {
+    irisProfileId: activeSession.profileId,
   });
-  await createDefaultTrees(DRIVE_DEFAULT_TREES);
   return activeSession;
 }
 

@@ -135,7 +135,7 @@ test.describe('Users Page recovery login', () => {
       exercise: async (targetPage, profile) => {
         await targetPage.getByRole('button', { name: 'Secret key' }).click();
         await targetPage.locator('input[placeholder="nsec1..."]').fill(profile.recoveryNsec);
-        await targetPage.getByRole('button', { name: 'Recover app key' }).click();
+        await targetPage.getByRole('button', { name: 'Continue' }).click();
       },
     });
   });
@@ -146,7 +146,7 @@ test.describe('Users Page recovery login', () => {
       exercise: async (targetPage) => {
         await targetPage.getByRole('button', { name: 'Seed phrase' }).click();
         await targetPage.getByLabel('Seed phrase').fill(SEED_WORDS);
-        await targetPage.getByRole('button', { name: 'Recover app key' }).click();
+        await targetPage.getByRole('button', { name: 'Continue' }).click();
       },
     });
   });
@@ -158,7 +158,7 @@ test.describe('Users Page recovery login', () => {
       exercise: async (targetPage) => {
         await expect(targetPage.getByRole('button', { name: 'Browser extension' })).toBeVisible();
         await targetPage.getByRole('button', { name: 'Browser extension' }).click();
-        await expect(targetPage.getByRole('button', { name: 'Recover app key' })).toHaveCount(0);
+        await expect(targetPage.getByRole('button', { name: 'Continue' })).toHaveCount(0);
       },
     });
   });
@@ -176,7 +176,7 @@ test.describe('Users Page recovery login', () => {
     await prepareRecoveryPage(page, relayUrl);
     await page.getByRole('button', { name: 'Browser extension' }).click();
     await expect(page).toHaveURL(/#\/users\/no_existing/, { timeout: 30000 });
-    await expect(page.getByRole('button', { name: 'Recover app key' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Continue' })).toHaveCount(0);
     await expect(page.getByTestId('identity-recovery-create-new-view')).toBeVisible({ timeout: 30000 });
     await expect(page.getByText('No existing Drive user found for that key')).toBeVisible();
     await expect(page.getByTestId('create-new-after-recovery-miss')).toBeVisible();
@@ -195,7 +195,7 @@ test.describe('Users Page recovery login', () => {
         await targetPage.getByRole('button', { name: 'Link device' }).click();
         await targetPage.getByLabel('Link device').fill(connection);
         await targetPage.getByLabel('Relay').fill(relayUrl);
-        await targetPage.getByRole('button', { name: 'Recover app key' }).click();
+        await targetPage.getByRole('button', { name: 'Continue' }).click();
       },
     });
   });

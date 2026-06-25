@@ -1,12 +1,13 @@
 <script lang="ts">
   import Logo from './Logo.svelte';
   import IdentityRecoveryPanel from '@iris/svelte-ui/IdentityRecoveryPanel.svelte';
-  import type { IdentityRecoveryRequest } from '@iris/svelte-ui';
+  import type { IdentityRecoveryMethod, IdentityRecoveryRequest } from '@iris/svelte-ui';
   import { createDriveProfile, linkDriveDevice, recoverDriveProfileWithAppKey } from '../nostr';
   import { driveRootPath, isCompleteDeviceLinkOwnerInput, normalizeOwnerNpub } from '../drive/setup';
   import { navigate } from '../utils/navigate';
 
   type SetupMode = 'welcome' | 'create' | 'restore' | 'link';
+  const RECOVERY_METHODS: IdentityRecoveryMethod[] = ['nip07', 'seed_phrase', 'nsec'];
   interface Props {
     initialOwnerInput?: string;
   }
@@ -24,8 +25,8 @@
     mode === 'create'
       ? 'Create profile'
       : mode === 'restore'
-        ? 'Sign in'
-        : 'Link this app',
+        ? 'Recover profile'
+        : 'Link device',
   );
 
   function selectMode(nextMode: SetupMode) {
@@ -100,7 +101,7 @@
   async function submitOwnerInput(value: string, force: boolean) {
     const trimmed = value.trim();
     if (!trimmed) {
-      if (force) error = 'Enter owner public key or invite link';
+      if (force) error = 'Enter invite link or owner public key';
       return;
     }
 
@@ -108,18 +109,18 @@
       submittedOwnerInput = trimmed;
       const linked = await linkDriveDevice(trimmed);
       if (!linked) {
-        error = 'Invalid owner public key or invite link';
+        error = 'Invalid invite link or owner public key';
         return;
       }
       ownerInput = '';
-      navigate(driveRootPath(linked.npub));
+      navigate('/settings/user');
       return;
     }
 
     const npub = normalizeOwnerNpub(trimmed);
     if (!npub) {
       if (force || isCompleteDeviceLinkOwnerInput(trimmed)) {
-        error = 'Invalid owner public key or invite link';
+        error = 'Invalid invite link or owner public key';
       }
       return;
     }
@@ -155,10 +156,19 @@
         <button
           type="button"
           class="btn-ghost min-h-13 w-full justify-start rounded-lg px-4 text-base flex items-center gap-3"
+          onclick={() => selectMode('link')}
+        >
+          <span class="i-lucide-monitor-up text-lg"></span>
+          <span>Link device</span>
+        </button>
+
+        <button
+          type="button"
+          class="btn-ghost min-h-13 w-full justify-start rounded-lg px-4 text-base flex items-center gap-3"
           onclick={() => selectMode('restore')}
         >
           <span class="i-lucide-key-round text-lg"></span>
-          <span>Sign in</span>
+          <span>Recover profile</span>
         </button>
       </div>
       <a
@@ -202,22 +212,13 @@
           </label>
 
           <IdentityRecoveryPanel
+            methods={RECOVERY_METHODS}
             disabled={busy || !profileIdInput.trim()}
             error={error}
-            submitLabel="Recover app key"
+            submitLabel="Recover profile"
             nostrAvailable={typeof window !== 'undefined' && Boolean(window.nostr)}
             onSubmit={handleRecovery}
           />
-
-          <button
-            type="button"
-            class="btn-ghost w-full flex items-center justify-center gap-2"
-            onclick={() => selectMode('link')}
-            disabled={busy}
-          >
-            <span class="i-lucide-monitor-up"></span>
-            <span>Link this app</span>
-          </button>
         </div>
       {:else}
         <form
@@ -243,8 +244,8 @@
             type="text"
             class="input w-full"
             bind:value={ownerInput}
-            placeholder="Owner public key or invite link"
-            aria-label="Owner public key or invite link"
+            placeholder="Invite link or owner public key"
+            aria-label="Invite link or owner public key"
             autocomplete="off"
             disabled={busy}
           />
@@ -266,7 +267,7 @@
           {:else}
             <span class="i-lucide-monitor-up"></span>
           {/if}
-          <span>{mode === 'link' ? 'Link app' : title}</span>
+          <span>{mode === 'link' ? 'Link device' : title}</span>
         </button>
       </form>
       {/if}

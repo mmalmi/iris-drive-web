@@ -183,7 +183,7 @@ test.describe('Users Page', () => {
     await expect(page.locator('input[placeholder="nsec1..."]')).toHaveCount(0);
     await page.getByRole('button', { name: 'Secret key' }).click();
     await expect(page.locator('input[placeholder="nsec1..."]')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Recover app key' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Continue' })).toBeVisible();
   });
 
   test('should navigate back to home when clicking Back button', async ({ page }) => {

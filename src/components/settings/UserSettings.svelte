@@ -20,6 +20,7 @@
     readStoredDeviceLinkInvite,
     saveStoredDeviceLinkInvite,
   } from './deviceLinkInvites';
+  import { appStore } from '../../store';
 
   type PendingRequest = UserSettingsPendingRequest & DriveDeviceLinkRequest;
 
@@ -41,6 +42,12 @@
       && projection.active_facets[session.appKeyPubkey]?.capabilities?.can_admin_profile,
   ));
 
+  let connectedDevicePubkeys = $derived(new Set(
+    $appStore.peers
+      .filter((peer) => peer.state === 'connected')
+      .map((peer) => peer.pubkey),
+  ));
+
   let keys = $derived<UserSettingsKey[]>(projection
     ? Object.values(projection.active_facets).map((facet) => ({
         pubkey: facet.pubkey,
@@ -49,6 +56,7 @@
         capabilities: facet.capabilities,
         addedAt: facet.added_at,
         current: facet.pubkey === session?.appKeyPubkey,
+        online: facet.pubkey === session?.appKeyPubkey || connectedDevicePubkeys.has(facet.pubkey),
       }))
     : []);
 
@@ -249,7 +257,7 @@
       {canManage}
       showSummary={false}
       showDevicesHeading={false}
-      showKeyBadges={false}
+      keyBadgeMode="admin"
       {inviteBusy}
       {actionBusyKey}
       onCreateInvite={createInvite}

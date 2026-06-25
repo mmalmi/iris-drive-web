@@ -115,7 +115,7 @@
         if (!linked) {
           throw new Error('Invalid Drive link');
         }
-        navigate(driveRootPath(linked.npub));
+        navigate('/settings/user');
         return;
       }
       const profile = await recoverDriveProfileWithAppKey({
@@ -174,7 +174,7 @@
         methodLayout="column"
         disabled={recoveryBusy || creatingProfile}
         error={recoveryError}
-        submitLabel="Recover app key"
+        submitLabel="Continue"
         nostrAvailable={hasExtension}
         onMethodChange={handleRecoveryMethodChange}
         onSubmit={handleRecovery}

@@ -32,10 +32,11 @@ export async function restoreViaDriveSetup(page: Page, session: VmSession): Prom
   await presetLocalRelayInDB(page, session.relayUrl);
   await page.reload({ waitUntil: 'domcontentloaded' });
   await waitForAppReady(page, 60000);
-  await expect(page.getByTestId('drive-setup')).toBeVisible({ timeout: 30000 });
-  await page.getByRole('button', { name: 'Sign in' }).click();
-  await page.getByLabel('Secret key').fill(session.ownerNsec);
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await page.evaluate((ownerNsec) => {
+    localStorage.setItem('hashtree:loginType', 'nsec');
+    localStorage.setItem('hashtree:nsec', ownerNsec);
+  }, session.ownerNsec);
+  await page.reload({ waitUntil: 'domcontentloaded' });
   await page.waitForFunction(() => {
     const store = (window as BrowserTestWindow).__nostrStore;
     return store?.getState?.().pubkey?.length === 64;
