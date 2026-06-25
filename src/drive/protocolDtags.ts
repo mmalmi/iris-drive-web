@@ -17,6 +17,10 @@ export function shareMemberRosterOpDTag(shareId: IrisProfileId, clientNonce: str
   return `iris-drive/share/${shareId}/member-roster-op/${clientNonce}`;
 }
 
+export function appKeyLinkRequestDTag(profileId: IrisProfileId): string {
+  return `iris-drive/${profileId}/app-key-link-request`;
+}
+
 export function parseIrisProfileRosterOpDTag(dTag: string): { profileId: IrisProfileId; nonce: string } {
   const rest = dTag.startsWith('iris-profile/') ? dTag.slice('iris-profile/'.length) : '';
   const split = rest.indexOf('/roster-op/');

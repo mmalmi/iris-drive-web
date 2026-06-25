@@ -79,6 +79,9 @@
     const unsubscribe = subscribeDriveDeviceLinkRequestsForAdmin({
       profileId: session.profileId,
       adminAppKeyPubkey: session.appKeyPubkey,
+      ...(activeInvite?.profileId === session.profileId && activeInvite.adminAppKeyPubkey === session.appKeyPubkey
+        ? { linkSecretHash: activeInvite.linkSecretHash }
+        : {}),
     }, (requests) => {
       pendingRequests = requests.map((request) => ({
         ...request,

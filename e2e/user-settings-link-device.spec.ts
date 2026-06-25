@@ -78,6 +78,13 @@ async function expectDeviceLabels(page: Page, labels: string[]): Promise<void> {
   }
 }
 
+async function expectLinkedDeviceLabel(page: Page): Promise<void> {
+  const remoteLabel = page.getByTestId('user-key-row').nth(1).locator('strong');
+  await expect(remoteLabel).not.toHaveText('This device');
+  await expect(remoteLabel).not.toHaveText('Device');
+  await expect(remoteLabel).toHaveText(/.+/);
+}
+
 async function createLinkInvite(page: Page): Promise<string> {
   await page.goto('/#/settings/user', { waitUntil: 'domcontentloaded' });
   await expect(page).toHaveURL(/#\/settings\/user/);
@@ -133,7 +140,8 @@ async function expectPendingRequestAndApprove(page: Page): Promise<void> {
   await page.getByTestId('user-approve-link').click();
   await expect(page.getByTestId('user-link-request')).toHaveCount(0, { timeout: 30000 });
   await expectOnlyAdminDeviceBadges(page, 2);
-  await expectDeviceLabels(page, ['This device', 'Device']);
+  await expect(page.getByTestId('user-key-row').nth(0).locator('strong')).toHaveText('This device');
+  await expectLinkedDeviceLabel(page);
 }
 
 async function reloadOwnerSettingsWithInvite(page: Page, invite: string): Promise<void> {
@@ -154,7 +162,8 @@ async function activateApprovedDevice(page: Page, profileId: string): Promise<vo
   await page.getByTestId('user-check-approval').click();
   await expect(page.getByTestId('user-settings-panel')).toBeVisible({ timeout: 30000 });
   await expectOnlyAdminDeviceBadges(page, 2);
-  await expectDeviceLabels(page, ['This device', 'Device']);
+  await expect(page.getByTestId('user-key-row').nth(0).locator('strong')).toHaveText('This device');
+  await expectLinkedDeviceLabel(page);
 
   await expect.poll(async () => page.evaluate(() => {
     const stored = JSON.parse(localStorage.getItem('iris:identity:session') ?? 'null');

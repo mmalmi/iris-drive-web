@@ -11,7 +11,7 @@ import {
   waitForAppReady,
   waitForRelayConnected,
 } from './test-utils.js';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -61,6 +61,28 @@ function runIdriveJson(configDir: string, args: string[]): any {
     encoding: 'utf8',
   });
   return JSON.parse(stdout);
+}
+
+function startIdriveDaemon(configDir: string, relayUrl: string): ChildProcess {
+  return spawn(idriveBin(), ['daemon', '--relay', relayUrl, '--no-gateway'], {
+    env: { ...process.env, IRIS_DRIVE_CONFIG_DIR: configDir },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+}
+
+async function stopIdriveDaemon(child: ChildProcess): Promise<void> {
+  if (child.exitCode !== null) return;
+  child.kill('SIGINT');
+  await new Promise<void>((resolve) => {
+    const timer = setTimeout(() => {
+      if (child.exitCode === null) child.kill('SIGTERM');
+      resolve();
+    }, 3000);
+    child.once('exit', () => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
 }
 
 function configureNativeBlossom(configDir: string): void {
@@ -140,6 +162,21 @@ async function prepareFreshPage(
   await useLocalRelay(page, relayUrl);
   await configureBlossomServers(page);
   await waitForRelayConnected(page, 30000);
+}
+
+async function createWebOwnerInviteThroughSettings(page: Page): Promise<string> {
+  await page.evaluate(async () => {
+    const { createDriveProfile } = await import('/src/nostr');
+    await createDriveProfile();
+  });
+  await page.goto('/#/settings/user', { waitUntil: 'domcontentloaded' });
+  await expect(page.getByTestId('user-settings-panel')).toBeVisible({ timeout: 30000 });
+  await page.getByTestId('user-add-device-toggle').click();
+  await expect(page.getByTestId('user-link-invite-qr')).toBeVisible({ timeout: 10000 });
+  return page.evaluate(() => {
+    const all = JSON.parse(localStorage.getItem('iris:drive:device-link-invites') ?? '{}') as Record<string, { url?: string }>;
+    return Object.values(all).find((invite) => invite.url?.startsWith('https://drive.iris.to/invite/'))?.url ?? '';
+  });
 }
 
 async function createFileWithContent(page: Page, fileName: string, content: string): Promise<void> {
@@ -367,6 +404,28 @@ test.describe('Iris Drive web interop', () => {
       expect(linked.stored?.status).toBe('pending_device_link');
     } finally {
       fs.rmSync(configDir, { recursive: true, force: true });
+    }
+  });
+
+  test('native idrive link request appears in web owner device settings', async ({ page, relayUrl }) => {
+    test.skip(!fs.existsSync(repoRoot()), 'iris-drive repo not available');
+
+    const nativeConfigDir = fs.mkdtempSync(path.join(os.tmpdir(), 'iris-drive-native-link-request-'));
+    let daemon: ChildProcess | null = null;
+
+    try {
+      await prepareFreshPage(page, relayUrl);
+      const invite = await createWebOwnerInviteThroughSettings(page);
+      expect(invite).toMatch(/^https:\/\/drive\.iris\.to\/invite\//);
+
+      runIdriveJson(nativeConfigDir, ['link', invite, '--label', 'iOS native']);
+      daemon = startIdriveDaemon(nativeConfigDir, relayUrl);
+
+      await expect(page.getByTestId('user-link-request')).toBeVisible({ timeout: 45000 });
+      await expect(page.getByTestId('user-link-request')).toContainText('iOS native');
+    } finally {
+      if (daemon) await stopIdriveDaemon(daemon);
+      fs.rmSync(nativeConfigDir, { recursive: true, force: true });
     }
   });
 });

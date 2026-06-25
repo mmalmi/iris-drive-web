@@ -34,6 +34,8 @@ import {
   createPendingDeviceLinkSession,
   createIrisProfileDckRotateAfterRemovalOp,
   createIrisProfileDckRewrapOp,
+  appKeyLinkRequestDTag,
+  KIND_APP_KEY_LINK_REQUEST,
   KIND_IRIS_PROFILE_FACET_ACCEPTANCE,
   KIND_IRIS_PROFILE_ROSTER_OP,
   type DeviceLinkRequest,
@@ -497,7 +499,7 @@ export async function linkDriveDevice(inviteInput: string): Promise<{ nsec: stri
   if (!invite) return null;
   const session = createPendingDeviceLinkSession({
     invite,
-    label: 'This device',
+    label: currentBrowserDeviceLabel(),
   });
   const decoded = nip19.decode(session.appKeyNsec);
   if (decoded.type !== 'nsec') return null;
@@ -515,6 +517,48 @@ export async function linkDriveDevice(inviteInput: string): Promise<{ nsec: stri
   localStorage.removeItem(STORAGE_KEY_NSEC);
   await publishDriveDeviceLinkRequest(session, appKeySecretKey);
   return { nsec: session.appKeyNsec, npub: session.appKeyNpub, session };
+}
+
+function currentBrowserDeviceLabel(): string {
+  const nav = typeof navigator !== 'undefined' ? navigator : null;
+  const userAgentData = (nav as (Navigator & {
+    userAgentData?: {
+      brands?: Array<{ brand: string; version: string }>;
+      platform?: string;
+    };
+  }) | null)?.userAgentData;
+  const userAgent = nav?.userAgent ?? '';
+  const platform = userAgentData?.platform || nav?.platform || '';
+  const browser = browserNameFromUserAgent(userAgent, userAgentData?.brands);
+  const os = osNameFromUserAgent(userAgent, platform);
+  if (browser && os) return `${browser} on ${os}`;
+  if (browser) return browser;
+  if (os) return `${os} browser`;
+  return 'Browser';
+}
+
+function browserNameFromUserAgent(
+  userAgent: string,
+  brands: Array<{ brand: string; version: string }> | undefined,
+): string {
+  const brandNames = brands?.map((brand) => brand.brand).join(' ') ?? '';
+  const combined = `${brandNames} ${userAgent}`;
+  if (/Edg\//.test(userAgent) || /Microsoft Edge/i.test(brandNames)) return 'Edge';
+  if (/OPR\//.test(userAgent) || /Opera/i.test(brandNames)) return 'Opera';
+  if (/Firefox|FxiOS/i.test(combined)) return 'Firefox';
+  if (/Google Chrome|Chrome|CriOS|Chromium/i.test(combined)) return 'Chrome';
+  if (/Safari/i.test(userAgent) && !/Chrome|Chromium|CriOS|FxiOS|Edg|OPR/i.test(userAgent)) return 'Safari';
+  return '';
+}
+
+function osNameFromUserAgent(userAgent: string, platform: string): string {
+  const combined = `${platform} ${userAgent}`;
+  if (/iPhone|iPad|iPod/i.test(combined)) return 'iOS';
+  if (/Android/i.test(combined)) return 'Android';
+  if (/Macintosh|Mac OS X|MacIntel|macOS/i.test(combined)) return 'macOS';
+  if (/Windows/i.test(combined)) return 'Windows';
+  if (/Linux/i.test(combined)) return 'Linux';
+  return '';
 }
 
 export async function createDriveDeviceLinkInvite(): Promise<DriveDeviceLinkInvite> {
@@ -540,21 +584,31 @@ export function subscribeDriveDeviceLinkRequestsForAdmin(
   onRequests: (requests: DriveDeviceLinkRequest[]) => void,
 ): () => void {
   const requests = new Map<string, DriveDeviceLinkRequest>();
-  const sub = ndk.subscribe(
+  const filters: NDKFilter[] = [
     {
       kinds: [KIND_IRIS_PROFILE_ROSTER_OP],
       '#i': [scope.profileId],
       '#p': [scope.adminAppKeyPubkey],
       limit: 200,
     },
+    {
+      kinds: [KIND_APP_KEY_LINK_REQUEST],
+      '#d': [appKeyLinkRequestDTag(scope.profileId)],
+      limit: 200,
+    },
+  ];
+  const sub = ndk.subscribe(
+    filters,
     { closeOnEose: false },
   );
 
   sub.on('event', (event) => {
-    const parsed = parseDriveDeviceLinkRequestEvent(event.rawEvent() as NostrToolsEvent, scope);
-    if (!parsed) return;
-    requests.set(parsed.id, parsed);
-    onRequests(Array.from(requests.values()).sort((left, right) => right.requestedAt - left.requestedAt));
+    void (async () => {
+      const parsed = await parseDriveDeviceLinkRequestEventForAdmin(event.rawEvent() as NostrToolsEvent, scope);
+      if (!parsed) return;
+      requests.set(parsed.id, parsed);
+      onRequests(Array.from(requests.values()).sort((left, right) => right.requestedAt - left.requestedAt));
+    })();
   });
 
   return () => sub.stop();
@@ -1172,65 +1226,135 @@ async function publishDriveDeviceLinkRequest(
 ): Promise<void> {
   const request = session.pendingDeviceLink;
   if (!request) return;
-  const linkSecretHash = await hashDeviceLinkSecret(request.linkSecret);
   const event = finalizeEvent({
-    kind: KIND_IRIS_PROFILE_ROSTER_OP,
-    content: '',
+    kind: KIND_APP_KEY_LINK_REQUEST,
+    content: JSON.stringify({
+      schema: 1,
+      profile_id: request.profileId,
+      app_key_pubkey: request.deviceAppKeyPubkey,
+      link_secret: request.linkSecret,
+      ...(request.label ? { label: request.label } : {}),
+      requested_at: request.requestedAt,
+      url: encodeNativeAppKeyApprovalRequest(request),
+    }),
     created_at: currentUnixSeconds(),
-    tags: [
-      ['i', request.profileId, 'subject'],
-      ['type', 'nostr_identity_link_request'],
-      ['p', request.adminAppKeyPubkey],
-      ['p', request.deviceAppKeyPubkey],
-      ['admin_pubkey', request.adminAppKeyPubkey],
-      ['key_pubkey', request.deviceAppKeyPubkey],
-      ['link_secret_hash', linkSecretHash],
-      ['requested_at', String(request.requestedAt)],
-      ...(request.label ? [['label', request.label]] : []),
-    ],
+    tags: [['d', appKeyLinkRequestDTag(request.profileId)]],
   }, appKeySecretKey);
   await publishRawNostrEvent(event);
 }
 
-function parseDriveDeviceLinkRequestEvent(
+export async function parseDriveDeviceLinkRequestEventForAdmin(
   event: NostrToolsEvent,
   scope: DriveDeviceLinkRequestScope,
-): DriveDeviceLinkRequest | null {
+): Promise<DriveDeviceLinkRequest | null> {
   try {
-    if (event.kind !== KIND_IRIS_PROFILE_ROSTER_OP || !verifyEvent(event)) return null;
-    const type = tagValue(event, 'type');
-    if (type !== 'nostr_identity_link_request') return null;
-    const profileId = tagValue(event, 'i');
-    const adminAppKeyPubkey = normalizeHexPubkey(tagValue(event, 'admin_pubkey') ?? '');
-    const deviceAppKeyPubkey = normalizeHexPubkey(tagValue(event, 'key_pubkey') ?? event.pubkey);
-    const linkSecretHash = tagValue(event, 'link_secret_hash');
-    if (
-      profileId !== scope.profileId
-      || adminAppKeyPubkey !== scope.adminAppKeyPubkey
-      || deviceAppKeyPubkey !== event.pubkey
-      || (scope.linkSecretHash && linkSecretHash !== scope.linkSecretHash)
-    ) {
-      return null;
+    if (event.kind === KIND_APP_KEY_LINK_REQUEST) {
+      return await parseNativeDriveDeviceLinkRequestEvent(event, scope);
     }
-    const requestedAt = Number(tagValue(event, 'requested_at') ?? event.created_at);
-    const request: DeviceLinkRequest = {
-      profileId,
-      adminAppKeyPubkey,
-      deviceAppKeyPubkey,
-      linkSecret: linkSecretHash ?? '',
-      requestedAt: Number.isFinite(requestedAt) ? requestedAt : event.created_at,
-      ...(tagValue(event, 'label') ? { label: tagValue(event, 'label')! } : {}),
-    };
-    return {
-      id: event.id,
-      request,
-      pubkey: deviceAppKeyPubkey,
-      label: request.label,
-      requestedAt: request.requestedAt,
-    };
+    if (event.kind === KIND_IRIS_PROFILE_ROSTER_OP) {
+      return parseLegacyDriveDeviceLinkRequestEvent(event, scope);
+    }
+    return null;
   } catch {
     return null;
   }
+}
+
+type NativeAppKeyLinkRequestFrame = {
+  schema?: number;
+  profile_id?: string;
+  app_key_pubkey?: string;
+  link_secret?: string;
+  label?: string | null;
+  requested_at?: number;
+  url?: string;
+};
+
+async function parseNativeDriveDeviceLinkRequestEvent(
+  event: NostrToolsEvent,
+  scope: DriveDeviceLinkRequestScope,
+): Promise<DriveDeviceLinkRequest | null> {
+  if (!verifyEvent(event)) return null;
+  const frame = JSON.parse(event.content) as NativeAppKeyLinkRequestFrame;
+  if (frame.schema !== 1 || typeof frame.profile_id !== 'string') return null;
+  const deviceAppKeyPubkey = normalizeHexPubkey(frame.app_key_pubkey ?? '');
+  const linkSecret = typeof frame.link_secret === 'string' ? frame.link_secret.trim() : '';
+  const dTag = tagValue(event, 'd');
+  const requestedAt = typeof frame.requested_at === 'number' && Number.isFinite(frame.requested_at)
+    ? frame.requested_at
+    : event.created_at;
+  if (
+    frame.profile_id !== scope.profileId
+    || dTag !== appKeyLinkRequestDTag(frame.profile_id)
+    || deviceAppKeyPubkey !== event.pubkey
+    || (scope.linkSecretHash && (!linkSecret || await hashDeviceLinkSecret(linkSecret) !== scope.linkSecretHash))
+  ) {
+    return null;
+  }
+  const label = typeof frame.label === 'string' && frame.label.trim() ? frame.label.trim() : undefined;
+  const request: DeviceLinkRequest = {
+    profileId: frame.profile_id,
+    adminAppKeyPubkey: scope.adminAppKeyPubkey,
+    deviceAppKeyPubkey,
+    linkSecret,
+    requestedAt,
+    ...(label ? { label } : {}),
+  };
+  return driveDeviceLinkRequestFromRequest(request);
+}
+
+function parseLegacyDriveDeviceLinkRequestEvent(
+  event: NostrToolsEvent,
+  scope: DriveDeviceLinkRequestScope,
+): DriveDeviceLinkRequest | null {
+  if (!verifyEvent(event)) return null;
+  const type = tagValue(event, 'type');
+  if (type !== 'nostr_identity_link_request') return null;
+  const profileId = tagValue(event, 'i');
+  const adminAppKeyPubkey = normalizeHexPubkey(tagValue(event, 'admin_pubkey') ?? '');
+  const deviceAppKeyPubkey = normalizeHexPubkey(tagValue(event, 'key_pubkey') ?? event.pubkey);
+  const linkSecretHash = tagValue(event, 'link_secret_hash');
+  if (
+    profileId !== scope.profileId
+    || adminAppKeyPubkey !== scope.adminAppKeyPubkey
+    || deviceAppKeyPubkey !== event.pubkey
+    || (scope.linkSecretHash && linkSecretHash !== scope.linkSecretHash)
+  ) {
+    return null;
+  }
+  const requestedAt = Number(tagValue(event, 'requested_at') ?? event.created_at);
+  const label = tagValue(event, 'label');
+  const request: DeviceLinkRequest = {
+    profileId,
+    adminAppKeyPubkey,
+    deviceAppKeyPubkey,
+    linkSecret: linkSecretHash ?? '',
+    requestedAt: Number.isFinite(requestedAt) ? requestedAt : event.created_at,
+    ...(label ? { label } : {}),
+  };
+  return driveDeviceLinkRequestFromRequest(request);
+}
+
+function driveDeviceLinkRequestFromRequest(request: DeviceLinkRequest): DriveDeviceLinkRequest {
+  return {
+    id: `${request.profileId}:${request.deviceAppKeyPubkey}:${request.requestedAt}`,
+    request,
+    pubkey: request.deviceAppKeyPubkey,
+    label: request.label,
+    requestedAt: request.requestedAt,
+  };
+}
+
+function encodeNativeAppKeyApprovalRequest(request: DeviceLinkRequest): string {
+  const params = [
+    ['profile', request.profileId],
+    ['app_key', nip19.npubEncode(request.deviceAppKeyPubkey)],
+    ['secret', request.linkSecret],
+    ...(request.label ? [['label', request.label]] : []),
+  ];
+  return `iris-drive://app-key-link?${params
+    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
+    .join('&')}`;
 }
 
 function tagValue(event: NostrToolsEvent, name: string): string | undefined {
