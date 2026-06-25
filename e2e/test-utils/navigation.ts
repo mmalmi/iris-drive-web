@@ -167,6 +167,18 @@ export async function goToTreeList(page: any) {
   await expect(page.locator('[data-testid="file-list"]').first()).toBeVisible({ timeout: 30000 });
 }
 
+export async function waitForCurrentDirectoryEntries(
+  page: any,
+  entryNames: string[],
+  timeoutMs: number = 15000
+) {
+  const fileList = page.locator('[data-testid="file-list"]').first();
+  await expect(fileList).toBeVisible({ timeout: timeoutMs });
+  for (const entryName of entryNames) {
+    await expect(fileList.locator('a').filter({ hasText: entryName }).first()).toBeVisible({ timeout: timeoutMs });
+  }
+}
+
 /**
  * Create a new folder using the UI.
  * Clicks "New Folder" button, fills the name, and waits for modal to close.

@@ -136,7 +136,8 @@ export default defineConfig({
       '@hashtree/worker',
       '@hashtree/worker/p2p',
       '@hashtree/worker/relay-entry',
-    ], // Keep the linked worker package out of optimizeDeps so local updates are not cached stale.
+      '@iris/svelte-ui',
+    ], // Keep linked workspace packages out of optimizeDeps so local updates are not cached stale.
   },
   assetsInclude: ['**/*.wasm'], // Treat wasm files as assets
   worker: {

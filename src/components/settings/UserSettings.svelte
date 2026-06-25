@@ -159,7 +159,7 @@
       activeInvite = await createDriveDeviceLinkInvite();
       saveStoredDeviceLinkInvite(activeInvite);
     } catch (inviteError) {
-      error = inviteError instanceof Error ? inviteError.message : 'Could not create link';
+      error = inviteError instanceof Error ? inviteError.message : 'Could not prepare device invite';
     } finally {
       inviteBusy = false;
     }
