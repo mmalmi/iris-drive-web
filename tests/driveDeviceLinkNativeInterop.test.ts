@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { Event as NostrToolsEvent } from 'nostr-tools';
+import { generateSecretKey, getPublicKey, type Event as NostrToolsEvent } from 'nostr-tools';
+import { signDeviceLinkRequestEvent } from '@iris/identity';
 import { parseDriveDeviceLinkRequestEventForAdmin } from '../src/nostr/auth';
 
 const nativeAppKeyLinkRequestEvent: NostrToolsEvent = {
@@ -36,6 +37,46 @@ async function hashDeviceLinkSecret(secret: string): Promise<string> {
 }
 
 describe('native app-key-link request interop', () => {
+  it('parses identity fact-event device link requests', async () => {
+    const deviceSecret = generateSecretKey();
+    const device = getPublicKey(deviceSecret);
+    const adminAppKeyPubkey = 'a'.repeat(64);
+    const profileId = '123e4567-e89b-42d3-a456-426614174099';
+    const event = signDeviceLinkRequestEvent({
+      signerSecretKey: deviceSecret,
+      request: {
+        profileId,
+        adminAppKeyPubkey,
+        deviceAppKeyPubkey: device,
+        requestedAt: 1_782_377_100,
+        label: 'iPhone',
+      },
+      linkSecretHash: 'fact-secret-hash',
+      clientNonce: 'fact-request',
+    });
+
+    expect(event.kind).toBe(7368);
+    expect(event.content).toBe('');
+
+    const parsed = await parseDriveDeviceLinkRequestEventForAdmin(event, {
+      profileId,
+      adminAppKeyPubkey,
+      linkSecretHash: 'fact-secret-hash',
+    });
+
+    expect(parsed?.pubkey).toBe(device);
+    expect(parsed?.label).toBe('iPhone');
+    expect(parsed?.request).toMatchObject({
+      profileId,
+      adminAppKeyPubkey,
+      deviceAppKeyPubkey: device,
+      linkSecretHash: 'fact-secret-hash',
+      requestedAt: 1_782_377_100,
+      label: 'iPhone',
+    });
+    expect(JSON.stringify(event)).not.toContain('native-join-secret');
+  });
+
   it('parses the native app-key-link event shape as a Drive device link request', async () => {
     const frame = JSON.parse(nativeAppKeyLinkRequestEvent.content) as {
       profile_id: string;
@@ -60,6 +101,7 @@ describe('native app-key-link request interop', () => {
       adminAppKeyPubkey,
       deviceAppKeyPubkey: frame.app_key_pubkey,
       linkSecret: frame.link_secret,
+      linkSecretHash: await hashDeviceLinkSecret(frame.link_secret),
       label: frame.label,
       requestedAt: frame.requested_at,
     });

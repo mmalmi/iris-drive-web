@@ -2,6 +2,7 @@ import type { CID } from '@hashtree/core';
 
 export const KIND_APP_KEYS = 30078;
 export const KIND_DRIVE_ROOT = 30078;
+// Legacy parse-only device-link request kind. New requests are identity fact events.
 export const KIND_APP_KEY_LINK_REQUEST = 30078;
 export const KIND_LEGACY_DRIVE_ROOT = 30079;
 export const D_TAG_APP_KEYS = 'iris-drive/app-keys';

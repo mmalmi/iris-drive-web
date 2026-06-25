@@ -14,7 +14,8 @@ export interface DeviceLinkRequest {
   profileId: IrisProfileId;
   adminAppKeyPubkey: string;
   deviceAppKeyPubkey: string;
-  linkSecret: string;
+  linkSecret?: string;
+  linkSecretHash?: string;
   label?: string;
   requestedAt: number;
 }

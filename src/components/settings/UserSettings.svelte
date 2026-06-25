@@ -83,11 +83,11 @@
         ? { linkSecretHash: activeInvite.linkSecretHash }
         : {}),
     }, (requests) => {
-      pendingRequests = requests.map((request) => ({
+      pendingRequests = visiblePendingRequests(requests.map((request) => ({
         ...request,
         id: request.id,
         pubkey: request.pubkey,
-      }));
+      })));
     });
     return unsubscribe;
   });
@@ -126,6 +126,7 @@
     }
     const nextProjection = projectIrisProfileRoster(session.profileId, session.rosterOps);
     projection = nextProjection;
+    pendingRequests = visiblePendingRequests(pendingRequests, nextProjection);
     const currentCanManage = Boolean(nextProjection.active_facets[session.appKeyPubkey]?.capabilities?.can_admin_profile);
     if (!currentCanManage) {
       activeInvite = null;
@@ -181,9 +182,17 @@
     if (!pending) return;
     await runAction(`approve:${pending.id}`, async () => {
       await approveDriveDeviceLinkRequest(pending.request);
-      pendingRequests = pendingRequests.filter((candidate) => candidate.id !== pending.id);
+      pendingRequests = pendingRequests.filter((candidate) => candidate.pubkey !== pending.pubkey);
       refreshSession();
     });
+  }
+
+  function visiblePendingRequests(
+    requests: PendingRequest[],
+    rosterProjection: IrisProfileRosterProjection | null = projection,
+  ): PendingRequest[] {
+    if (!rosterProjection) return requests;
+    return requests.filter((request) => !rosterProjection.active_facets[request.pubkey]);
   }
 
   async function grantAdmin(key: UserSettingsKey): Promise<void> {

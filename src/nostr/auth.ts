@@ -1,7 +1,7 @@
 /**
  * Nostr Authentication and Encryption
  */
-import { finalizeEvent, generateSecretKey, getPublicKey, nip19, nip44, verifyEvent, type Event as NostrToolsEvent } from 'nostr-tools';
+import { generateSecretKey, getPublicKey, nip19, nip44, verifyEvent, type Event as NostrToolsEvent } from 'nostr-tools';
 import {
   APP_KEY_ADMIN_CAPABILITIES,
   approveDeviceLinkRequest,
@@ -12,7 +12,9 @@ import {
   createIrisIdentitySignerFromSeedPhrase,
   encodeDeviceLinkInvite,
   normalizeHexPubkey,
+  parseDeviceLinkRequestEvent as parseIdentityDeviceLinkRequestEvent,
   removeIrisAppKeyFromProfile,
+  signDeviceLinkRequestEvent,
   type IrisIdentityEventSigner,
   type RemoveIrisAppKeyResult,
 } from '@iris/identity';
@@ -1226,20 +1228,13 @@ async function publishDriveDeviceLinkRequest(
 ): Promise<void> {
   const request = session.pendingDeviceLink;
   if (!request) return;
-  const event = finalizeEvent({
-    kind: KIND_APP_KEY_LINK_REQUEST,
-    content: JSON.stringify({
-      schema: 1,
-      profile_id: request.profileId,
-      app_key_pubkey: request.deviceAppKeyPubkey,
-      link_secret: request.linkSecret,
-      ...(request.label ? { label: request.label } : {}),
-      requested_at: request.requestedAt,
-      url: encodeNativeAppKeyApprovalRequest(request),
-    }),
-    created_at: currentUnixSeconds(),
-    tags: [['d', appKeyLinkRequestDTag(request.profileId)]],
-  }, appKeySecretKey);
+  const linkSecretHash = request.linkSecretHash
+    ?? await hashDeviceLinkSecret(requireDeviceLinkSecret(request));
+  const event = signDeviceLinkRequestEvent({
+    signerSecretKey: appKeySecretKey,
+    request,
+    linkSecretHash,
+  });
   await publishRawNostrEvent(event);
 }
 
@@ -1252,9 +1247,21 @@ export async function parseDriveDeviceLinkRequestEventForAdmin(
       return await parseNativeDriveDeviceLinkRequestEvent(event, scope);
     }
     if (event.kind === KIND_IRIS_PROFILE_ROSTER_OP) {
-      return parseLegacyDriveDeviceLinkRequestEvent(event, scope);
+      return parseIdentityDriveDeviceLinkRequestEvent(event, scope)
+        ?? parseLegacyDriveDeviceLinkRequestEvent(event, scope);
     }
     return null;
+  } catch {
+    return null;
+  }
+}
+
+function parseIdentityDriveDeviceLinkRequestEvent(
+  event: NostrToolsEvent,
+  scope: DriveDeviceLinkRequestScope,
+): DriveDeviceLinkRequest | null {
+  try {
+    return driveDeviceLinkRequestFromRequest(parseIdentityDeviceLinkRequestEvent(event, scope).request);
   } catch {
     return null;
   }
@@ -1297,6 +1304,7 @@ async function parseNativeDriveDeviceLinkRequestEvent(
     adminAppKeyPubkey: scope.adminAppKeyPubkey,
     deviceAppKeyPubkey,
     linkSecret,
+    linkSecretHash: linkSecret ? await hashDeviceLinkSecret(linkSecret) : undefined,
     requestedAt,
     ...(label ? { label } : {}),
   };
@@ -1328,7 +1336,7 @@ function parseLegacyDriveDeviceLinkRequestEvent(
     profileId,
     adminAppKeyPubkey,
     deviceAppKeyPubkey,
-    linkSecret: linkSecretHash ?? '',
+    linkSecretHash,
     requestedAt: Number.isFinite(requestedAt) ? requestedAt : event.created_at,
     ...(label ? { label } : {}),
   };
@@ -1345,16 +1353,10 @@ function driveDeviceLinkRequestFromRequest(request: DeviceLinkRequest): DriveDev
   };
 }
 
-function encodeNativeAppKeyApprovalRequest(request: DeviceLinkRequest): string {
-  const params = [
-    ['profile', request.profileId],
-    ['app_key', nip19.npubEncode(request.deviceAppKeyPubkey)],
-    ['secret', request.linkSecret],
-    ...(request.label ? [['label', request.label]] : []),
-  ];
-  return `iris-drive://app-key-link?${params
-    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
-    .join('&')}`;
+function requireDeviceLinkSecret(request: DeviceLinkRequest): string {
+  const secret = request.linkSecret?.trim();
+  if (!secret) throw new Error('Pending device link request is missing its invite secret');
+  return secret;
 }
 
 function tagValue(event: NostrToolsEvent, name: string): string | undefined {
@@ -1584,12 +1586,25 @@ async function publishSignedIdentityEventJson(eventJson: string): Promise<void> 
 
 async function publishRawNostrEvent(event: NostrToolsEvent): Promise<void> {
   ndk.subManager.dispatchEvent(event as Parameters<typeof ndk.subManager.dispatchEvent>[0], undefined, true);
+  const hasDirectRelays = ndk.pool.relays.size > 0 || (ndk.explicitRelayUrls?.length ?? 0) > 0;
+  let directError: unknown = null;
+  if (hasDirectRelays) {
+    try {
+      const ndkEvent = new NDKEvent(ndk, event);
+      await ndkEvent.publish();
+      return;
+    } catch (error) {
+      directError = error;
+    }
+  }
+
   const adapter = getWorkerAdapter() ?? await waitForWorkerAdapter(5000);
   if (adapter) {
     await adapter.publish(event as Parameters<typeof adapter.publish>[0]);
     return;
   }
 
+  if (directError) throw directError;
   const ndkEvent = new NDKEvent(ndk, event);
   await ndkEvent.publish();
 }

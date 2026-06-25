@@ -423,6 +423,19 @@ test.describe('Iris Drive web interop', () => {
 
       await expect(page.getByTestId('user-link-request')).toBeVisible({ timeout: 45000 });
       await expect(page.getByTestId('user-link-request')).toContainText('iOS native');
+      await page.getByTestId('user-approve-link').click();
+      await expect(page.getByTestId('user-link-request')).toHaveCount(0, { timeout: 45000 });
+
+      await expect.poll(() => {
+        const status = runIdriveJson(nativeConfigDir, ['status']);
+        return {
+          authorization: status.profile?.authorization_state,
+          pendingRequest: status.profile?.app_key_link_request?.url ?? '',
+        };
+      }, { timeout: 90000, intervals: [1000, 2000, 5000] }).toEqual({
+        authorization: 'authorized',
+        pendingRequest: '',
+      });
     } finally {
       if (daemon) await stopIdriveDaemon(daemon);
       fs.rmSync(nativeConfigDir, { recursive: true, force: true });

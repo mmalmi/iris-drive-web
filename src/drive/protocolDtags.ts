@@ -18,6 +18,8 @@ export function shareMemberRosterOpDTag(shareId: IrisProfileId, clientNonce: str
 }
 
 export function appKeyLinkRequestDTag(profileId: IrisProfileId): string {
+  // Legacy parse-only request coordinate. Current device-link requests are
+  // identity fact events addressed by `i`/`p` tags.
   return `iris-drive/${profileId}/app-key-link-request`;
 }
 
