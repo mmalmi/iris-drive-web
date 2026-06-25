@@ -59,12 +59,14 @@ async function createLinkInvite(page: Page): Promise<string> {
   await expect(page.getByTestId('user-settings-summary')).toHaveCount(0);
   await expect(page.getByTestId('user-settings-devices').getByRole('heading', { name: 'Devices' })).toHaveCount(0);
   await expect(page.getByTestId('user-key-row')).toHaveCount(1, { timeout: 30000 });
+  await expect(page.getByTestId('user-key-row').locator('.badge')).toHaveCount(0);
   await page.reload({ waitUntil: 'domcontentloaded' });
   await expect(page).toHaveURL(/#\/settings\/user/);
   await expect(page.getByTestId('user-settings-panel')).toBeVisible({ timeout: 30000 });
   await expect(page.getByTestId('user-settings-summary')).toHaveCount(0);
   await expect(page.getByTestId('user-settings-devices').getByRole('heading', { name: 'Devices' })).toHaveCount(0);
   await expect(page.getByTestId('user-key-row')).toHaveCount(1, { timeout: 30000 });
+  await expect(page.getByTestId('user-key-row').locator('.badge')).toHaveCount(0);
   await page.getByTestId('user-add-device-toggle').click();
   await expect(page.getByTestId('user-add-device-panel')).toBeVisible();
   await expect(page.getByTestId('user-create-link')).toHaveCount(0);
@@ -104,6 +106,7 @@ async function expectPendingRequestAndApprove(page: Page): Promise<void> {
   await page.getByTestId('user-approve-link').click();
   await expect(page.getByTestId('user-link-request')).toHaveCount(0, { timeout: 30000 });
   await expect(page.getByTestId('user-key-row')).toHaveCount(2, { timeout: 30000 });
+  await expect(page.getByTestId('user-key-row').locator('.badge')).toHaveCount(0);
 }
 
 async function reloadOwnerSettingsWithInvite(page: Page, invite: string): Promise<void> {
@@ -124,6 +127,7 @@ async function activateApprovedDevice(page: Page, profileId: string): Promise<vo
   await page.getByTestId('user-check-approval').click();
   await expect(page.getByTestId('user-settings-panel')).toBeVisible({ timeout: 30000 });
   await expect(page.getByTestId('user-key-row')).toHaveCount(2, { timeout: 30000 });
+  await expect(page.getByTestId('user-key-row').locator('.badge')).toHaveCount(0);
 
   await expect.poll(async () => page.evaluate(() => {
     const stored = JSON.parse(localStorage.getItem('iris:identity:session') ?? 'null');

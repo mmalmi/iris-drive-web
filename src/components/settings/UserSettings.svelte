@@ -249,6 +249,7 @@
       {canManage}
       showSummary={false}
       showDevicesHeading={false}
+      showKeyBadges={false}
       {inviteBusy}
       {actionBusyKey}
       onCreateInvite={createInvite}
