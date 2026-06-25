@@ -114,6 +114,12 @@ export interface DriveDeviceLinkRequest {
   requestedAt: number;
 }
 
+export interface DriveDeviceLinkRequestScope {
+  profileId: IrisProfileId;
+  adminAppKeyPubkey: string;
+  linkSecretHash?: string;
+}
+
 type DefaultTree = {
   name: string;
   visibility: 'public' | 'link-visible' | 'private';
@@ -522,29 +528,36 @@ export async function createDriveDeviceLinkInvite(): Promise<DriveDeviceLinkInvi
   };
 }
 
-export function subscribeDriveDeviceLinkRequests(
-  invite: Pick<DriveDeviceLinkInvite, 'profileId' | 'adminAppKeyPubkey' | 'linkSecretHash'>,
+export function subscribeDriveDeviceLinkRequestsForAdmin(
+  scope: DriveDeviceLinkRequestScope,
   onRequests: (requests: DriveDeviceLinkRequest[]) => void,
 ): () => void {
   const requests = new Map<string, DriveDeviceLinkRequest>();
   const sub = ndk.subscribe(
     {
       kinds: [KIND_IRIS_PROFILE_ROSTER_OP],
-      '#i': [invite.profileId],
-      '#p': [invite.adminAppKeyPubkey],
+      '#i': [scope.profileId],
+      '#p': [scope.adminAppKeyPubkey],
       limit: 200,
     },
     { closeOnEose: false },
   );
 
   sub.on('event', (event) => {
-    const parsed = parseDriveDeviceLinkRequestEvent(event.rawEvent() as NostrToolsEvent, invite);
+    const parsed = parseDriveDeviceLinkRequestEvent(event.rawEvent() as NostrToolsEvent, scope);
     if (!parsed) return;
     requests.set(parsed.id, parsed);
     onRequests(Array.from(requests.values()).sort((left, right) => right.requestedAt - left.requestedAt));
   });
 
   return () => sub.stop();
+}
+
+export function subscribeDriveDeviceLinkRequests(
+  invite: Pick<DriveDeviceLinkInvite, 'profileId' | 'adminAppKeyPubkey' | 'linkSecretHash'>,
+  onRequests: (requests: DriveDeviceLinkRequest[]) => void,
+): () => void {
+  return subscribeDriveDeviceLinkRequestsForAdmin(invite, onRequests);
 }
 
 export async function approveDriveDeviceLinkRequest(
@@ -1173,7 +1186,7 @@ async function publishDriveDeviceLinkRequest(
 
 function parseDriveDeviceLinkRequestEvent(
   event: NostrToolsEvent,
-  invite: Pick<DriveDeviceLinkInvite, 'profileId' | 'adminAppKeyPubkey' | 'linkSecretHash'>,
+  scope: DriveDeviceLinkRequestScope,
 ): DriveDeviceLinkRequest | null {
   try {
     if (event.kind !== KIND_IRIS_PROFILE_ROSTER_OP || !verifyEvent(event)) return null;
@@ -1184,10 +1197,10 @@ function parseDriveDeviceLinkRequestEvent(
     const deviceAppKeyPubkey = normalizeHexPubkey(tagValue(event, 'key_pubkey') ?? event.pubkey);
     const linkSecretHash = tagValue(event, 'link_secret_hash');
     if (
-      profileId !== invite.profileId
-      || adminAppKeyPubkey !== invite.adminAppKeyPubkey
+      profileId !== scope.profileId
+      || adminAppKeyPubkey !== scope.adminAppKeyPubkey
       || deviceAppKeyPubkey !== event.pubkey
-      || linkSecretHash !== invite.linkSecretHash
+      || (scope.linkSecretHash && linkSecretHash !== scope.linkSecretHash)
     ) {
       return null;
     }
@@ -1196,7 +1209,7 @@ function parseDriveDeviceLinkRequestEvent(
       profileId,
       adminAppKeyPubkey,
       deviceAppKeyPubkey,
-      linkSecret: linkSecretHash,
+      linkSecret: linkSecretHash ?? '',
       requestedAt: Number.isFinite(requestedAt) ? requestedAt : event.created_at,
       ...(tagValue(event, 'label') ? { label: tagValue(event, 'label')! } : {}),
     };

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import QRCode from 'qrcode';
   import UserSettingsPanel from '@iris/svelte-ui/UserSettingsPanel.svelte';
   import type { UserSettingsKey, UserSettingsPendingRequest } from '@iris/svelte-ui/userSettings';
   import {
@@ -10,17 +11,22 @@
     removeDriveProfileAppKeyWithAdmin,
     restoreSession,
     setDriveProfileAppKeyAdmin,
-    subscribeDriveDeviceLinkRequests,
+    subscribeDriveDeviceLinkRequestsForAdmin,
     type DriveDeviceLinkInvite,
     type DriveDeviceLinkRequest,
   } from '../../nostr';
   import { projectIrisProfileRoster, type IrisIdentitySession, type IrisProfileRosterProjection } from '../../drive/protocol';
+  import {
+    readStoredDeviceLinkInvite,
+    saveStoredDeviceLinkInvite,
+  } from './deviceLinkInvites';
 
   type PendingRequest = UserSettingsPendingRequest & DriveDeviceLinkRequest;
 
   let session = $state<IrisIdentitySession | null>(null);
   let projection = $state<IrisProfileRosterProjection | null>(null);
   let activeInvite = $state<DriveDeviceLinkInvite | null>(null);
+  let inviteQrUrl = $state('');
   let pendingRequests = $state<PendingRequest[]>([]);
   let error = $state('');
   let actionBusyKey = $state('');
@@ -57,12 +63,15 @@
   });
 
   $effect(() => {
-    if (!activeInvite) {
+    if (!session || session.status !== 'active' || !canManage) {
       pendingRequests = [];
       return;
     }
     pendingRequests = [];
-    const unsubscribe = subscribeDriveDeviceLinkRequests(activeInvite, (requests) => {
+    const unsubscribe = subscribeDriveDeviceLinkRequestsForAdmin({
+      profileId: session.profileId,
+      adminAppKeyPubkey: session.appKeyPubkey,
+    }, (requests) => {
       pendingRequests = requests.map((request) => ({
         ...request,
         id: request.id,
@@ -72,13 +81,47 @@
     return unsubscribe;
   });
 
+  $effect(() => {
+    const invite = activeInvite;
+    if (!invite) {
+      inviteQrUrl = '';
+      return;
+    }
+    let cancelled = false;
+    QRCode.toDataURL(invite.url, {
+      errorCorrectionLevel: 'M',
+      margin: 1,
+      scale: 6,
+      color: {
+        dark: '#111111',
+        light: '#ffffff',
+      },
+    }).then((url) => {
+      if (!cancelled) inviteQrUrl = url;
+    }).catch(() => {
+      if (!cancelled) inviteQrUrl = '';
+    });
+    return () => {
+      cancelled = true;
+    };
+  });
+
   function refreshSession(): void {
     session = getCurrentIrisIdentitySession();
     if (!session || session.status !== 'active') {
       projection = null;
+      activeInvite = null;
       return;
     }
-    projection = projectIrisProfileRoster(session.profileId, session.rosterOps);
+    const nextProjection = projectIrisProfileRoster(session.profileId, session.rosterOps);
+    projection = nextProjection;
+    const currentCanManage = Boolean(nextProjection.active_facets[session.appKeyPubkey]?.capabilities?.can_admin_profile);
+    if (!currentCanManage) {
+      activeInvite = null;
+      return;
+    }
+    if (activeInvite?.profileId === session.profileId && activeInvite.adminAppKeyPubkey === session.appKeyPubkey) return;
+    activeInvite = readStoredDeviceLinkInvite(session.profileId, session.appKeyPubkey);
   }
 
   async function restoreUserSession(): Promise<void> {
@@ -114,6 +157,7 @@
     error = '';
     try {
       activeInvite = await createDriveDeviceLinkInvite();
+      saveStoredDeviceLinkInvite(activeInvite);
     } catch (inviteError) {
       error = inviteError instanceof Error ? inviteError.message : 'Could not create link';
     } finally {
@@ -127,6 +171,7 @@
     await runAction(`approve:${pending.id}`, async () => {
       await approveDriveDeviceLinkRequest(pending.request);
       pendingRequests = pendingRequests.filter((candidate) => candidate.id !== pending.id);
+      refreshSession();
     });
   }
 
@@ -179,7 +224,7 @@
   {:else if session?.status === 'pending_device_link'}
     <div class="rounded-lg bg-surface-2 p-4" data-testid="user-pending-link">
       <h3 class="mb-2 text-sm font-semibold text-text-1">Waiting for approval</h3>
-      <p class="mb-3 text-sm text-text-3">This key has requested access to the Drive user.</p>
+      <p class="mb-3 text-sm text-text-3">This device has requested access to Drive.</p>
       <button
         type="button"
         class="btn-success flex w-full items-center justify-center gap-2"
@@ -197,10 +242,11 @@
     </div>
   {:else if session && projection}
     <UserSettingsPanel
-      userName="Drive user"
+      userName="Drive devices"
       {keys}
       pendingRequests={pendingRequests}
       inviteUrl={activeInvite?.url ?? ''}
+      inviteQrUrl={inviteQrUrl}
       {canManage}
       {inviteBusy}
       {actionBusyKey}
@@ -212,8 +258,8 @@
     />
   {:else}
     <div class="rounded-lg bg-surface-2 p-4" data-testid="user-no-session">
-      <h3 class="mb-2 text-sm font-semibold text-text-1">No Drive user</h3>
-      <p class="text-sm text-text-3">Create or add a Drive user to manage user keys.</p>
+      <h3 class="mb-2 text-sm font-semibold text-text-1">No Drive devices</h3>
+      <p class="text-sm text-text-3">Create or link Drive to manage devices.</p>
     </div>
   {/if}
 

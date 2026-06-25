@@ -17,8 +17,8 @@
     },
     {
       id: 'user',
-      label: 'User',
-      icon: 'i-lucide-user-round',
+      label: 'Devices',
+      icon: 'i-lucide-monitor-smartphone',
       activeRowClass: 'bg-emerald-500/10',
       iconFrameClass: 'bg-emerald-500/12 text-emerald-500 ring-1 ring-emerald-500/20',
     },

@@ -54,9 +54,14 @@ async function createLinkInvite(page: Page): Promise<string> {
   await expect(page).toHaveURL(/#\/settings\/user/);
   await expect(page.getByTestId('user-settings-panel')).toBeVisible({ timeout: 30000 });
   await expect(page.getByTestId('user-key-row')).toHaveCount(1, { timeout: 30000 });
+  await page.getByTestId('user-add-device-toggle').click();
+  await expect(page.getByTestId('user-add-device-panel')).toBeVisible();
   await page.getByTestId('user-create-link').click();
   const invite = page.getByTestId('user-link-invite').locator('.copy-value');
   await expect(invite).toContainText('https://drive.iris.to/invite/', { timeout: 10000 });
+  const qrCode = page.getByTestId('user-link-invite-qr');
+  await expect(qrCode).toBeVisible({ timeout: 10000 });
+  await expect.poll(async () => qrCode.getAttribute('src'), { timeout: 10000 }).toMatch(/^data:image\/png;base64,/);
   return (await invite.textContent())?.trim() ?? '';
 }
 
@@ -82,6 +87,15 @@ async function expectPendingRequestAndApprove(page: Page): Promise<void> {
   await page.getByTestId('user-approve-link').click();
   await expect(page.getByTestId('user-link-request')).toHaveCount(0, { timeout: 30000 });
   await expect(page.getByTestId('user-key-row')).toHaveCount(2, { timeout: 30000 });
+}
+
+async function reloadOwnerSettingsWithInvite(page: Page, invite: string): Promise<void> {
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await expect(page).toHaveURL(/#\/settings\/user/);
+  await expect(page.getByTestId('user-settings-panel')).toBeVisible({ timeout: 30000 });
+  await expect(page.getByTestId('user-link-request')).toBeVisible({ timeout: 30000 });
+  await expect(page.getByTestId('user-link-invite').locator('.copy-value')).toContainText(invite, { timeout: 10000 });
+  await expect(page.getByTestId('user-link-invite-qr')).toBeVisible({ timeout: 10000 });
 }
 
 async function activateApprovedDevice(page: Page, profileId: string): Promise<void> {
@@ -116,6 +130,7 @@ test.describe('Drive user settings link device', () => {
     try {
       await prepareDriveInstance(devicePage, relayUrl);
       await linkDeviceFromUsers(devicePage, invite);
+      await reloadOwnerSettingsWithInvite(page, invite);
       await expectPendingRequestAndApprove(page);
       await activateApprovedDevice(devicePage, profileId);
     } finally {
