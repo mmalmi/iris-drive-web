@@ -45,24 +45,35 @@ async function createAdminDriveUser(page: Page): Promise<string> {
   return profileId;
 }
 
+async function readStoredDeviceLinkInviteUrl(page: Page): Promise<string> {
+  return page.evaluate(() => {
+    const all = JSON.parse(localStorage.getItem('iris:drive:device-link-invites') ?? '{}') as Record<string, { url?: string }>;
+    return Object.values(all).find((invite) => invite.url?.startsWith('https://drive.iris.to/invite/'))?.url ?? '';
+  });
+}
+
 async function createLinkInvite(page: Page): Promise<string> {
   await page.goto('/#/settings/user', { waitUntil: 'domcontentloaded' });
   await expect(page).toHaveURL(/#\/settings\/user/);
   await expect(page.getByTestId('user-settings-panel')).toBeVisible({ timeout: 30000 });
+  await expect(page.getByTestId('user-settings-summary')).toHaveCount(0);
   await expect(page.getByTestId('user-key-row')).toHaveCount(1, { timeout: 30000 });
   await page.reload({ waitUntil: 'domcontentloaded' });
   await expect(page).toHaveURL(/#\/settings\/user/);
   await expect(page.getByTestId('user-settings-panel')).toBeVisible({ timeout: 30000 });
+  await expect(page.getByTestId('user-settings-summary')).toHaveCount(0);
   await expect(page.getByTestId('user-key-row')).toHaveCount(1, { timeout: 30000 });
   await page.getByTestId('user-add-device-toggle').click();
   await expect(page.getByTestId('user-add-device-panel')).toBeVisible();
   await expect(page.getByTestId('user-create-link')).toHaveCount(0);
-  const invite = page.getByTestId('user-link-invite').locator('.copy-value');
-  await expect(invite).toContainText('https://drive.iris.to/invite/', { timeout: 10000 });
+  await expect(page.getByTestId('user-link-invite')).toBeVisible({ timeout: 10000 });
+  await expect(page.getByTestId('user-copy-link')).toContainText('Copy link');
+  await expect(page.getByTestId('user-settings-panel')).not.toContainText('https://drive.iris.to/invite/');
   const qrCode = page.getByTestId('user-link-invite-qr');
   await expect(qrCode).toBeVisible({ timeout: 10000 });
   await expect.poll(async () => qrCode.getAttribute('src'), { timeout: 10000 }).toMatch(/^data:image\/png;base64,/);
-  return (await invite.textContent())?.trim() ?? '';
+  await expect.poll(() => readStoredDeviceLinkInviteUrl(page), { timeout: 10000 }).toMatch(/^https:\/\/drive\.iris\.to\/invite\//);
+  return readStoredDeviceLinkInviteUrl(page);
 }
 
 async function linkDeviceFromUsers(page: Page, invite: string): Promise<void> {
@@ -97,8 +108,11 @@ async function reloadOwnerSettingsWithInvite(page: Page, invite: string): Promis
   await page.reload({ waitUntil: 'domcontentloaded' });
   await expect(page).toHaveURL(/#\/settings\/user/);
   await expect(page.getByTestId('user-settings-panel')).toBeVisible({ timeout: 30000 });
+  await expect(page.getByTestId('user-settings-summary')).toHaveCount(0);
   await expect(page.getByTestId('user-link-request')).toBeVisible({ timeout: 30000 });
-  await expect(page.getByTestId('user-link-invite').locator('.copy-value')).toContainText(invite, { timeout: 10000 });
+  await expect(page.getByTestId('user-copy-link')).toContainText('Copy link');
+  await expect(page.getByTestId('user-settings-panel')).not.toContainText(invite);
+  await expect.poll(() => readStoredDeviceLinkInviteUrl(page), { timeout: 10000 }).toBe(invite);
   await expect(page.getByTestId('user-link-invite-qr')).toBeVisible({ timeout: 10000 });
 }
 

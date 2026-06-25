@@ -219,7 +219,7 @@
 >
   {#if restoring}
     <div class="rounded-lg bg-surface-2 p-4" data-testid="user-settings-loading">
-      <h3 class="mb-2 text-sm font-semibold text-text-1">Loading user</h3>
+      <h3 class="mb-2 text-sm font-semibold text-text-1">Loading devices</h3>
     </div>
   {:else if session?.status === 'pending_device_link'}
     <div class="rounded-lg bg-surface-2 p-4" data-testid="user-pending-link">
@@ -242,12 +242,12 @@
     </div>
   {:else if session && projection}
     <UserSettingsPanel
-      userName="Drive devices"
       {keys}
       pendingRequests={pendingRequests}
       inviteUrl={activeInvite?.url ?? ''}
       inviteQrUrl={inviteQrUrl}
       {canManage}
+      showSummary={false}
       {inviteBusy}
       {actionBusyKey}
       onCreateInvite={createInvite}
@@ -258,7 +258,7 @@
     />
   {:else}
     <div class="rounded-lg bg-surface-2 p-4" data-testid="user-no-session">
-      <h3 class="mb-2 text-sm font-semibold text-text-1">No Drive devices</h3>
+      <h3 class="mb-2 text-sm font-semibold text-text-1">No devices</h3>
       <p class="text-sm text-text-3">Create or link Drive to manage devices.</p>
     </div>
   {/if}
