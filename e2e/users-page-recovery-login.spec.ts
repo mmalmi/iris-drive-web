@@ -284,7 +284,7 @@ test.describe('Users Page recovery login', () => {
     });
   });
 
-  test('offers Create new when Browser extension has no Drive identity', async ({ page, relayUrl }) => {
+  test('offers Create new when Browser extension has no Drive user', async ({ page, relayUrl }) => {
     const recoverySecretKey = generateSecretKey();
     const profile: RecoveryProfile = {
       profileId: crypto.randomUUID(),

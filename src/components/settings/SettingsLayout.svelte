@@ -2,7 +2,7 @@
   import { currentPath, navigate } from '../../lib/router.svelte';
   import StorageSettings from './StorageSettings.svelte';
   import AppSettings from './AppSettings.svelte';
-  import IdentitySettings from './IdentitySettings.svelte';
+  import UserSettings from './UserSettings.svelte';
   import P2PSettings from './P2PSettings.svelte';
   import ServersSettings from './ServersSettings.svelte';
   import TransportUsageSettings from './TransportUsageSettings.svelte';
@@ -16,9 +16,9 @@
       iconFrameClass: 'bg-accent/12 text-accent ring-1 ring-accent/20',
     },
     {
-      id: 'identity',
-      label: 'Identity',
-      icon: 'i-lucide-fingerprint',
+      id: 'user',
+      label: 'User',
+      icon: 'i-lucide-user-round',
       activeRowClass: 'bg-emerald-500/10',
       iconFrameClass: 'bg-emerald-500/12 text-emerald-500 ring-1 ring-emerald-500/20',
     },
@@ -94,7 +94,7 @@
   let activeTab = $derived.by((): TabId => {
     const path = $currentPath;
     if (path === '/settings') return DEFAULT_TAB;
-    if (path.startsWith('/settings/identity')) return 'identity';
+    if (path.startsWith('/settings/user') || path.startsWith('/settings/identity')) return 'user';
     if (path.startsWith('/settings/storage')) return 'storage';
     if (path.startsWith('/settings/network')) return 'network';
     if (path.startsWith('/settings/app')) return 'app';
@@ -187,8 +187,8 @@
 
       {#if activeTab === 'app'}
         <AppSettings />
-      {:else if activeTab === 'identity'}
-        <IdentitySettings />
+      {:else if activeTab === 'user'}
+        <UserSettings />
       {:else if activeTab === 'storage'}
         <StorageSettings />
       {:else if activeNetworkSection === 'traffic'}

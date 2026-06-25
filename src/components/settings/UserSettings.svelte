@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import IdentitySettingsPanel from '@iris/svelte-ui/IdentitySettingsPanel.svelte';
-  import type { IdentitySettingsKey, IdentitySettingsPendingRequest } from '@iris/svelte-ui/identitySettings';
+  import UserSettingsPanel from '@iris/svelte-ui/UserSettingsPanel.svelte';
+  import type { UserSettingsKey, UserSettingsPendingRequest } from '@iris/svelte-ui/userSettings';
   import {
     activatePendingDriveDeviceLinkIfApproved,
     approveDriveDeviceLinkRequest,
@@ -15,7 +15,7 @@
   } from '../../nostr';
   import { projectIrisProfileRoster, type IrisIdentitySession, type IrisProfileRosterProjection } from '../../drive/protocol';
 
-  type PendingRequest = IdentitySettingsPendingRequest & DriveDeviceLinkRequest;
+  type PendingRequest = UserSettingsPendingRequest & DriveDeviceLinkRequest;
 
   let session = $state<IrisIdentitySession | null>(null);
   let projection = $state<IrisProfileRosterProjection | null>(null);
@@ -33,7 +33,7 @@
       && projection.active_facets[session.appKeyPubkey]?.capabilities?.can_admin_profile,
   ));
 
-  let keys = $derived<IdentitySettingsKey[]>(projection
+  let keys = $derived<UserSettingsKey[]>(projection
     ? Object.values(projection.active_facets).map((facet) => ({
         pubkey: facet.pubkey,
         label: facet.label,
@@ -81,7 +81,7 @@
       await action();
       refreshSession();
     } catch (actionError) {
-      error = actionError instanceof Error ? actionError.message : 'Identity action failed';
+      error = actionError instanceof Error ? actionError.message : 'User action failed';
     } finally {
       actionBusyKey = '';
     }
@@ -100,7 +100,7 @@
     }
   }
 
-  async function approveRequest(request: IdentitySettingsPendingRequest): Promise<void> {
+  async function approveRequest(request: UserSettingsPendingRequest): Promise<void> {
     const pending = pendingRequests.find((candidate) => candidate.id === request.id);
     if (!pending) return;
     await runAction(`approve:${pending.id}`, async () => {
@@ -109,15 +109,15 @@
     });
   }
 
-  async function grantAdmin(key: IdentitySettingsKey): Promise<void> {
+  async function grantAdmin(key: UserSettingsKey): Promise<void> {
     await runAction(`grant-admin:${key.pubkey}`, () => setDriveProfileAppKeyAdmin(key.pubkey, true).then(() => undefined));
   }
 
-  async function revokeAdmin(key: IdentitySettingsKey): Promise<void> {
+  async function revokeAdmin(key: UserSettingsKey): Promise<void> {
     await runAction(`revoke-admin:${key.pubkey}`, () => setDriveProfileAppKeyAdmin(key.pubkey, false).then(() => undefined));
   }
 
-  async function removeKey(key: IdentitySettingsKey): Promise<void> {
+  async function removeKey(key: UserSettingsKey): Promise<void> {
     await runAction(`remove:${key.pubkey}`, () => removeDriveProfileAppKeyWithAdmin(key.pubkey).then(() => undefined));
   }
 
@@ -137,30 +137,30 @@
 </script>
 
 <div
-  class="identity-settings-page space-y-4"
+  class="user-settings-page space-y-4"
   style="
-    --identity-settings-surface: rgb(var(--surface-2));
-    --identity-settings-row: rgb(var(--surface-1));
-    --identity-settings-border: rgb(var(--surface-3));
-    --identity-settings-text: rgb(var(--text-1));
-    --identity-settings-muted: rgb(var(--text-3));
-    --identity-settings-button: rgb(var(--surface-2));
-    --identity-settings-icon-bg: rgb(var(--surface-3));
-    --identity-settings-accent: #28a745;
-    --identity-settings-success: #28a745;
-    --identity-settings-danger: #ff4d4f;
+    --user-settings-surface: rgb(var(--surface-2));
+    --user-settings-row: rgb(var(--surface-1));
+    --user-settings-border: rgb(var(--surface-3));
+    --user-settings-text: rgb(var(--text-1));
+    --user-settings-muted: rgb(var(--text-3));
+    --user-settings-button: rgb(var(--surface-2));
+    --user-settings-icon-bg: rgb(var(--surface-3));
+    --user-settings-accent: #28a745;
+    --user-settings-success: #28a745;
+    --user-settings-danger: #ff4d4f;
   "
 >
   {#if session?.status === 'pending_device_link'}
-    <div class="rounded-lg bg-surface-2 p-4" data-testid="identity-pending-link">
+    <div class="rounded-lg bg-surface-2 p-4" data-testid="user-pending-link">
       <h3 class="mb-2 text-sm font-semibold text-text-1">Waiting for approval</h3>
-      <p class="mb-3 text-sm text-text-3">This key has requested access to the Drive identity.</p>
+      <p class="mb-3 text-sm text-text-3">This key has requested access to the Drive user.</p>
       <button
         type="button"
         class="btn-success flex w-full items-center justify-center gap-2"
         onclick={checkPendingApproval}
         disabled={checkingApproval}
-        data-testid="identity-check-approval"
+        data-testid="user-check-approval"
       >
         {#if checkingApproval}
           <span class="i-lucide-loader-2 animate-spin"></span>
@@ -171,10 +171,8 @@
       </button>
     </div>
   {:else if session && projection}
-    <IdentitySettingsPanel
-      identityName="Drive identity"
-      identityId={session.profileId}
-      currentKeyPubkey={session.appKeyPubkey}
+    <UserSettingsPanel
+      userName="Drive user"
       {keys}
       pendingRequests={pendingRequests}
       inviteUrl={activeInvite?.url ?? ''}
@@ -188,13 +186,13 @@
       onRemoveKey={removeKey}
     />
   {:else}
-    <div class="rounded-lg bg-surface-2 p-4" data-testid="identity-no-session">
-      <h3 class="mb-2 text-sm font-semibold text-text-1">No Drive identity</h3>
-      <p class="text-sm text-text-3">Create or add a Drive user to manage identity keys.</p>
+    <div class="rounded-lg bg-surface-2 p-4" data-testid="user-no-session">
+      <h3 class="mb-2 text-sm font-semibold text-text-1">No Drive user</h3>
+      <p class="text-sm text-text-3">Create or add a Drive user to manage user keys.</p>
     </div>
   {/if}
 
   {#if error}
-    <p class="text-sm font-semibold text-danger" data-testid="identity-settings-error">{error}</p>
+    <p class="text-sm font-semibold text-danger" data-testid="user-settings-error">{error}</p>
   {/if}
 </div>

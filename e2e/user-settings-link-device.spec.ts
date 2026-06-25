@@ -25,7 +25,7 @@ async function prepareDriveInstance(page: Page, relayUrl: string): Promise<void>
   await waitForRelayConnected(page, 30000);
 }
 
-async function createAdminDriveIdentity(page: Page): Promise<string> {
+async function createAdminDriveUser(page: Page): Promise<string> {
   await expect(page.getByTestId('drive-setup')).toBeVisible({ timeout: 30000 });
   await page.getByRole('button', { name: 'Create profile' }).click();
   await expect(page.getByRole('heading', { name: 'Create profile' })).toBeVisible();
@@ -46,12 +46,12 @@ async function createAdminDriveIdentity(page: Page): Promise<string> {
 }
 
 async function createLinkInvite(page: Page): Promise<string> {
-  await page.goto('/#/settings/identity', { waitUntil: 'domcontentloaded' });
-  await expect(page).toHaveURL(/#\/settings\/identity/);
-  await expect(page.getByTestId('identity-settings-panel')).toBeVisible({ timeout: 30000 });
-  await expect(page.getByTestId('identity-key-row')).toHaveCount(1, { timeout: 30000 });
-  await page.getByTestId('identity-create-link').click();
-  const invite = page.getByTestId('identity-link-invite').locator('.copy-value');
+  await page.goto('/#/settings/user', { waitUntil: 'domcontentloaded' });
+  await expect(page).toHaveURL(/#\/settings\/user/);
+  await expect(page.getByTestId('user-settings-panel')).toBeVisible({ timeout: 30000 });
+  await expect(page.getByTestId('user-key-row')).toHaveCount(1, { timeout: 30000 });
+  await page.getByTestId('user-create-link').click();
+  const invite = page.getByTestId('user-link-invite').locator('.copy-value');
   await expect(invite).toContainText('https://drive.iris.to/invite/', { timeout: 10000 });
   return (await invite.textContent())?.trim() ?? '';
 }
@@ -74,18 +74,18 @@ async function linkDeviceFromUsers(page: Page, invite: string): Promise<void> {
 }
 
 async function expectPendingRequestAndApprove(page: Page): Promise<void> {
-  await expect(page.getByTestId('identity-link-request')).toBeVisible({ timeout: 30000 });
-  await page.getByTestId('identity-approve-link').click();
-  await expect(page.getByTestId('identity-link-request')).toHaveCount(0, { timeout: 30000 });
-  await expect(page.getByTestId('identity-key-row')).toHaveCount(2, { timeout: 30000 });
+  await expect(page.getByTestId('user-link-request')).toBeVisible({ timeout: 30000 });
+  await page.getByTestId('user-approve-link').click();
+  await expect(page.getByTestId('user-link-request')).toHaveCount(0, { timeout: 30000 });
+  await expect(page.getByTestId('user-key-row')).toHaveCount(2, { timeout: 30000 });
 }
 
 async function activateApprovedDevice(page: Page, profileId: string): Promise<void> {
-  await page.goto('/#/settings/identity', { waitUntil: 'domcontentloaded' });
-  await expect(page.getByTestId('identity-pending-link')).toBeVisible({ timeout: 30000 });
-  await page.getByTestId('identity-check-approval').click();
-  await expect(page.getByTestId('identity-settings-panel')).toBeVisible({ timeout: 30000 });
-  await expect(page.getByTestId('identity-key-row')).toHaveCount(2, { timeout: 30000 });
+  await page.goto('/#/settings/user', { waitUntil: 'domcontentloaded' });
+  await expect(page.getByTestId('user-pending-link')).toBeVisible({ timeout: 30000 });
+  await page.getByTestId('user-check-approval').click();
+  await expect(page.getByTestId('user-settings-panel')).toBeVisible({ timeout: 30000 });
+  await expect(page.getByTestId('user-key-row')).toHaveCount(2, { timeout: 30000 });
 
   await expect.poll(async () => page.evaluate(() => {
     const stored = JSON.parse(localStorage.getItem('iris:identity:session') ?? 'null');
@@ -99,11 +99,11 @@ async function activateApprovedDevice(page: Page, profileId: string): Promise<vo
   });
 }
 
-test.describe('Drive identity settings link device', () => {
+test.describe('Drive user settings link device', () => {
   test('links an existing Drive user through another approving Drive instance', async ({ page, browser, relayUrl }) => {
     test.setTimeout(120000);
     await prepareDriveInstance(page, relayUrl);
-    const profileId = await createAdminDriveIdentity(page);
+    const profileId = await createAdminDriveUser(page);
     const invite = await createLinkInvite(page);
     expect(invite).toMatch(/^https:\/\/drive\.iris\.to\/invite\//);
 

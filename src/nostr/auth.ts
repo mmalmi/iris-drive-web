@@ -553,7 +553,7 @@ export async function approveDriveDeviceLinkRequest(
   const session = requireActiveDriveIdentitySession();
   requireCurrentDriveAdmin(session);
   if (request.profileId !== session.profileId || request.adminAppKeyPubkey !== session.appKeyPubkey) {
-    throw new Error('Device link request does not match the current Drive identity');
+    throw new Error('Device link request does not match the current Drive user');
   }
   if (!secretKey) throw new Error('No active Drive AppKey secret');
 
@@ -578,7 +578,7 @@ export async function approveDriveDeviceLinkRequest(
   await publishCurrentDriveIdentityRosterOps({ ...session, rosterOps });
   await publishSignedIdentityEventJson(signed.event_json);
   const updated = appendCurrentIrisIdentitySessionRosterOps(session.profileId, [...rosterOps, signed]);
-  if (!updated) throw new Error('Approved key removed the active Drive identity');
+  if (!updated) throw new Error('Approved key removed the active Drive user');
   return updated;
 }
 
@@ -619,7 +619,7 @@ export async function setDriveProfileAppKeyAdmin(
   await publishCurrentDriveIdentityRosterOps({ ...session, rosterOps });
   await publishSignedIdentityEventJson(signed.event_json);
   const updated = appendCurrentIrisIdentitySessionRosterOps(session.profileId, [...rosterOps, signed]);
-  if (!updated) throw new Error('Drive identity session is no longer active');
+  if (!updated) throw new Error('Drive user session is no longer active');
   return updated;
 }
 
@@ -688,7 +688,7 @@ export async function recoverDriveProfileWithAppKey(
       }
     : await discoverRecoverableIrisProfileRoster(signer, options.rosterFetchTimeoutMs);
   if (rosterOps.length === 0) {
-    throw new Error('No identity roster events found for that recovery key');
+    throw new Error('No Drive user found for that recovery key');
   }
 
   const { attachment, session } = await createAttachedIrisIdentitySession({
@@ -737,7 +737,7 @@ export async function removeDriveProfileAppKeyWithRecovery(
   const signer = await createRecoverySigner(options.recovery);
   const rosterOps = await fetchIrisProfileRosterOps(profileId, options.rosterFetchTimeoutMs);
   if (rosterOps.length === 0) {
-    throw new Error('No identity roster events found for that profile');
+    throw new Error('No Drive user found for that profile');
   }
 
   let dckRotationOp: SignedIrisProfileRosterOp | null = null;
@@ -1110,7 +1110,7 @@ function restoreDriveIdentitySession(stored: StoredIrisIdentitySession): IrisIde
 function requireActiveDriveIdentitySession(): IrisIdentitySession {
   const session = currentIrisIdentitySession;
   if (!session || session.status !== 'active') {
-    throw new Error('No active Drive identity');
+    throw new Error('No active Drive user');
   }
   return session;
 }
@@ -1362,7 +1362,7 @@ async function discoverRecoverableIrisProfileRoster(
   }
 
   if (recoverable.length === 0) {
-    throw new Error('No Drive identity found for that recovery key');
+    throw new Error('No Drive user found for that recovery key');
   }
 
   return recoverable.sort((left, right) => latestRosterTimestamp(right.rosterOps) - latestRosterTimestamp(left.rosterOps))[0];

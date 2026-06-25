@@ -1,7 +1,7 @@
 <script lang="ts">
   /**
    * UsersPage - manage saved accounts
-   * Shows list of app accounts, allows Drive identity recovery, switching, and removing accounts.
+   * Shows list of app accounts, allows Drive user recovery, switching, and removing accounts.
    */
   import { onMount } from 'svelte';
   import IdentityRecoveryPanel from '@iris/svelte-ui/IdentityRecoveryPanel.svelte';
@@ -140,7 +140,9 @@
   }
 
   function isRecoveryIdentityMiss(message: string): boolean {
-    return message.includes('No Drive identity found') || message.includes('No identity roster events found');
+    return message.includes('No Drive user found')
+      || message.includes('No Drive identity found')
+      || message.includes('No identity roster events found');
   }
 </script>
 
@@ -226,7 +228,7 @@
               {/if}
             </div>
             {#if account.irisProfileId}
-              <div class="text-xs text-text-3 truncate">Drive identity</div>
+              <div class="text-xs text-text-3 truncate">Drive user</div>
             {/if}
           </div>
 
