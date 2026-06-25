@@ -248,6 +248,7 @@
       inviteQrUrl={inviteQrUrl}
       {canManage}
       showSummary={false}
+      showDevicesHeading={false}
       {inviteBusy}
       {actionBusyKey}
       onCreateInvite={createInvite}
