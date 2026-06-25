@@ -50,6 +50,10 @@ async function createLinkInvite(page: Page): Promise<string> {
   await expect(page).toHaveURL(/#\/settings\/user/);
   await expect(page.getByTestId('user-settings-panel')).toBeVisible({ timeout: 30000 });
   await expect(page.getByTestId('user-key-row')).toHaveCount(1, { timeout: 30000 });
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await expect(page).toHaveURL(/#\/settings\/user/);
+  await expect(page.getByTestId('user-settings-panel')).toBeVisible({ timeout: 30000 });
+  await expect(page.getByTestId('user-key-row')).toHaveCount(1, { timeout: 30000 });
   await page.getByTestId('user-create-link').click();
   const invite = page.getByTestId('user-link-invite').locator('.copy-value');
   await expect(invite).toContainText('https://drive.iris.to/invite/', { timeout: 10000 });

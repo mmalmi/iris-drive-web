@@ -8,6 +8,7 @@
     createDriveDeviceLinkInvite,
     getCurrentIrisIdentitySession,
     removeDriveProfileAppKeyWithAdmin,
+    restoreSession,
     setDriveProfileAppKeyAdmin,
     subscribeDriveDeviceLinkRequests,
     type DriveDeviceLinkInvite,
@@ -25,6 +26,7 @@
   let actionBusyKey = $state('');
   let inviteBusy = $state(false);
   let checkingApproval = $state(false);
+  let restoring = $state(true);
 
   let canManage = $derived(Boolean(
     session
@@ -45,7 +47,13 @@
     : []);
 
   onMount(() => {
-    refreshSession();
+    let cancelled = false;
+    void restoreUserSession().finally(() => {
+      if (!cancelled) restoring = false;
+    });
+    return () => {
+      cancelled = true;
+    };
   });
 
   $effect(() => {
@@ -71,6 +79,19 @@
       return;
     }
     projection = projectIrisProfileRoster(session.profileId, session.rosterOps);
+  }
+
+  async function restoreUserSession(): Promise<void> {
+    error = '';
+    try {
+      if (!getCurrentIrisIdentitySession()) {
+        await restoreSession({ autoCreate: false });
+      }
+    } catch (restoreError) {
+      console.warn('[UserSettings] Could not restore Drive user session:', restoreError);
+    } finally {
+      refreshSession();
+    }
   }
 
   async function runAction(key: string, action: () => Promise<void>): Promise<void> {
@@ -151,7 +172,11 @@
     --user-settings-danger: #ff4d4f;
   "
 >
-  {#if session?.status === 'pending_device_link'}
+  {#if restoring}
+    <div class="rounded-lg bg-surface-2 p-4" data-testid="user-settings-loading">
+      <h3 class="mb-2 text-sm font-semibold text-text-1">Loading user</h3>
+    </div>
+  {:else if session?.status === 'pending_device_link'}
     <div class="rounded-lg bg-surface-2 p-4" data-testid="user-pending-link">
       <h3 class="mb-2 text-sm font-semibold text-text-1">Waiting for approval</h3>
       <p class="mb-3 text-sm text-text-3">This key has requested access to the Drive user.</p>
