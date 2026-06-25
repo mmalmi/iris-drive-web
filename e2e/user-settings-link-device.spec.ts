@@ -110,6 +110,12 @@ async function createLinkInvite(page: Page): Promise<string> {
   await expect(qrCode).toBeVisible({ timeout: 10000 });
   await expect.poll(async () => qrCode.getAttribute('src'), { timeout: 10000 }).toMatch(/^data:image\/png;base64,/);
   await expect.poll(() => readStoredDeviceLinkInviteUrl(page), { timeout: 10000 }).toMatch(/^https:\/\/drive\.iris\.to\/invite\//);
+  const firstInvite = await readStoredDeviceLinkInviteUrl(page);
+  await expect(page.getByTestId('user-reset-link')).toContainText('Reset link');
+  await page.getByTestId('user-reset-link').click();
+  await expect.poll(() => readStoredDeviceLinkInviteUrl(page), { timeout: 10000 }).not.toBe(firstInvite);
+  await expect.poll(() => readStoredDeviceLinkInviteUrl(page), { timeout: 10000 }).toMatch(/^https:\/\/drive\.iris\.to\/invite\//);
+  await expect(page.getByTestId('user-link-invite-qr')).toBeVisible({ timeout: 10000 });
   return readStoredDeviceLinkInviteUrl(page);
 }
 
@@ -151,6 +157,7 @@ async function reloadOwnerSettingsWithInvite(page: Page, invite: string): Promis
   await expect(page.getByTestId('user-settings-summary')).toHaveCount(0);
   await expect(page.getByTestId('user-link-request')).toBeVisible({ timeout: 30000 });
   await expect(page.getByTestId('user-copy-link')).toContainText('Copy link');
+  await expect(page.getByTestId('user-reset-link')).toContainText('Reset link');
   await expect(page.getByTestId('user-settings-panel')).not.toContainText(invite);
   await expect.poll(() => readStoredDeviceLinkInviteUrl(page), { timeout: 10000 }).toBe(invite);
   await expect(page.getByTestId('user-link-invite-qr')).toBeVisible({ timeout: 10000 });

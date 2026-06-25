@@ -171,6 +171,10 @@
     }
   }
 
+  async function resetInvite(): Promise<void> {
+    await createInvite();
+  }
+
   async function approveRequest(request: UserSettingsPendingRequest): Promise<void> {
     const pending = pendingRequests.find((candidate) => candidate.id === request.id);
     if (!pending) return;
@@ -267,6 +271,7 @@
       {inviteBusy}
       {actionBusyKey}
       onCreateInvite={createInvite}
+      onResetInvite={resetInvite}
       onApproveRequest={approveRequest}
       onGrantAdmin={grantAdmin}
       onRevokeAdmin={revokeAdmin}
