@@ -587,14 +587,17 @@ export function subscribeDriveDeviceLinkRequestsForAdmin(
   onRequests: (requests: DriveDeviceLinkRequest[]) => void,
 ): () => void {
   const requests = new Map<string, DriveDeviceLinkRequest>();
-  const filters: NDKFilter[] = [
-    {
-      kinds: [KIND_IRIS_PROFILE_ROSTER_OP],
-      '#i': [scope.profileId],
-      '#p': [scope.invitePubkey],
-      limit: 200,
-    },
-  ];
+  let stopped = false;
+  const emitRequests = () => {
+    if (stopped) return;
+    onRequests(Array.from(requests.values()).sort((left, right) => right.requestedAt - left.requestedAt));
+  };
+  const recordRequest = (request: DriveDeviceLinkRequest | null) => {
+    if (!request || stopped) return;
+    requests.set(request.id, request);
+    emitRequests();
+  };
+  const filters = driveDeviceLinkRequestFilters(scope);
   const sub = ndk.subscribe(
     filters,
     { closeOnEose: false },
@@ -603,13 +606,72 @@ export function subscribeDriveDeviceLinkRequestsForAdmin(
   sub.on('event', (event) => {
     void (async () => {
       const parsed = await parseDriveDeviceLinkRequestEventForAdmin(event.rawEvent() as NostrToolsEvent, scope);
-      if (!parsed) return;
-      requests.set(parsed.id, parsed);
-      onRequests(Array.from(requests.values()).sort((left, right) => right.requestedAt - left.requestedAt));
+      recordRequest(parsed);
     })();
   });
 
-  return () => sub.stop();
+  const backfill = () => {
+    void backfillDriveDeviceLinkRequestsForAdmin(scope)
+      .then((fetched) => {
+        if (stopped) return;
+        for (const request of fetched) {
+          requests.set(request.id, request);
+        }
+        emitRequests();
+      })
+      .catch((error) => {
+        console.warn('[auth] Could not backfill device link requests:', error);
+      });
+  };
+  backfill();
+  const backfillTimer = setInterval(backfill, 3000);
+
+  return () => {
+    stopped = true;
+    clearInterval(backfillTimer);
+    sub.stop();
+  };
+}
+
+function driveDeviceLinkRequestFilters(scope: DriveDeviceLinkRequestScope): NDKFilter[] {
+  return [
+    {
+      kinds: [KIND_IRIS_PROFILE_ROSTER_OP],
+      '#i': [scope.profileId],
+      '#p': [scope.invitePubkey],
+      limit: 200,
+    },
+  ];
+}
+
+async function backfillDriveDeviceLinkRequestsForAdmin(
+  scope: DriveDeviceLinkRequestScope,
+  timeoutMs = 2500,
+): Promise<DriveDeviceLinkRequest[]> {
+  const events: NostrToolsEvent[] = [];
+
+  await new Promise<void>((resolve) => {
+    let resolved = false;
+    const finish = () => {
+      if (resolved) return;
+      resolved = true;
+      clearTimeout(timer);
+      sub.stop();
+      resolve();
+    };
+    const sub = ndk.subscribe(driveDeviceLinkRequestFilters(scope), { closeOnEose: true });
+    const timer = setTimeout(finish, timeoutMs);
+
+    sub.on('event', (event) => {
+      events.push(event.rawEvent() as NostrToolsEvent);
+    });
+    sub.on('eose', finish);
+  });
+
+  const parsed = await Promise.all(
+    events.map((event) => parseDriveDeviceLinkRequestEventForAdmin(event, scope)),
+  );
+  return parsed.filter((request): request is DriveDeviceLinkRequest => Boolean(request));
 }
 
 export function subscribeDriveDeviceLinkRequests(

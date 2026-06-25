@@ -1,9 +1,39 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { finalizeEvent, generateSecretKey, getPublicKey, type Event as NostrToolsEvent } from 'nostr-tools';
 import { signDeviceLinkRequestEvent } from '@iris/identity';
 import { parseDriveDeviceLinkRequestEventForAdmin } from '../src/nostr/auth';
 
 const profileId = '123e4567-e89b-42d3-a456-426614174099';
+
+type FakeNdkSubscription = {
+  on: ReturnType<typeof vi.fn>;
+  stop: ReturnType<typeof vi.fn>;
+  emit: (name: string, event?: unknown) => void;
+};
+
+function createFakeNdkSubscription(): FakeNdkSubscription {
+  const listeners = new Map<string, Array<(event?: unknown) => void>>();
+  const subscription: FakeNdkSubscription = {
+    on: vi.fn((name: string, callback: (event?: unknown) => void) => {
+      listeners.set(name, [...(listeners.get(name) ?? []), callback]);
+      return subscription;
+    }),
+    stop: vi.fn(),
+    emit: (name: string, event?: unknown) => {
+      for (const callback of listeners.get(name) ?? []) {
+        callback(event);
+      }
+    },
+  };
+  return subscription;
+}
+
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+  vi.resetModules();
+  vi.doUnmock('../src/nostr/ndk');
+});
 
 describe('native app-key-link request interop', () => {
   it('parses encrypted identity fact-event device link requests', async () => {
@@ -124,5 +154,70 @@ describe('native app-key-link request interop', () => {
       invitePubkey: getPublicKey(inviteSecret),
       inviteSecretKey: inviteSecret,
     })).resolves.toBeNull();
+  });
+
+  it('backs the admin request subscription with relay refetches', async () => {
+    vi.useFakeTimers();
+    vi.resetModules();
+
+    const subscriptions: FakeNdkSubscription[] = [];
+    const subscribe = vi.fn((_filters, _options) => {
+      const subscription = createFakeNdkSubscription();
+      subscriptions.push(subscription);
+      return subscription;
+    });
+    vi.doMock('../src/nostr/ndk', () => ({
+      ndk: { subscribe },
+      NDKEvent: class {},
+      NDKNip07Signer: class {},
+      NDKNip46Signer: class {},
+      NDKPrivateKeySigner: class {},
+    }));
+
+    const { subscribeDriveDeviceLinkRequestsForAdmin } = await import('../src/nostr/auth');
+    const deviceSecret = generateSecretKey();
+    const device = getPublicKey(deviceSecret);
+    const inviteSecret = generateSecretKey();
+    const invitePubkey = getPublicKey(inviteSecret);
+    const adminAppKeyPubkey = 'a'.repeat(64);
+    const event = signDeviceLinkRequestEvent({
+      signerSecretKey: deviceSecret,
+      request: {
+        profileId,
+        adminAppKeyPubkey,
+        invitePubkey,
+        deviceAppKeyPubkey: device,
+        requestedAt: 1_782_377_100,
+        label: 'iPhone',
+      },
+    });
+    const received: unknown[][] = [];
+
+    const stop = subscribeDriveDeviceLinkRequestsForAdmin({
+      profileId,
+      adminAppKeyPubkey,
+      invitePubkey,
+      inviteSecretKey: inviteSecret,
+    }, (requests) => received.push(requests));
+
+    expect(subscribe).toHaveBeenCalledTimes(2);
+    expect(subscribe.mock.calls[0][1]).toMatchObject({ closeOnEose: false });
+    expect(subscribe.mock.calls[1][1]).toMatchObject({ closeOnEose: true });
+
+    subscriptions[1].emit('event', { rawEvent: () => event });
+    subscriptions[1].emit('eose');
+
+    await vi.waitFor(() => {
+      expect(received.at(-1)).toMatchObject([
+        {
+          pubkey: device,
+          label: 'iPhone',
+          requestedAt: 1_782_377_100,
+        },
+      ]);
+    });
+
+    stop();
+    expect(subscriptions[0].stop).toHaveBeenCalledOnce();
   });
 });
