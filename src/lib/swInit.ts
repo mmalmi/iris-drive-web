@@ -20,13 +20,23 @@ export async function initServiceWorker(options: InitOptions = {}): Promise<void
   const isTestMode = !!import.meta.env.VITE_TEST_MODE;
   const hasServiceWorker = typeof navigator !== 'undefined' && 'serviceWorker' in navigator;
   const pageProtocol = typeof window !== 'undefined' ? window.location?.protocol : '';
+  const isLocalDevServer = Boolean(
+    !isTestMode
+      && import.meta.env.DEV
+      && typeof window !== 'undefined'
+      && pageProtocol === 'http:'
+      && ['localhost', '127.0.0.1'].includes(window.location.hostname)
+      && ['5173', '5174'].includes(window.location.port),
+  );
 
-  if (isTestMode && hasServiceWorker) {
+  if ((isTestMode || isLocalDevServer) && hasServiceWorker) {
+    let hadRegistrations = false;
     try {
       const registrations = await navigator.serviceWorker.getRegistrations();
+      hadRegistrations = registrations.length > 0;
       await Promise.all(registrations.map(reg => reg.unregister().catch(() => {})));
     } catch (err) {
-      console.warn('[SW] Failed to unregister service workers in test mode:', err);
+      console.warn('[SW] Failed to unregister service workers in local/test mode:', err);
     }
     try {
       if ('caches' in window) {
@@ -34,7 +44,18 @@ export async function initServiceWorker(options: InitOptions = {}): Promise<void
         await Promise.all(keys.map(key => caches.delete(key).catch(() => {})));
       }
     } catch (err) {
-      console.warn('[SW] Failed to clear caches in test mode:', err);
+      console.warn('[SW] Failed to clear caches in local/test mode:', err);
+    }
+    if (isLocalDevServer) {
+      const reloadKey = 'dev-sw-cleanup-reloaded';
+      if (hadRegistrations && !sessionStorage.getItem(reloadKey)) {
+        sessionStorage.setItem(reloadKey, '1');
+        console.log('[SW] Cleared local dev service worker cache, reloading once');
+        window.location.reload();
+        return new Promise(() => {});
+      }
+      console.log('[SW] Skipping service worker on local dev server');
+      return;
     }
   }
 

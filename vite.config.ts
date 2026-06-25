@@ -84,6 +84,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '$lib': resolve(__dirname, 'src/lib'),
+      '@iris/svelte-ui': resolve(__dirname, '../iris-kit/packages/svelte-ui/src'),
       '@noble/hashes/hkdf.js': require.resolve('@noble/hashes/hkdf.js'),
       '@noble/hashes/sha2.js': require.resolve('@noble/hashes/sha2.js'),
     },
@@ -110,6 +111,13 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 5174,
     allowedHosts: ['mayhem2.iris.to', 'mayhem1.iris.to', 'mayhem3.iris.to', 'mayhem4.iris.to'],
+    fs: {
+      allow: [
+        resolve(__dirname),
+        resolve(__dirname, '../iris-kit'),
+        resolve(__dirname, '../hashtree'),
+      ],
+    },
     hmr: {
       // Ensure HMR websocket connection is stable
       overlay: true,

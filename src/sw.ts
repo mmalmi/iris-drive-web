@@ -25,8 +25,15 @@ import { addCORPHeader, addCORSHeaders, addCrossOriginHeaders } from './lib/swRe
 declare let self: ServiceWorkerGlobalScope;
 
 const isTestMode = !!import.meta.env.VITE_TEST_MODE;
+const isLocalDevServer = Boolean(
+  !isTestMode
+    && import.meta.env.DEV
+    && self.location.protocol === 'http:'
+    && ['localhost', '127.0.0.1'].includes(self.location.hostname)
+    && ['5173', '5174'].includes(self.location.port),
+);
 
-if (isTestMode) {
+if (isTestMode || isLocalDevServer) {
   self.addEventListener('install', (event) => {
     event.waitUntil(self.skipWaiting());
   });
@@ -35,6 +42,12 @@ if (isTestMode) {
     event.waitUntil((async () => {
       const keys = await caches.keys();
       await Promise.all(keys.map(key => caches.delete(key)));
+      if (isLocalDevServer) {
+        await self.registration.unregister();
+        const clients = await self.clients.matchAll({ type: 'window' });
+        await Promise.all(clients.map(client => client.navigate(client.url).catch(() => undefined)));
+        return;
+      }
       await self.clients.claim();
     })());
   });
@@ -185,6 +198,11 @@ self.addEventListener('fetch', (event: FetchEvent) => {
   }
 
   if (url.origin === self.location.origin) {
+    if (isLocalDevServer) {
+      event.respondWith(fetch(event.request));
+      return;
+    }
+
     const mode = getSameOriginResponseMode(event.request);
     if (mode === 'document-coi') {
       event.respondWith(fetch(event.request).then(addCrossOriginHeaders));
@@ -200,16 +218,18 @@ self.addEventListener('fetch', (event: FetchEvent) => {
   }
 });
 
-self.addEventListener('install', () => {
-  console.log('[SW] Installing...');
-  self.skipWaiting();
-});
+if (!isLocalDevServer) {
+  self.addEventListener('install', () => {
+    console.log('[SW] Installing...');
+    self.skipWaiting();
+  });
 
-self.addEventListener('activate', (event: ExtendableEvent) => {
-  console.log('[SW] Activating...');
-  event.waitUntil(self.clients.claim());
-});
+  self.addEventListener('activate', (event: ExtendableEvent) => {
+    console.log('[SW] Activating...');
+    event.waitUntil(self.clients.claim());
+  });
+}
 
-if (!isTestMode) {
+if (!isTestMode && !isLocalDevServer) {
   precacheAndRoute(self.__WB_MANIFEST);
 }
