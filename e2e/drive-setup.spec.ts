@@ -22,12 +22,13 @@ function keypair(): { nsec: string; npub: string } {
 }
 
 function inviteLink(adminAppKeyNpub: string): string {
+  const inviteSecret = generateSecretKey();
   const payload = Buffer
     .from(JSON.stringify({
       v: 1,
       profileId,
       adminAppKeyNpub,
-      linkSecret: 'drive-setup-e2e-secret',
+      inviteNpub: nip19.npubEncode(getPublicKey(inviteSecret)),
     }))
     .toString('base64url');
   return `https://drive.iris.to/invite/${payload}`;

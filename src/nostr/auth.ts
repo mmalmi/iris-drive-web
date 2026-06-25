@@ -36,8 +36,6 @@ import {
   createPendingDeviceLinkSession,
   createIrisProfileDckRotateAfterRemovalOp,
   createIrisProfileDckRewrapOp,
-  appKeyLinkRequestDTag,
-  KIND_APP_KEY_LINK_REQUEST,
   KIND_IRIS_PROFILE_FACET_ACCEPTANCE,
   KIND_IRIS_PROFILE_ROSTER_OP,
   type DeviceLinkRequest,
@@ -106,7 +104,8 @@ export interface DriveRecoveryRemoveAppKeyResult {
 export interface DriveDeviceLinkInvite {
   profileId: IrisProfileId;
   adminAppKeyPubkey: string;
-  linkSecretHash: string;
+  invitePubkey: string;
+  inviteSecretKeyNsec: string;
   url: string;
 }
 
@@ -121,7 +120,8 @@ export interface DriveDeviceLinkRequest {
 export interface DriveDeviceLinkRequestScope {
   profileId: IrisProfileId;
   adminAppKeyPubkey: string;
-  linkSecretHash?: string;
+  invitePubkey: string;
+  inviteSecretKey: Uint8Array;
 }
 
 type DefaultTree = {
@@ -567,16 +567,17 @@ export async function createDriveDeviceLinkInvite(): Promise<DriveDeviceLinkInvi
   const session = requireActiveDriveIdentitySession();
   requireCurrentDriveAdmin(session);
   await publishCurrentDriveIdentityRosterOps(session);
-  const linkSecret = randomLinkSecret();
-  const linkSecretHash = await hashDeviceLinkSecret(linkSecret);
+  const inviteSecretKey = generateSecretKey();
+  const invitePubkey = getPublicKey(inviteSecretKey);
   return {
     profileId: session.profileId,
     adminAppKeyPubkey: session.appKeyPubkey,
-    linkSecretHash,
+    invitePubkey,
+    inviteSecretKeyNsec: nip19.nsecEncode(inviteSecretKey),
     url: encodeDeviceLinkInvite({
       profileId: session.profileId,
       adminAppKeyPubkey: session.appKeyPubkey,
-      linkSecret,
+      invitePubkey,
     }),
   };
 }
@@ -590,12 +591,7 @@ export function subscribeDriveDeviceLinkRequestsForAdmin(
     {
       kinds: [KIND_IRIS_PROFILE_ROSTER_OP],
       '#i': [scope.profileId],
-      '#p': [scope.adminAppKeyPubkey],
-      limit: 200,
-    },
-    {
-      kinds: [KIND_APP_KEY_LINK_REQUEST],
-      '#d': [appKeyLinkRequestDTag(scope.profileId)],
+      '#p': [scope.invitePubkey],
       limit: 200,
     },
   ];
@@ -617,10 +613,29 @@ export function subscribeDriveDeviceLinkRequestsForAdmin(
 }
 
 export function subscribeDriveDeviceLinkRequests(
-  invite: Pick<DriveDeviceLinkInvite, 'profileId' | 'adminAppKeyPubkey' | 'linkSecretHash'>,
+  invite: Pick<DriveDeviceLinkInvite, 'profileId' | 'adminAppKeyPubkey' | 'invitePubkey' | 'inviteSecretKeyNsec'>,
   onRequests: (requests: DriveDeviceLinkRequest[]) => void,
 ): () => void {
-  return subscribeDriveDeviceLinkRequestsForAdmin(invite, onRequests);
+  return subscribeDriveDeviceLinkRequestsForAdmin(driveDeviceLinkRequestScopeFromInvite(invite), onRequests);
+}
+
+function driveDeviceLinkRequestScopeFromInvite(
+  invite: Pick<DriveDeviceLinkInvite, 'profileId' | 'adminAppKeyPubkey' | 'invitePubkey' | 'inviteSecretKeyNsec'>,
+): DriveDeviceLinkRequestScope {
+  const decoded = nip19.decode(invite.inviteSecretKeyNsec);
+  if (decoded.type !== 'nsec') {
+    throw new Error('Stored device-link invite secret is not an nsec');
+  }
+  const inviteSecretKey = decoded.data as Uint8Array;
+  if (getPublicKey(inviteSecretKey) !== invite.invitePubkey) {
+    throw new Error('Stored device-link invite secret does not match the invite pubkey');
+  }
+  return {
+    profileId: invite.profileId,
+    adminAppKeyPubkey: invite.adminAppKeyPubkey,
+    invitePubkey: invite.invitePubkey,
+    inviteSecretKey,
+  };
 }
 
 export async function approveDriveDeviceLinkRequest(
@@ -1228,12 +1243,9 @@ async function publishDriveDeviceLinkRequest(
 ): Promise<void> {
   const request = session.pendingDeviceLink;
   if (!request) return;
-  const linkSecretHash = request.linkSecretHash
-    ?? await hashDeviceLinkSecret(requireDeviceLinkSecret(request));
   const event = signDeviceLinkRequestEvent({
     signerSecretKey: appKeySecretKey,
     request,
-    linkSecretHash,
   });
   await publishRawNostrEvent(event);
 }
@@ -1243,12 +1255,8 @@ export async function parseDriveDeviceLinkRequestEventForAdmin(
   scope: DriveDeviceLinkRequestScope,
 ): Promise<DriveDeviceLinkRequest | null> {
   try {
-    if (event.kind === KIND_APP_KEY_LINK_REQUEST) {
-      return await parseNativeDriveDeviceLinkRequestEvent(event, scope);
-    }
     if (event.kind === KIND_IRIS_PROFILE_ROSTER_OP) {
-      return parseIdentityDriveDeviceLinkRequestEvent(event, scope)
-        ?? parseLegacyDriveDeviceLinkRequestEvent(event, scope);
+      return parseIdentityDriveDeviceLinkRequestEvent(event, scope);
     }
     return null;
   } catch {
@@ -1267,82 +1275,6 @@ function parseIdentityDriveDeviceLinkRequestEvent(
   }
 }
 
-type NativeAppKeyLinkRequestFrame = {
-  schema?: number;
-  profile_id?: string;
-  app_key_pubkey?: string;
-  link_secret?: string;
-  label?: string | null;
-  requested_at?: number;
-  url?: string;
-};
-
-async function parseNativeDriveDeviceLinkRequestEvent(
-  event: NostrToolsEvent,
-  scope: DriveDeviceLinkRequestScope,
-): Promise<DriveDeviceLinkRequest | null> {
-  if (!verifyEvent(event)) return null;
-  const frame = JSON.parse(event.content) as NativeAppKeyLinkRequestFrame;
-  if (frame.schema !== 1 || typeof frame.profile_id !== 'string') return null;
-  const deviceAppKeyPubkey = normalizeHexPubkey(frame.app_key_pubkey ?? '');
-  const linkSecret = typeof frame.link_secret === 'string' ? frame.link_secret.trim() : '';
-  const dTag = tagValue(event, 'd');
-  const requestedAt = typeof frame.requested_at === 'number' && Number.isFinite(frame.requested_at)
-    ? frame.requested_at
-    : event.created_at;
-  if (
-    frame.profile_id !== scope.profileId
-    || dTag !== appKeyLinkRequestDTag(frame.profile_id)
-    || deviceAppKeyPubkey !== event.pubkey
-    || (scope.linkSecretHash && (!linkSecret || await hashDeviceLinkSecret(linkSecret) !== scope.linkSecretHash))
-  ) {
-    return null;
-  }
-  const label = typeof frame.label === 'string' && frame.label.trim() ? frame.label.trim() : undefined;
-  const request: DeviceLinkRequest = {
-    profileId: frame.profile_id,
-    adminAppKeyPubkey: scope.adminAppKeyPubkey,
-    deviceAppKeyPubkey,
-    linkSecret,
-    linkSecretHash: linkSecret ? await hashDeviceLinkSecret(linkSecret) : undefined,
-    requestedAt,
-    ...(label ? { label } : {}),
-  };
-  return driveDeviceLinkRequestFromRequest(request);
-}
-
-function parseLegacyDriveDeviceLinkRequestEvent(
-  event: NostrToolsEvent,
-  scope: DriveDeviceLinkRequestScope,
-): DriveDeviceLinkRequest | null {
-  if (!verifyEvent(event)) return null;
-  const type = tagValue(event, 'type');
-  if (type !== 'nostr_identity_link_request') return null;
-  const profileId = tagValue(event, 'i');
-  const adminAppKeyPubkey = normalizeHexPubkey(tagValue(event, 'admin_pubkey') ?? '');
-  const deviceAppKeyPubkey = normalizeHexPubkey(tagValue(event, 'key_pubkey') ?? event.pubkey);
-  const linkSecretHash = tagValue(event, 'link_secret_hash');
-  if (
-    profileId !== scope.profileId
-    || adminAppKeyPubkey !== scope.adminAppKeyPubkey
-    || deviceAppKeyPubkey !== event.pubkey
-    || (scope.linkSecretHash && linkSecretHash !== scope.linkSecretHash)
-  ) {
-    return null;
-  }
-  const requestedAt = Number(tagValue(event, 'requested_at') ?? event.created_at);
-  const label = tagValue(event, 'label');
-  const request: DeviceLinkRequest = {
-    profileId,
-    adminAppKeyPubkey,
-    deviceAppKeyPubkey,
-    linkSecretHash,
-    requestedAt: Number.isFinite(requestedAt) ? requestedAt : event.created_at,
-    ...(label ? { label } : {}),
-  };
-  return driveDeviceLinkRequestFromRequest(request);
-}
-
 function driveDeviceLinkRequestFromRequest(request: DeviceLinkRequest): DriveDeviceLinkRequest {
   return {
     id: `${request.profileId}:${request.deviceAppKeyPubkey}:${request.requestedAt}`,
@@ -1353,42 +1285,6 @@ function driveDeviceLinkRequestFromRequest(request: DeviceLinkRequest): DriveDev
   };
 }
 
-function requireDeviceLinkSecret(request: DeviceLinkRequest): string {
-  const secret = request.linkSecret?.trim();
-  if (!secret) throw new Error('Pending device link request is missing its invite secret');
-  return secret;
-}
-
-function tagValue(event: NostrToolsEvent, name: string): string | undefined {
-  const tag = event.tags.find((candidate) => candidate[0] === name && candidate[1]);
-  return tag?.[1];
-}
-
-function randomLinkSecret(): string {
-  const bytes = new Uint8Array(24);
-  globalThis.crypto?.getRandomValues?.(bytes);
-  if (!bytes.some(Boolean)) {
-    for (let i = 0; i < bytes.length; i += 1) bytes[i] = Math.floor(Math.random() * 256);
-  }
-  return base64UrlEncode(bytes);
-}
-
-async function hashDeviceLinkSecret(secret: string): Promise<string> {
-  const data = new TextEncoder().encode(secret);
-  const digest = await globalThis.crypto.subtle.digest('SHA-256', data);
-  return base64UrlEncode(new Uint8Array(digest));
-}
-
-function base64UrlEncode(bytes: Uint8Array): string {
-  let binary = '';
-  for (const byte of bytes) {
-    binary += String.fromCharCode(byte);
-  }
-  return btoa(binary)
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/u, '');
-}
 
 async function createRecoverySigner(recovery: DriveRecoveryRequest): Promise<IrisIdentityEventSigner> {
   if (recovery.method === 'nsec') {

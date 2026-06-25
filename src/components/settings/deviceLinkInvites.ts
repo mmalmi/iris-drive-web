@@ -38,7 +38,8 @@ export function readStoredDeviceLinkInvite(
     !stored
     || stored.profileId !== profileId
     || stored.adminAppKeyPubkey !== adminAppKeyPubkey
-    || typeof stored.linkSecretHash !== 'string'
+    || typeof stored.invitePubkey !== 'string'
+    || typeof stored.inviteSecretKeyNsec !== 'string'
     || typeof stored.url !== 'string'
   ) {
     return null;

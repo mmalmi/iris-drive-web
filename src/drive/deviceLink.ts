@@ -7,15 +7,14 @@ export const DEVICE_LINK_INVITE_VERSION = 1;
 export interface DeviceLinkInvite {
   profileId: IrisProfileId;
   adminAppKeyPubkey: string;
-  linkSecret: string;
+  invitePubkey: string;
 }
 
 export interface DeviceLinkRequest {
   profileId: IrisProfileId;
   adminAppKeyPubkey: string;
+  invitePubkey: string;
   deviceAppKeyPubkey: string;
-  linkSecret?: string;
-  linkSecretHash?: string;
   label?: string;
   requestedAt: number;
 }
@@ -49,7 +48,7 @@ type DeviceLinkInvitePayload = {
   v: number;
   profileId: string;
   adminAppKeyNpub: string;
-  linkSecret: string;
+  inviteNpub: string;
 };
 
 export function encodeDeviceLinkInvite(invite: DeviceLinkInvite): string {
@@ -57,7 +56,7 @@ export function encodeDeviceLinkInvite(invite: DeviceLinkInvite): string {
     v: DEVICE_LINK_INVITE_VERSION,
     profileId: invite.profileId,
     adminAppKeyNpub: pubkeyToNpub(invite.adminAppKeyPubkey),
-    linkSecret: requireNonEmpty(invite.linkSecret, 'link secret'),
+    inviteNpub: pubkeyToNpub(invite.invitePubkey),
   };
   return `${DEVICE_LINK_INVITE_PREFIX}${base64UrlEncode(JSON.stringify(payload))}`;
 }
@@ -79,7 +78,12 @@ export function isCompleteDeviceLinkInviteInput(input: string): boolean {
   if (!value || /\s/.test(value)) return false;
   if (payloadFromShareInviteUrl(value) !== null) return false;
   const payload = payloadFromInviteUrl(value);
-  return payload !== null && payload.length >= 32;
+  if (payload === null) return false;
+  try {
+    return normalizeInvitePayload(JSON.parse(base64UrlDecode(payload)) as DeviceLinkInvitePayload) !== null;
+  } catch {
+    return false;
+  }
 }
 
 export function createPendingDeviceLinkSession(options: {
@@ -94,8 +98,8 @@ export function createPendingDeviceLinkSession(options: {
   const pendingDeviceLink: DeviceLinkRequest = {
     profileId: options.invite.profileId,
     adminAppKeyPubkey: options.invite.adminAppKeyPubkey,
+    invitePubkey: options.invite.invitePubkey,
     deviceAppKeyPubkey: appKeyPubkey,
-    linkSecret: options.invite.linkSecret,
     requestedAt,
     ...(options.label?.trim() ? { label: options.label.trim() } : {}),
   };
@@ -134,13 +138,14 @@ export function npubToPubkey(value: string): string | null {
 
 function normalizeInvitePayload(payload: DeviceLinkInvitePayload): DeviceLinkInvite | null {
   if (payload.v !== DEVICE_LINK_INVITE_VERSION) return null;
-  if (!payload.profileId || !payload.adminAppKeyNpub || !payload.linkSecret) return null;
+  if (!payload.profileId || !payload.adminAppKeyNpub || !payload.inviteNpub) return null;
   const adminAppKeyPubkey = npubToPubkey(payload.adminAppKeyNpub);
-  if (!adminAppKeyPubkey) return null;
+  const invitePubkey = npubToPubkey(payload.inviteNpub);
+  if (!adminAppKeyPubkey || !invitePubkey) return null;
   return {
     profileId: payload.profileId,
     adminAppKeyPubkey,
-    linkSecret: requireNonEmpty(payload.linkSecret, 'link secret'),
+    invitePubkey,
   };
 }
 
@@ -192,10 +197,4 @@ function requirePubkey(value: string, label: string): string {
   const normalized = npubToPubkey(value);
   if (!normalized) throw new Error(`${label} pubkey must be npub or 64-char hex`);
   return normalized;
-}
-
-function requireNonEmpty(value: string, label: string): string {
-  const trimmed = value.trim();
-  if (!trimmed) throw new Error(`${label} is required`);
-  return trimmed;
 }

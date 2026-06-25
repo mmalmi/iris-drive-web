@@ -11,7 +11,7 @@
     removeDriveProfileAppKeyWithAdmin,
     restoreSession,
     setDriveProfileAppKeyAdmin,
-    subscribeDriveDeviceLinkRequestsForAdmin,
+    subscribeDriveDeviceLinkRequests,
     type DriveDeviceLinkInvite,
     type DriveDeviceLinkRequest,
   } from '../../nostr';
@@ -71,18 +71,12 @@
   });
 
   $effect(() => {
-    if (!session || session.status !== 'active' || !canManage) {
+    if (!session || session.status !== 'active' || !canManage || !activeInvite) {
       pendingRequests = [];
       return;
     }
     pendingRequests = [];
-    const unsubscribe = subscribeDriveDeviceLinkRequestsForAdmin({
-      profileId: session.profileId,
-      adminAppKeyPubkey: session.appKeyPubkey,
-      ...(activeInvite?.profileId === session.profileId && activeInvite.adminAppKeyPubkey === session.appKeyPubkey
-        ? { linkSecretHash: activeInvite.linkSecretHash }
-        : {}),
-    }, (requests) => {
+    const unsubscribe = subscribeDriveDeviceLinkRequests(activeInvite, (requests) => {
       pendingRequests = visiblePendingRequests(requests.map((request) => ({
         ...request,
         id: request.id,
