@@ -1,7 +1,16 @@
 import { ndk, type NDKEvent } from '../nostr';
 
+function hasCompleteSignature(event: NDKEvent): boolean {
+  return !!event.id
+    && !!event.sig
+    && !!event.pubkey
+    && typeof event.created_at === 'number';
+}
+
 export async function publishEventWithFallback(event: NDKEvent): Promise<void> {
-  await event.sign();
+  if (!hasCompleteSignature(event)) {
+    await event.sign();
+  }
   const rawEvent = event.rawEvent();
   ndk.subManager.dispatchEvent(rawEvent, undefined, true);
 

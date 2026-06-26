@@ -65,7 +65,10 @@ export async function initializePublishFn(): Promise<void> {
 
     const rootCid = makeCid(record.hash, record.key);
     if (isIrisProfileId(npub)) {
-      return publishIrisProfileDriveRootIfAvailable(treeName, rootCid);
+      return publishIrisProfileDriveRootIfAvailable(treeName, rootCid, {
+        publishedAt: record.updatedAt,
+        appKeySeq: record.updatedAt,
+      });
     }
 
     const key = `${npub}/${treeName}`;

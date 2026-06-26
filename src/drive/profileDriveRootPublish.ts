@@ -68,6 +68,7 @@ function nextDriveRootPublishedAt(profileId: string, driveId: string, appKeyPubk
 export async function publishIrisProfileDriveRootIfAvailable(
   driveId: string,
   rootCid: CID,
+  options: { publishedAt?: number; appKeySeq?: number } = {},
 ): Promise<boolean> {
   const session = getCurrentIrisIdentitySession();
   const secretKey = getSecretKey();
@@ -99,8 +100,8 @@ export async function publishIrisProfileDriveRootIfAvailable(
     driveId,
     root: rootCid,
     dckGeneration: projected.keyEpoch,
-    appKeySeq: nextDriveRootSequence(session.profileId, driveId, appKeyPubkey),
-    publishedAt: nextDriveRootPublishedAt(session.profileId, driveId, appKeyPubkey),
+    appKeySeq: options.appKeySeq ?? nextDriveRootSequence(session.profileId, driveId, appKeyPubkey),
+    publishedAt: options.publishedAt ?? nextDriveRootPublishedAt(session.profileId, driveId, appKeyPubkey),
     authorizedAppKeyPubkeys: projected.activeAppKeyPubkeys,
   });
 

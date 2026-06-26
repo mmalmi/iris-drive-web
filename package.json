@@ -86,6 +86,7 @@
     "@playwright/test": "^1.49.0",
     "@sveltejs/vite-plugin-svelte": "^5.0.3",
     "@tsconfig/svelte": "^5.0.4",
+    "@types/debug": "^4.1.12",
     "@types/dompurify": "^3.2.0",
     "@types/prismjs": "^1.26.0",
     "@types/qrcode": "^1.5.6",

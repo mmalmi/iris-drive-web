@@ -242,6 +242,7 @@ export async function setupFreshUser(page: any, options?: { timeoutMs?: number }
 export async function addFileViaTreeAPI(page: any, routePath: string[], filename: string, content: string): Promise<string | null> {
   return page.evaluate(async ({ routePath, filename, content }: { routePath: string[], filename: string, content: string }) => {
     const { getTree, LinkType } = await import('/src/store.ts');
+    const { toHex } = await import('/src/lib/nhash.ts');
     const { autosaveIfOwn } = await import('/src/nostr.ts');
     const { getCurrentRootCid } = await import('/src/actions/route.ts');
     const tree = getTree();
@@ -251,7 +252,7 @@ export async function addFileViaTreeAPI(page: any, routePath: string[], filename
     const { cid: fileCid, size } = await tree.putFile(data);
     const newRootCid = await tree.setEntry(rootCid, routePath, filename, fileCid, size, LinkType.Blob);
     autosaveIfOwn(newRootCid);
-    return newRootCid;
+    return toHex(newRootCid.hash);
   }, { routePath, filename, content });
 }
 

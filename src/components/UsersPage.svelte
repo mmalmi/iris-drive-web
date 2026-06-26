@@ -103,7 +103,7 @@
     recoveryError = '';
     try {
       const profile = await createDriveProfile();
-      navigate(driveRootPath(profile.npub));
+      navigate(driveRootPath(profile.profileId));
     } catch (error) {
       recoveryError = error instanceof Error ? error.message : 'Profile creation failed';
     } finally {
@@ -136,7 +136,7 @@
         recovery: request,
         label: 'Drive web',
       });
-      navigate(driveRootPath(profile.npub));
+      navigate(driveRootPath(profile.session.profileId));
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Recovery failed';
       if (isRecoveryIdentityMiss(message)) {
@@ -236,7 +236,7 @@
         >
           <!-- Avatar -->
           <a
-            href={`#/${account.npub}/profile`}
+            href={account.irisProfileId ? `#${driveRootPath(account.irisProfileId)}` : `#/${account.npub}/profile`}
             class="shrink-0"
             onclick={(e) => e.stopPropagation()}
           >

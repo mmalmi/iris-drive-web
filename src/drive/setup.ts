@@ -16,8 +16,8 @@ const SHARE_INVITE_PREFIXES = [
   'https://drive.iris.to/share-invite/',
 ];
 
-export function driveRootPath(npub: string): string {
-  return `/${encodeURIComponent(npub)}/${DRIVE_ROOT_NAME}`;
+export function driveRootPath(scope: string): string {
+  return `/${encodeURIComponent(scope)}/${DRIVE_ROOT_NAME}`;
 }
 
 export function normalizeOwnerNpub(input: string): string | null {

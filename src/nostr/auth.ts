@@ -485,16 +485,20 @@ export async function generateNewKey(): Promise<{ nsec: string; npub: string }> 
   return applySecretKey(generateSecretKey());
 }
 
-export async function createDriveProfile(): Promise<{ nsec: string; npub: string }> {
+export async function createDriveProfile(): Promise<{ nsec: string; npub: string; profileId: IrisProfileId }> {
   const appKeySecretKey = generateSecretKey();
   const session = createDriveIdentitySession({
     appKeySecretKey,
     label: 'This device',
   });
   saveIrisIdentitySession(session);
-  return applySecretKey(appKeySecretKey, DRIVE_DEFAULT_TREES, {
+  const applied = await applySecretKey(appKeySecretKey, DRIVE_DEFAULT_TREES, {
     irisProfileId: session.profileId,
   });
+  return {
+    ...applied,
+    profileId: session.profileId,
+  };
 }
 
 export async function linkDriveDevice(inviteInput: string): Promise<{ nsec: string; npub: string; session: IrisIdentitySession } | null> {
@@ -1080,6 +1084,10 @@ function saveIrisIdentitySession(session: IrisIdentitySession): void {
   sessions[session.appKeyPubkey] = stored;
   localStorage.setItem(STORAGE_KEY_IRIS_IDENTITY_SESSIONS, JSON.stringify(sessions));
   localStorage.setItem(STORAGE_KEY_IRIS_IDENTITY, JSON.stringify(stored));
+  const state = nostrStore.getState();
+  if (state.pubkey === session.appKeyPubkey) {
+    nostrStore.setState({});
+  }
 }
 
 function appendCurrentIrisIdentitySessionRosterOps(

@@ -53,10 +53,10 @@ async function openFreshSetup(page: Page, relayUrl?: string): Promise<void> {
   await expect(page.getByTestId('drive-setup')).toBeVisible({ timeout: 30000 });
 }
 
-async function expectDriveRoute(page: Page, npub: string): Promise<void> {
+async function expectDriveRoute(page: Page, scope: string): Promise<void> {
   await page.waitForFunction(
     (expectedHash: string) => window.location.hash === expectedHash,
-    `#/${npub}/main`,
+    `#/${scope}/main`,
     { timeout: 30000 },
   );
 }
@@ -73,13 +73,16 @@ test.describe('Drive setup', () => {
     await expect(page.getByTestId('add-existing-profile')).toHaveText(/Add existing/);
     await page.getByTestId('generate-new-account').click();
 
-    const npubHandle = await page.waitForFunction(() => {
+    const profileIdHandle = await page.waitForFunction(() => {
       const store = (window as unknown as {
         __nostrStore?: { getState?: () => { npub?: string; isLoggedIn?: boolean } };
       }).__nostrStore;
-      return store?.getState?.().npub ?? null;
+      const stored = JSON.parse(localStorage.getItem('iris:identity:session') ?? 'null');
+      return stored?.status === 'active' && stored?.profileId && store?.getState?.().npub
+        ? stored.profileId
+        : null;
     }, undefined, { timeout: 30000 });
-    await expectDriveRoute(page, await npubHandle.jsonValue());
+    await expectDriveRoute(page, await profileIdHandle.jsonValue());
   });
 
   test('recovers with secret key through the shared add-user flow', async ({ page, relayUrl }) => {
@@ -98,7 +101,7 @@ test.describe('Drive setup', () => {
     await page.locator('input[placeholder="nsec1..."]').fill(profile.recoveryNsec);
     await page.getByRole('button', { name: 'Continue' }).click();
 
-    const recoveredNpubHandle = await page.waitForFunction((profileId: string) => {
+    await page.waitForFunction((profileId: string) => {
       const store = (window as unknown as {
         __nostrStore?: { getState?: () => { npub?: string; isLoggedIn?: boolean } };
       }).__nostrStore;
@@ -108,8 +111,7 @@ test.describe('Drive setup', () => {
       }
       return null;
     }, profile.profileId, { timeout: 30000 });
-    const recoveredNpub = await recoveredNpubHandle.jsonValue() as string;
-    await expectDriveRoute(page, recoveredNpub);
+    await expectDriveRoute(page, profile.profileId);
   });
 
   test('auto-opens the owner drive when a link-app npub is entered', async ({ page }) => {

@@ -218,6 +218,174 @@ async function pushCurrentProfileRootToBlossom(page: Page): Promise<void> {
   });
 }
 
+async function fetchRelayDriveRootHashes(page: Page, relayUrl: string): Promise<Array<{
+  id: string;
+  pubkey: string;
+  created_at: number;
+  root_hash: string | null;
+  d: string | null;
+}>> {
+  return page.evaluate(async (relay: string) => {
+    const { driveRootDTag, KIND_DRIVE_ROOT } = await import('/src/drive/protocol');
+    const stored = JSON.parse(localStorage.getItem('iris:identity:session') ?? 'null');
+    const profileId = stored?.profileId ?? '';
+    if (!profileId) return [];
+    const dTag = driveRootDTag(profileId, 'main');
+
+    return new Promise<Array<{
+      id: string;
+      pubkey: string;
+      created_at: number;
+      root_hash: string | null;
+      d: string | null;
+    }>>((resolve, reject) => {
+      const events: Array<{
+        id: string;
+        pubkey: string;
+        created_at: number;
+        root_hash: string | null;
+        d: string | null;
+      }> = [];
+      const subId = `drive-root-${Math.random().toString(36).slice(2)}`;
+      const socket = new WebSocket(relay);
+      const timeout = window.setTimeout(() => {
+        socket.close();
+        resolve(events);
+      }, 3000);
+
+      socket.onopen = () => {
+        socket.send(JSON.stringify(['REQ', subId, {
+          kinds: [KIND_DRIVE_ROOT],
+          '#d': [dTag],
+          limit: 50,
+        }]));
+      };
+      socket.onmessage = (message) => {
+        const data = JSON.parse(String(message.data));
+        if (data[0] === 'EVENT') {
+          const event = data[2];
+          let rootHash: string | null = null;
+          try {
+            rootHash = JSON.parse(event.content)?.root_hash ?? null;
+          } catch {
+            rootHash = null;
+          }
+          events.push({
+            id: event.id,
+            pubkey: event.pubkey,
+            created_at: event.created_at,
+            root_hash: rootHash,
+            d: event.tags?.find((tag: string[]) => tag[0] === 'd')?.[1] ?? null,
+          });
+        }
+        if (data[0] === 'EOSE') {
+          window.clearTimeout(timeout);
+          socket.send(JSON.stringify(['CLOSE', subId]));
+          socket.close();
+          resolve(events);
+        }
+      };
+      socket.onerror = () => {
+        window.clearTimeout(timeout);
+        reject(new Error(`relay websocket error: ${relay}`));
+      };
+    });
+  }, relayUrl);
+}
+
+async function waitForPublishedProfileRoot(page: Page, relayUrl: string, expectedRootHash: string): Promise<void> {
+  const hasRoot = async () => page.evaluate(async (expectedHash: string) => {
+    const { driveRootDTag, KIND_DRIVE_ROOT } = await import('/src/drive/protocol');
+    const { ndk } = await import('/src/nostr');
+    const stored = JSON.parse(localStorage.getItem('iris:identity:session') ?? 'null');
+    const profileId = stored?.profileId ?? '';
+    if (!profileId) return false;
+    const events = Array.from(await ndk.fetchEvents({
+      kinds: [KIND_DRIVE_ROOT],
+      '#d': [driveRootDTag(profileId, 'main')],
+      limit: 50,
+    }));
+    return events.some((event) => {
+      try {
+        return JSON.parse(event.content)?.root_hash === expectedHash;
+      } catch {
+        return false;
+      }
+    });
+  }, expectedRootHash);
+
+  try {
+    await expect.poll(hasRoot, { timeout: 30000, intervals: [500, 1000, 2000] }).toBe(true);
+  } catch (error) {
+    const relayEvents = await fetchRelayDriveRootHashes(page, relayUrl).catch((relayError) => [{
+      id: 'relay-error',
+      pubkey: String(relayError),
+      created_at: 0,
+      root_hash: null,
+      d: null,
+    }]);
+    const diagnostics = await page.evaluate(async (expectedHash: string) => {
+      const { driveRootDTag, KIND_DRIVE_ROOT } = await import('/src/drive/protocol');
+      const { getCurrentIrisIdentitySession, isOwnTree, ndk } = await import('/src/nostr');
+      const { parseRoute } = await import('/src/utils/route.ts');
+      const { treeRootRegistry } = await import('/src/TreeRootRegistry');
+      const { toHex } = await import('/src/lib/nhash.ts');
+      const stored = JSON.parse(localStorage.getItem('iris:identity:session') ?? 'null');
+      const session = getCurrentIrisIdentitySession();
+      const state = (window as any).__nostrStore?.getState?.();
+      const route = parseRoute();
+      const profileId = stored?.profileId ?? session?.profileId ?? '';
+      const record = profileId ? treeRootRegistry.getByKey(`${profileId}/main`) : null;
+      const events = profileId
+        ? Array.from(await ndk.fetchEvents({
+          kinds: [KIND_DRIVE_ROOT],
+          '#d': [driveRootDTag(profileId, 'main')],
+          limit: 50,
+        }))
+        : [];
+      return {
+        expectedHash,
+        hash: window.location.hash,
+        route,
+        isOwnTree: isOwnTree(),
+        session: session ? {
+          profileId: session.profileId,
+          status: session.status,
+          appKeyPubkey: session.appKeyPubkey,
+        } : null,
+        state: state ? {
+          pubkey: state.pubkey,
+          npub: state.npub,
+          isLoggedIn: state.isLoggedIn,
+          connectedRelays: state.connectedRelays,
+        } : null,
+        mainNdkRelays: Array.from(ndk.pool.relays.values()).map((relay: any) => ({
+          url: relay.url,
+          connected: relay.connectivity?.connected === true,
+        })),
+        workerRelayStats: await (window as any).__getWorkerAdapter?.()?.getRelayStats?.().catch((workerError: unknown) => ({
+          error: String(workerError),
+        })),
+        record: record ? {
+          hash: toHex(record.hash),
+          key: record.key ? toHex(record.key) : null,
+          dirty: record.dirty,
+          source: record.source,
+          updatedAt: record.updatedAt,
+        } : null,
+        events: events.map((event) => {
+          try {
+            return JSON.parse(event.content)?.root_hash ?? null;
+          } catch {
+            return null;
+          }
+        }),
+      };
+    }, expectedRootHash).catch((diagnosticError) => ({ diagnosticError: String(diagnosticError) }));
+    throw new Error(`${error instanceof Error ? error.message : String(error)}\nPublish diagnostics:\n${JSON.stringify({ ...diagnostics, relayEvents }, null, 2)}`);
+  }
+}
+
 async function gotoMain(page: Page): Promise<void> {
   const profileId = await page.evaluate(() => {
     const stored = JSON.parse(localStorage.getItem('iris:identity:session') ?? 'null');
@@ -232,10 +400,30 @@ async function gotoMain(page: Page): Promise<void> {
   }), { timeout: 30000, intervals: [500, 1000, 2000] }).toBe(true);
 }
 
-async function writeMainFileAndPublish(page: Page, filename: string, content: string): Promise<void> {
-  const root = await addFileViaTreeAPI(page, [], filename, content);
-  expect(root).toBeTruthy();
+async function gotoMainViaHeaderAvatar(page: Page, profileId: string): Promise<void> {
+  const activeProfileId = await page.evaluate(async () => {
+    const { getCurrentIrisIdentitySession } = await import('/src/nostr');
+    const session = getCurrentIrisIdentitySession();
+    const stored = JSON.parse(localStorage.getItem('iris:identity:session') ?? 'null');
+    return session?.profileId ?? stored?.profileId ?? '';
+  });
+  expect(activeProfileId).toBe(profileId);
+  const appKeyNpub = await page.evaluate(() => (window as any).__nostrStore?.getState?.().npub ?? '');
+  await expect(page.getByTestId('header-user-avatar')).toBeVisible({ timeout: 30000 });
+  await page.getByTestId('header-user-avatar').click();
+  await expect.poll(
+    () => page.evaluate(() => window.location.hash.split('?')[0].replace(/\/$/, '')),
+    { timeout: 30000, intervals: [500, 1000, 2000] },
+  ).toBe(`#/${profileId}/main`);
+  expect(await page.evaluate(() => window.location.hash)).not.toContain(appKeyNpub);
+  await expect(page.locator('[data-testid="file-list"]').first()).toBeVisible({ timeout: 30000 });
+}
+
+async function writeMainFileAndPublish(page: Page, relayUrl: string, filename: string, content: string): Promise<void> {
+  const rootHash = await addFileViaTreeAPI(page, [], filename, content);
+  expect(rootHash).toMatch(/^[a-f0-9]{64}$/);
   await flushPendingPublishes(page);
+  await waitForPublishedProfileRoot(page, relayUrl, rootHash);
   await pushCurrentProfileRootToBlossom(page);
 }
 
@@ -252,7 +440,14 @@ async function readMainFileContent(page: Page, filename: string): Promise<string
   }, filename);
 }
 
-async function profileDriveRootDiagnostics(page: Page): Promise<unknown> {
+async function profileDriveRootDiagnostics(page: Page, relayUrl: string): Promise<unknown> {
+  const relayEvents = await fetchRelayDriveRootHashes(page, relayUrl).catch((relayError) => [{
+    id: 'relay-error',
+    pubkey: String(relayError),
+    created_at: 0,
+    root_hash: null,
+    d: null,
+  }]);
   return page.evaluate(async () => {
     const { getTreeRootSync } = await import('/src/stores');
     const { driveRootDTag, KIND_DRIVE_ROOT, parseDriveRootEventForDevice, parseDriveRootEventPreview } = await import('/src/drive/protocol');
@@ -314,15 +509,25 @@ async function profileDriveRootDiagnostics(page: Page): Promise<unknown> {
           id: raw.id,
           pubkey: raw.pubkey,
           created_at: raw.created_at,
+          kind: raw.kind,
+          sig: raw.sig ? `${raw.sig.slice(0, 12)}...${raw.sig.slice(-12)}` : null,
+          d: raw.tags?.find((tag) => tag[0] === 'd')?.[1] ?? null,
+          contentRootHash: (() => {
+            try {
+              return JSON.parse(raw.content)?.root_hash ?? null;
+            } catch {
+              return null;
+            }
+          })(),
           preview,
           readable,
         };
       }),
     };
-  });
+  }).then((diagnostics) => ({ ...diagnostics, relayEvents }));
 }
 
-async function expectMainFileContent(page: Page, filename: string, expected: string): Promise<void> {
+async function expectMainFileContent(page: Page, relayUrl: string, filename: string, expected: string): Promise<void> {
   try {
     await expect.poll(
       () => readMainFileContent(page, filename),
@@ -330,14 +535,14 @@ async function expectMainFileContent(page: Page, filename: string, expected: str
     ).toBe(expected);
     await waitForCurrentDirectoryEntries(page, [filename], 10000);
   } catch (error) {
-    const diagnostics = await profileDriveRootDiagnostics(page).catch((diagnosticError) => ({
+    const diagnostics = await profileDriveRootDiagnostics(page, relayUrl).catch((diagnosticError) => ({
       diagnosticError: String(diagnosticError),
     }));
     throw new Error(`${error instanceof Error ? error.message : String(error)}\nDiagnostics:\n${JSON.stringify(diagnostics, null, 2)}`);
   }
 }
 
-async function expectLinkedBrowsersCanExchangeEdits(owner: Page, linked: Page): Promise<void> {
+async function expectLinkedBrowsersCanExchangeEdits(owner: Page, linked: Page, relayUrl: string): Promise<void> {
   await gotoMain(owner);
   await gotoMain(linked);
   await enableOthersPool(owner, 6);
@@ -347,18 +552,18 @@ async function expectLinkedBrowsersCanExchangeEdits(owner: Page, linked: Page): 
   await waitForWebRTCConnection(owner, 30000, linkedKey);
   await waitForWebRTCConnection(linked, 30000, ownerKey);
 
-  await writeMainFileAndPublish(linked, 'linked-browser-edit.txt', 'from linked browser');
+  await writeMainFileAndPublish(linked, relayUrl, 'linked-browser-edit.txt', 'from linked browser');
   await gotoMain(owner);
-  await expectMainFileContent(owner, 'linked-browser-edit.txt', 'from linked browser');
+  await expectMainFileContent(owner, relayUrl, 'linked-browser-edit.txt', 'from linked browser');
 
-  await writeMainFileAndPublish(owner, 'owner-browser-edit.txt', 'from owner browser');
+  await writeMainFileAndPublish(owner, relayUrl, 'owner-browser-edit.txt', 'from owner browser');
   await gotoMain(linked);
-  await expectMainFileContent(linked, 'owner-browser-edit.txt', 'from owner browser');
+  await expectMainFileContent(linked, relayUrl, 'owner-browser-edit.txt', 'from owner browser');
 }
 
-async function expectMainDirectoryTestFileSyncs(owner: Page, linked: Page): Promise<void> {
-  await gotoMain(owner);
-  await gotoMain(linked);
+async function expectMainDirectoryTestFileSyncs(owner: Page, linked: Page, profileId: string, relayUrl: string): Promise<void> {
+  await gotoMainViaHeaderAvatar(owner, profileId);
+  await gotoMainViaHeaderAvatar(linked, profileId);
   await enableOthersPool(owner, 6);
   await enableOthersPool(linked, 6);
   const ownerKey = await appKeyPubkey(owner);
@@ -366,13 +571,13 @@ async function expectMainDirectoryTestFileSyncs(owner: Page, linked: Page): Prom
   await waitForWebRTCConnection(owner, 30000, linkedKey);
   await waitForWebRTCConnection(linked, 30000, ownerKey);
 
-  await writeMainFileAndPublish(owner, 'test.txt', 'created from owner browser');
+  await writeMainFileAndPublish(owner, relayUrl, 'test.txt', 'created from owner browser');
   await gotoMain(linked);
-  await expectMainFileContent(linked, 'test.txt', 'created from owner browser');
+  await expectMainFileContent(linked, relayUrl, 'test.txt', 'created from owner browser');
 
-  await writeMainFileAndPublish(linked, 'test.txt', 'edited from linked browser');
+  await writeMainFileAndPublish(linked, relayUrl, 'test.txt', 'edited from linked browser');
   await gotoMain(owner);
-  await expectMainFileContent(owner, 'test.txt', 'edited from linked browser');
+  await expectMainFileContent(owner, relayUrl, 'test.txt', 'edited from linked browser');
 }
 
 async function createLinkedDriveBrowsers(
@@ -406,7 +611,7 @@ test.describe('Drive user settings link device', () => {
     test.setTimeout(120000);
     const { deviceContext, devicePage } = await createLinkedDriveBrowsers(page, browser as Browser, relayUrl);
     try {
-      await expectLinkedBrowsersCanExchangeEdits(page, devicePage);
+      await expectLinkedBrowsersCanExchangeEdits(page, devicePage, relayUrl);
     } finally {
       await deviceContext.close();
     }
@@ -414,9 +619,9 @@ test.describe('Drive user settings link device', () => {
 
   test('syncs main test.txt creation and edits between linked browsers', async ({ page, browser, relayUrl }) => {
     test.setTimeout(120000);
-    const { deviceContext, devicePage } = await createLinkedDriveBrowsers(page, browser as Browser, relayUrl);
+    const { deviceContext, devicePage, profileId } = await createLinkedDriveBrowsers(page, browser as Browser, relayUrl);
     try {
-      await expectMainDirectoryTestFileSyncs(page, devicePage);
+      await expectMainDirectoryTestFileSyncs(page, devicePage, profileId, relayUrl);
     } finally {
       await deviceContext.close();
     }

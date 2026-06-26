@@ -1,8 +1,9 @@
 <script lang="ts">
   import { navigate } from '../utils/navigate';
-  import { nostrStore, loginWithExtension, loginWithNsec, generateNewKey } from '../nostr';
+  import { nostrStore, loginWithExtension, loginWithNsec, generateNewKey, getCurrentIrisIdentitySession } from '../nostr';
   import { isFilesApp } from '../appType';
   import { Avatar } from './User';
+  import { driveRootPath } from '../drive/setup';
 
   let showNsec = $state(false);
   let nsecInput = $state('');
@@ -11,8 +12,18 @@
   let isLoggedIn = $derived($nostrStore.isLoggedIn);
   let npub = $derived($nostrStore.npub);
   let pubkey = $derived($nostrStore.pubkey);
+  let hasActiveDriveSession = $derived.by(() => {
+    isLoggedIn;
+    pubkey;
+    return getCurrentIrisIdentitySession()?.status === 'active';
+  });
 
   function goToProfile() {
+    const driveSession = getCurrentIrisIdentitySession();
+    if (driveSession?.status === 'active') {
+      navigate(driveRootPath(driveSession.profileId));
+      return;
+    }
     if (!npub) return;
     navigate(`/${npub}/profile`);
   }
@@ -52,7 +63,8 @@
     onclick={goToProfile}
     ondblclick={() => navigate('/users')}
     class="bg-transparent border-none cursor-pointer p-0"
-    title="My Profile (double-click for users)"
+    title={hasActiveDriveSession ? 'My Drive (double-click for users)' : 'My Profile (double-click for users)'}
+    data-testid="header-user-avatar"
   >
     <Avatar pubkey={pubkey} size={36} />
   </button>
