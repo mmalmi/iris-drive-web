@@ -1,4 +1,5 @@
 import type {
+  IrisProfileId,
   IrisProfileRosterProjection,
   IrisProfileTombstone,
   SignedIrisProfileRosterOp,

@@ -15,6 +15,8 @@ import { parseRoute } from '../utils/route';
 import { getRefResolver } from '../refResolver';
 import { resolvePublishLabels } from '@iris/hashtree-app/publishLabels';
 import { publishIrisProfileDriveRootIfAvailable } from '../drive/profileDriveRootPublish';
+import { isActiveIrisProfileRouteScope } from '../drive/profileRoute';
+import { treeRootRegistry } from '../TreeRootRegistry';
 
 // Re-export visibility hex helpers from hashtree lib
 export { visibilityHex as linkKeyUtils } from '@hashtree/core';
@@ -110,8 +112,11 @@ export async function saveHashtree(
  */
 export function isOwnTree(): boolean {
   const state = nostrStore.getState();
-  if (!state.isLoggedIn || !state.selectedTree || !state.pubkey) return false;
-  return state.selectedTree.pubkey === state.pubkey;
+  if (!state.isLoggedIn || !state.pubkey) return false;
+  if (state.selectedTree?.pubkey === state.pubkey) return true;
+
+  const route = parseRoute();
+  return !!route.treeName && isActiveIrisProfileRouteScope(route.npub, state);
 }
 
 /**
@@ -121,26 +126,41 @@ export function isOwnTree(): boolean {
  */
 export function autosaveIfOwn(rootCid: CID): void {
   const state = nostrStore.getState();
-  if (!isOwnTree() || !state.selectedTree || !state.npub) return;
+  if (!isOwnTree()) return;
+
+  const route = parseRoute();
+  const isProfileDriveRoute = !!route.treeName && isActiveIrisProfileRouteScope(route.npub, state);
+  const treeName = isProfileDriveRoute ? route.treeName! : state.selectedTree?.name;
+  const rootScope = isProfileDriveRoute ? route.npub! : state.npub;
+  if (!treeName || !rootScope) return;
+
+  const selectedTree = state.selectedTree?.name === treeName ? state.selectedTree : null;
+  const visibility = isProfileDriveRoute
+    ? (treeRootRegistry.getVisibility(rootScope, treeName) ?? selectedTree?.visibility ?? 'private')
+    : selectedTree?.visibility;
+  const labels = isProfileDriveRoute
+    ? (treeRootRegistry.getLabels(rootScope, treeName) ?? selectedTree?.labels)
+    : selectedTree?.labels;
 
   // Update local cache - this triggers throttled publish to Nostr
   // Pass visibility to ensure correct tags are published
   updateLocalRootCache(
-    state.npub,
-    state.selectedTree.name,
+    rootScope,
+    treeName,
     rootCid.hash,
     rootCid.key,
-    state.selectedTree.visibility,
-    state.selectedTree.labels
+    visibility,
+    labels
   );
 
   // Update selectedTree state immediately for UI (uses hex for state storage)
+  if (!selectedTree) return;
   const rootHash = toHex(rootCid.hash);
   const rootKey = rootCid.key ? toHex(rootCid.key) : undefined;
   nostrStore.setSelectedTree({
-    ...state.selectedTree,
+    ...selectedTree,
     rootHash,
-    rootKey: state.selectedTree.visibility === 'public' ? rootKey : state.selectedTree.rootKey,
+    rootKey: selectedTree.visibility === 'public' ? rootKey : selectedTree.rootKey,
   });
 }
 

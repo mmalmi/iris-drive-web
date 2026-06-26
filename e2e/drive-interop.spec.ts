@@ -1,5 +1,6 @@
 import { expect, test, type Browser, type Page } from './fixtures';
 import {
+  addFileViaTreeAPI,
   clearAllStorage,
   configureBlossomServers,
   flushPendingPublishes,
@@ -12,6 +13,7 @@ import {
   waitForRelayConnected,
 } from './test-utils.js';
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -103,6 +105,16 @@ type StoredIrisIdentitySessionForTest = {
   }>;
   createdAt: number;
   label?: string;
+};
+
+type BlossomPushDetails = {
+  hashHex: string;
+  keyHex?: string;
+  pushed: number;
+  skipped: number;
+  failed: number;
+  blossomUrl: string;
+  blockHashes: string[];
 };
 
 function readNativeIrisIdentitySession(configDir: string, label = 'native-e2e'): StoredIrisIdentitySessionForTest {
@@ -230,6 +242,73 @@ async function pushCurrentRootToBlossom(page: Page, treeName: string): Promise<v
   }, treeName);
 }
 
+async function verifyBlossomBlocksFromNode(details: BlossomPushDetails): Promise<void> {
+  for (const hashHex of details.blockHashes) {
+    const response = await fetch(`${details.blossomUrl}/${hashHex}.bin`);
+    if (!response.ok) {
+      throw new Error(`Node could not GET Blossom block ${hashHex} from ${details.blossomUrl}: ${response.status}`);
+    }
+    const bytes = Buffer.from(await response.arrayBuffer());
+    const digest = createHash('sha256').update(bytes).digest('hex');
+    if (digest !== hashHex) {
+      throw new Error(`Node Blossom block hash mismatch for ${hashHex}: got ${digest}`);
+    }
+  }
+}
+
+async function pushProfileRootToBlossom(page: Page, profileId: string, treeName: string): Promise<BlossomPushDetails> {
+  const details = await page.evaluate(async ({ profile, tree, blossomUrl }) => {
+    const { getTreeRootSync } = await import('/src/stores');
+    const { getTree } = await import('/src/store');
+    const toHex = (bytes: Uint8Array): string => Array.from(bytes)
+      .map((byte) => byte.toString(16).padStart(2, '0'))
+      .join('');
+    const assertReadableBlock = async (hashHex: string): Promise<void> => {
+      const response = await fetch(`${blossomUrl}/${hashHex}.bin`);
+      if (!response.ok) {
+        throw new Error(`Browser could not GET Blossom block ${hashHex}: ${response.status}`);
+      }
+      const buffer = await response.arrayBuffer();
+      const digest = await crypto.subtle.digest('SHA-256', buffer);
+      const actualHash = toHex(new Uint8Array(digest));
+      if (actualHash !== hashHex) {
+        throw new Error(`Browser Blossom block hash mismatch for ${hashHex}: got ${actualHash}`);
+      }
+    };
+    const root = getTreeRootSync(profile, tree);
+    if (!root?.hash) {
+      throw new Error(`No root for ${profile}/${tree}`);
+    }
+    const adapter = (window as any).__getWorkerAdapter?.() ?? (window as any).__workerAdapter;
+    if (!adapter?.pushToBlossom) {
+      throw new Error('Worker adapter has no pushToBlossom');
+    }
+    const result = await adapter.pushToBlossom(root.hash, root.key, tree);
+    if (result.failed > 0) {
+      throw new Error(`Blossom push failed: ${JSON.stringify(result)}`);
+    }
+    const hashtree = getTree();
+    const blockHashes: string[] = [];
+    for await (const block of hashtree.walkBlocks(root)) {
+      const hashHex = toHex(block.hash);
+      blockHashes.push(hashHex);
+      await assertReadableBlock(hashHex);
+    }
+    return {
+      hashHex: toHex(root.hash),
+      keyHex: root.key ? toHex(root.key) : undefined,
+      pushed: result.pushed,
+      skipped: result.skipped,
+      failed: result.failed,
+      blossomUrl,
+      blockHashes,
+    };
+  }, { profile: profileId, tree: treeName, blossomUrl: getTestBlossomUrl() });
+
+  await verifyBlossomBlocksFromNode(details);
+  return details;
+}
+
 async function waitForRemoteTreeRoot(page: Page, npub: string, treeName: string): Promise<void> {
   await page.evaluate(async ({ owner, tree, timeout }) => {
     const { waitForTreeRoot } = await import('/src/stores');
@@ -283,6 +362,65 @@ function expectNativeFile(configDir: string, fileName: string, expectedContent: 
   const file = listing.files.find((entry: any) => entry.path === fileName);
   expect(file).toBeTruthy();
   expect(file.size).toBe(Buffer.byteLength(expectedContent));
+}
+
+async function waitForNativeFiles(
+  configDir: string,
+  relayUrl: string,
+  expected: Array<{ fileName: string; content: string }>,
+  diagnostics?: Record<string, unknown>,
+): Promise<void> {
+  const expectedFiles = expected.map(({ fileName, content }) => ({
+    fileName,
+    present: true,
+    size: Buffer.byteLength(content),
+    expectedSize: Buffer.byteLength(content),
+  }));
+  const deadline = Date.now() + 90000;
+  let last: unknown = null;
+
+  while (Date.now() < deadline) {
+    const sync = runIdriveJson(configDir, ['sync', '--relay', relayUrl, '--timeout', '5']);
+    const listing = runIdriveJson(configDir, ['list']);
+    const status = runIdriveJson(configDir, ['status']);
+    const files = expected.map(({ fileName, content }) => {
+      const file = listing.files.find((entry: any) => entry.path === fileName);
+      return {
+        fileName,
+        present: !!file,
+        size: file?.size ?? -1,
+        expectedSize: Buffer.byteLength(content),
+      };
+    });
+    last = {
+      files,
+      sync: {
+        profile_roster_ops_seen: sync.profile_roster_ops_seen,
+        profile_roster_ops_applied: sync.profile_roster_ops_applied,
+        drive_root_events_seen: sync.drive_root_events_seen,
+        drive_root_events_applied: sync.drive_root_events_applied,
+        drive_root_events_skipped: sync.drive_root_events_skipped,
+        files_root_event_seen: sync.files_root_event_seen,
+        files_root_event_outcome: sync.files_root_event_outcome,
+        fips_download: sync.fips_download,
+        fips_download_error: sync.fips_download_error,
+        blossom_download: sync.blossom_download,
+        blossom_download_error: sync.blossom_download_error,
+        materialized_root_cid: sync.materialized_root_cid,
+        blossom_servers: sync.blossom_servers,
+      },
+      profile: status.profile,
+      drives: status.drives,
+      listing,
+      diagnostics,
+    };
+    if (JSON.stringify(files) === JSON.stringify(expectedFiles)) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+  }
+
+  throw new Error(`Native files did not converge:\n${JSON.stringify(last, null, 2)}`);
 }
 
 test.describe('Iris Drive web interop', () => {
@@ -408,17 +546,25 @@ test.describe('Iris Drive web interop', () => {
   });
 
   test('native idrive link request appears in web owner device settings', async ({ page, relayUrl }) => {
+    test.setTimeout(300000);
     test.skip(!fs.existsSync(repoRoot()), 'iris-drive repo not available');
 
     const nativeConfigDir = fs.mkdtempSync(path.join(os.tmpdir(), 'iris-drive-native-link-request-'));
+    const nativeWorkDir = fs.mkdtempSync(path.join(os.tmpdir(), 'iris-drive-native-link-work-'));
     let daemon: ChildProcess | null = null;
 
     try {
       await prepareFreshPage(page, relayUrl);
       const invite = await createWebOwnerInviteThroughSettings(page);
       expect(invite).toMatch(/^https:\/\/drive\.iris\.to\/invite\//);
+      const profileId = await page.evaluate(() => {
+        const stored = JSON.parse(localStorage.getItem('iris:identity:session') ?? 'null');
+        return stored?.profileId ?? '';
+      });
+      expect(profileId).toMatch(/^[0-9a-f-]{36}$/);
 
       runIdriveJson(nativeConfigDir, ['link', invite, '--label', 'iOS native']);
+      configureNativeBlossom(nativeConfigDir);
       daemon = startIdriveDaemon(nativeConfigDir, relayUrl);
 
       await expect(page.getByTestId('user-link-request')).toBeVisible({ timeout: 45000 });
@@ -436,9 +582,29 @@ test.describe('Iris Drive web interop', () => {
         authorization: 'authorized',
         pendingRequest: '',
       });
+
+      const nativeFileName = 'native-linked.txt';
+      const nativeContent = `native linked to web ${Date.now()}`;
+      fs.writeFileSync(path.join(nativeWorkDir, nativeFileName), nativeContent);
+      runIdriveJson(nativeConfigDir, ['import', nativeWorkDir]);
+      const nativePublish = runIdriveJson(nativeConfigDir, ['publish', '--relay', relayUrl, '--timeout', '5']);
+      expect(nativePublish.published_files_root).toBe(true);
+      await expectTreeFile(page, profileId, 'main', nativeFileName, nativeContent);
+
+      const webFileName = 'web-linked.txt';
+      const webContent = `web linked to native ${Date.now()}`;
+      const webRoot = await addFileViaTreeAPI(page, [], webFileName, webContent);
+      expect(webRoot).toBeTruthy();
+      await flushPendingPublishes(page);
+      const webPush = await pushProfileRootToBlossom(page, profileId, 'main');
+      await waitForNativeFiles(nativeConfigDir, relayUrl, [
+        { fileName: nativeFileName, content: nativeContent },
+        { fileName: webFileName, content: webContent },
+      ], { webPush });
     } finally {
       if (daemon) await stopIdriveDaemon(daemon);
       fs.rmSync(nativeConfigDir, { recursive: true, force: true });
+      fs.rmSync(nativeWorkDir, { recursive: true, force: true });
     }
   });
 });

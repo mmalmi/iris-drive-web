@@ -11,6 +11,7 @@ import { localStore, getTree } from '../store';
 import { autosaveIfOwn } from '../nostr';
 import { getCurrentRootCid, getCurrentPathFromUrl } from './route';
 import { updateLocalRootCache } from '../treeRootCache';
+import { isActiveIrisProfileRouteScope } from '../drive/profileRoute';
 export { forkTree } from './treeFork';
 
 type DirectoryEntryInput = { name: string; cid: CID; size: number; type?: LinkType };
@@ -23,16 +24,22 @@ export async function initVirtualTree(entries: DirectoryEntryInput[]): Promise<C
   const tree = getTree();
   const nostrStore = useNostrStore.getState();
 
+  const isProfileDriveRoute = isActiveIrisProfileRouteScope(route.npub, nostrStore);
   let routePubkey: string;
-  try {
-    const decoded = nip19.decode(route.npub);
-    if (decoded.type !== 'npub') return null;
-    routePubkey = decoded.data as string;
-  } catch {
-    return null;
+  if (isProfileDriveRoute) {
+    if (!nostrStore.pubkey) return null;
+    routePubkey = nostrStore.pubkey;
+  } else {
+    try {
+      const decoded = nip19.decode(route.npub);
+      if (decoded.type !== 'npub') return null;
+      routePubkey = decoded.data as string;
+    } catch {
+      return null;
+    }
   }
 
-  const isOwnTree = routePubkey === nostrStore.pubkey;
+  const isOwnTree = isProfileDriveRoute || routePubkey === nostrStore.pubkey;
   if (!isOwnTree) return null; // Can only create in own trees
 
   // Create new encrypted tree with the entries (using DirEntry format)
@@ -45,7 +52,7 @@ export async function initVirtualTree(entries: DirectoryEntryInput[]): Promise<C
   const { cid: newRootCid } = await tree.putDirectory(dirEntries);
 
   // Preserve current tree's visibility when updating
-  const currentVisibility = nostrStore.selectedTree?.visibility ?? 'public';
+  const currentVisibility = nostrStore.selectedTree?.visibility ?? (isProfileDriveRoute ? 'private' : 'public');
 
   // Update UI state immediately (uses hex for storage)
   useNostrStore.setSelectedTree({
@@ -59,8 +66,12 @@ export async function initVirtualTree(entries: DirectoryEntryInput[]): Promise<C
     created_at: Math.floor(Date.now() / 1000),
   });
 
-  // Save to Nostr (fire-and-forget, also updates local cache)
-  void saveHashtree(route.treeName, newRootCid, { visibility: currentVisibility });
+  if (isProfileDriveRoute) {
+    updateLocalRootCache(route.npub, route.treeName, newRootCid.hash, newRootCid.key, currentVisibility);
+  } else {
+    // Save to Nostr (fire-and-forget, also updates local cache)
+    void saveHashtree(route.treeName, newRootCid, { visibility: currentVisibility });
+  }
 
   return newRootCid;
 }
@@ -129,8 +140,10 @@ export async function createDocument(name: string) {
     // Update local cache for subsequent saves (visibility is preserved from selectedTree)
     const route = parseRoute();
     const nostrStore = useNostrStore.getState();
-    if (nostrStore.npub && route.treeName) {
-      updateLocalRootCache(nostrStore.npub, route.treeName, newRootCid.hash, newRootCid.key, nostrStore.selectedTree?.visibility);
+    const isProfileDriveRoute = isActiveIrisProfileRouteScope(route.npub, nostrStore);
+    const rootScope = isProfileDriveRoute ? route.npub : nostrStore.npub;
+    if (rootScope && route.treeName) {
+      updateLocalRootCache(rootScope, route.treeName, newRootCid.hash, newRootCid.key, nostrStore.selectedTree?.visibility);
     }
   } else {
     // Initialize virtual tree with this document folder

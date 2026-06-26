@@ -28,6 +28,8 @@ import {
   waitForWorkerReady,
 } from './treeRootWorker';
 
+const DRIVE_ROOT_BACKFILL_INTERVAL_MS = 3000;
+
 /**
  * Update the subscription cache directly (called from feed subscriptions).
  * Keeps backward compatibility while updating the registry for UI consumers.
@@ -75,12 +77,12 @@ export function updateSubscriptionCache(
   }));
 }
 
-function applyDriveRootEvent(
+async function applyDriveRootEvent(
   key: string,
   rootScopeId: string,
   driveId: string,
   event: NostrToolsEvent,
-): void {
+): Promise<void> {
   const secretKey = getSecretKey();
   if (!secretKey) return;
 
@@ -98,11 +100,16 @@ function applyDriveRootEvent(
   if (!entry) return;
 
   const visibilityInfo: SubscribeVisibilityInfo = { visibility: 'private' };
-  const updated = treeRootRegistry.setFromResolver(rootScopeId, driveId, parsed.root.hash, parsed.published_at, {
+  const apply = () => treeRootRegistry.setFromResolver(rootScopeId, driveId, parsed.root.hash, parsed.published_at, {
     key: parsed.root.key,
     visibility: 'private',
     labels: ['iris-drive'],
   });
+  let updated = apply();
+  if (!updated && treeRootRegistry.getByKey(key)?.dirty) {
+    await treeRootRegistry.flushPendingPublishes();
+    updated = apply();
+  }
   if (!updated) return;
 
   entry.decryptedKey = parsed.root.key;
@@ -110,6 +117,49 @@ function applyDriveRootEvent(
     updatedAt: parsed.published_at,
     eventId: event.id,
   }));
+}
+
+function rawNdkEvent(event: NDKEvent): NostrToolsEvent | null {
+  const rawEvent = event.rawEvent() as Partial<NostrToolsEvent>;
+  if (!rawEvent.id || !rawEvent.sig || !rawEvent.pubkey || !rawEvent.tags || typeof rawEvent.kind !== 'number') {
+    return null;
+  }
+  return rawEvent as NostrToolsEvent;
+}
+
+function backfillDriveRootScope(key: string, rootScopeId: string, driveId: string): void {
+  const filter: NDKFilter = {
+    kinds: [KIND_DRIVE_ROOT],
+    '#d': [driveRootDTag(rootScopeId, driveId)],
+    limit: 50,
+  };
+  void ndk.fetchEvents(filter)
+    .then(async (events) => {
+      for (const event of events) {
+        const rawEvent = rawNdkEvent(event);
+        if (rawEvent) await applyDriveRootEvent(key, rootScopeId, driveId, rawEvent);
+      }
+    })
+    .catch((error) => {
+      console.warn('[treeRoot] Failed to backfill IrisProfile drive roots:', error);
+    });
+}
+
+function driveRootScopeFromResolverKey(key: string): { rootScopeId: string; driveId: string } | null {
+  const slashIndex = key.indexOf('/');
+  if (slashIndex <= 0 || slashIndex >= key.length - 1) return null;
+  const rootScopeId = key.slice(0, slashIndex);
+  if (!isIrisProfileId(rootScopeId)) return null;
+  return {
+    rootScopeId,
+    driveId: key.slice(slashIndex + 1),
+  };
+}
+
+export function refreshDriveRootResolverKey(key: string): void {
+  const scope = driveRootScopeFromResolverKey(key);
+  if (!scope) return;
+  backfillDriveRootScope(key, scope.rootScopeId, scope.driveId);
 }
 
 function subscribeToDriveRootScope(key: string, rootScopeId: string, driveId: string): () => void {
@@ -125,16 +175,16 @@ function subscribeToDriveRootScope(key: string, rootScopeId: string, driveId: st
   const attachSub = () => {
     const sub = ndk.subscribe(filter, opts);
     sub.on('event', (event: NDKEvent) => {
-      const rawEvent = event.rawEvent() as Partial<NostrToolsEvent>;
-      if (!rawEvent.id || !rawEvent.sig || !rawEvent.pubkey || !rawEvent.tags || typeof rawEvent.kind !== 'number') {
-        return;
-      }
-      applyDriveRootEvent(key, rootScopeId, driveId, rawEvent as NostrToolsEvent);
+      const rawEvent = rawNdkEvent(event);
+      if (rawEvent) void applyDriveRootEvent(key, rootScopeId, driveId, rawEvent);
     });
     return sub;
   };
 
   let sub = attachSub();
+  const fetchSnapshot = () => backfillDriveRootScope(key, rootScopeId, driveId);
+  fetchSnapshot();
+  const backfillTimer = window.setInterval(fetchSnapshot, DRIVE_ROOT_BACKFILL_INTERVAL_MS);
   let lastConnectedRelays = useNostrStore.getState().connectedRelays;
   const relayUnsub = useNostrStore.subscribe((state: NostrState) => {
     if (state.connectedRelays > 0 && lastConnectedRelays === 0) {
@@ -144,11 +194,13 @@ function subscribeToDriveRootScope(key: string, rootScopeId: string, driveId: st
         // ignore
       }
       sub = attachSub();
+      fetchSnapshot();
     }
     lastConnectedRelays = state.connectedRelays;
   });
 
   return () => {
+    window.clearInterval(backfillTimer);
     relayUnsub?.();
     sub.stop();
   };

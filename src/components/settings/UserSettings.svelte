@@ -111,6 +111,19 @@
     };
   });
 
+  $effect(() => {
+    if (session?.status !== 'pending_device_link') return;
+    let cancelled = false;
+    const timer = setInterval(() => {
+      if (!cancelled) void checkPendingApproval();
+    }, 3000);
+    void checkPendingApproval();
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  });
+
   function refreshSession(): void {
     session = getCurrentIrisIdentitySession();
     if (!session || session.status !== 'active') {

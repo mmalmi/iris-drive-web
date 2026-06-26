@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { generateSecretKey, getPublicKey, nip19, nip44 } from 'nostr-tools';
 import { createIrisIdentitySignerFromNsec } from '@iris/identity';
 import {
+  createIrisProfileDckRotateAfterAddOp,
   createIrisProfileDckRotateAfterRemovalOp,
   createIrisProfileDckRewrapOp,
   projectIrisProfileRoster,
@@ -11,6 +12,61 @@ import {
 import { appFacet } from './driveProtocolInterop.helpers';
 
 describe('iris-drive recovery DCK rewrap', () => {
+  it('creates an initial DCK epoch when a web profile without one approves a writer app key', async () => {
+    const profileId = '123e4567-e89b-42d3-a456-426614174179';
+    const adminSecret = generateSecretKey();
+    const adminPubkey = getPublicKey(adminSecret);
+    const appKeySecret = generateSecretKey();
+    const appKeyPubkey = getPublicKey(appKeySecret);
+
+    const bootstrap = signIrisProfileRosterOp({
+      signerSecretKey: adminSecret,
+      profileId,
+      createdAt: 10,
+      clientNonce: 'bootstrap-admin',
+      op: {
+        op: 'add_facet',
+        facet: appFacet(adminPubkey, 10, 'Admin', true, true),
+      },
+    });
+    const addAppKey = signIrisProfileRosterOp({
+      signerSecretKey: adminSecret,
+      profileId,
+      parents: [bootstrap.op_id],
+      createdAt: 11,
+      clientNonce: 'approve-phone',
+      op: {
+        op: 'add_facet',
+        facet: appFacet(appKeyPubkey, 11, 'Phone', true, false),
+      },
+    });
+
+    const rotation = await createIrisProfileDckRotateAfterAddOp({
+      profileId,
+      signer: createIrisIdentitySignerFromNsec(nip19.nsecEncode(adminSecret)),
+      rosterOps: [bootstrap],
+      parentRosterOp: addAppKey,
+      createdAt: 12,
+      clientNonce: 'approve-phone-rotate-dck',
+      dckPlaintext: 'drive-content-key-v1',
+    });
+
+    expect(rotation.content.op).toMatchObject({
+      op: 'rotate_key_epoch',
+      epoch: 1,
+    });
+    const projection = projectIrisProfileRoster(profileId, [bootstrap, addAppKey, rotation]);
+    expect(projection.active_facets[appKeyPubkey]?.capabilities?.can_admin_profile).toBeFalsy();
+    expect(Object.keys(projection.key_epochs['1'].wrapped_dck).sort()).toEqual([
+      adminPubkey,
+      appKeyPubkey,
+    ].sort());
+
+    const appConversationKey = nip44.v2.utils.getConversationKey(appKeySecret, adminPubkey);
+    expect(nip44.v2.decrypt(projection.key_epochs['1'].wrapped_dck[appKeyPubkey], appConversationKey))
+      .toBe('drive-content-key-v1');
+  });
+
   it('rotates a DCK epoch through a decrypt-capable recovery key for a new app key', async () => {
     const profileId = '123e4567-e89b-42d3-a456-426614174180';
     const adminSecret = generateSecretKey();

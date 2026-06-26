@@ -40,6 +40,7 @@ import {
 } from './treeRootKeys';
 import {
   getResolverUpdatedAt,
+  refreshDriveRootResolverKey,
   refreshResolverSubscription,
   subscribeToResolver,
   subscribeToTreeRoot,
@@ -217,6 +218,7 @@ export function createTreeRootStore(): Readable<CID | null> {
       if (!linkKeyFromUrl) {
         recoverLinkKeyForUrl(resolverKey);
       }
+      refreshDriveRootResolverKey(resolverKey);
       logHtreeDebug('treeRoot:reuse', { resolverKey });
       return;
     }
@@ -353,6 +355,7 @@ export function createTreeRootStore(): Readable<CID | null> {
         }
       }
     });
+    refreshDriveRootResolverKey(resolverKey);
 
     scheduleResolverRetry(resolverKey);
   });

@@ -3,7 +3,7 @@
  */
 import { generateSecretKey, getPublicKey, nip19, nip44, verifyEvent, type Event as NostrToolsEvent } from 'nostr-tools';
 import {
-  APP_KEY_ADMIN_CAPABILITIES,
+  APP_KEY_WRITER_CAPABILITIES,
   approveDeviceLinkRequest,
   createAttachedIrisIdentitySession,
   createIrisIdentitySignerFromNip07,
@@ -18,7 +18,7 @@ import {
   type IrisIdentityEventSigner,
   type RemoveIrisAppKeyResult,
 } from '@iris/identity';
-import type { NDKFilter } from 'ndk';
+import type { NDKFilter, NDKKind } from 'ndk';
 import { ndk, NDKNip46Signer, NDKPrivateKeySigner, NDKNip07Signer, NDKEvent } from './ndk';
 import { nostrStore } from './store';
 import { initHashtreeBackend, getWorkerAdapter, updateFollowsSubscription, waitForWorkerAdapter } from '../lib/workerInit';
@@ -34,6 +34,7 @@ import { needsMigrations, runMigrations } from '../migrations';
 import { initWallet, disposeWallet } from '../stores/wallet';
 import {
   createPendingDeviceLinkSession,
+  createIrisProfileDckRotateAfterAddOp,
   createIrisProfileDckRotateAfterRemovalOp,
   createIrisProfileDckRewrapOp,
   KIND_IRIS_PROFILE_FACET_ACCEPTANCE,
@@ -636,7 +637,7 @@ export function subscribeDriveDeviceLinkRequestsForAdmin(
 function driveDeviceLinkRequestFilters(scope: DriveDeviceLinkRequestScope): NDKFilter[] {
   return [
     {
-      kinds: [KIND_IRIS_PROFILE_ROSTER_OP],
+      kinds: [KIND_IRIS_PROFILE_ROSTER_OP as NDKKind],
       '#i': [scope.profileId],
       '#p': [scope.invitePubkey],
       limit: 200,
@@ -711,13 +712,14 @@ export async function approveDriveDeviceLinkRequest(
   if (!secretKey) throw new Error('No active Drive AppKey secret');
 
   const rosterOps = await currentDriveRosterOps(session);
+  const approvedAt = currentUnixSeconds();
   const content = approveDeviceLinkRequest({
     request,
     rosterOps,
     approvedByPubkey: session.appKeyPubkey,
-    approvedAt: currentUnixSeconds(),
+    approvedAt,
     clientNonce: randomClientNonce(),
-    capabilities: APP_KEY_ADMIN_CAPABILITIES,
+    capabilities: APP_KEY_WRITER_CAPABILITIES,
   });
   const signed = signIrisProfileRosterOp({
     signerSecretKey: secretKey,
@@ -727,10 +729,23 @@ export async function approveDriveDeviceLinkRequest(
     clientNonce: content.client_nonce,
     op: content.op,
   });
+  const dckRotationOp = await createIrisProfileDckRotateAfterAddOp({
+    profileId: session.profileId,
+    signer: createIrisIdentitySignerFromNsec(session.appKeyNsec),
+    rosterOps,
+    parentRosterOp: signed,
+    createdAt: approvedAt + 1,
+    clientNonce: `${content.client_nonce}:rotate-dck`,
+  });
 
   await publishCurrentDriveIdentityRosterOps({ ...session, rosterOps });
   await publishSignedIdentityEventJson(signed.event_json);
-  const updated = appendCurrentIrisIdentitySessionRosterOps(session.profileId, [...rosterOps, signed]);
+  await publishSignedIdentityEventJson(dckRotationOp.event_json);
+  const updated = appendCurrentIrisIdentitySessionRosterOps(session.profileId, [
+    ...rosterOps,
+    signed,
+    dckRotationOp,
+  ]);
   if (!updated) throw new Error('Approved key removed the active Drive user');
   return updated;
 }
@@ -813,13 +828,23 @@ export async function activatePendingDriveDeviceLinkIfApproved(): Promise<IrisId
   const rosterOps = await fetchIrisProfileRosterOps(session.profileId, 8000);
   if (rosterOps.length === 0) return session;
   const projection = projectIrisProfileRoster(session.profileId, rosterOps);
-  if (!projection.active_facets[session.appKeyPubkey]) return session;
+  const facet = projection.active_facets[session.appKeyPubkey];
+  const hasAdminFacet = Object.values(projection.active_facets)
+    .some((candidate) => candidate.capabilities?.can_admin_profile);
+  const latestEpoch = Object.values(projection.key_epochs)
+    .sort((left, right) => right.epoch - left.epoch)[0];
+  if (!hasAdminFacet
+    || !facet?.capabilities?.can_write_roots
+    || !facet.capabilities.can_receive_key_wraps
+    || !facet.capabilities.can_decrypt_key_epochs
+    || !latestEpoch?.wrapped_dck[session.appKeyPubkey]) {
+    return session;
+  }
   const activeSession: IrisIdentitySession = {
     ...session,
     status: 'active',
     rosterOps,
   };
-  saveIrisIdentitySession(activeSession);
   const decoded = nip19.decode(session.appKeyNsec);
   if (decoded.type !== 'nsec') {
     throw new Error('Pending Drive AppKey is not an nsec');
@@ -827,6 +852,7 @@ export async function activatePendingDriveDeviceLinkIfApproved(): Promise<IrisId
   await applySecretKey(decoded.data as Uint8Array, DRIVE_DEFAULT_TREES, {
     irisProfileId: activeSession.profileId,
   });
+  saveIrisIdentitySession(activeSession);
   return activeSession;
 }
 
@@ -894,7 +920,7 @@ export async function removeDriveProfileAppKeyWithRecovery(
     throw new Error('No Drive user found for that profile');
   }
 
-  let dckRotationOp: SignedIrisProfileRosterOp | null = null;
+  const dckRotation = { op: null as SignedIrisProfileRosterOp | null };
   const removal = await removeIrisAppKeyFromProfile({
     profileId,
     signer,
@@ -903,13 +929,13 @@ export async function removeDriveProfileAppKeyWithRecovery(
     reason: options.reason,
     clientNonce: randomClientNonce(),
     rewrapSecrets: async (context) => {
-      dckRotationOp = await createIrisProfileDckRotateAfterRemovalOp({
+      dckRotation.op = await createIrisProfileDckRotateAfterRemovalOp({
         profileId,
         signer,
         rosterOps,
         parentRosterOp: context.rosterOp,
       });
-      if (!dckRotationOp) {
+      if (!dckRotation.op) {
         return [{
           secretId: 'drive-dck',
           status: 'skipped',
@@ -919,14 +945,15 @@ export async function removeDriveProfileAppKeyWithRecovery(
       return [{
         secretId: 'drive-dck',
         status: 'rotated',
-        epoch: dckRotationOp.content.op.op === 'rotate_key_epoch'
-          ? dckRotationOp.content.op.epoch
+        epoch: dckRotation.op.content.op.op === 'rotate_key_epoch'
+          ? dckRotation.op.content.op.epoch
           : undefined,
       }];
     },
   });
 
   await publishSignedIdentityEventJson(removal.rosterOp.event_json);
+  const dckRotationOp = dckRotation.op;
   if (dckRotationOp) {
     await publishSignedIdentityEventJson(dckRotationOp.event_json);
   }
@@ -1546,11 +1573,12 @@ async function publishRawNostrEvent(event: NostrToolsEvent): Promise<void> {
   ndk.subManager.dispatchEvent(event as Parameters<typeof ndk.subManager.dispatchEvent>[0], undefined, true);
   const hasDirectRelays = ndk.pool.relays.size > 0 || (ndk.explicitRelayUrls?.length ?? 0) > 0;
   let directError: unknown = null;
+  let directPublished = false;
   if (hasDirectRelays) {
     try {
       const ndkEvent = new NDKEvent(ndk, event);
       await ndkEvent.publish();
-      return;
+      directPublished = true;
     } catch (error) {
       directError = error;
     }
@@ -1562,7 +1590,8 @@ async function publishRawNostrEvent(event: NostrToolsEvent): Promise<void> {
     return;
   }
 
-  if (directError) throw directError;
+  if (directError && !directPublished) throw directError;
+  if (directPublished) return;
   const ndkEvent = new NDKEvent(ndk, event);
   await ndkEvent.publish();
 }

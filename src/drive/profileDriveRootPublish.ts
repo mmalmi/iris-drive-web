@@ -53,6 +53,18 @@ function nextDriveRootSequence(profileId: string, driveId: string, appKeyPubkey:
   return next;
 }
 
+function nextDriveRootPublishedAt(profileId: string, driveId: string, appKeyPubkey: string): number {
+  const storageKey = `iris:drive-root-created-at:${profileId}:${driveId}:${appKeyPubkey}`;
+  const previous = Number(localStorage.getItem(storageKey) ?? '0');
+  const now = Math.floor(Date.now() / 1000);
+  const next = Math.max(
+    now,
+    Number.isFinite(previous) ? previous + 1 : 1,
+  );
+  localStorage.setItem(storageKey, String(next));
+  return next;
+}
+
 export async function publishIrisProfileDriveRootIfAvailable(
   driveId: string,
   rootCid: CID,
@@ -88,6 +100,7 @@ export async function publishIrisProfileDriveRootIfAvailable(
     root: rootCid,
     dckGeneration: projected.keyEpoch,
     appKeySeq: nextDriveRootSequence(session.profileId, driveId, appKeyPubkey),
+    publishedAt: nextDriveRootPublishedAt(session.profileId, driveId, appKeyPubkey),
     authorizedAppKeyPubkeys: projected.activeAppKeyPubkeys,
   });
 

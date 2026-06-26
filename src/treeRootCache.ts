@@ -11,7 +11,7 @@
 import type { Hash, TreeVisibility } from '@hashtree/core';
 import { fromHex } from '@hashtree/core';
 import { treeRootRegistry } from './TreeRootRegistry';
-import { parseRoute } from './utils/route';
+import { isIrisProfileId, parseRoute } from './utils/route';
 import { publishIrisProfileDriveRootIfAvailable } from './drive/profileDriveRootPublish';
 
 /**
@@ -24,12 +24,12 @@ export async function initializePublishFn(): Promise<void> {
   const { getRefResolver } = await import('./refResolver');
   const { cid: makeCid, fromHex: hexToBytes } = await import('@hashtree/core');
 
-  treeRootRegistry.setPublishFn(async (_npub, treeName, record) => {
+  treeRootRegistry.setPublishFn(async (npub, treeName, record) => {
     // Get the resolver
     const resolver = getRefResolver();
     if (!resolver.publish) return false;
 
-    // Get npub from nostrStore (we need the current user's npub, not passed one)
+    // Active login is still required for signing and link-key lookup.
     const { nostrStore } = await import('./nostr');
     const state = nostrStore.getState();
     if (!state.npub) return false;
@@ -64,7 +64,11 @@ export async function initializePublishFn(): Promise<void> {
     }
 
     const rootCid = makeCid(record.hash, record.key);
-    const key = `${state.npub}/${treeName}`;
+    if (isIrisProfileId(npub)) {
+      return publishIrisProfileDriveRootIfAvailable(treeName, rootCid);
+    }
+
+    const key = `${npub}/${treeName}`;
 
     // Call resolver.publish directly - this avoids the re-dirtying loop
     // that happens when going through saveHashtree -> updateLocalRootCache

@@ -3,7 +3,7 @@ import {
   toHex,
   type CID,
 } from '@hashtree/core';
-import type { NDKEvent } from 'ndk';
+import type { NDKEvent, NDKKind } from 'ndk';
 import {
   HASHTREE_ROOT_KINDS,
   buildTreeEventSnapshotPermalink,
@@ -159,7 +159,7 @@ export async function readTreeEventSnapshot(snapshotCid: CID): Promise<TreeEvent
 
 async function fetchTreeEvents(pubkey: string, treeName: string): Promise<StoredNostrEvent[]> {
   const ndkEvents = await ndk.fetchEvents({
-    kinds: [...HASHTREE_ROOT_KINDS],
+    kinds: [...HASHTREE_ROOT_KINDS] as NDKKind[],
     authors: [pubkey],
     '#d': [treeName],
     limit: SNAPSHOT_FETCH_LIMIT,

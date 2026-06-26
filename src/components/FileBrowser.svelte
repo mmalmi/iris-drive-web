@@ -17,6 +17,7 @@
     buildEntryHref as buildFileEntryHref,
     buildTreeHref,
   } from './fileBrowserHrefs';
+  import { isActiveIrisProfileRouteScope } from '../drive/profileRoute';
 
   import { getFileIcon } from '@iris/hashtree-app/fileIcon';
   import { BREAKPOINTS } from '@iris/hashtree-app/breakpoints';
@@ -67,7 +68,8 @@
 
   let inTreeView = $derived(!!currentTreeName || !!rootHash);
   let viewedNpub = $derived(currentNpub);
-  let isOwnTrees = $derived(!viewedNpub || viewedNpub === userNpub);
+  let isOwnDriveProfile = $derived(isActiveIrisProfileRouteScope(viewedNpub, $nostrStore));
+  let isOwnTrees = $derived(!viewedNpub || viewedNpub === userNpub || isOwnDriveProfile);
   let canEdit = $derived(isOwnTrees || !isLoggedIn);
 
   let shareUrl = $derived.by(() => {

@@ -4,6 +4,7 @@ import {
   selectLatestRepresentativeProfileEvent,
   type NostrProfileEventLike,
 } from '@iris/identity';
+import type { NDKKind } from 'ndk';
 import { verifyEvent, type Event as NostrToolsEvent } from 'nostr-tools';
 import { writable, type Readable } from 'svelte/store';
 import {
@@ -97,7 +98,7 @@ async function fetchIdentityRosterOps(
       resolve();
     };
     const sub = ndk.subscribe(
-      { kinds: [KIND_IRIS_PROFILE_ROSTER_OP], '#i': [profileId], limit: 500 },
+      { kinds: [KIND_IRIS_PROFILE_ROSTER_OP as NDKKind], '#i': [profileId], limit: 500 },
       { closeOnEose: true },
     );
     const timer = setTimeout(finish, timeoutMs);
@@ -178,7 +179,7 @@ function identityNameFromEvents(
 ): IdentityProfileNameState {
   const representative = selectLatestRepresentativeProfileEvent(projection, events);
   const profileName = representative
-    ? getProfileName(representative.profile as Profile, representative.pubkey)
+    ? getProfileName(representative.profile as unknown as Profile, representative.pubkey)
     : undefined;
   const name = displayNameOrFallback(profileName, fallbackName);
   return {
