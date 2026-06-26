@@ -16,7 +16,7 @@
   } from '../accounts';
   import { createDriveProfile, linkDriveDevice, recoverDriveProfileWithAppKey, restoreSession, waitForNostrExtension } from '../nostr';
   import { parseDeviceLinkInvite } from '../drive/protocol';
-  import { driveRootPath } from '../drive/setup';
+  import { driveRootPath, normalizeOwnerNpub } from '../drive/setup';
   import { Avatar, Name } from './User';
   import IdentityName from './User/IdentityName.svelte';
   import { BackButton } from './ui';
@@ -25,9 +25,11 @@
 
   interface Props {
     mode?: UsersMode;
+    embedded?: boolean;
+    initialDeviceLink?: string;
   }
 
-  let { mode = 'list' }: Props = $props();
+  let { mode = 'list', embedded = false, initialDeviceLink = '' }: Props = $props();
 
   // State
   let recoveryError = $state('');
@@ -39,6 +41,11 @@
   let isSecondaryMode = $derived(isExistingMode || isNoExistingMode);
   let headerTitle = $derived(isNoExistingMode ? 'Create new' : isExistingMode ? 'Sign in' : 'Users');
   let backHref = $derived(isNoExistingMode ? '/users/existing' : '/users');
+  let initialRecoveryRequest = $derived<IdentityRecoveryRequest | null>(
+    initialDeviceLink.trim()
+      ? { method: 'nip46', nip46Connection: initialDeviceLink.trim() }
+      : null,
+  );
 
   // Store values
   let accountsState = $derived($accountsStore);
@@ -110,13 +117,20 @@
     recoveryError = '';
     try {
       const linkInput = request.method === 'nip46' ? request.nip46Connection?.trim() : '';
-      if (linkInput && parseDeviceLinkInvite(linkInput)) {
-        const linked = await linkDriveDevice(linkInput);
-        if (!linked) {
-          throw new Error('Invalid Drive link');
+      if (linkInput) {
+        if (parseDeviceLinkInvite(linkInput)) {
+          const linked = await linkDriveDevice(linkInput);
+          if (!linked) {
+            throw new Error('Invalid Drive link');
+          }
+          navigate('/settings/user');
+          return;
         }
-        navigate('/settings/user');
-        return;
+        const ownerNpub = normalizeOwnerNpub(linkInput);
+        if (ownerNpub) {
+          navigate(driveRootPath(ownerNpub));
+          return;
+        }
       }
       const profile = await recoverDriveProfileWithAppKey({
         recovery: request,
@@ -146,8 +160,9 @@
   }
 </script>
 
-<div class="flex-1 flex flex-col min-h-0 bg-surface-0 p-6 max-w-2xl mx-auto w-full">
+<div class={embedded ? 'w-full' : 'flex-1 flex flex-col min-h-0 bg-surface-0 p-6 max-w-2xl mx-auto w-full'}>
   <!-- Header -->
+  {#if !embedded || isSecondaryMode}
   <div class="flex items-center gap-4 mb-6">
     {#if isSecondaryMode}
       <button
@@ -167,6 +182,7 @@
       <h1 class="text-xl font-semibold">Users</h1>
     {/if}
   </div>
+  {/if}
 
   {#if isExistingMode}
     <div class="identity-recovery-shell bg-surface-1 rounded-lg p-4 space-y-3" data-testid="identity-recovery-section">
@@ -176,6 +192,8 @@
         error={recoveryError}
         submitLabel="Continue"
         nostrAvailable={hasExtension}
+        initialRequest={initialRecoveryRequest}
+        autoSubmitInitial={Boolean(initialRecoveryRequest)}
         onMethodChange={handleRecoveryMethodChange}
         onSubmit={handleRecovery}
       />

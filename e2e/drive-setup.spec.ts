@@ -69,9 +69,9 @@ test.describe('Drive setup', () => {
       'href',
       'https://irisdrive.iris.to/',
     );
-    await page.getByRole('button', { name: 'Create profile' }).click();
-    await expect(page.getByRole('heading', { name: 'Create profile' })).toBeVisible();
-    await page.getByRole('button', { name: 'Create profile' }).click();
+    await expect(page.getByTestId('generate-new-account')).toHaveText(/Create new/);
+    await expect(page.getByTestId('add-existing-profile')).toHaveText(/Add existing/);
+    await page.getByTestId('generate-new-account').click();
 
     const npubHandle = await page.waitForFunction(() => {
       const store = (window as unknown as {
@@ -82,22 +82,21 @@ test.describe('Drive setup', () => {
     await expectDriveRoute(page, await npubHandle.jsonValue());
   });
 
-  test('recovers with secret key and keeps device linking separate', async ({ page, relayUrl }) => {
+  test('recovers with secret key through the shared add-user flow', async ({ page, relayUrl }) => {
     const profile = await seedRecoverableProfile(relayUrl, generateSecretKey(), 'recovery_phrase');
     await openFreshSetup(page, relayUrl);
 
+    await expect(page.getByTestId('generate-new-account')).toBeVisible();
+    await expect(page.getByTestId('add-existing-profile')).toBeVisible();
+    await page.getByTestId('add-existing-profile').click();
+    await expect(page).toHaveURL(/#\/users\/existing/);
+    await expect(page.getByTestId('identity-recovery-section')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Link device' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Recover profile' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Sign in' })).toHaveCount(0);
-    await page.getByRole('button', { name: 'Recover profile' }).click();
-    await expect(page.getByRole('heading', { name: 'Recover profile' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Link device' })).toHaveCount(0);
     await expect(page.locator('input[placeholder="nsec1..."]')).toHaveCount(0);
 
-    await page.getByLabel('Iris profile id').fill(profile.profileId);
     await page.getByRole('button', { name: 'Secret key' }).click();
     await page.locator('input[placeholder="nsec1..."]').fill(profile.recoveryNsec);
-    await page.getByRole('button', { name: 'Recover profile' }).click();
+    await page.getByRole('button', { name: 'Continue' }).click();
 
     const recoveredNpubHandle = await page.waitForFunction((profileId: string) => {
       const store = (window as unknown as {
@@ -117,10 +116,12 @@ test.describe('Drive setup', () => {
     const owner = keypair();
     await openFreshSetup(page);
 
+    await page.getByTestId('add-existing-profile').click();
     await page.getByRole('button', { name: 'Link device' }).click();
-    await expect(page.getByLabel('Invite link or owner public key')).toBeVisible();
+    await expect(page.getByLabel('Link device')).toBeVisible();
 
-    await page.getByLabel('Invite link or owner public key').fill(owner.npub);
+    await page.getByLabel('Link device').fill(owner.npub);
+    await page.getByRole('button', { name: 'Continue' }).click();
     await expectDriveRoute(page, owner.npub);
   });
 
@@ -128,9 +129,11 @@ test.describe('Drive setup', () => {
     const admin = keypair();
     await openFreshSetup(page, relayUrl);
 
+    await page.getByTestId('add-existing-profile').click();
     await page.getByRole('button', { name: 'Link device' }).click();
 
-    await page.getByLabel('Invite link or owner public key').fill(inviteLink(admin.npub));
+    await page.getByLabel('Link device').fill(inviteLink(admin.npub));
+    await page.getByRole('button', { name: 'Continue' }).click();
     const linkedPubkeyHandle = await page.waitForFunction((expectedProfileId: string) => {
       const store = (window as unknown as {
         __nostrStore?: { getState?: () => { npub?: string } };

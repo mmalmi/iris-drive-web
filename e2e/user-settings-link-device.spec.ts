@@ -34,9 +34,7 @@ async function prepareDriveInstance(page: Page, relayUrl: string): Promise<void>
 
 async function createAdminDriveUser(page: Page): Promise<string> {
   await expect(page.getByTestId('drive-setup')).toBeVisible({ timeout: 30000 });
-  await page.getByRole('button', { name: 'Create profile' }).click();
-  await expect(page.getByRole('heading', { name: 'Create profile' })).toBeVisible();
-  await page.getByRole('button', { name: 'Create profile' }).click();
+  await page.getByTestId('generate-new-account').click();
 
   const profileIdHandle = await page.waitForFunction(() => {
     const session = (window as unknown as {
