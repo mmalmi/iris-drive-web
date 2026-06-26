@@ -1,4 +1,4 @@
-import { expect, test, type Browser, type Page } from './fixtures';
+import { expect, test, type Browser, type BrowserContext, type Page } from './fixtures';
 import {
   addFileViaTreeAPI,
   clearAllStorage,
@@ -133,7 +133,6 @@ async function linkDeviceFromUsers(page: Page, invite: string): Promise<void> {
   await expect(page).toHaveURL(/#\/users\/existing/);
   await page.getByRole('button', { name: 'Link device' }).click();
   await page.getByLabel('Link device').fill(invite);
-  await page.getByRole('button', { name: 'Continue' }).click();
 
   await page.waitForFunction(() => {
     const stored = JSON.parse(localStorage.getItem('iris:identity:session') ?? 'null');
@@ -357,24 +356,67 @@ async function expectLinkedBrowsersCanExchangeEdits(owner: Page, linked: Page): 
   await expectMainFileContent(linked, 'owner-browser-edit.txt', 'from owner browser');
 }
 
+async function expectMainDirectoryTestFileSyncs(owner: Page, linked: Page): Promise<void> {
+  await gotoMain(owner);
+  await gotoMain(linked);
+  await enableOthersPool(owner, 6);
+  await enableOthersPool(linked, 6);
+  const ownerKey = await appKeyPubkey(owner);
+  const linkedKey = await appKeyPubkey(linked);
+  await waitForWebRTCConnection(owner, 30000, linkedKey);
+  await waitForWebRTCConnection(linked, 30000, ownerKey);
+
+  await writeMainFileAndPublish(owner, 'test.txt', 'created from owner browser');
+  await gotoMain(linked);
+  await expectMainFileContent(linked, 'test.txt', 'created from owner browser');
+
+  await writeMainFileAndPublish(linked, 'test.txt', 'edited from linked browser');
+  await gotoMain(owner);
+  await expectMainFileContent(owner, 'test.txt', 'edited from linked browser');
+}
+
+async function createLinkedDriveBrowsers(
+  ownerPage: Page,
+  browser: Browser,
+  relayUrl: string,
+): Promise<{ deviceContext: BrowserContext; devicePage: Page; profileId: string }> {
+  await prepareDriveInstance(ownerPage, relayUrl);
+  const profileId = await createAdminDriveUser(ownerPage);
+  const invite = await createLinkInvite(ownerPage);
+  expect(invite).toMatch(/^https:\/\/drive\.iris\.to\/invite\//);
+
+  const deviceContext = await browser.newContext();
+  const devicePage = await deviceContext.newPage();
+  try {
+    await prepareDriveInstance(devicePage, relayUrl);
+    await linkDeviceFromUsers(devicePage, invite);
+    await expectPendingRequestVisible(ownerPage);
+    await reloadOwnerSettingsWithInvite(ownerPage, invite);
+    await expectPendingRequestAndApprove(ownerPage);
+    await activateApprovedDevice(devicePage, profileId);
+    return { deviceContext, devicePage, profileId };
+  } catch (error) {
+    await deviceContext.close();
+    throw error;
+  }
+}
+
 test.describe('Drive user settings link device', () => {
   test('links an existing Drive user through another approving Drive instance', async ({ page, browser, relayUrl }) => {
     test.setTimeout(120000);
-    await prepareDriveInstance(page, relayUrl);
-    const profileId = await createAdminDriveUser(page);
-    const invite = await createLinkInvite(page);
-    expect(invite).toMatch(/^https:\/\/drive\.iris\.to\/invite\//);
-
-    const deviceContext = await (browser as Browser).newContext();
-    const devicePage = await deviceContext.newPage();
+    const { deviceContext, devicePage } = await createLinkedDriveBrowsers(page, browser as Browser, relayUrl);
     try {
-      await prepareDriveInstance(devicePage, relayUrl);
-      await linkDeviceFromUsers(devicePage, invite);
-      await expectPendingRequestVisible(page);
-      await reloadOwnerSettingsWithInvite(page, invite);
-      await expectPendingRequestAndApprove(page);
-      await activateApprovedDevice(devicePage, profileId);
       await expectLinkedBrowsersCanExchangeEdits(page, devicePage);
+    } finally {
+      await deviceContext.close();
+    }
+  });
+
+  test('syncs main test.txt creation and edits between linked browsers', async ({ page, browser, relayUrl }) => {
+    test.setTimeout(120000);
+    const { deviceContext, devicePage } = await createLinkedDriveBrowsers(page, browser as Browser, relayUrl);
+    try {
+      await expectMainDirectoryTestFileSyncs(page, devicePage);
     } finally {
       await deviceContext.close();
     }

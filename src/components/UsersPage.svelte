@@ -153,6 +153,12 @@
     recoveryError = '';
   }
 
+  function shouldAutoSubmitRecoveryRequest(request: IdentityRecoveryRequest): boolean {
+    const linkInput = request.method === 'nip46' ? request.nip46Connection?.trim() : '';
+    if (!linkInput) return false;
+    return Boolean(parseDeviceLinkInvite(linkInput) || normalizeOwnerNpub(linkInput));
+  }
+
   function isRecoveryIdentityMiss(message: string): boolean {
     return message.includes('No Drive user found')
       || message.includes('No Drive identity found')
@@ -194,6 +200,7 @@
         nostrAvailable={hasExtension}
         initialRequest={initialRecoveryRequest}
         autoSubmitInitial={Boolean(initialRecoveryRequest)}
+        shouldAutoSubmit={shouldAutoSubmitRecoveryRequest}
         onMethodChange={handleRecoveryMethodChange}
         onSubmit={handleRecovery}
       />

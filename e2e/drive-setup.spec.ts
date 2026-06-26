@@ -121,7 +121,6 @@ test.describe('Drive setup', () => {
     await expect(page.getByLabel('Link device')).toBeVisible();
 
     await page.getByLabel('Link device').fill(owner.npub);
-    await page.getByRole('button', { name: 'Continue' }).click();
     await expectDriveRoute(page, owner.npub);
   });
 
@@ -133,7 +132,6 @@ test.describe('Drive setup', () => {
     await page.getByRole('button', { name: 'Link device' }).click();
 
     await page.getByLabel('Link device').fill(inviteLink(admin.npub));
-    await page.getByRole('button', { name: 'Continue' }).click();
     const linkedPubkeyHandle = await page.waitForFunction((expectedProfileId: string) => {
       const store = (window as unknown as {
         __nostrStore?: { getState?: () => { npub?: string } };
