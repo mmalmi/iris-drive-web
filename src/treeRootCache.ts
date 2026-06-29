@@ -67,7 +67,7 @@ export async function initializePublishFn(): Promise<void> {
     if (isNostrIdentityId(npub)) {
       return publishNostrIdentityDriveRootIfAvailable(treeName, rootCid, {
         publishedAt: record.updatedAt,
-        appKeySeq: record.updatedAt,
+        publishedAtMs: Math.max(Date.now(), record.updatedAt * 1000),
       });
     }
 

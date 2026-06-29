@@ -341,6 +341,7 @@ export interface DriveRootEventPreview {
   owner_pubkey_hex: string;
   drive_id: string;
   published_at: number;
+  published_at_ms?: number;
   dck_generation: number;
   app_key_seq: number;
   device_seq: number;
@@ -363,6 +364,7 @@ export interface BuildDriveRootEventOptions {
   authorizedDevicePubkeys?: string[];
   authorizedAppKeyPubkeys?: string[];
   publishedAt?: number;
+  publishedAtMs?: number;
   parents?: RootParent[];
   observed?: Record<string, RootObservation>;
 }

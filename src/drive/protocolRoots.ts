@@ -17,9 +17,10 @@ import {
   type DriveRootRef,
   type DriveRootWireContent,
   type ParsedDriveRootEvent,
+  type RootObservation,
+  type RootParent,
 } from './protocolTypes';
 import {
-  compareNumbers,
   currentUnixSeconds,
   parseAppKeyEntries,
   parseObject,
@@ -131,14 +132,17 @@ export function buildDriveRootEvent(options: BuildDriveRootEventOptions): Event 
     content.observed = sortRecord(options.observed);
   }
 
+  const publishedAt = options.publishedAt ?? currentUnixSeconds();
+  const publishedAtMs = normalizePublishedAtMs(options.publishedAtMs, publishedAt);
+
   return finalizeEvent({
     kind: KIND_DRIVE_ROOT,
     content: JSON.stringify(content),
-    created_at: options.publishedAt ?? currentUnixSeconds(),
+    created_at: publishedAt,
     tags: [[
       'd',
       driveRootDTag(options.rootScopeId ?? options.ownerPubkeyHex ?? devicePubkey, options.driveId),
-    ]],
+    ], ['ms', String(publishedAtMs)]],
   }, options.deviceSecretKey);
 }
 
@@ -152,10 +156,27 @@ export function parseDriveRootEventPreview(event: Event): DriveRootEventPreview 
     owner_pubkey_hex: parts.ownerPubkeyHex,
     drive_id: parts.driveId,
     published_at: parts.publishedAt,
+    published_at_ms: readPublishedAtMs(event),
     dck_generation: parts.content.dck_generation,
     app_key_seq: appKeySeq,
     device_seq: appKeySeq,
   };
+}
+
+function normalizePublishedAtMs(candidate: number | undefined, publishedAt: number): number {
+  const minimum = publishedAt * 1000;
+  if (Number.isFinite(candidate) && candidate! > 0) {
+    return Math.max(Math.floor(candidate!), minimum);
+  }
+  return minimum;
+}
+
+function readPublishedAtMs(event: Event): number | undefined {
+  const raw = event.tags.find((tag) => tag[0] === 'ms')?.[1];
+  if (!raw) return undefined;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) return undefined;
+  return Math.floor(parsed);
 }
 
 export function parseDriveRootEventForDevice(
@@ -194,18 +215,129 @@ export function parseDriveRootEventForDevice(
 
 export function isDriveRootEventNewer(candidate: Event, current: Event): boolean {
   try {
-    const a = parseDriveRootEventPreview(candidate);
-    const b = parseDriveRootEventPreview(current);
-    return compareNumbers(a.device_seq, b.device_seq)
-      || (a.device_seq === b.device_seq && compareNumbers(a.published_at, b.published_at))
-      || (
-        a.device_seq === b.device_seq
-        && a.published_at === b.published_at
-        && compareNumbers(a.dck_generation, b.dck_generation)
-      );
+    const a = comparableDriveRoot(candidate);
+    const b = comparableDriveRoot(current);
+    const causalOrder = compareDriveRootCausality(a, b);
+    if (causalOrder !== 0) return causalOrder > 0;
+
+    const sameAppKey = a.preview.app_key_pubkey_hex === b.preview.app_key_pubkey_hex;
+    if (sameAppKey) {
+      const seqOrder = compareNumberOrder(a.preview.device_seq, b.preview.device_seq);
+      if (seqOrder !== 0) return seqOrder > 0;
+    }
+
+    const publishedOrder = compareNumberOrder(a.preview.published_at, b.preview.published_at);
+    if (publishedOrder !== 0) return publishedOrder > 0;
+
+    const msOrder = compareNumberOrder(
+      publishedAtMsOrderValue(a.preview),
+      publishedAtMsOrderValue(b.preview),
+    );
+    if (msOrder !== 0) return msOrder > 0;
+
+    const generationOrder = compareNumberOrder(a.preview.dck_generation, b.preview.dck_generation);
+    if (generationOrder !== 0) return generationOrder > 0;
+
+    if (!sameAppKey) {
+      return a.preview.app_key_pubkey_hex > b.preview.app_key_pubkey_hex;
+    }
+
+    return false;
   } catch {
     return candidate.created_at > current.created_at;
   }
+}
+
+type ComparableDriveRoot = {
+  preview: DriveRootEventPreview;
+  rootCid?: string;
+  rootHash?: string;
+  parents: RootParent[];
+  observed: Record<string, RootObservation>;
+};
+
+function comparableDriveRoot(event: Event): ComparableDriveRoot {
+  const parts = parseDriveRootEventParts(event);
+  const appKeySeq = rootAppKeySeq(parts.content);
+  return {
+    preview: {
+      app_key_pubkey_hex: parts.devicePubkeyHex,
+      device_pubkey_hex: parts.devicePubkeyHex,
+      root_scope_id: parts.rootScopeId,
+      owner_pubkey_hex: parts.ownerPubkeyHex,
+      drive_id: parts.driveId,
+      published_at: parts.publishedAt,
+      published_at_ms: readPublishedAtMs(event),
+      dck_generation: parts.content.dck_generation,
+      app_key_seq: appKeySeq,
+      device_seq: appKeySeq,
+    },
+    rootCid: parts.content.root_cid,
+    rootHash: parts.content.root_hash ?? rootHashFromWireCid(parts.content.root_cid),
+    parents: parts.content.parents ?? [],
+    observed: parts.content.observed ?? {},
+  };
+}
+
+function compareDriveRootCausality(left: ComparableDriveRoot, right: ComparableDriveRoot): number {
+  const leftObservesRight = driveRootObserves(left, right);
+  const rightObservesLeft = driveRootObserves(right, left);
+  if (leftObservesRight && !rightObservesLeft) return 1;
+  if (!leftObservesRight && rightObservesLeft) return -1;
+  return 0;
+}
+
+function driveRootObserves(newer: ComparableDriveRoot, candidate: ComparableDriveRoot): boolean {
+  if (sameDriveRootIdentity(newer, candidate)) return true;
+  if (
+    newer.preview.app_key_pubkey_hex === candidate.preview.app_key_pubkey_hex
+    && newer.preview.device_seq > 0
+    && candidate.preview.device_seq > 0
+    && newer.preview.device_seq > candidate.preview.device_seq
+  ) {
+    return true;
+  }
+
+  for (const parent of newer.parents) {
+    const parentAppKey = parent.app_key_pubkey ?? parent.device_id;
+    if (parentAppKey === candidate.preview.app_key_pubkey_hex && rootReferenceCovers(parent, candidate)) {
+      return true;
+    }
+  }
+
+  const observed = newer.observed[candidate.preview.app_key_pubkey_hex];
+  return !!observed && rootReferenceCovers(observed, candidate);
+}
+
+function sameDriveRootIdentity(left: ComparableDriveRoot, right: ComparableDriveRoot): boolean {
+  if (left.rootCid && right.rootCid && left.rootCid === right.rootCid) return true;
+  return !!left.rootHash && !!right.rootHash && left.rootHash === right.rootHash;
+}
+
+function rootReferenceCovers(
+  reference: Pick<RootParent, 'root_cid' | 'app_key_seq' | 'device_seq'>,
+  candidate: ComparableDriveRoot,
+): boolean {
+  if (candidate.rootCid && reference.root_cid === candidate.rootCid) return true;
+  const referenceHash = rootHashFromWireCid(reference.root_cid);
+  if (referenceHash && candidate.rootHash && referenceHash === candidate.rootHash) return true;
+  const referenceSeq = reference.app_key_seq ?? reference.device_seq ?? 0;
+  return candidate.preview.device_seq > 0 && referenceSeq > candidate.preview.device_seq;
+}
+
+function rootHashFromWireCid(rootCid: string | undefined): string | undefined {
+  const candidate = rootCid?.split(':', 1)[0];
+  return candidate && isHex32(candidate) ? candidate : undefined;
+}
+
+function compareNumberOrder(a: number, b: number): number {
+  if (a > b) return 1;
+  if (a < b) return -1;
+  return 0;
+}
+
+function publishedAtMsOrderValue(preview: Pick<DriveRootEventPreview, 'published_at' | 'published_at_ms'>): number {
+  return preview.published_at_ms ?? preview.published_at * 1000;
 }
 
 export function parseDriveRootEventParts(event: Event): {

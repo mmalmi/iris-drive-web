@@ -192,6 +192,105 @@ describe('iris-drive protocol root events', () => {
     expect(isDriveRootEventNewer(older, newer)).toBe(false);
   });
 
+  it('uses the ms tag as a same-author same-second tie-break after sequence', () => {
+    const ownerPubkey = getPublicKey(generateSecretKey());
+    const appSecret = generateSecretKey();
+
+    const older = buildDriveRootEvent({
+      deviceSecretKey: appSecret,
+      ownerPubkeyHex: ownerPubkey,
+      driveId: 'main',
+      root: encryptedRoot('24', '25'),
+      dckGeneration: 1,
+      appKeySeq: 2,
+      publishedAt: 1_700_000_200,
+      publishedAtMs: 1_700_000_200_100,
+    });
+
+    const newer = buildDriveRootEvent({
+      deviceSecretKey: appSecret,
+      ownerPubkeyHex: ownerPubkey,
+      driveId: 'main',
+      root: encryptedRoot('26', '27'),
+      dckGeneration: 1,
+      appKeySeq: 2,
+      publishedAt: 1_700_000_200,
+      publishedAtMs: 1_700_000_200_900,
+    });
+
+    expect(isDriveRootEventNewer(newer, older)).toBe(true);
+    expect(isDriveRootEventNewer(older, newer)).toBe(false);
+  });
+
+  it('does not compare app_key_seq across different AppKeys', () => {
+    const ownerPubkey = getPublicKey(generateSecretKey());
+    const olderAppSecret = generateSecretKey();
+    const newerAppSecret = generateSecretKey();
+
+    const older = buildDriveRootEvent({
+      deviceSecretKey: olderAppSecret,
+      ownerPubkeyHex: ownerPubkey,
+      driveId: 'main',
+      root: encryptedRoot('60', '61'),
+      dckGeneration: 1,
+      appKeySeq: 500,
+      publishedAt: 1_700_000_100,
+      publishedAtMs: 1_700_000_100_100,
+    });
+
+    const newer = buildDriveRootEvent({
+      deviceSecretKey: newerAppSecret,
+      ownerPubkeyHex: ownerPubkey,
+      driveId: 'main',
+      root: encryptedRoot('62', '63'),
+      dckGeneration: 1,
+      appKeySeq: 1,
+      publishedAt: 1_700_000_101,
+      publishedAtMs: 1_700_000_101_100,
+    });
+
+    expect(isDriveRootEventNewer(newer, older)).toBe(true);
+    expect(isDriveRootEventNewer(older, newer)).toBe(false);
+  });
+
+  it('prefers a cross-AppKey root that causally observes the previous root', () => {
+    const ownerPubkey = getPublicKey(generateSecretKey());
+    const firstAppSecret = generateSecretKey();
+    const firstAppPubkey = getPublicKey(firstAppSecret);
+    const secondAppSecret = generateSecretKey();
+    const firstRoot = encryptedRoot('64', '65');
+    const firstRootCid = `${toHex(firstRoot.hash)}:${toHex(firstRoot.key!)}`;
+
+    const previous = buildDriveRootEvent({
+      deviceSecretKey: firstAppSecret,
+      ownerPubkeyHex: ownerPubkey,
+      driveId: 'main',
+      root: firstRoot,
+      dckGeneration: 1,
+      appKeySeq: 12,
+      publishedAt: 1_700_000_200,
+    });
+
+    const causal = buildDriveRootEvent({
+      deviceSecretKey: secondAppSecret,
+      ownerPubkeyHex: ownerPubkey,
+      driveId: 'main',
+      root: encryptedRoot('66', '67'),
+      dckGeneration: 1,
+      appKeySeq: 1,
+      publishedAt: 1_700_000_100,
+      observed: {
+        [firstAppPubkey]: {
+          root_cid: firstRootCid,
+          app_key_seq: 12,
+        },
+      },
+    });
+
+    expect(isDriveRootEventNewer(causal, previous)).toBe(true);
+    expect(isDriveRootEventNewer(previous, causal)).toBe(false);
+  });
+
   it('builds UUID-scoped AppKey drive roots for NostrIdentity and share scopes', () => {
     const profileId = '123e4567-e89b-42d3-a456-426614174000';
     const appSecret = generateSecretKey();
@@ -210,11 +309,13 @@ describe('iris-drive protocol root events', () => {
     });
 
     expect(event.tags).toContainEqual(['d', driveRootDTag(profileId, 'main')]);
+    expect(event.tags).toContainEqual(['ms', '1700001000000']);
     const preview = parseDriveRootEventPreview(event);
     expect(preview).toMatchObject({
       app_key_pubkey_hex: appPubkey,
       root_scope_id: profileId,
       owner_pubkey_hex: profileId,
+      published_at_ms: 1_700_001_000_000,
       app_key_seq: 8,
       device_seq: 8,
     });

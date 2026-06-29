@@ -115,6 +115,11 @@ test.describe('Users Page', () => {
 
     // Click Create new
     await page.getByTestId('generate-new-account').click();
+    await expect(page).toHaveURL(/#\/users\/create/);
+    await expect(page.getByTestId('identity-create-name')).toBeVisible();
+    await expect(page.getByTestId('create-new-after-recovery-miss')).toBeDisabled();
+    await page.getByTestId('identity-create-name').fill('Drive User');
+    await page.getByTestId('create-new-after-recovery-miss').click();
 
     await expect(page).toHaveURL(/\/main/, { timeout: 10000 });
   });

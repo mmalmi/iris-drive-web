@@ -33,6 +33,7 @@
     { pattern: '/settings/*', component: SettingsLayout },
     { pattern: '/wallet', component: WalletPage },
     { pattern: '/users/no_existing', component: UsersPage, staticParams: { usersMode: 'no_existing' } },
+    { pattern: '/users/create', component: UsersPage, staticParams: { usersMode: 'create' } },
     { pattern: '/users/existing', component: UsersPage, staticParams: { usersMode: 'existing' } },
     { pattern: '/users', component: UsersPage, staticParams: { usersMode: 'list' } },
     { pattern: '/:npub/follows', component: FollowsPage },
@@ -81,7 +82,7 @@
   {:else if route.component === WalletPage}
     <WalletPage />
   {:else if route.component === UsersPage}
-    <UsersPage mode={route.params.usersMode === 'no_existing' ? 'no_existing' : route.params.usersMode === 'existing' ? 'existing' : 'list'} />
+    <UsersPage mode={route.params.usersMode === 'no_existing' ? 'no_existing' : route.params.usersMode === 'create' ? 'create' : route.params.usersMode === 'existing' ? 'existing' : 'list'} />
   {:else if route.component === FollowsPage}
     <FollowsPage npub={route.params.npub} />
   {:else if route.component === FollowersPage}

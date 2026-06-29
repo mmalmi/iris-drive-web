@@ -3,7 +3,6 @@
   import { nostrStore, loginWithExtension, loginWithNsec, generateNewKey, getCurrentNostrIdentitySession } from '../nostr';
   import { isFilesApp } from '../appType';
   import { Avatar } from './User';
-  import { driveRootPath } from '../drive/setup';
 
   let showNsec = $state(false);
   let nsecInput = $state('');
@@ -21,7 +20,7 @@
   function goToProfile() {
     const driveSession = getCurrentNostrIdentitySession();
     if (driveSession?.status === 'active') {
-      navigate(driveRootPath(driveSession.profileId));
+      navigate('/settings/user');
       return;
     }
     if (!npub) return;
@@ -63,7 +62,7 @@
     onclick={goToProfile}
     ondblclick={() => navigate('/users')}
     class="bg-transparent border-none cursor-pointer p-0"
-    title={hasActiveDriveSession ? 'My Drive (double-click for users)' : 'My Profile (double-click for users)'}
+    title={hasActiveDriveSession ? 'User settings (double-click for users)' : 'My Profile (double-click for users)'}
     data-testid="header-user-avatar"
   >
     <Avatar pubkey={pubkey} size={36} />

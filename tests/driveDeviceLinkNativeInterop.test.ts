@@ -132,13 +132,59 @@ describe('native app-key-link request interop', () => {
     })).resolves.toBeNull();
   });
 
-  it('rejects old native 30078 app-key-link frames', async () => {
+  it('parses previous native 30078 app-key-link frames for the active invite', async () => {
+    const deviceSecret = generateSecretKey();
+    const device = getPublicKey(deviceSecret);
+    const inviteSecret = generateSecretKey();
+    const invitePubkey = getPublicKey(inviteSecret);
+    const adminAppKeyPubkey = 'a'.repeat(64);
+    const oldEvent = finalizeEvent({
+      kind: 30078,
+      created_at: 1_782_377_000,
+      tags: [
+        ['d', `iris-drive/${profileId}/app-key-link-request`],
+      ],
+      content: JSON.stringify({
+        schema: 1,
+        profile_id: profileId,
+        admin_app_key_pubkey: adminAppKeyPubkey,
+        app_key_pubkey: device,
+        invite_pubkey: invitePubkey,
+        label: 'TestFlight iPhone',
+        requested_at: 1_782_377_000,
+        url: `iris-drive://app-key-link?profile=${profileId}&app_key=${device}&invite=${invitePubkey}`,
+      }),
+    }, deviceSecret) as NostrToolsEvent;
+
+    const parsed = await parseDriveDeviceLinkRequestEventForAdmin(oldEvent, {
+      profileId,
+      adminAppKeyPubkey,
+      invitePubkey: getPublicKey(inviteSecret),
+      inviteSecretKey: inviteSecret,
+    });
+
+    expect(parsed).toMatchObject({
+      pubkey: device,
+      label: 'TestFlight iPhone',
+      requestedAt: 1_782_377_000,
+      request: {
+        profileId,
+        adminAppKeyPubkey,
+        invitePubkey,
+        deviceAppKeyPubkey: device,
+        requestedAt: 1_782_377_000,
+        label: 'TestFlight iPhone',
+      },
+    });
+  });
+
+  it('rejects old native 30078 app-key-link frames without the active invite pubkey', async () => {
     const inviteSecret = generateSecretKey();
     const oldEvent: NostrToolsEvent = finalizeEvent({
       kind: 30078,
       created_at: 1_782_377_000,
       tags: [
-        ['d', `${profileId}/app-key-link-request`],
+        ['d', `iris-drive/${profileId}/app-key-link-request`],
       ],
       content: JSON.stringify({
         schema: 1,
@@ -201,6 +247,17 @@ describe('native app-key-link request interop', () => {
     }, (requests) => received.push(requests));
 
     expect(subscribe).toHaveBeenCalledTimes(2);
+    expect(subscribe.mock.calls[0][0]).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kinds: [7368],
+        '#i': [profileId],
+        '#p': [invitePubkey],
+      }),
+      expect.objectContaining({
+        kinds: [30078],
+        '#d': [`iris-drive/${profileId}/app-key-link-request`],
+      }),
+    ]));
     expect(subscribe.mock.calls[0][1]).toMatchObject({ closeOnEose: false });
     expect(subscribe.mock.calls[1][1]).toMatchObject({ closeOnEose: true });
 

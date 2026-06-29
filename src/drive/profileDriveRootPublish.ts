@@ -45,10 +45,7 @@ function projectSession(session: NostrIdentitySession): SessionProjection {
 function nextDriveRootSequence(profileId: string, driveId: string, appKeyPubkey: string): number {
   const storageKey = `iris:drive-root-seq:${profileId}:${driveId}:${appKeyPubkey}`;
   const previous = Number(localStorage.getItem(storageKey) ?? '0');
-  const next = Math.max(
-    Number.isFinite(previous) ? previous + 1 : 1,
-    Date.now(),
-  );
+  const next = Number.isFinite(previous) && previous > 0 ? previous + 1 : 1;
   localStorage.setItem(storageKey, String(next));
   return next;
 }
@@ -68,7 +65,7 @@ function nextDriveRootPublishedAt(profileId: string, driveId: string, appKeyPubk
 export async function publishNostrIdentityDriveRootIfAvailable(
   driveId: string,
   rootCid: CID,
-  options: { publishedAt?: number; appKeySeq?: number } = {},
+  options: { publishedAt?: number; publishedAtMs?: number; appKeySeq?: number } = {},
 ): Promise<boolean> {
   const session = getCurrentNostrIdentitySession();
   const secretKey = getSecretKey();
@@ -102,6 +99,7 @@ export async function publishNostrIdentityDriveRootIfAvailable(
     dckGeneration: projected.keyEpoch,
     appKeySeq: options.appKeySeq ?? nextDriveRootSequence(session.profileId, driveId, appKeyPubkey),
     publishedAt: options.publishedAt ?? nextDriveRootPublishedAt(session.profileId, driveId, appKeyPubkey),
+    publishedAtMs: options.publishedAtMs,
     authorizedAppKeyPubkeys: projected.activeAppKeyPubkeys,
   });
 

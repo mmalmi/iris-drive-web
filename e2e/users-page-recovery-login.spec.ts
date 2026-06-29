@@ -39,7 +39,7 @@ async function prepareRecoveryPage(page: Page, relayUrl: string): Promise<void> 
 }
 
 async function assertRecovered(page: Page, profile: RecoveryProfile): Promise<void> {
-  await expect(page).toHaveURL(/#\/npub1[a-z0-9]+\/main/, { timeout: 30000 });
+  await expect(page).toHaveURL(new RegExp(`#/${profile.profileId}/main`), { timeout: 30000 });
   await page.waitForFunction((profileId) => {
     const accounts = JSON.parse(localStorage.getItem('hashtree:accounts') ?? '[]');
     const activePubkey = localStorage.getItem('hashtree:activeAccount');
@@ -179,7 +179,9 @@ test.describe('Users Page recovery login', () => {
     await expect(page.getByRole('button', { name: 'Continue' })).toHaveCount(0);
     await expect(page.getByTestId('identity-recovery-create-new-view')).toBeVisible({ timeout: 30000 });
     await expect(page.getByText('No existing Drive user found for that key')).toBeVisible();
+    await expect(page.getByTestId('identity-create-name')).toBeVisible();
     await expect(page.getByTestId('create-new-after-recovery-miss')).toBeVisible();
+    await expect(page.getByTestId('create-new-after-recovery-miss')).toBeDisabled();
     await expect(page.getByRole('button', { name: 'Browser extension' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Seed phrase' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Link device' })).toHaveCount(0);
@@ -194,7 +196,7 @@ test.describe('Users Page recovery login', () => {
         const connection = `bunker://${profile.recoveryPubkey}?pubkey=${profile.recoveryPubkey}&relay=${encodeURIComponent(relayUrl)}`;
         await targetPage.getByRole('button', { name: 'Link device' }).click();
         await targetPage.getByLabel('Link device').fill(connection);
-        await targetPage.getByLabel('Relay').fill(relayUrl);
+        await expect(targetPage.getByLabel('Relay')).toHaveCount(0);
         await targetPage.getByRole('button', { name: 'Continue' }).click();
       },
     });

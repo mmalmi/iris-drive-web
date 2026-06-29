@@ -181,6 +181,7 @@ async function createWebOwnerInviteThroughSettings(page: Page): Promise<string> 
     const { createDriveProfile } = await import('/src/nostr');
     await createDriveProfile();
   });
+  await flushPendingPublishes(page);
   await page.goto('/#/settings/user', { waitUntil: 'domcontentloaded' });
   await expect(page.getByTestId('user-settings-panel')).toBeVisible({ timeout: 30000 });
   await page.getByTestId('user-add-device-toggle').click();
@@ -215,8 +216,21 @@ async function createFileWithContent(page: Page, fileName: string, content: stri
 async function createPrivateDriveTree(page: Page): Promise<void> {
   await page.evaluate(async () => {
     const { createTree } = await import('/src/actions');
+    const { getTreeRootSync } = await import('/src/stores');
+    const rootScope = (): string | null => {
+      const stored = JSON.parse(localStorage.getItem('iris:identity:session') ?? 'null');
+      if (stored?.status === 'active' && typeof stored.profileId === 'string') {
+        return stored.profileId;
+      }
+      return (window as any).__nostrStore?.getState?.().npub ?? null;
+    };
+    const hasMainRoot = (): boolean => {
+      const scope = rootScope();
+      return !!scope && !!getTreeRootSync(scope, 'main')?.hash;
+    };
+    if (hasMainRoot()) return;
     const result = await createTree('main', 'private', true);
-    if (!result.success) {
+    if (!result.success && !hasMainRoot()) {
       throw new Error('Failed to create private main drive');
     }
   });
@@ -319,6 +333,177 @@ async function waitForRemoteTreeRoot(page: Page, npub: string, treeName: string)
   }, { owner: npub, tree: treeName, timeout: 60000 });
 }
 
+async function waitForRemoteTreeRootHash(
+  page: Page,
+  npub: string,
+  treeName: string,
+  expectedRootHash: string,
+): Promise<void> {
+  await page.evaluate(async ({ owner, tree }) => {
+    const { refreshDriveRootResolverKey } = await import('/src/stores/treeRootResolver.ts');
+    refreshDriveRootResolverKey(`${owner}/${tree}`);
+  }, { owner: npub, tree: treeName });
+
+  await expect.poll(
+    () => page.evaluate(async ({ owner, tree }) => {
+      const { getTreeRootSync } = await import('/src/stores');
+      const toHex = (bytes: Uint8Array): string => Array.from(bytes)
+        .map((byte) => byte.toString(16).padStart(2, '0'))
+        .join('');
+      const root = getTreeRootSync(owner, tree);
+      if (root?.hash) return toHex(root.hash);
+      return null;
+    }, { owner: npub, tree: treeName }),
+    { timeout: 60000, intervals: [500, 1000, 2000] },
+  ).toBe(expectedRootHash);
+}
+
+type RelayDriveRootDiagnostic = {
+  id: string;
+  pubkey: string;
+  created_at: number;
+  root_hash: string | null;
+  app_key_seq: number | null;
+  dck_generation: number | null;
+  d: string | null;
+};
+
+async function fetchRelayDriveRootHashes(
+  page: Page,
+  relayUrl: string,
+  profileId: string,
+  treeName: string,
+): Promise<RelayDriveRootDiagnostic[]> {
+  return page.evaluate(async ({ relay, profile, tree }) => {
+    const { driveRootDTag, KIND_DRIVE_ROOT } = await import('/src/drive/protocol');
+    const dTag = driveRootDTag(profile, tree);
+
+    return new Promise<RelayDriveRootDiagnostic[]>((resolve, reject) => {
+      const events: RelayDriveRootDiagnostic[] = [];
+      const subId = `drive-root-${Math.random().toString(36).slice(2)}`;
+      const socket = new WebSocket(relay);
+      const timeout = window.setTimeout(() => {
+        socket.close();
+        resolve(events);
+      }, 3000);
+
+      socket.onopen = () => {
+        socket.send(JSON.stringify(['REQ', subId, {
+          kinds: [KIND_DRIVE_ROOT],
+          '#d': [dTag],
+          limit: 50,
+        }]));
+      };
+      socket.onmessage = (message) => {
+        const data = JSON.parse(String(message.data));
+        if (data[0] === 'EVENT') {
+          const event = data[2];
+          let rootHash: string | null = null;
+          let appKeySeq: number | null = null;
+          let dckGeneration: number | null = null;
+          try {
+            const content = JSON.parse(event.content);
+            rootHash = content?.root_hash ?? null;
+            appKeySeq = typeof content?.app_key_seq === 'number' ? content.app_key_seq : null;
+            dckGeneration = typeof content?.dck_generation === 'number' ? content.dck_generation : null;
+          } catch {
+            rootHash = null;
+          }
+          events.push({
+            id: event.id,
+            pubkey: event.pubkey,
+            created_at: event.created_at,
+            root_hash: rootHash,
+            app_key_seq: appKeySeq,
+            dck_generation: dckGeneration,
+            d: event.tags?.find((tag: string[]) => tag[0] === 'd')?.[1] ?? null,
+          });
+        }
+        if (data[0] === 'EOSE') {
+          window.clearTimeout(timeout);
+          socket.send(JSON.stringify(['CLOSE', subId]));
+          socket.close();
+          resolve(events);
+        }
+      };
+      socket.onerror = () => {
+        window.clearTimeout(timeout);
+        reject(new Error(`relay websocket error: ${relay}`));
+      };
+    });
+  }, { relay: relayUrl, profile: profileId, tree: treeName });
+}
+
+async function waitForPublishedProfileRoot(
+  page: Page,
+  relayUrl: string,
+  profileId: string,
+  treeName: string,
+  expectedRootHash: string,
+): Promise<void> {
+  try {
+    await expect.poll(
+      async () => {
+        const events = await fetchRelayDriveRootHashes(page, relayUrl, profileId, treeName);
+        return events.some((event) => event.root_hash === expectedRootHash);
+      },
+      { timeout: 30000, intervals: [500, 1000, 2000] },
+    ).toBe(true);
+  } catch (error) {
+    const relayEvents = await fetchRelayDriveRootHashes(page, relayUrl, profileId, treeName)
+      .catch((relayError) => [{
+        id: 'relay-error',
+        pubkey: String(relayError),
+        created_at: 0,
+        root_hash: null,
+        app_key_seq: null,
+        dck_generation: null,
+        d: null,
+      }]);
+    const diagnostics = await page.evaluate(async ({ profile, tree, expectedHash }) => {
+      const { driveRootDTag, KIND_DRIVE_ROOT } = await import('/src/drive/protocol');
+      const { ndk } = await import('/src/nostr');
+      const events = Array.from(await ndk.fetchEvents({
+        kinds: [KIND_DRIVE_ROOT],
+        '#d': [driveRootDTag(profile, tree)],
+        limit: 50,
+      }));
+      return {
+        expectedHash,
+        hash: window.location.hash,
+        relayStats: await (window as any).__getWorkerAdapter?.()?.getRelayStats?.().catch((statsError: unknown) => ({
+          error: String(statsError),
+        })),
+        ndkEvents: events.map((event) => {
+          try {
+            return {
+              id: event.id,
+              pubkey: event.pubkey,
+              created_at: event.created_at,
+              root_hash: JSON.parse(event.content)?.root_hash ?? null,
+              app_key_seq: JSON.parse(event.content)?.app_key_seq ?? null,
+              dck_generation: JSON.parse(event.content)?.dck_generation ?? null,
+              d: event.tags?.find((tag) => tag[0] === 'd')?.[1] ?? null,
+            };
+          } catch {
+            return {
+              id: event.id,
+              pubkey: event.pubkey,
+              created_at: event.created_at,
+              root_hash: null,
+              app_key_seq: null,
+              dck_generation: null,
+              d: event.tags?.find((tag) => tag[0] === 'd')?.[1] ?? null,
+            };
+          }
+        }),
+      };
+    }, { profile: profileId, tree: treeName, expectedHash: expectedRootHash })
+      .catch((diagnosticError) => ({ diagnosticError: String(diagnosticError) }));
+    throw new Error(`${error instanceof Error ? error.message : String(error)}\nPublish diagnostics:\n${JSON.stringify({ ...diagnostics, relayEvents }, null, 2)}`);
+  }
+}
+
 async function readTreeFile(page: Page, npub: string, treeName: string, fileName: string): Promise<string | null> {
   return page.evaluate(async ({ owner, treeName: targetTree, fileName: targetFile }) => {
     const { getTreeRootSync } = await import('/src/stores');
@@ -339,10 +524,14 @@ async function expectTreeFile(
   treeName: string,
   fileName: string,
   expectedContent: string,
+  expectedRootHash?: string,
 ): Promise<void> {
   await page.goto(`/#/${encodeURIComponent(npub)}/${encodeURIComponent(treeName)}`);
   await waitForAppReady(page, 60000);
   await waitForRemoteTreeRoot(page, npub, treeName);
+  if (expectedRootHash) {
+    await waitForRemoteTreeRootHash(page, npub, treeName, expectedRootHash);
+  }
   await expect.poll(
     () => readTreeFile(page, npub, treeName, fileName),
     { timeout: 90000, intervals: [1000, 2000, 3000] },
@@ -357,11 +546,15 @@ function generateNsec(): { nsec: string; npub: string } {
   };
 }
 
-function expectNativeFile(configDir: string, fileName: string, expectedContent: string): void {
-  const listing = runIdriveJson(configDir, ['list']);
-  const file = listing.files.find((entry: any) => entry.path === fileName);
-  expect(file).toBeTruthy();
-  expect(file.size).toBe(Buffer.byteLength(expectedContent));
+function rootHashFromRootCid(rootCid: unknown): string {
+  if (typeof rootCid !== 'string') {
+    throw new Error(`Expected root_cid string, got ${typeof rootCid}`);
+  }
+  const hash = rootCid.split(':')[0] ?? '';
+  if (!/^[a-f0-9]{64}$/.test(hash)) {
+    throw new Error(`Invalid root_cid hash: ${rootCid}`);
+  }
+  return hash;
 }
 
 async function waitForNativeFiles(
@@ -482,23 +675,24 @@ test.describe('Iris Drive web interop', () => {
 
     try {
       configureNativeBlossom(configDir);
-      const init = runIdriveJson(configDir, ['init', '--label', 'native-e2e']);
+      runIdriveJson(configDir, ['init', '--label', 'native-e2e']);
       const identitySession = readNativeNostrIdentitySession(configDir);
       await prepareFreshPage(page, relayUrl, identitySession.appKeyNsec, identitySession);
       await createPrivateDriveTree(page);
-      const appKeyNpub = init.current_app_key_npub;
-      await page.goto(`/#/${encodeURIComponent(appKeyNpub)}/main`);
+      const profileId = identitySession.profileId;
+      await page.goto(`/#/${encodeURIComponent(profileId)}/main`);
       await waitForAppReady(page, 60000);
-      await waitForRemoteTreeRoot(page, appKeyNpub, 'main');
-      await createFileWithContent(page, fileName, content);
+      await waitForRemoteTreeRoot(page, profileId, 'main');
+      const webRoot = await addFileViaTreeAPI(page, [], fileName, content);
+      expect(webRoot).toBeTruthy();
       await flushPendingPublishes(page);
-      await pushCurrentRootToBlossom(page, 'main');
+      await waitForPublishedProfileRoot(page, relayUrl, profileId, 'main', webRoot);
+      const webPush = await pushProfileRootToBlossom(page, profileId, 'main');
+      const relayRoots = await fetchRelayDriveRootHashes(page, relayUrl, profileId, 'main');
 
-      const sync = runIdriveJson(configDir, ['sync', '--relay', relayUrl, '--timeout', '2']);
-      expect(sync.files_root_event_seen).toBe(true);
-      expect(sync.drive_root_events_applied).toBeGreaterThan(0);
-      expect(sync.blossom_download?.fetched ?? 0).toBeGreaterThan(0);
-      expectNativeFile(configDir, fileName, content);
+      await waitForNativeFiles(configDir, relayUrl, [
+        { fileName, content },
+      ], { webPush, relayRoots });
     } finally {
       fs.rmSync(configDir, { recursive: true, force: true });
     }
@@ -573,6 +767,7 @@ test.describe('Iris Drive web interop', () => {
       await expect(page.getByTestId('user-link-request')).toHaveCount(0, { timeout: 45000 });
 
       await expect.poll(() => {
+        runIdriveJson(nativeConfigDir, ['sync', '--relay', relayUrl, '--timeout', '3']);
         const status = runIdriveJson(nativeConfigDir, ['status']);
         return {
           authorization: status.profile?.authorization_state,
@@ -589,7 +784,9 @@ test.describe('Iris Drive web interop', () => {
       runIdriveJson(nativeConfigDir, ['import', nativeWorkDir]);
       const nativePublish = runIdriveJson(nativeConfigDir, ['publish', '--relay', relayUrl, '--timeout', '5']);
       expect(nativePublish.published_files_root).toBe(true);
-      await expectTreeFile(page, profileId, 'main', nativeFileName, nativeContent);
+      const nativeRootHash = rootHashFromRootCid(nativePublish.root_cid);
+      await waitForPublishedProfileRoot(page, relayUrl, profileId, 'main', nativeRootHash);
+      await expectTreeFile(page, profileId, 'main', nativeFileName, nativeContent, nativeRootHash);
 
       const webFileName = 'web-linked.txt';
       const webContent = `web linked to native ${Date.now()}`;

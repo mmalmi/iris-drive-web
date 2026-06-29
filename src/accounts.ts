@@ -16,6 +16,7 @@ export interface Account {
   pubkey: string;
   npub: string;
   type: AccountType;
+  name?: string;
   nsec?: string; // Only for nsec accounts
   nostrIdentityId?: string;
   addedAt: number;
@@ -170,6 +171,7 @@ function saveAccountsToStorage(accounts: Account[]) {
     pubkey: a.pubkey,
     npub: a.npub,
     type: a.type,
+    name: a.name,
     nsec: a.nsec,
     nostrIdentityId: a.nostrIdentityId,
     addedAt: a.addedAt,
@@ -213,7 +215,7 @@ export function saveActiveAccountToStorage(pubkey: string | null) {
  */
 export function createAccountFromNsec(
   nsec: string,
-  options: { type?: AccountType; nostrIdentityId?: string } = {},
+  options: { type?: AccountType; nostrIdentityId?: string; name?: string } = {},
 ): Account | null {
   try {
     const decoded = nip19.decode(nsec);
@@ -224,6 +226,7 @@ export function createAccountFromNsec(
       pubkey,
       npub: nip19.npubEncode(pubkey),
       type: options.type ?? 'nsec',
+      name: options.name?.trim() || undefined,
       nsec,
       nostrIdentityId: options.nostrIdentityId,
       addedAt: Date.now(),

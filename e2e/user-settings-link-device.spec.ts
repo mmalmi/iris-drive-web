@@ -35,6 +35,9 @@ async function prepareDriveInstance(page: Page, relayUrl: string): Promise<void>
 async function createAdminDriveUser(page: Page): Promise<string> {
   await expect(page.getByTestId('drive-setup')).toBeVisible({ timeout: 30000 });
   await page.getByTestId('generate-new-account').click();
+  await expect(page.getByTestId('identity-create-name')).toBeVisible({ timeout: 30000 });
+  await page.getByTestId('identity-create-name').fill('Drive Admin');
+  await page.getByTestId('create-new-after-recovery-miss').click();
 
   const profileIdHandle = await page.waitForFunction(() => {
     const session = (window as unknown as {
@@ -404,7 +407,7 @@ async function gotoMain(page: Page): Promise<void> {
   }), { timeout: 30000, intervals: [500, 1000, 2000] }).toBe(true);
 }
 
-async function gotoMainViaHeaderAvatar(page: Page, profileId: string): Promise<void> {
+async function gotoUserSettingsViaHeaderAvatar(page: Page, profileId: string): Promise<void> {
   const activeProfileId = await page.evaluate(async () => {
     const { getCurrentNostrIdentitySession } = await import('/src/nostr');
     const session = getCurrentNostrIdentitySession();
@@ -412,15 +415,13 @@ async function gotoMainViaHeaderAvatar(page: Page, profileId: string): Promise<v
     return session?.profileId ?? stored?.profileId ?? '';
   });
   expect(activeProfileId).toBe(profileId);
-  const appKeyNpub = await page.evaluate(() => (window as any).__nostrStore?.getState?.().npub ?? '');
   await expect(page.getByTestId('header-user-avatar')).toBeVisible({ timeout: 30000 });
   await page.getByTestId('header-user-avatar').click();
   await expect.poll(
     () => page.evaluate(() => window.location.hash.split('?')[0].replace(/\/$/, '')),
     { timeout: 30000, intervals: [500, 1000, 2000] },
-  ).toBe(`#/${profileId}/main`);
-  expect(await page.evaluate(() => window.location.hash)).not.toContain(appKeyNpub);
-  await expect(page.locator('[data-testid="file-list"]').first()).toBeVisible({ timeout: 30000 });
+  ).toBe('#/settings/user');
+  await expect(page.getByTestId('user-settings-panel')).toBeVisible({ timeout: 30000 });
 }
 
 async function writeMainFileAndPublish(page: Page, relayUrl: string, filename: string, content: string): Promise<void> {
@@ -566,14 +567,16 @@ async function expectLinkedBrowsersCanExchangeEdits(owner: Page, linked: Page, r
 }
 
 async function expectMainDirectoryTestFileSyncs(owner: Page, linked: Page, profileId: string, relayUrl: string): Promise<void> {
-  await gotoMainViaHeaderAvatar(owner, profileId);
-  await gotoMainViaHeaderAvatar(linked, profileId);
+  await gotoUserSettingsViaHeaderAvatar(owner, profileId);
+  await gotoUserSettingsViaHeaderAvatar(linked, profileId);
   await enableOthersPool(owner, 6);
   await enableOthersPool(linked, 6);
   const ownerKey = await appKeyPubkey(owner);
   const linkedKey = await appKeyPubkey(linked);
   await waitForWebRTCConnection(owner, 30000, linkedKey);
   await waitForWebRTCConnection(linked, 30000, ownerKey);
+  await gotoMain(owner);
+  await gotoMain(linked);
 
   await writeMainFileAndPublish(owner, relayUrl, 'test.txt', 'created from owner browser');
   await gotoMain(linked);

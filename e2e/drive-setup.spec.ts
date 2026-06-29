@@ -72,6 +72,11 @@ test.describe('Drive setup', () => {
     await expect(page.getByTestId('generate-new-account')).toHaveText(/Create new/);
     await expect(page.getByTestId('add-existing-profile')).toHaveText(/Add existing/);
     await page.getByTestId('generate-new-account').click();
+    await expect(page).toHaveURL(/#\/users\/create/);
+    await expect(page.getByTestId('identity-create-name')).toBeVisible();
+    await expect(page.getByTestId('create-new-after-recovery-miss')).toBeDisabled();
+    await page.getByTestId('identity-create-name').fill('Drive Test User');
+    await page.getByTestId('create-new-after-recovery-miss').click();
 
     const profileIdHandle = await page.waitForFunction(() => {
       const store = (window as unknown as {

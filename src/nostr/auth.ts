@@ -61,6 +61,7 @@ import {
   saveStoredDeviceLabel,
   saveStoredDeviceLabels,
 } from '../drive/deviceLabels';
+import { KIND_APP_DATA } from '../utils/constants';
 
 // Storage keys
 const STORAGE_KEY_NSEC = 'hashtree:nsec';
@@ -450,7 +451,7 @@ export async function loginWithNsec(nsec: string, save = true): Promise<boolean>
 async function applySecretKey(
   nextKey: Uint8Array,
   defaultTrees: readonly DefaultTree[] = CLASSIC_DEFAULT_TREES,
-  accountOptions: { nostrIdentityId?: NostrIdentityId } = {},
+  accountOptions: { nostrIdentityId?: NostrIdentityId; name?: string } = {},
 ): Promise<{ nsec: string; npub: string }> {
   secretKey = nextKey;
   const pk = getPublicKey(nextKey);
@@ -470,6 +471,7 @@ async function applySecretKey(
   const account = createAccountFromNsec(nsec, {
     type: accountOptions.nostrIdentityId ? 'drive_profile' : 'nsec',
     nostrIdentityId: accountOptions.nostrIdentityId,
+    name: accountOptions.name,
   });
   if (account) {
     accountsStore.addAccount(account);
@@ -477,6 +479,7 @@ async function applySecretKey(
       accountsStore.updateAccount(account.pubkey, {
         type: 'drive_profile',
         nostrIdentityId: accountOptions.nostrIdentityId,
+        name: accountOptions.name,
         nsec,
       });
     }
@@ -517,7 +520,9 @@ export async function generateNewKey(): Promise<{ nsec: string; npub: string }> 
   return applySecretKey(generateSecretKey());
 }
 
-export async function createDriveProfile(): Promise<{ nsec: string; npub: string; profileId: NostrIdentityId }> {
+export async function createDriveProfile(
+  options: { name?: string } = {},
+): Promise<{ nsec: string; npub: string; profileId: NostrIdentityId }> {
   const appKeySecretKey = generateSecretKey();
   const appKeyPubkey = getPublicKey(appKeySecretKey);
   const profileId = randomProfileId();
@@ -555,6 +560,7 @@ export async function createDriveProfile(): Promise<{ nsec: string; npub: string
   saveNostrIdentitySession(activeSession);
   const applied = await applySecretKey(appKeySecretKey, DRIVE_DEFAULT_TREES, {
     nostrIdentityId: activeSession.profileId,
+    name: options.name?.trim() || undefined,
   });
   return {
     ...applied,
@@ -666,6 +672,11 @@ function driveDeviceLinkRequestFilters(scope: DriveDeviceLinkRequestScope): NDKF
       kinds: [KIND_NOSTR_IDENTITY_ROSTER_OP as NDKKind],
       '#i': [scope.profileId],
       '#p': [scope.invitePubkey],
+      limit: 200,
+    },
+    {
+      kinds: [KIND_APP_DATA as NDKKind],
+      '#d': [legacyDriveDeviceLinkRequestDTag(scope.profileId)],
       limit: 200,
     },
   ];
@@ -1107,7 +1118,9 @@ async function publishInitialProfile(npub: string) {
 
   const event = new NDKEvent(ndk);
   event.kind = 0;
-  event.content = JSON.stringify({ lud16 });
+  event.content = JSON.stringify({
+    lud16,
+  });
 
   await event.publish();
   console.log('[auth] Published initial profile with lud16:', lud16);
@@ -1521,6 +1534,9 @@ export async function parseDriveDeviceLinkRequestEventForAdmin(
     if (event.kind === KIND_NOSTR_IDENTITY_ROSTER_OP) {
       return parseIdentityDriveDeviceLinkRequestEvent(event, scope);
     }
+    if (event.kind === KIND_APP_DATA) {
+      return parseLegacyDriveDeviceLinkRequestEvent(event, scope);
+    }
     return null;
   } catch {
     return null;
@@ -1538,6 +1554,60 @@ function parseIdentityDriveDeviceLinkRequestEvent(
   }
 }
 
+type LegacyDriveDeviceLinkRequestFrame = {
+  schema?: unknown;
+  profile_id?: unknown;
+  admin_app_key_pubkey?: unknown;
+  app_key_pubkey?: unknown;
+  invite_pubkey?: unknown;
+  label?: unknown;
+  requested_at?: unknown;
+};
+
+function parseLegacyDriveDeviceLinkRequestEvent(
+  event: NostrToolsEvent,
+  scope: DriveDeviceLinkRequestScope,
+): DriveDeviceLinkRequest | null {
+  if (!verifyEvent(event)) return null;
+  const dTag = event.tags.find((tag) => tag[0] === 'd')?.[1];
+  if (dTag !== legacyDriveDeviceLinkRequestDTag(scope.profileId)) return null;
+
+  const frame = JSON.parse(event.content) as LegacyDriveDeviceLinkRequestFrame;
+  if (frame.schema !== 1 || frame.profile_id !== scope.profileId) return null;
+
+  const deviceAppKeyPubkey = typeof frame.app_key_pubkey === 'string'
+    ? normalizeHexPubkey(frame.app_key_pubkey)
+    : null;
+  if (!deviceAppKeyPubkey || normalizeHexPubkey(event.pubkey) !== deviceAppKeyPubkey) return null;
+
+  const adminAppKeyPubkey = typeof frame.admin_app_key_pubkey === 'string'
+    ? normalizeHexPubkey(frame.admin_app_key_pubkey)
+    : null;
+  if (adminAppKeyPubkey !== scope.adminAppKeyPubkey) return null;
+
+  const invitePubkey = typeof frame.invite_pubkey === 'string'
+    ? normalizeHexPubkey(frame.invite_pubkey)
+    : null;
+  if (invitePubkey !== scope.invitePubkey) return null;
+
+  const requestedAt = typeof frame.requested_at === 'number'
+    ? frame.requested_at
+    : Number(frame.requested_at);
+  if (!Number.isSafeInteger(requestedAt) || requestedAt <= 0) return null;
+
+  const label = typeof frame.label === 'string' && frame.label.trim()
+    ? frame.label.trim()
+    : undefined;
+  return driveDeviceLinkRequestFromRequest({
+    profileId: scope.profileId,
+    adminAppKeyPubkey: scope.adminAppKeyPubkey,
+    invitePubkey: scope.invitePubkey,
+    deviceAppKeyPubkey,
+    requestedAt,
+    ...(label ? { label } : {}),
+  });
+}
+
 function driveDeviceLinkRequestFromRequest(request: DeviceLinkRequest): DriveDeviceLinkRequest {
   return {
     id: `${request.profileId}:${request.deviceAppKeyPubkey}:${request.requestedAt}`,
@@ -1546,6 +1616,10 @@ function driveDeviceLinkRequestFromRequest(request: DeviceLinkRequest): DriveDev
     label: request.label,
     requestedAt: request.requestedAt,
   };
+}
+
+function legacyDriveDeviceLinkRequestDTag(profileId: NostrIdentityId): string {
+  return `iris-drive/${profileId}/app-key-link-request`;
 }
 
 
