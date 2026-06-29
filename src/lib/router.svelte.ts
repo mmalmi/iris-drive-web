@@ -27,7 +27,6 @@ function getFullHash(): string {
 function directPathIsRoutable(pathname: string): boolean {
   return pathname === '/share'
     || pathname.startsWith('/approve-device/')
-    || pathname.startsWith('/invite/')
     || pathname.startsWith('/share-invite/');
 }
 

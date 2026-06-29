@@ -1,15 +1,10 @@
 import { nip19 } from 'nostr-tools';
 import {
-  isCompleteDeviceLinkInviteInput,
-  parseDeviceLinkInvite,
   pubkeyToNpub,
 } from './deviceLink';
 
 export const DRIVE_ROOT_NAME = 'main';
 const NPUB_LENGTH = 63;
-const INVITE_PREFIXES = [
-  'https://drive.iris.to/invite/',
-];
 const SHARE_INVITE_PREFIXES = [
   'iris-drive://share-invite/',
   'iris-drive:/share-invite/',
@@ -25,9 +20,6 @@ export function normalizeOwnerNpub(input: string): string | null {
   if (!value) return null;
 
   try {
-    const inviteOwner = ownerNpubFromDeviceLinkInvite(value);
-    if (inviteOwner) return inviteOwner;
-
     if (value.startsWith('npub1')) {
       const decoded = nip19.decode(value);
       return decoded.type === 'npub' && typeof decoded.data === 'string'
@@ -56,9 +48,6 @@ export function isCompleteDeviceLinkOwnerInput(input: string): boolean {
   if (/^[0-9a-f]{64}$/i.test(value)) {
     return true;
   }
-  if (payloadFromInviteUrl(value) !== null) {
-    return isCompleteDeviceLinkInviteInput(value);
-  }
   if (payloadFromShareInviteUrl(value) !== null) {
     return false;
   }
@@ -72,27 +61,6 @@ export function isCompleteShareInviteInput(input: string): boolean {
 
 export function shareInvitePayload(input: string): string | null {
   return payloadFromShareInviteUrl(input.trim().replace(/^nostr:/i, ''));
-}
-
-function ownerNpubFromDeviceLinkInvite(input: string): string | null {
-  if (payloadFromInviteUrl(input) !== null) {
-    const canonicalInvite = parseDeviceLinkInvite(input);
-    if (canonicalInvite) {
-      return pubkeyToNpub(canonicalInvite.adminAppKeyPubkey);
-    }
-  }
-
-  return null;
-}
-
-function payloadFromInviteUrl(input: string): string | null {
-  const lower = input.toLowerCase();
-  const prefix = INVITE_PREFIXES.find((candidate) => lower.startsWith(candidate));
-  if (!prefix) return null;
-  return input
-    .slice(prefix.length)
-    .split(/[?#]/, 1)[0]
-    .trim();
 }
 
 function payloadFromShareInviteUrl(input: string): string | null {
