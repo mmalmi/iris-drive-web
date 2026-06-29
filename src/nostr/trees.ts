@@ -14,8 +14,8 @@ import { updateLocalRootCache } from '../treeRootCache';
 import { parseRoute } from '../utils/route';
 import { getRefResolver } from '../refResolver';
 import { resolvePublishLabels } from '@iris/hashtree-app/publishLabels';
-import { publishIrisProfileDriveRootIfAvailable } from '../drive/profileDriveRootPublish';
-import { isActiveIrisProfileRouteScope } from '../drive/profileRoute';
+import { publishNostrIdentityDriveRootIfAvailable } from '../drive/profileDriveRootPublish';
+import { activeNostrIdentityRootScope, isActiveNostrIdentityRouteScope } from '../drive/profileRoute';
 import { treeRootRegistry } from '../TreeRootRegistry';
 
 // Re-export visibility hex helpers from hashtree lib
@@ -55,13 +55,14 @@ export async function saveHashtree(
 
   const visibility = options.visibility ?? 'public';
   const resolver = getRefResolver();
+  const rootScope = activeNostrIdentityRootScope(state) ?? state.npub;
 
   const currentSelected = state.selectedTree;
   const selectedTreeLabels = currentSelected && currentSelected.name === name && currentSelected.pubkey === state.pubkey
     ? currentSelected.labels
     : undefined;
 
-  let publishLabels = resolvePublishLabels({
+  const publishLabels = resolvePublishLabels({
     currentLabels: selectedTreeLabels,
     explicitLabels: options.labels,
   });
@@ -79,7 +80,15 @@ export async function saveHashtree(
   }
 
   // Update treeRootCache immediately so local ops don't wait on publish
-  updateLocalRootCache(state.npub, name, rootCid.hash, rootCid.key, visibility, publishLabels);
+  updateLocalRootCache(rootScope, name, rootCid.hash, rootCid.key, visibility, publishLabels);
+
+  if (rootScope !== state.npub) {
+    const driveRootPublished = await publishNostrIdentityDriveRootIfAvailable(name, rootCid);
+    return {
+      success: driveRootPublished,
+      linkKey: undefined,
+    };
+  }
 
   // Use resolver to publish - it handles all visibility encryption
   const result = await resolver.publish?.(
@@ -96,7 +105,7 @@ export async function saveHashtree(
     return { success: false, linkKey: result?.linkKey ? toHex(result.linkKey) : undefined };
   }
 
-  const driveRootPublished = await publishIrisProfileDriveRootIfAvailable(name, rootCid);
+  const driveRootPublished = await publishNostrIdentityDriveRootIfAvailable(name, rootCid);
   if (!driveRootPublished) {
     return { success: false, linkKey: result.linkKey ? toHex(result.linkKey) : undefined };
   }
@@ -116,7 +125,7 @@ export function isOwnTree(): boolean {
   if (state.selectedTree?.pubkey === state.pubkey) return true;
 
   const route = parseRoute();
-  return !!route.treeName && isActiveIrisProfileRouteScope(route.npub, state);
+  return !!route.treeName && isActiveNostrIdentityRouteScope(route.npub, state);
 }
 
 /**
@@ -129,7 +138,7 @@ export function autosaveIfOwn(rootCid: CID): void {
   if (!isOwnTree()) return;
 
   const route = parseRoute();
-  const isProfileDriveRoute = !!route.treeName && isActiveIrisProfileRouteScope(route.npub, state);
+  const isProfileDriveRoute = !!route.treeName && isActiveNostrIdentityRouteScope(route.npub, state);
   const treeName = isProfileDriveRoute ? route.treeName! : state.selectedTree?.name;
   const rootScope = isProfileDriveRoute ? route.npub! : state.npub;
   if (!treeName || !rootScope) return;

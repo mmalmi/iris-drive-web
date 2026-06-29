@@ -85,7 +85,7 @@ export function shareContactCandidatesFromUsers(users: UserIndexEntry[]): ShareC
     npub: user.npub,
     displayName: user.displayName || user.name,
     nip05: user.nip05,
-    irisProfileId: user.irisProfileId,
+    nostrIdentityId: user.nostrIdentityId,
     linkedNpubs: user.linkedNpubs,
     shareRecipientEvidenceJson: user.shareRecipientEvidenceJson,
   }));
@@ -108,7 +108,7 @@ export function rankedShareContactFromRecipientEvidenceJson(input: string): Rank
       representative_npub: resolved.representative_npub,
       pubkey: resolved.representative_pubkey,
       display_name: resolved.display_name || evidence.display_name || resolved.representative_npub.slice(0, 12),
-      iris_profile_id: resolved.profile_id,
+      nostr_identity_id: resolved.profile_id,
       linked_npubs: Array.from(new Set([resolved.representative_npub, ...linkedNpubs])).sort(),
       recipient_evidence_json: input,
       score: 10,
@@ -168,8 +168,8 @@ function preferShareContact(
   if (!!candidate.recipient_evidence_json !== !!existing.recipient_evidence_json) {
     return candidate.recipient_evidence_json ? candidate : existing;
   }
-  if (!!candidate.iris_profile_id !== !!existing.iris_profile_id) {
-    return candidate.iris_profile_id ? candidate : existing;
+  if (!!candidate.nostr_identity_id !== !!existing.nostr_identity_id) {
+    return candidate.nostr_identity_id ? candidate : existing;
   }
   if (hasHumanDisplay(candidate) !== hasHumanDisplay(existing)) {
     return hasHumanDisplay(candidate) ? candidate : existing;

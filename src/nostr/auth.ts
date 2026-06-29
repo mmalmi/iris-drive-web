@@ -3,21 +3,21 @@
  */
 import { generateSecretKey, getPublicKey, nip19, nip44, verifyEvent, type Event as NostrToolsEvent } from 'nostr-tools';
 import {
-  APP_KEY_WRITER_CAPABILITIES,
   approveDeviceLinkRequest,
-  createAttachedIrisIdentitySession,
-  createIrisIdentitySignerFromNip07,
-  createIrisIdentitySignerFromNip46,
-  createIrisIdentitySignerFromNsec,
-  createIrisIdentitySignerFromSeedPhrase,
+  createAttachedNostrIdentitySession,
+  createNostrIdentitySignerFromNip07,
+  createNostrIdentitySignerFromNip46,
+  createNostrIdentitySignerFromNsec,
+  createNostrIdentitySignerFromSeedPhrase,
   encodeDeviceLinkInvite,
   normalizeHexPubkey,
   parseDeviceLinkRequestEvent as parseIdentityDeviceLinkRequestEvent,
-  removeIrisAppKeyFromProfile,
+  removeNostrAppKeyFromIdentity,
   signDeviceLinkRequestEvent,
-  type IrisIdentityEventSigner,
-  type RemoveIrisAppKeyResult,
+  type NostrIdentityEventSigner,
+  type RemoveNostrAppKeyResult,
 } from '@iris/identity';
+import { APP_KEY_WRITER_CAPABILITIES } from 'nostr-social-graph';
 import type { NDKFilter, NDKKind } from 'ndk';
 import { ndk, NDKNip46Signer, NDKPrivateKeySigner, NDKNip07Signer, NDKEvent } from './ndk';
 import { nostrStore } from './store';
@@ -34,23 +34,33 @@ import { needsMigrations, runMigrations } from '../migrations';
 import { initWallet, disposeWallet } from '../stores/wallet';
 import {
   createPendingDeviceLinkSession,
-  createIrisProfileDckRotateAfterAddOp,
-  createIrisProfileDckRotateAfterRemovalOp,
-  createIrisProfileDckRewrapOp,
-  KIND_IRIS_PROFILE_FACET_ACCEPTANCE,
-  KIND_IRIS_PROFILE_ROSTER_OP,
+  createNostrIdentityDckRotateAfterAddOp,
+  createNostrIdentityDckRotateAfterRemovalOp,
+  createNostrIdentityDckRewrapOp,
+  KIND_NOSTR_IDENTITY_FACET_ACCEPTANCE,
+  KIND_NOSTR_IDENTITY_ROSTER_OP,
   type DeviceLinkRequest,
   parseDeviceLinkInvite,
-  parseIrisProfileFacetAcceptanceEvent,
-  parseIrisProfileRosterOpEvent,
-  projectIrisProfileRoster,
-  signIrisProfileRosterOp,
-  type IrisIdentitySession,
-  type IrisProfileCapabilities,
-  type IrisProfileId,
-  type SignedIrisProfileRosterOp,
-  type StoredIrisIdentitySession,
+  parseNostrIdentityFacetAcceptanceEvent,
+  parseNostrIdentityRosterOpEvent,
+  projectNostrIdentityRoster,
+  signNostrIdentityRosterOp,
+  type NostrIdentitySession,
+  type NostrIdentityCapabilities,
+  type NostrIdentityId,
+  type SignedNostrIdentityRosterOp,
+  type StoredNostrIdentitySession,
 } from '../drive/protocol';
+import {
+  DRIVE_DEVICE_LABEL_SCHEMA,
+  currentBrowserDeviceLabel,
+  decryptDriveDeviceLabelsWithDck,
+  encryptDriveDeviceLabelsWithDck,
+  encryptedDeviceLabelPayloadsFromEventJson,
+  readStoredDeviceLabels,
+  saveStoredDeviceLabel,
+  saveStoredDeviceLabels,
+} from '../drive/deviceLabels';
 
 // Storage keys
 const STORAGE_KEY_NSEC = 'hashtree:nsec';
@@ -82,14 +92,14 @@ export interface DriveRecoveryRequest {
 }
 
 export interface DriveRecoveryAppKeyOptions {
-  profileId?: IrisProfileId;
+  profileId?: NostrIdentityId;
   recovery: DriveRecoveryRequest;
   label?: string;
   rosterFetchTimeoutMs?: number;
 }
 
 export interface DriveRecoveryRemoveAppKeyOptions {
-  profileId: IrisProfileId;
+  profileId: NostrIdentityId;
   recovery: DriveRecoveryRequest;
   appKeyPubkey: string;
   reason?: string;
@@ -97,13 +107,13 @@ export interface DriveRecoveryRemoveAppKeyOptions {
 }
 
 export interface DriveRecoveryRemoveAppKeyResult {
-  removal: RemoveIrisAppKeyResult;
-  dckRotationOp: SignedIrisProfileRosterOp | null;
-  session: IrisIdentitySession | null;
+  removal: RemoveNostrAppKeyResult;
+  dckRotationOp: SignedNostrIdentityRosterOp | null;
+  session: NostrIdentitySession | null;
 }
 
 export interface DriveDeviceLinkInvite {
-  profileId: IrisProfileId;
+  profileId: NostrIdentityId;
   adminAppKeyPubkey: string;
   invitePubkey: string;
   inviteSecretKeyNsec: string;
@@ -119,7 +129,7 @@ export interface DriveDeviceLinkRequest {
 }
 
 export interface DriveDeviceLinkRequestScope {
-  profileId: IrisProfileId;
+  profileId: NostrIdentityId;
   adminAppKeyPubkey: string;
   invitePubkey: string;
   inviteSecretKey: Uint8Array;
@@ -140,14 +150,14 @@ const DRIVE_DEFAULT_TREES: readonly DefaultTree[] = [
   { name: DRIVE_ROOT_NAME, visibility: 'private' },
 ];
 
-let currentIrisIdentitySession: IrisIdentitySession | null = null;
+let currentNostrIdentitySession: NostrIdentitySession | null = null;
 
-const DRIVE_APP_KEY_ADMIN_CAPABILITIES: IrisProfileCapabilities = {
+const DRIVE_APP_KEY_ADMIN_CAPABILITIES: NostrIdentityCapabilities = {
   can_write_roots: true,
   can_admin_profile: true,
   can_recover_app_keys: true,
-  can_receive_key_wraps: true,
-  can_decrypt_key_epochs: true,
+  can_receive_secret_wraps: true,
+  can_decrypt_secret_epochs: true,
 };
 
 /**
@@ -165,8 +175,18 @@ export function getNsec(): string | null {
   return nip19.nsecEncode(secretKey);
 }
 
-export function getCurrentIrisIdentitySession(): IrisIdentitySession | null {
-  return currentIrisIdentitySession;
+export function getCurrentNostrIdentitySession(): NostrIdentitySession | null {
+  return currentNostrIdentitySession;
+}
+
+export async function loadDriveDeviceLabels(): Promise<Record<string, string>> {
+  const session = currentNostrIdentitySession;
+  if (!session || session.status !== 'active') return {};
+  const rosterOps = await currentDriveRosterOps(session).catch(() => session.rosterOps);
+  const labels = await collectDriveDeviceLabels(session, rosterOps);
+  saveStoredDeviceLabels(session.profileId, labels);
+  appendCurrentNostrIdentitySessionRosterOps(session.profileId, rosterOps);
+  return labels;
 }
 
 /**
@@ -241,7 +261,19 @@ export async function restoreSession(options: RestoreSessionOptions = {}): Promi
 
   initAccountsStore();
   logT('initAccountsStore');
-  restoreStoredIrisIdentitySession();
+  const restoredIrisSession = restoreStoredNostrIdentitySession();
+  if (restoredIrisSession?.status === 'pending_device_link') {
+    secretKey = null;
+    ndk.signer = undefined;
+    nostrStore.setPubkey(null);
+    nostrStore.setNpub(null);
+    nostrStore.setIsLoggedIn(false);
+    nostrStore.setSelectedTree(null);
+    localStorage.removeItem(STORAGE_KEY_LOGIN_TYPE);
+    localStorage.removeItem(STORAGE_KEY_NSEC);
+    logT('pending device link');
+    return false;
+  }
 
   // Migrate legacy single account to multi-account storage if needed
   const legacyLoginType = localStorage.getItem(STORAGE_KEY_LOGIN_TYPE);
@@ -418,7 +450,7 @@ export async function loginWithNsec(nsec: string, save = true): Promise<boolean>
 async function applySecretKey(
   nextKey: Uint8Array,
   defaultTrees: readonly DefaultTree[] = CLASSIC_DEFAULT_TREES,
-  accountOptions: { irisProfileId?: IrisProfileId } = {},
+  accountOptions: { nostrIdentityId?: NostrIdentityId } = {},
 ): Promise<{ nsec: string; npub: string }> {
   secretKey = nextKey;
   const pk = getPublicKey(nextKey);
@@ -436,15 +468,15 @@ async function applySecretKey(
   localStorage.setItem(STORAGE_KEY_NSEC, nsec);
 
   const account = createAccountFromNsec(nsec, {
-    type: accountOptions.irisProfileId ? 'drive_profile' : 'nsec',
-    irisProfileId: accountOptions.irisProfileId,
+    type: accountOptions.nostrIdentityId ? 'drive_profile' : 'nsec',
+    nostrIdentityId: accountOptions.nostrIdentityId,
   });
   if (account) {
     accountsStore.addAccount(account);
-    if (accountOptions.irisProfileId) {
+    if (accountOptions.nostrIdentityId) {
       accountsStore.updateAccount(account.pubkey, {
         type: 'drive_profile',
-        irisProfileId: accountOptions.irisProfileId,
+        nostrIdentityId: accountOptions.nostrIdentityId,
         nsec,
       });
     }
@@ -485,23 +517,52 @@ export async function generateNewKey(): Promise<{ nsec: string; npub: string }> 
   return applySecretKey(generateSecretKey());
 }
 
-export async function createDriveProfile(): Promise<{ nsec: string; npub: string; profileId: IrisProfileId }> {
+export async function createDriveProfile(): Promise<{ nsec: string; npub: string; profileId: NostrIdentityId }> {
   const appKeySecretKey = generateSecretKey();
+  const appKeyPubkey = getPublicKey(appKeySecretKey);
+  const profileId = randomProfileId();
+  const createdAt = currentUnixSeconds();
+  const label = currentBrowserDeviceLabel();
+  const dckPlaintext = randomDriveContentKey();
+  const encryptedDeviceLabels = await encryptDriveDeviceLabelsWithDck({
+    schema: DRIVE_DEVICE_LABEL_SCHEMA,
+    profileId,
+    secretEpoch: 1,
+    labels: { [appKeyPubkey]: label },
+    updatedAt: createdAt,
+  }, dckPlaintext);
   const session = createDriveIdentitySession({
+    profileId,
     appKeySecretKey,
-    label: 'This device',
+    createdAt,
+    label,
+    encryptedDeviceLabels,
   });
-  saveIrisIdentitySession(session);
+  const dckRotationOp = await createNostrIdentityDckRotateAfterAddOp({
+    profileId: session.profileId,
+    signer: createNostrIdentitySignerFromNsec(session.appKeyNsec),
+    rosterOps: [],
+    parentRosterOp: session.rosterOps[0],
+    createdAt: createdAt + 1,
+    clientNonce: `${session.rosterOps[0].content.client_nonce}:create-dck`,
+    dckPlaintext,
+  });
+  const activeSession: NostrIdentitySession = {
+    ...session,
+    rosterOps: [...session.rosterOps, dckRotationOp],
+  };
+  saveStoredDeviceLabel(activeSession.profileId, activeSession.appKeyPubkey, label);
+  saveNostrIdentitySession(activeSession);
   const applied = await applySecretKey(appKeySecretKey, DRIVE_DEFAULT_TREES, {
-    irisProfileId: session.profileId,
+    nostrIdentityId: activeSession.profileId,
   });
   return {
     ...applied,
-    profileId: session.profileId,
+    profileId: activeSession.profileId,
   };
 }
 
-export async function linkDriveDevice(inviteInput: string): Promise<{ nsec: string; npub: string; session: IrisIdentitySession } | null> {
+export async function linkDriveDevice(inviteInput: string): Promise<{ nsec: string; npub: string; session: NostrIdentitySession } | null> {
   const invite = parseDeviceLinkInvite(inviteInput);
   if (!invite) return null;
   const session = createPendingDeviceLinkSession({
@@ -511,7 +572,10 @@ export async function linkDriveDevice(inviteInput: string): Promise<{ nsec: stri
   const decoded = nip19.decode(session.appKeyNsec);
   if (decoded.type !== 'nsec') return null;
   const appKeySecretKey = decoded.data as Uint8Array;
-  saveIrisIdentitySession(session);
+  saveNostrIdentitySession(session);
+  if (session.label) {
+    saveStoredDeviceLabel(session.profileId, session.appKeyPubkey, session.label);
+  }
   secretKey = null;
   ndk.signer = undefined;
   nostrStore.setPubkey(null);
@@ -524,48 +588,6 @@ export async function linkDriveDevice(inviteInput: string): Promise<{ nsec: stri
   localStorage.removeItem(STORAGE_KEY_NSEC);
   await publishDriveDeviceLinkRequest(session, appKeySecretKey);
   return { nsec: session.appKeyNsec, npub: session.appKeyNpub, session };
-}
-
-function currentBrowserDeviceLabel(): string {
-  const nav = typeof navigator !== 'undefined' ? navigator : null;
-  const userAgentData = (nav as (Navigator & {
-    userAgentData?: {
-      brands?: Array<{ brand: string; version: string }>;
-      platform?: string;
-    };
-  }) | null)?.userAgentData;
-  const userAgent = nav?.userAgent ?? '';
-  const platform = userAgentData?.platform || nav?.platform || '';
-  const browser = browserNameFromUserAgent(userAgent, userAgentData?.brands);
-  const os = osNameFromUserAgent(userAgent, platform);
-  if (browser && os) return `${browser} on ${os}`;
-  if (browser) return browser;
-  if (os) return `${os} browser`;
-  return 'Browser';
-}
-
-function browserNameFromUserAgent(
-  userAgent: string,
-  brands: Array<{ brand: string; version: string }> | undefined,
-): string {
-  const brandNames = brands?.map((brand) => brand.brand).join(' ') ?? '';
-  const combined = `${brandNames} ${userAgent}`;
-  if (/Edg\//.test(userAgent) || /Microsoft Edge/i.test(brandNames)) return 'Edge';
-  if (/OPR\//.test(userAgent) || /Opera/i.test(brandNames)) return 'Opera';
-  if (/Firefox|FxiOS/i.test(combined)) return 'Firefox';
-  if (/Google Chrome|Chrome|CriOS|Chromium/i.test(combined)) return 'Chrome';
-  if (/Safari/i.test(userAgent) && !/Chrome|Chromium|CriOS|FxiOS|Edg|OPR/i.test(userAgent)) return 'Safari';
-  return '';
-}
-
-function osNameFromUserAgent(userAgent: string, platform: string): string {
-  const combined = `${platform} ${userAgent}`;
-  if (/iPhone|iPad|iPod/i.test(combined)) return 'iOS';
-  if (/Android/i.test(combined)) return 'Android';
-  if (/Macintosh|Mac OS X|MacIntel|macOS/i.test(combined)) return 'macOS';
-  if (/Windows/i.test(combined)) return 'Windows';
-  if (/Linux/i.test(combined)) return 'Linux';
-  return '';
 }
 
 export async function createDriveDeviceLinkInvite(): Promise<DriveDeviceLinkInvite> {
@@ -641,7 +663,7 @@ export function subscribeDriveDeviceLinkRequestsForAdmin(
 function driveDeviceLinkRequestFilters(scope: DriveDeviceLinkRequestScope): NDKFilter[] {
   return [
     {
-      kinds: [KIND_IRIS_PROFILE_ROSTER_OP as NDKKind],
+      kinds: [KIND_NOSTR_IDENTITY_ROSTER_OP as NDKKind],
       '#i': [scope.profileId],
       '#p': [scope.invitePubkey],
       limit: 200,
@@ -707,7 +729,7 @@ function driveDeviceLinkRequestScopeFromInvite(
 
 export async function approveDriveDeviceLinkRequest(
   request: DeviceLinkRequest,
-): Promise<IrisIdentitySession> {
+): Promise<NostrIdentitySession> {
   const session = requireActiveDriveIdentitySession();
   requireCurrentDriveAdmin(session);
   if (request.profileId !== session.profileId || request.adminAppKeyPubkey !== session.appKeyPubkey) {
@@ -717,47 +739,64 @@ export async function approveDriveDeviceLinkRequest(
 
   const rosterOps = await currentDriveRosterOps(session);
   const approvedAt = currentUnixSeconds();
+  const label = request.label?.trim();
+  const deviceLabels = await collectDriveDeviceLabels(session, rosterOps);
+  if (label) {
+    deviceLabels[request.deviceAppKeyPubkey] = label;
+  }
+  const dckPlaintext = randomDriveContentKey();
+  const secretEpoch = nextSecretEpochNumber(session.profileId, rosterOps);
+  const encryptedDeviceLabels = await encryptDriveDeviceLabelsWithDck({
+    schema: DRIVE_DEVICE_LABEL_SCHEMA,
+    profileId: session.profileId,
+    secretEpoch,
+    labels: deviceLabels,
+    updatedAt: approvedAt,
+  }, dckPlaintext);
   const content = approveDeviceLinkRequest({
-    request,
+    request: { ...request, label: undefined },
     rosterOps,
     approvedByPubkey: session.appKeyPubkey,
     approvedAt,
     clientNonce: randomClientNonce(),
     capabilities: APP_KEY_WRITER_CAPABILITIES,
   });
-  const signed = signIrisProfileRosterOp({
+  const signed = signNostrIdentityRosterOp({
     signerSecretKey: secretKey,
     profileId: content.profile_id,
     parents: content.parents,
     createdAt: content.created_at,
     clientNonce: content.client_nonce,
+    encryptedDeviceLabels,
     op: content.op,
   });
-  const dckRotationOp = await createIrisProfileDckRotateAfterAddOp({
+  const dckRotationOp = await createNostrIdentityDckRotateAfterAddOp({
     profileId: session.profileId,
-    signer: createIrisIdentitySignerFromNsec(session.appKeyNsec),
+    signer: createNostrIdentitySignerFromNsec(session.appKeyNsec),
     rosterOps,
     parentRosterOp: signed,
     createdAt: approvedAt + 1,
     clientNonce: `${content.client_nonce}:rotate-dck`,
+    dckPlaintext,
   });
 
   await publishCurrentDriveIdentityRosterOps({ ...session, rosterOps });
   await publishSignedIdentityEventJson(signed.event_json);
   await publishSignedIdentityEventJson(dckRotationOp.event_json);
-  const updated = appendCurrentIrisIdentitySessionRosterOps(session.profileId, [
+  const updated = appendCurrentNostrIdentitySessionRosterOps(session.profileId, [
     ...rosterOps,
     signed,
     dckRotationOp,
   ]);
   if (!updated) throw new Error('Approved key removed the active Drive user');
+  saveStoredDeviceLabels(updated.profileId, deviceLabels);
   return updated;
 }
 
 export async function setDriveProfileAppKeyAdmin(
   appKeyPubkey: string,
   admin: boolean,
-): Promise<IrisIdentitySession> {
+): Promise<NostrIdentitySession> {
   const session = requireActiveDriveIdentitySession();
   requireCurrentDriveAdmin(session);
   if (!secretKey) throw new Error('No active Drive AppKey secret');
@@ -765,17 +804,17 @@ export async function setDriveProfileAppKeyAdmin(
   if (!target) throw new Error('Invalid Drive key');
 
   const rosterOps = await currentDriveRosterOps(session);
-  const projection = projectIrisProfileRoster(session.profileId, rosterOps);
+  const projection = projectNostrIdentityRoster(session.profileId, rosterOps);
   const facet = projection.active_facets[target];
   if (!facet) throw new Error('Drive key is not active');
-  const capabilities: IrisProfileCapabilities = { ...(facet.capabilities ?? {}) };
+  const capabilities: NostrIdentityCapabilities = { ...(facet.capabilities ?? {}) };
   if (admin) {
     capabilities.can_admin_profile = true;
   } else {
     delete capabilities.can_admin_profile;
   }
 
-  const signed = signIrisProfileRosterOp({
+  const signed = signNostrIdentityRosterOp({
     signerSecretKey: secretKey,
     profileId: session.profileId,
     parents: projection.accepted_op_ids,
@@ -790,14 +829,14 @@ export async function setDriveProfileAppKeyAdmin(
 
   await publishCurrentDriveIdentityRosterOps({ ...session, rosterOps });
   await publishSignedIdentityEventJson(signed.event_json);
-  const updated = appendCurrentIrisIdentitySessionRosterOps(session.profileId, [...rosterOps, signed]);
+  const updated = appendCurrentNostrIdentitySessionRosterOps(session.profileId, [...rosterOps, signed]);
   if (!updated) throw new Error('Drive user session is no longer active');
   return updated;
 }
 
 export async function removeDriveProfileAppKeyWithAdmin(
   appKeyPubkey: string,
-): Promise<IrisIdentitySession | null> {
+): Promise<NostrIdentitySession | null> {
   const session = requireActiveDriveIdentitySession();
   requireCurrentDriveAdmin(session);
   if (!secretKey) throw new Error('No active Drive AppKey secret');
@@ -806,9 +845,9 @@ export async function removeDriveProfileAppKeyWithAdmin(
   if (target === session.appKeyPubkey) throw new Error('Use account removal to remove this device');
 
   const rosterOps = await currentDriveRosterOps(session);
-  const projection = projectIrisProfileRoster(session.profileId, rosterOps);
+  const projection = projectNostrIdentityRoster(session.profileId, rosterOps);
   if (!projection.active_facets[target]) throw new Error('Drive key is not active');
-  const signed = signIrisProfileRosterOp({
+  const signed = signNostrIdentityRosterOp({
     signerSecretKey: secretKey,
     profileId: session.profileId,
     parents: projection.accepted_op_ids,
@@ -823,28 +862,28 @@ export async function removeDriveProfileAppKeyWithAdmin(
 
   await publishCurrentDriveIdentityRosterOps({ ...session, rosterOps });
   await publishSignedIdentityEventJson(signed.event_json);
-  return appendCurrentIrisIdentitySessionRosterOps(session.profileId, [...rosterOps, signed], target);
+  return appendCurrentNostrIdentitySessionRosterOps(session.profileId, [...rosterOps, signed], target);
 }
 
-export async function activatePendingDriveDeviceLinkIfApproved(): Promise<IrisIdentitySession | null> {
-  const session = currentIrisIdentitySession;
+export async function activatePendingDriveDeviceLinkIfApproved(): Promise<NostrIdentitySession | null> {
+  const session = currentNostrIdentitySession;
   if (!session || session.status !== 'pending_device_link') return session;
-  const rosterOps = await fetchIrisProfileRosterOps(session.profileId, 8000);
+  const rosterOps = await fetchNostrIdentityRosterOps(session.profileId, 8000);
   if (rosterOps.length === 0) return session;
-  const projection = projectIrisProfileRoster(session.profileId, rosterOps);
+  const projection = projectNostrIdentityRoster(session.profileId, rosterOps);
   const facet = projection.active_facets[session.appKeyPubkey];
   const hasAdminFacet = Object.values(projection.active_facets)
     .some((candidate) => candidate.capabilities?.can_admin_profile);
-  const latestEpoch = Object.values(projection.key_epochs)
+  const latestEpoch = Object.values(projection.secret_epochs)
     .sort((left, right) => right.epoch - left.epoch)[0];
   if (!hasAdminFacet
     || !facet?.capabilities?.can_write_roots
-    || !facet.capabilities.can_receive_key_wraps
-    || !facet.capabilities.can_decrypt_key_epochs
-    || !latestEpoch?.wrapped_dck[session.appKeyPubkey]) {
+    || !facet.capabilities.can_receive_secret_wraps
+    || !facet.capabilities.can_decrypt_secret_epochs
+    || !latestEpoch?.wrapped_secrets[session.appKeyPubkey]) {
     return session;
   }
-  const activeSession: IrisIdentitySession = {
+  const activeSession: NostrIdentitySession = {
     ...session,
     status: 'active',
     rosterOps,
@@ -854,43 +893,62 @@ export async function activatePendingDriveDeviceLinkIfApproved(): Promise<IrisId
     throw new Error('Pending Drive AppKey is not an nsec');
   }
   await applySecretKey(decoded.data as Uint8Array, DRIVE_DEFAULT_TREES, {
-    irisProfileId: activeSession.profileId,
+    nostrIdentityId: activeSession.profileId,
   });
-  saveIrisIdentitySession(activeSession);
+  const labels = await collectDriveDeviceLabels(activeSession, rosterOps).catch(() => ({
+    [activeSession.appKeyPubkey]: activeSession.label ?? currentBrowserDeviceLabel(),
+  }));
+  saveStoredDeviceLabels(activeSession.profileId, labels);
+  saveNostrIdentitySession(activeSession);
   return activeSession;
 }
 
 export async function recoverDriveProfileWithAppKey(
   options: DriveRecoveryAppKeyOptions,
-): Promise<{ nsec: string; npub: string; session: IrisIdentitySession }> {
+): Promise<{ nsec: string; npub: string; session: NostrIdentitySession }> {
   const signer = await createRecoverySigner(options.recovery);
   const explicitProfileId = options.profileId ? normalizeProfileId(options.profileId) : null;
   const { profileId, rosterOps } = explicitProfileId
     ? {
         profileId: explicitProfileId,
-        rosterOps: await fetchIrisProfileRosterOps(explicitProfileId, options.rosterFetchTimeoutMs),
+        rosterOps: await fetchNostrIdentityRosterOps(explicitProfileId, options.rosterFetchTimeoutMs),
       }
-    : await discoverRecoverableIrisProfileRoster(signer, options.rosterFetchTimeoutMs);
+    : await discoverRecoverableNostrIdentityRoster(signer, options.rosterFetchTimeoutMs);
   if (rosterOps.length === 0) {
     throw new Error('No Drive user found for that recovery key');
   }
 
-  const { attachment, session } = await createAttachedIrisIdentitySession({
+  const createdAt = currentUnixSeconds();
+  const localLabel = options.label?.trim() || currentBrowserDeviceLabel();
+  const appKeySecretKey = generateSecretKey();
+  const appKeyPubkey = getPublicKey(appKeySecretKey);
+  const encryptedDeviceLabels = await encryptedDeviceLabelsForRecoveryAttach({
+    profileId,
+    rosterOps,
+    signer,
+    appKeyPubkey,
+    label: localLabel,
+    updatedAt: createdAt,
+  });
+  const { attachment, session } = await createAttachedNostrIdentitySession({
     profileId,
     signer,
     rosterOps,
-    label: options.label ?? 'This app',
+    appKeySecretKey,
+    createdAt,
+    encryptedDeviceLabels,
     clientNonce: randomClientNonce(),
   });
-  const dckRewrapOp = await createIrisProfileDckRewrapOp({
+  const dckRewrapOp = await createNostrIdentityDckRewrapOp({
     profileId,
     signer,
     rosterOps,
     appKeyPubkey: attachment.appKeyPubkey,
     parentRosterOp: attachment.rosterOp,
   });
-  const activeSession: IrisIdentitySession = {
+  const activeSession: NostrIdentitySession = {
     ...session,
+    label: localLabel,
     rosterOps: dckRewrapOp ? [...session.rosterOps, dckRewrapOp] : session.rosterOps,
   };
 
@@ -899,16 +957,17 @@ export async function recoverDriveProfileWithAppKey(
   if (dckRewrapOp) {
     await publishSignedIdentityEventJson(dckRewrapOp.event_json);
   }
-  saveIrisIdentitySession(activeSession);
+  saveNostrIdentitySession(activeSession);
+  saveStoredDeviceLabel(activeSession.profileId, activeSession.appKeyPubkey, activeSession.label);
 
   const decoded = nip19.decode(session.appKeyNsec);
   if (decoded.type !== 'nsec') {
     throw new Error('attached Drive AppKey is not an nsec');
   }
-  const appKeySecretKey = decoded.data as Uint8Array;
+  const decodedAppKeySecretKey = decoded.data as Uint8Array;
   return {
-    ...(await applySecretKey(appKeySecretKey, DRIVE_DEFAULT_TREES, {
-      irisProfileId: activeSession.profileId,
+    ...(await applySecretKey(decodedAppKeySecretKey, DRIVE_DEFAULT_TREES, {
+      nostrIdentityId: activeSession.profileId,
     })),
     session: activeSession,
   };
@@ -919,13 +978,13 @@ export async function removeDriveProfileAppKeyWithRecovery(
 ): Promise<DriveRecoveryRemoveAppKeyResult> {
   const profileId = normalizeProfileId(options.profileId);
   const signer = await createRecoverySigner(options.recovery);
-  const rosterOps = await fetchIrisProfileRosterOps(profileId, options.rosterFetchTimeoutMs);
+  const rosterOps = await fetchNostrIdentityRosterOps(profileId, options.rosterFetchTimeoutMs);
   if (rosterOps.length === 0) {
     throw new Error('No Drive user found for that profile');
   }
 
-  const dckRotation = { op: null as SignedIrisProfileRosterOp | null };
-  const removal = await removeIrisAppKeyFromProfile({
+  const dckRotation = { op: null as SignedNostrIdentityRosterOp | null };
+  const removal = await removeNostrAppKeyFromIdentity({
     profileId,
     signer,
     rosterOps,
@@ -933,7 +992,7 @@ export async function removeDriveProfileAppKeyWithRecovery(
     reason: options.reason,
     clientNonce: randomClientNonce(),
     rewrapSecrets: async (context) => {
-      dckRotation.op = await createIrisProfileDckRotateAfterRemovalOp({
+      dckRotation.op = await createNostrIdentityDckRotateAfterRemovalOp({
         profileId,
         signer,
         rosterOps,
@@ -949,7 +1008,7 @@ export async function removeDriveProfileAppKeyWithRecovery(
       return [{
         secretId: 'drive-dck',
         status: 'rotated',
-        epoch: dckRotation.op.content.op.op === 'rotate_key_epoch'
+        epoch: dckRotation.op.content.op.op === 'rotate_secret_epoch'
           ? dckRotation.op.content.op.epoch
           : undefined,
       }];
@@ -962,7 +1021,7 @@ export async function removeDriveProfileAppKeyWithRecovery(
     await publishSignedIdentityEventJson(dckRotationOp.event_json);
   }
 
-  const session = appendCurrentIrisIdentitySessionRosterOps(
+  const session = appendCurrentNostrIdentitySessionRosterOps(
     profileId,
     [removal.rosterOp, ...(dckRotationOp ? [dckRotationOp] : [])],
     removal.appKeyPubkey,
@@ -1074,13 +1133,13 @@ export function logout() {
 
   localStorage.removeItem(STORAGE_KEY_LOGIN_TYPE);
   localStorage.removeItem(STORAGE_KEY_NSEC);
-  currentIrisIdentitySession = null;
+  currentNostrIdentitySession = null;
 }
 
-function saveIrisIdentitySession(session: IrisIdentitySession): void {
-  currentIrisIdentitySession = session;
+function saveNostrIdentitySession(session: NostrIdentitySession): void {
+  currentNostrIdentitySession = session;
   const stored = serializeDriveIdentitySession(session);
-  const sessions = loadStoredIrisIdentitySessions();
+  const sessions = loadStoredNostrIdentitySessions();
   sessions[session.appKeyPubkey] = stored;
   localStorage.setItem(STORAGE_KEY_IRIS_IDENTITY_SESSIONS, JSON.stringify(sessions));
   localStorage.setItem(STORAGE_KEY_IRIS_IDENTITY, JSON.stringify(stored));
@@ -1090,97 +1149,115 @@ function saveIrisIdentitySession(session: IrisIdentitySession): void {
   }
 }
 
-function appendCurrentIrisIdentitySessionRosterOps(
-  profileId: IrisProfileId,
-  rosterOps: SignedIrisProfileRosterOp[],
+function appendCurrentNostrIdentitySessionRosterOps(
+  profileId: NostrIdentityId,
+  rosterOps: SignedNostrIdentityRosterOp[],
   removedAppKeyPubkey?: string,
-): IrisIdentitySession | null {
-  if (!currentIrisIdentitySession || currentIrisIdentitySession.profileId !== profileId) {
-    return currentIrisIdentitySession;
+): NostrIdentitySession | null {
+  if (!currentNostrIdentitySession || currentNostrIdentitySession.profileId !== profileId) {
+    return currentNostrIdentitySession;
   }
 
   const removed = removedAppKeyPubkey ? normalizeHexPubkey(removedAppKeyPubkey) : null;
   if (removed) {
-    removeStoredIrisIdentitySession(removed);
+    removeStoredNostrIdentitySession(removed);
   }
-  if (removed && currentIrisIdentitySession.appKeyPubkey === removed) {
-    currentIrisIdentitySession = null;
+  if (removed && currentNostrIdentitySession.appKeyPubkey === removed) {
+    currentNostrIdentitySession = null;
     localStorage.removeItem(STORAGE_KEY_IRIS_IDENTITY);
     return null;
   }
 
-  const known = new Set(currentIrisIdentitySession.rosterOps.map((op) => op.op_id));
+  const known = new Set(currentNostrIdentitySession.rosterOps.map((op) => op.op_id));
   const newOps = rosterOps.filter((op) => !known.has(op.op_id));
   if (newOps.length === 0) {
-    return currentIrisIdentitySession;
+    return currentNostrIdentitySession;
   }
-  const session: IrisIdentitySession = {
-    ...currentIrisIdentitySession,
-    rosterOps: [...currentIrisIdentitySession.rosterOps, ...newOps],
+  const session: NostrIdentitySession = {
+    ...currentNostrIdentitySession,
+    rosterOps: [...currentNostrIdentitySession.rosterOps, ...newOps],
   };
-  saveIrisIdentitySession(session);
+  saveNostrIdentitySession(session);
   return session;
 }
 
-function restoreStoredIrisIdentitySession(): IrisIdentitySession | null {
+function restoreStoredNostrIdentitySession(): NostrIdentitySession | null {
   const activeAccountPubkey = accountsStore.getState().activeAccountPubkey;
-  const sessions = loadStoredIrisIdentitySessions();
-  const storedForActiveAccount = activeAccountPubkey ? sessions[activeAccountPubkey] : undefined;
-  if (storedForActiveAccount) {
-    return activateStoredIrisIdentitySession(storedForActiveAccount);
+  const sessions = loadStoredNostrIdentitySessions();
+  const legacyRaw = localStorage.getItem(STORAGE_KEY_IRIS_IDENTITY);
+  const legacyStored = legacyRaw ? parseStoredNostrIdentitySession(legacyRaw) : null;
+  if (legacyStored?.status === 'pending_device_link') {
+    return activateStoredNostrIdentitySession(legacyStored);
   }
 
-  const legacyRaw = localStorage.getItem(STORAGE_KEY_IRIS_IDENTITY);
+  const storedForActiveAccount = activeAccountPubkey ? sessions[activeAccountPubkey] : undefined;
+  if (storedForActiveAccount) {
+    return activateStoredNostrIdentitySession(storedForActiveAccount);
+  }
+
   if (!legacyRaw) {
-    currentIrisIdentitySession = null;
+    currentNostrIdentitySession = null;
+    return null;
+  }
+  if (!legacyStored) {
+    localStorage.removeItem(STORAGE_KEY_IRIS_IDENTITY);
+    currentNostrIdentitySession = null;
     return null;
   }
   try {
-    const legacyStored = JSON.parse(legacyRaw) as StoredIrisIdentitySession;
     const legacySession = restoreDriveIdentitySession(legacyStored);
-    saveIrisIdentitySession(legacySession);
+    saveNostrIdentitySession(legacySession);
     if (activeAccountPubkey && activeAccountPubkey !== legacySession.appKeyPubkey) {
-      currentIrisIdentitySession = null;
+      currentNostrIdentitySession = null;
       return null;
     }
-    return activateStoredIrisIdentitySession(legacyStored);
+    return activateStoredNostrIdentitySession(legacyStored);
   } catch (error) {
     console.warn('[auth] Ignoring invalid Iris identity session:', error);
     localStorage.removeItem(STORAGE_KEY_IRIS_IDENTITY);
-    currentIrisIdentitySession = null;
+    currentNostrIdentitySession = null;
     return null;
   }
 }
 
-function activateStoredIrisIdentitySession(stored: StoredIrisIdentitySession): IrisIdentitySession | null {
+function parseStoredNostrIdentitySession(raw: string): StoredNostrIdentitySession | null {
+  try {
+    return JSON.parse(raw) as StoredNostrIdentitySession;
+  } catch (error) {
+    console.warn('[auth] Ignoring invalid Iris identity session:', error);
+    return null;
+  }
+}
+
+function activateStoredNostrIdentitySession(stored: StoredNostrIdentitySession): NostrIdentitySession | null {
   try {
     const session = restoreDriveIdentitySession(stored);
-    currentIrisIdentitySession = session;
+    currentNostrIdentitySession = session;
     accountsStore.updateAccount(session.appKeyPubkey, {
       type: 'drive_profile',
-      irisProfileId: session.profileId,
+      nostrIdentityId: session.profileId,
       nsec: session.appKeyNsec,
     });
     localStorage.setItem(STORAGE_KEY_IRIS_IDENTITY, JSON.stringify(serializeDriveIdentitySession(session)));
     return session;
   } catch (error) {
     console.warn('[auth] Ignoring invalid Iris identity session:', error);
-    currentIrisIdentitySession = null;
+    currentNostrIdentitySession = null;
     return null;
   }
 }
 
-function loadStoredIrisIdentitySessions(): Record<string, StoredIrisIdentitySession> {
+function loadStoredNostrIdentitySessions(): Record<string, StoredNostrIdentitySession> {
   try {
     const raw = localStorage.getItem(STORAGE_KEY_IRIS_IDENTITY_SESSIONS);
     if (!raw) return {};
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
-    const sessions: Record<string, StoredIrisIdentitySession> = {};
+    const sessions: Record<string, StoredNostrIdentitySession> = {};
     for (const [appKeyPubkey, stored] of Object.entries(parsed)) {
       const normalizedPubkey = normalizeHexPubkey(appKeyPubkey);
       if (!normalizedPubkey || !stored || typeof stored !== 'object') continue;
-      sessions[normalizedPubkey] = stored as StoredIrisIdentitySession;
+      sessions[normalizedPubkey] = stored as StoredNostrIdentitySession;
     }
     return sessions;
   } catch {
@@ -1188,10 +1265,10 @@ function loadStoredIrisIdentitySessions(): Record<string, StoredIrisIdentitySess
   }
 }
 
-export function getStoredIrisIdentitySessionForAccount(appKeyPubkey: string): IrisIdentitySession | null {
+export function getStoredNostrIdentitySessionForAccount(appKeyPubkey: string): NostrIdentitySession | null {
   const normalized = normalizeHexPubkey(appKeyPubkey);
   if (!normalized) return null;
-  const stored = loadStoredIrisIdentitySessions()[normalized];
+  const stored = loadStoredNostrIdentitySessions()[normalized];
   if (!stored) return null;
   try {
     return restoreDriveIdentitySession(stored);
@@ -1201,30 +1278,32 @@ export function getStoredIrisIdentitySessionForAccount(appKeyPubkey: string): Ir
   }
 }
 
-function removeStoredIrisIdentitySession(appKeyPubkey: string): void {
+function removeStoredNostrIdentitySession(appKeyPubkey: string): void {
   const normalized = normalizeHexPubkey(appKeyPubkey);
   if (!normalized) return;
-  const sessions = loadStoredIrisIdentitySessions();
+  const sessions = loadStoredNostrIdentitySessions();
   delete sessions[normalized];
   localStorage.setItem(STORAGE_KEY_IRIS_IDENTITY_SESSIONS, JSON.stringify(sessions));
 }
 
 function createDriveIdentitySession(options: {
-  profileId?: IrisProfileId;
+  profileId?: NostrIdentityId;
   appKeySecretKey: Uint8Array;
   createdAt?: number;
   clientNonce?: string;
   label?: string;
-}): IrisIdentitySession {
+  encryptedDeviceLabels?: string;
+}): NostrIdentitySession {
   const appKeyPubkey = getPublicKey(options.appKeySecretKey);
   const profileId = options.profileId ?? randomProfileId();
   const createdAt = options.createdAt ?? currentUnixSeconds();
-  const label = options.label ?? 'This device';
-  const bootstrap = signIrisProfileRosterOp({
+  const label = options.label?.trim() || currentBrowserDeviceLabel();
+  const bootstrap = signNostrIdentityRosterOp({
     signerSecretKey: options.appKeySecretKey,
     profileId,
     createdAt,
     clientNonce: options.clientNonce ?? randomClientNonce(),
+    encryptedDeviceLabels: options.encryptedDeviceLabels,
     op: {
       op: 'add_facet',
       facet: {
@@ -1232,7 +1311,6 @@ function createDriveIdentitySession(options: {
         purposes: ['app_key'],
         capabilities: DRIVE_APP_KEY_ADMIN_CAPABILITIES,
         added_at: createdAt,
-        label,
       },
     },
   });
@@ -1249,7 +1327,7 @@ function createDriveIdentitySession(options: {
   };
 }
 
-function serializeDriveIdentitySession(session: IrisIdentitySession): StoredIrisIdentitySession {
+function serializeDriveIdentitySession(session: NostrIdentitySession): StoredNostrIdentitySession {
   return {
     schema: 1,
     profileId: session.profileId,
@@ -1262,7 +1340,7 @@ function serializeDriveIdentitySession(session: IrisIdentitySession): StoredIris
   };
 }
 
-function restoreDriveIdentitySession(stored: StoredIrisIdentitySession): IrisIdentitySession {
+function restoreDriveIdentitySession(stored: StoredNostrIdentitySession): NostrIdentitySession {
   if (stored.schema !== 1) {
     throw new Error(`unsupported Iris identity session schema ${stored.schema}`);
   }
@@ -1275,7 +1353,7 @@ function restoreDriveIdentitySession(stored: StoredIrisIdentitySession): IrisIde
   const rosterOps = Array.isArray(stored.rosterOps) ? stored.rosterOps : [];
 
   if (stored.status === 'active') {
-    const projection = projectIrisProfileRoster(stored.profileId, rosterOps);
+    const projection = projectNostrIdentityRoster(stored.profileId, rosterOps);
     if (!projection.active_facets[appKeyPubkey]) {
       throw new Error('stored Iris identity AppKey is not active in its Drive roster');
     }
@@ -1296,31 +1374,119 @@ function restoreDriveIdentitySession(stored: StoredIrisIdentitySession): IrisIde
   };
 }
 
-function requireActiveDriveIdentitySession(): IrisIdentitySession {
-  const session = currentIrisIdentitySession;
+function requireActiveDriveIdentitySession(): NostrIdentitySession {
+  const session = currentNostrIdentitySession;
   if (!session || session.status !== 'active') {
     throw new Error('No active Drive user');
   }
   return session;
 }
 
-function requireCurrentDriveAdmin(session: IrisIdentitySession): void {
-  const projection = projectIrisProfileRoster(session.profileId, session.rosterOps);
+function requireCurrentDriveAdmin(session: NostrIdentitySession): void {
+  const projection = projectNostrIdentityRoster(session.profileId, session.rosterOps);
   if (!projection.active_facets[session.appKeyPubkey]?.capabilities?.can_admin_profile) {
     throw new Error('Current Drive key is not an admin');
   }
 }
 
-async function currentDriveRosterOps(session: IrisIdentitySession): Promise<SignedIrisProfileRosterOp[]> {
-  const remoteOps = await fetchIrisProfileRosterOps(session.profileId, 3000);
+async function currentDriveRosterOps(session: NostrIdentitySession): Promise<SignedNostrIdentityRosterOp[]> {
+  const remoteOps = await fetchNostrIdentityRosterOps(session.profileId, 3000);
   return mergeRosterOps(session.rosterOps, remoteOps);
 }
 
+async function collectDriveDeviceLabels(
+  session: NostrIdentitySession,
+  rosterOps: SignedNostrIdentityRosterOp[] = session.rosterOps,
+): Promise<Record<string, string>> {
+  const labels = readStoredDeviceLabels(session.profileId);
+  const dckPlaintext = await currentDriveDckPlaintext(session, rosterOps);
+  if (dckPlaintext) {
+    for (const op of rosterOps) {
+      for (const encrypted of encryptedDeviceLabelPayloadsFromEventJson(op.event_json)) {
+        const payload = await decryptDriveDeviceLabelsWithDck(encrypted, dckPlaintext);
+        if (payload?.profileId === session.profileId) {
+          Object.assign(labels, payload.labels);
+        }
+      }
+    }
+  }
+
+  const currentLabel = session.label?.trim() || currentBrowserDeviceLabel();
+  if (currentLabel) labels[session.appKeyPubkey] = currentLabel;
+  return labels;
+}
+
+async function encryptedDeviceLabelsForRecoveryAttach(options: {
+  profileId: NostrIdentityId;
+  rosterOps: SignedNostrIdentityRosterOp[];
+  signer: NostrIdentityEventSigner;
+  appKeyPubkey: string;
+  label: string;
+  updatedAt: number;
+}): Promise<string | undefined> {
+  if (!options.signer.nip44Decrypt) return undefined;
+  const signerPubkey = normalizeHexPubkey(await options.signer.getPublicKey());
+  if (!signerPubkey) return undefined;
+  const projection = projectNostrIdentityRoster(options.profileId, options.rosterOps);
+  const latestEpoch = Object.values(projection.secret_epochs)
+    .sort((left, right) => right.epoch - left.epoch)[0];
+  const wrapped = latestEpoch?.wrapped_secrets[signerPubkey];
+  if (!latestEpoch || !wrapped) return undefined;
+
+  try {
+    const dckPlaintext = await options.signer.nip44Decrypt(latestEpoch.signed_by_pubkey, wrapped);
+    const labels = readStoredDeviceLabels(options.profileId);
+    for (const op of options.rosterOps) {
+      for (const encrypted of encryptedDeviceLabelPayloadsFromEventJson(op.event_json)) {
+        const payload = await decryptDriveDeviceLabelsWithDck(encrypted, dckPlaintext);
+        if (payload?.profileId === options.profileId) {
+          Object.assign(labels, payload.labels);
+        }
+      }
+    }
+    labels[options.appKeyPubkey] = options.label;
+    return encryptDriveDeviceLabelsWithDck({
+      schema: DRIVE_DEVICE_LABEL_SCHEMA,
+      profileId: options.profileId,
+      secretEpoch: latestEpoch.epoch + 1,
+      labels,
+      updatedAt: options.updatedAt,
+    }, dckPlaintext);
+  } catch {
+    return undefined;
+  }
+}
+
+function nextSecretEpochNumber(profileId: NostrIdentityId, rosterOps: SignedNostrIdentityRosterOp[]): number {
+  const projection = projectNostrIdentityRoster(profileId, rosterOps);
+  const latestEpoch = Object.values(projection.secret_epochs)
+    .sort((left, right) => right.epoch - left.epoch)[0];
+  return (latestEpoch?.epoch ?? 0) + 1;
+}
+
+async function currentDriveDckPlaintext(
+  session: NostrIdentitySession,
+  rosterOps: SignedNostrIdentityRosterOp[] = session.rosterOps,
+): Promise<string | null> {
+  if (!secretKey) return null;
+  const projection = projectNostrIdentityRoster(session.profileId, rosterOps);
+  const latestEpoch = Object.values(projection.secret_epochs)
+    .sort((left, right) => right.epoch - left.epoch)[0];
+  const wrapped = latestEpoch?.wrapped_secrets[session.appKeyPubkey];
+  if (!latestEpoch || !wrapped) return null;
+  try {
+    const conversationKey = nip44.v2.utils.getConversationKey(secretKey, latestEpoch.signed_by_pubkey);
+    return nip44.v2.decrypt(wrapped, conversationKey);
+  } catch {
+    return null;
+  }
+}
+
 function mergeRosterOps(
-  localOps: SignedIrisProfileRosterOp[],
-  remoteOps: SignedIrisProfileRosterOp[],
-): SignedIrisProfileRosterOp[] {
-  const byId = new Map<string, SignedIrisProfileRosterOp>();
+  localOps: SignedNostrIdentityRosterOp[],
+  remoteOps: SignedNostrIdentityRosterOp[],
+): SignedNostrIdentityRosterOp[] {
+  const byId = new Map<string, SignedNostrIdentityRosterOp>();
   for (const op of [...localOps, ...remoteOps]) {
     byId.set(op.op_id, op);
   }
@@ -1328,14 +1494,14 @@ function mergeRosterOps(
     .sort((left, right) => left.content.created_at - right.content.created_at || left.op_id.localeCompare(right.op_id));
 }
 
-async function publishCurrentDriveIdentityRosterOps(session: IrisIdentitySession): Promise<void> {
+async function publishCurrentDriveIdentityRosterOps(session: NostrIdentitySession): Promise<void> {
   for (const op of session.rosterOps) {
     await publishSignedIdentityEventJson(op.event_json);
   }
 }
 
 async function publishDriveDeviceLinkRequest(
-  session: IrisIdentitySession,
+  session: NostrIdentitySession,
   appKeySecretKey: Uint8Array,
 ): Promise<void> {
   const request = session.pendingDeviceLink;
@@ -1352,7 +1518,7 @@ export async function parseDriveDeviceLinkRequestEventForAdmin(
   scope: DriveDeviceLinkRequestScope,
 ): Promise<DriveDeviceLinkRequest | null> {
   try {
-    if (event.kind === KIND_IRIS_PROFILE_ROSTER_OP) {
+    if (event.kind === KIND_NOSTR_IDENTITY_ROSTER_OP) {
       return parseIdentityDriveDeviceLinkRequestEvent(event, scope);
     }
     return null;
@@ -1383,22 +1549,22 @@ function driveDeviceLinkRequestFromRequest(request: DeviceLinkRequest): DriveDev
 }
 
 
-async function createRecoverySigner(recovery: DriveRecoveryRequest): Promise<IrisIdentityEventSigner> {
+async function createRecoverySigner(recovery: DriveRecoveryRequest): Promise<NostrIdentityEventSigner> {
   if (recovery.method === 'nsec') {
     if (!recovery.nsec?.trim()) throw new Error('Enter your secret key');
-    return createIrisIdentitySignerFromNsec(recovery.nsec);
+    return createNostrIdentitySignerFromNsec(recovery.nsec);
   }
   if (recovery.method === 'seed_phrase') {
     if (!recovery.seedWords?.trim()) throw new Error('Enter your seed phrase');
-    return createIrisIdentitySignerFromSeedPhrase({
+    return createNostrIdentitySignerFromSeedPhrase({
       seedWords: recovery.seedWords,
       ...(recovery.seedPassphrase !== undefined ? { passphrase: recovery.seedPassphrase } : {}),
     });
   }
   if (recovery.method === 'nip07') {
-    const nostr = (window as unknown as { nostr?: Parameters<typeof createIrisIdentitySignerFromNip07>[0] }).nostr;
+    const nostr = (window as unknown as { nostr?: Parameters<typeof createNostrIdentitySignerFromNip07>[0] }).nostr;
     if (!nostr) throw new Error('No nostr extension found');
-    return createIrisIdentitySignerFromNip07(nostr);
+    return createNostrIdentitySignerFromNip07(nostr);
   }
 
   const connection = recovery.nip46Connection?.trim();
@@ -1412,13 +1578,13 @@ async function createRecoverySigner(recovery: DriveRecoveryRequest): Promise<Iri
   );
   remoteSigner.timeout = 30_000;
   await remoteSigner.blockUntilReady();
-  return createIrisIdentitySignerFromNip46({
+  return createNostrIdentitySignerFromNip46({
     getPublicKey: async () => (await remoteSigner.user()).pubkey,
     signEvent: async (draft) => {
       const event = new NDKEvent(ndk);
       event.kind = draft.kind;
       event.content = draft.content;
-      event.tags = draft.tags.map((tag) => tag.slice());
+      event.tags = draft.tags.map((tag: string[]) => tag.slice());
       event.created_at = draft.created_at;
       await event.sign(remoteSigner);
       return event.rawEvent() as NostrToolsEvent;
@@ -1436,12 +1602,12 @@ async function createRecoverySigner(recovery: DriveRecoveryRequest): Promise<Iri
   });
 }
 
-async function fetchIrisProfileRosterOps(
-  profileId: IrisProfileId,
+async function fetchNostrIdentityRosterOps(
+  profileId: NostrIdentityId,
   timeoutMs = 5000,
-): Promise<SignedIrisProfileRosterOp[]> {
+): Promise<SignedNostrIdentityRosterOp[]> {
   await waitForWorkerAdapter(2000).catch(() => null);
-  const byId = new Map<string, SignedIrisProfileRosterOp>();
+  const byId = new Map<string, SignedNostrIdentityRosterOp>();
 
   await new Promise<void>((resolve) => {
     let resolved = false;
@@ -1453,7 +1619,7 @@ async function fetchIrisProfileRosterOps(
       resolve();
     };
     const filter: NDKFilter<number> = {
-      kinds: [KIND_IRIS_PROFILE_ROSTER_OP],
+      kinds: [KIND_NOSTR_IDENTITY_ROSTER_OP],
       '#i': [profileId],
       limit: 500,
     };
@@ -1467,7 +1633,7 @@ async function fetchIrisProfileRosterOps(
           console.warn('[auth] Ignoring Iris identity roster event with invalid signature');
           return;
         }
-        const signed = parseIrisProfileRosterOpEvent(raw);
+        const signed = parseNostrIdentityRosterOpEvent(raw);
         if (signed.content.profile_id === profileId) {
           byId.set(signed.op_id, signed);
         }
@@ -1482,19 +1648,19 @@ async function fetchIrisProfileRosterOps(
     .sort((left, right) => left.content.created_at - right.content.created_at || left.op_id.localeCompare(right.op_id));
 }
 
-async function discoverRecoverableIrisProfileRoster(
-  signer: IrisIdentityEventSigner,
+async function discoverRecoverableNostrIdentityRoster(
+  signer: NostrIdentityEventSigner,
   timeoutMs = 5000,
-): Promise<{ profileId: IrisProfileId; rosterOps: SignedIrisProfileRosterOp[] }> {
+): Promise<{ profileId: NostrIdentityId; rosterOps: SignedNostrIdentityRosterOp[] }> {
   const signerPubkey = normalizeHexPubkey(await signer.getPublicKey());
   if (!signerPubkey) throw new Error('Recovery signer pubkey is invalid');
 
-  const candidateProfileIds = await fetchIrisProfileIdsSelfReferencedByPubkey(signerPubkey, timeoutMs);
-  const recoverable: Array<{ profileId: IrisProfileId; rosterOps: SignedIrisProfileRosterOp[] }> = [];
+  const candidateProfileIds = await fetchNostrIdentityIdsSelfReferencedByPubkey(signerPubkey, timeoutMs);
+  const recoverable: Array<{ profileId: NostrIdentityId; rosterOps: SignedNostrIdentityRosterOp[] }> = [];
 
   for (const profileId of candidateProfileIds) {
-    const rosterOps = await fetchIrisProfileRosterOps(profileId, timeoutMs);
-    const projection = projectIrisProfileRoster(profileId, rosterOps);
+    const rosterOps = await fetchNostrIdentityRosterOps(profileId, timeoutMs);
+    const projection = projectNostrIdentityRoster(profileId, rosterOps);
     const capabilities = projection.active_facets[signerPubkey]?.capabilities;
     if (capabilities?.can_admin_profile || capabilities?.can_recover_app_keys) {
       recoverable.push({ profileId, rosterOps });
@@ -1508,12 +1674,12 @@ async function discoverRecoverableIrisProfileRoster(
   return recoverable.sort((left, right) => latestRosterTimestamp(right.rosterOps) - latestRosterTimestamp(left.rosterOps))[0];
 }
 
-async function fetchIrisProfileIdsSelfReferencedByPubkey(
+async function fetchNostrIdentityIdsSelfReferencedByPubkey(
   pubkey: string,
   timeoutMs = 5000,
-): Promise<IrisProfileId[]> {
+): Promise<NostrIdentityId[]> {
   await waitForWorkerAdapter(2000).catch(() => null);
-  const profileIds = new Set<IrisProfileId>();
+  const profileIds = new Set<NostrIdentityId>();
 
   await new Promise<void>((resolve) => {
     let resolved = false;
@@ -1526,7 +1692,7 @@ async function fetchIrisProfileIdsSelfReferencedByPubkey(
     };
     const filter: NDKFilter<number> = {
       authors: [pubkey],
-      kinds: [KIND_IRIS_PROFILE_ROSTER_OP, KIND_IRIS_PROFILE_FACET_ACCEPTANCE],
+      kinds: [KIND_NOSTR_IDENTITY_ROSTER_OP, KIND_NOSTR_IDENTITY_FACET_ACCEPTANCE],
       '#p': [pubkey],
       limit: 500,
     };
@@ -1539,7 +1705,7 @@ async function fetchIrisProfileIdsSelfReferencedByPubkey(
         console.warn('[auth] Ignoring Iris identity self-reference event with invalid signature');
         return;
       }
-      const profileId = selfReferencedIrisProfileId(raw, pubkey);
+      const profileId = selfReferencedNostrIdentityId(raw, pubkey);
       if (profileId) {
         profileIds.add(profileId);
       }
@@ -1550,25 +1716,25 @@ async function fetchIrisProfileIdsSelfReferencedByPubkey(
   return Array.from(profileIds).sort();
 }
 
-function selfReferencedIrisProfileId(event: NostrToolsEvent, pubkey: string): IrisProfileId | null {
+function selfReferencedNostrIdentityId(event: NostrToolsEvent, pubkey: string): NostrIdentityId | null {
   if (normalizeHexPubkey(event.pubkey) !== pubkey) return null;
   const tagsSelf = event.tags.some((tag) => tag[0] === 'p' && normalizeHexPubkey(tag[1] ?? '') === pubkey);
   if (!tagsSelf) return null;
 
   try {
-    return parseIrisProfileRosterOpEvent(event).content.profile_id;
+    return parseNostrIdentityRosterOpEvent(event).content.profile_id;
   } catch {
     // This may be a key-acceptance fact event; try that next.
   }
 
   try {
-    return parseIrisProfileFacetAcceptanceEvent(event).content.profile_id;
+    return parseNostrIdentityFacetAcceptanceEvent(event).content.profile_id;
   } catch {
     return null;
   }
 }
 
-function latestRosterTimestamp(rosterOps: SignedIrisProfileRosterOp[]): number {
+function latestRosterTimestamp(rosterOps: SignedNostrIdentityRosterOp[]): number {
   return rosterOps.reduce((latest, op) => Math.max(latest, op.content.created_at), 0);
 }
 
@@ -1604,7 +1770,7 @@ async function publishRawNostrEvent(event: NostrToolsEvent): Promise<void> {
   await ndkEvent.publish();
 }
 
-function normalizeProfileId(profileId: IrisProfileId): IrisProfileId {
+function normalizeProfileId(profileId: NostrIdentityId): NostrIdentityId {
   const trimmed = profileId.trim().toLowerCase();
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(trimmed)) {
     throw new Error('Invalid Iris profile id');
@@ -1620,7 +1786,18 @@ function randomClientNonce(): string {
   return globalThis.crypto?.randomUUID?.() ?? `nonce-${Math.random().toString(36).slice(2)}`;
 }
 
-function randomProfileId(): IrisProfileId {
+function randomDriveContentKey(): string {
+  const bytes = new Uint8Array(32);
+  if (globalThis.crypto?.getRandomValues) {
+    globalThis.crypto.getRandomValues(bytes);
+  }
+  if (!bytes.some(Boolean)) {
+    bytes.set(generateSecretKey());
+  }
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function randomProfileId(): NostrIdentityId {
   return globalThis.crypto?.randomUUID?.() ?? fallbackUuidV4();
 }
 

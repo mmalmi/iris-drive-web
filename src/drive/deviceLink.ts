@@ -1,17 +1,17 @@
 import { generateSecretKey, getPublicKey, nip19 } from 'nostr-tools';
-import type { IrisProfileId, SignedIrisProfileRosterOp } from './protocolTypes';
+import type { NostrIdentityId, SignedNostrIdentityRosterOp } from './protocolTypes';
 
 export const DEVICE_LINK_INVITE_PREFIX = 'https://drive.iris.to/invite/';
 export const DEVICE_LINK_INVITE_VERSION = 1;
 
 export interface DeviceLinkInvite {
-  profileId: IrisProfileId;
+  profileId: NostrIdentityId;
   adminAppKeyPubkey: string;
   invitePubkey: string;
 }
 
 export interface DeviceLinkRequest {
-  profileId: IrisProfileId;
+  profileId: NostrIdentityId;
   adminAppKeyPubkey: string;
   invitePubkey: string;
   deviceAppKeyPubkey: string;
@@ -19,26 +19,26 @@ export interface DeviceLinkRequest {
   requestedAt: number;
 }
 
-export type IrisIdentitySessionStatus = 'active' | 'pending_device_link';
+export type NostrIdentitySessionStatus = 'active' | 'pending_device_link';
 
-export interface IrisIdentitySession {
-  profileId: IrisProfileId;
+export interface NostrIdentitySession {
+  profileId: NostrIdentityId;
   appKeyPubkey: string;
   appKeyNpub: string;
   appKeyNsec: string;
-  status: IrisIdentitySessionStatus;
-  rosterOps: SignedIrisProfileRosterOp[];
+  status: NostrIdentitySessionStatus;
+  rosterOps: SignedNostrIdentityRosterOp[];
   createdAt: number;
   label?: string;
   pendingDeviceLink?: DeviceLinkRequest;
 }
 
-export interface StoredIrisIdentitySession {
+export interface StoredNostrIdentitySession {
   schema: 1;
-  profileId: IrisProfileId;
+  profileId: NostrIdentityId;
   appKeyNsec: string;
-  status: IrisIdentitySessionStatus;
-  rosterOps: SignedIrisProfileRosterOp[];
+  status: NostrIdentitySessionStatus;
+  rosterOps: SignedNostrIdentityRosterOp[];
   createdAt: number;
   label?: string;
   pendingDeviceLink?: DeviceLinkRequest;
@@ -91,7 +91,7 @@ export function createPendingDeviceLinkSession(options: {
   appKeySecretKey?: Uint8Array;
   requestedAt?: number;
   label?: string;
-}): IrisIdentitySession {
+}): NostrIdentitySession {
   const appKeySecretKey = options.appKeySecretKey ?? generateSecretKey();
   const appKeyPubkey = getPublicKey(appKeySecretKey);
   const requestedAt = options.requestedAt ?? Math.floor(Date.now() / 1000);

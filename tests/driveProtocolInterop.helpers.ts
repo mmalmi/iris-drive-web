@@ -3,12 +3,12 @@ import { fromHex, type CID } from '@hashtree/core';
 import {
   KIND_SHARE_MEMBER_ROSTER_OP,
   shareMemberRosterOpDTag,
-  signIrisProfileFacetAcceptance,
-  signIrisProfileRosterOp,
-  type IrisProfileKeyPurpose,
-  type IrisProfileRosterOp,
+  signNostrIdentityFacetAcceptance,
+  signNostrIdentityRosterOp,
+  type NostrIdentityKeyPurpose,
+  type NostrIdentityRosterOp,
   type ShareMemberRosterOp,
-  type SignedIrisProfileFacetAcceptance,
+  type SignedNostrIdentityFacetAcceptance,
   type SignedShareMemberRosterOp,
 } from '../src/drive/protocol';
 
@@ -23,10 +23,10 @@ export function signedRosterOp(
   signerSecretKey: Uint8Array,
   profileId: string,
   createdAt: number,
-  op: IrisProfileRosterOp,
+  op: NostrIdentityRosterOp,
   parents: string[] = [],
 ) {
-  return signIrisProfileRosterOp({
+  return signNostrIdentityRosterOp({
     signerSecretKey,
     profileId,
     parents,
@@ -43,7 +43,7 @@ export function signedShareKeyRosterOps(
   recipientPubkey: string,
   recipientProfile: string,
 ) {
-  const ownerOp = signIrisProfileRosterOp({
+  const ownerOp = signNostrIdentityRosterOp({
     signerSecretKey: ownerSecret,
     profileId: shareId,
     createdAt: 10,
@@ -52,7 +52,7 @@ export function signedShareKeyRosterOps(
       facet: appFacet(ownerPubkey, 10, 'Owner', true, true, ownerProfile),
     },
   });
-  const aliceOp = signIrisProfileRosterOp({
+  const aliceOp = signNostrIdentityRosterOp({
     signerSecretKey: ownerSecret,
     profileId: shareId,
     parents: [ownerOp.op_id],
@@ -62,15 +62,15 @@ export function signedShareKeyRosterOps(
       facet: appFacet(recipientPubkey, 11, 'Alice phone', false, false, recipientProfile),
     },
   });
-  const epochOp = signIrisProfileRosterOp({
+  const epochOp = signNostrIdentityRosterOp({
     signerSecretKey: ownerSecret,
     profileId: shareId,
     parents: [ownerOp.op_id, aliceOp.op_id],
     createdAt: 12,
     op: {
-      op: 'rotate_key_epoch',
+      op: 'rotate_secret_epoch',
       epoch: 1,
-      wrapped_dck: { [ownerPubkey]: 'owner-wrap', [recipientPubkey]: 'alice-wrap' },
+      wrapped_secrets: { [ownerPubkey]: 'owner-wrap', [recipientPubkey]: 'alice-wrap' },
     },
   });
   return { ownerOp, aliceOp, epochOp };
@@ -117,7 +117,7 @@ export function signedShareMemberOp(
 export function appFacet(
   pubkey: string,
   addedAt: number,
-  label: string,
+  _label: string,
   canWrite: boolean,
   canAdmin: boolean,
   profileId?: string,
@@ -129,11 +129,10 @@ export function appFacet(
     capabilities: {
       can_write_roots: canWrite,
       can_admin_profile: canAdmin,
-      can_receive_key_wraps: true,
-      can_decrypt_key_epochs: true,
+      can_receive_secret_wraps: true,
+      can_decrypt_secret_epochs: true,
     },
     added_at: addedAt,
-    label,
   };
 }
 
@@ -151,12 +150,12 @@ export function socialFacet(pubkey: string, addedAt: number, label: string, prof
 export function facetAcceptance(
   secretKey: Uint8Array,
   profileId: string,
-  purposes: IrisProfileKeyPurpose[],
+  purposes: NostrIdentityKeyPurpose[],
   acceptedAt: number,
-): SignedIrisProfileFacetAcceptance {
+): SignedNostrIdentityFacetAcceptance {
   const facetPubkey = getPublicKey(secretKey);
   const nonce = `${facetPubkey.slice(0, 12)}-${acceptedAt}`;
-  return signIrisProfileFacetAcceptance({
+  return signNostrIdentityFacetAcceptance({
     signerSecretKey: secretKey,
     profileId,
     purposes,

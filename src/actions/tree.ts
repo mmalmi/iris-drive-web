@@ -11,7 +11,7 @@ import { localStore, getTree } from '../store';
 import { autosaveIfOwn } from '../nostr';
 import { getCurrentRootCid, getCurrentPathFromUrl } from './route';
 import { updateLocalRootCache } from '../treeRootCache';
-import { isActiveIrisProfileRouteScope } from '../drive/profileRoute';
+import { activeNostrIdentityRootScope, isActiveNostrIdentityRouteScope } from '../drive/profileRoute';
 export { forkTree } from './treeFork';
 
 type DirectoryEntryInput = { name: string; cid: CID; size: number; type?: LinkType };
@@ -24,7 +24,7 @@ export async function initVirtualTree(entries: DirectoryEntryInput[]): Promise<C
   const tree = getTree();
   const nostrStore = useNostrStore.getState();
 
-  const isProfileDriveRoute = isActiveIrisProfileRouteScope(route.npub, nostrStore);
+  const isProfileDriveRoute = isActiveNostrIdentityRouteScope(route.npub, nostrStore);
   let routePubkey: string;
   if (isProfileDriveRoute) {
     if (!nostrStore.pubkey) return null;
@@ -140,7 +140,7 @@ export async function createDocument(name: string) {
     // Update local cache for subsequent saves (visibility is preserved from selectedTree)
     const route = parseRoute();
     const nostrStore = useNostrStore.getState();
-    const isProfileDriveRoute = isActiveIrisProfileRouteScope(route.npub, nostrStore);
+    const isProfileDriveRoute = isActiveNostrIdentityRouteScope(route.npub, nostrStore);
     const rootScope = isProfileDriveRoute ? route.npub : nostrStore.npub;
     if (rootScope && route.treeName) {
       updateLocalRootCache(rootScope, route.treeName, newRootCid.hash, newRootCid.key, nostrStore.selectedTree?.visibility);
@@ -168,6 +168,7 @@ export async function createTree(name: string, visibility: import('@hashtree/cor
 
   // If logged in, publish to nostr
   if (nostrState.isLoggedIn && nostrState.npub && nostrState.pubkey) {
+    const rootScope = activeNostrIdentityRootScope(nostrState) ?? nostrState.npub;
     // Set selectedTree BEFORE saving so updates work (only if we're navigating)
     if (!skipNavigation) {
       useNostrStore.setSelectedTree({
@@ -186,12 +187,12 @@ export async function createTree(name: string, visibility: import('@hashtree/cor
 
     // For link-visible trees, store link key locally and append to URL
     if (result.linkKey) {
-      storeLinkKey(nostrState.npub, name, result.linkKey);
+      storeLinkKey(rootScope, name, result.linkKey);
     }
 
     if (!skipNavigation) {
       const linkKeyParam = result.linkKey ? `?k=${result.linkKey}` : '';
-      navigate(`/${encodeURIComponent(nostrState.npub)}/${encodeURIComponent(name)}${linkKeyParam}`);
+      navigate(`/${encodeURIComponent(rootScope)}/${encodeURIComponent(name)}${linkKeyParam}`);
     }
     return result;
   }

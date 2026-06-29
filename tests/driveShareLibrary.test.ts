@@ -14,7 +14,7 @@ import {
   SHARE_MEMBER_ROSTER_SCHEMA,
   parseShareMemberRosterOpEvent,
   shareMemberRosterOpDTag,
-  signIrisProfileRosterOp,
+  signNostrIdentityRosterOp,
   type ShareMemberRosterOp,
   type ShareInviteBundle,
   type SharedFolder,
@@ -30,7 +30,7 @@ describe('drive share library', () => {
     const ownerAppKey = getPublicKey(ownerSecret);
     const recipientSecret = generateSecretKey();
     const recipientAppKey = getPublicKey(recipientSecret);
-    const ownerOp = signIrisProfileRosterOp({
+    const ownerOp = signNostrIdentityRosterOp({
       signerSecretKey: ownerSecret,
       profileId: shareId,
       createdAt: 10,
@@ -39,7 +39,7 @@ describe('drive share library', () => {
         facet: appFacet(ownerAppKey, 10, true, true, ownerProfile),
       },
     });
-    const recipientOp = signIrisProfileRosterOp({
+    const recipientOp = signNostrIdentityRosterOp({
       signerSecretKey: ownerSecret,
       profileId: shareId,
       parents: [ownerOp.op_id],
@@ -49,15 +49,15 @@ describe('drive share library', () => {
         facet: appFacet(recipientAppKey, 11, false, false, recipientProfile),
       },
     });
-    const epochOp = signIrisProfileRosterOp({
+    const epochOp = signNostrIdentityRosterOp({
       signerSecretKey: ownerSecret,
       profileId: shareId,
       parents: [ownerOp.op_id, recipientOp.op_id],
       createdAt: 12,
       op: {
-        op: 'rotate_key_epoch',
+        op: 'rotate_secret_epoch',
         epoch: 1,
-        wrapped_dck: { [ownerAppKey]: 'owner-wrap', [recipientAppKey]: 'recipient-wrap' },
+        wrapped_secrets: { [ownerAppKey]: 'owner-wrap', [recipientAppKey]: 'recipient-wrap' },
       },
     });
     const ownerMemberOp = signedShareMemberOp(ownerSecret, shareId, 13, {
@@ -126,7 +126,7 @@ describe('drive share library', () => {
     expect(acceptedShareRecordFromBundle(bundle, payload, 1_700_010_010, recipientProfile).local_profile_id)
       .toBe(recipientProfile);
     expect(() => acceptedShareRecordFromBundle(bundle, payload, 1_700_010_010, ownerProfile))
-      .toThrow(/not for IrisProfile/);
+      .toThrow(/not for NostrIdentity/);
     const acceptedCacheless = acceptedShareRecordFromBundle(
       cachelessBundle,
       cachelessPayload,
@@ -142,7 +142,7 @@ describe('drive share library', () => {
       1_700_010_011,
     )).toMatchObject({ share_id: shareId, local_profile_id: recipientProfile });
     expect(() => acceptShareInviteForProfile(`${SHARE_INVITE_PREFIX}${payload}`, ownerProfile, 1_700_010_012))
-      .toThrow(/not for IrisProfile/);
+      .toThrow(/not for NostrIdentity/);
 
     const views = projectAcceptedShareViews([accepted]);
     expect(views[0]!.local_app_key_pubkey).toBe(recipientAppKey);
@@ -221,8 +221,8 @@ function appFacet(
     capabilities: {
       can_write_roots: canWrite,
       can_admin_profile: canAdmin,
-      can_receive_key_wraps: true,
-      can_decrypt_key_epochs: true,
+      can_receive_secret_wraps: true,
+      can_decrypt_secret_epochs: true,
     },
     added_at: addedAt,
     label: 'AppActor',

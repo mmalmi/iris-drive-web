@@ -1,56 +1,56 @@
 import {
-  buildIrisProfileRosterOpEventDraft,
-  type IrisIdentityEventSigner,
+  buildNostrIdentityRosterOpEventDraft,
+  type NostrIdentityEventSigner,
 } from '@iris/identity';
-import { parseIrisProfileRosterOpEvent } from './protocolProfileEvents';
+import { parseNostrIdentityRosterOpEvent } from './protocolProfileEvents';
 import {
-  irisProfileRosterParentIds,
-  projectIrisProfileRoster,
+  nostrIdentityRosterParentIds,
+  projectNostrIdentityRoster,
 } from './protocolProfileProjection';
 import type {
-  IrisProfileId,
-  SignedIrisProfileRosterOp,
+  NostrIdentityId,
+  SignedNostrIdentityRosterOp,
 } from './protocolTypes';
 import { generateSecretKey, type Event as NostrToolsEvent } from 'nostr-tools';
 
-export interface CreateIrisProfileDckRewrapOpOptions {
-  profileId: IrisProfileId;
-  signer: IrisIdentityEventSigner;
-  rosterOps: SignedIrisProfileRosterOp[];
+export interface CreateNostrIdentityDckRewrapOpOptions {
+  profileId: NostrIdentityId;
+  signer: NostrIdentityEventSigner;
+  rosterOps: SignedNostrIdentityRosterOp[];
   appKeyPubkey: string;
-  parentRosterOp: SignedIrisProfileRosterOp;
+  parentRosterOp: SignedNostrIdentityRosterOp;
   createdAt?: number;
   clientNonce?: string;
 }
 
-export interface CreateIrisProfileDckRotateAfterRemovalOpOptions {
-  profileId: IrisProfileId;
-  signer: IrisIdentityEventSigner;
-  rosterOps: SignedIrisProfileRosterOp[];
-  parentRosterOp: SignedIrisProfileRosterOp;
-  createdAt?: number;
-  clientNonce?: string;
-  dckPlaintext?: string;
-}
-
-export interface CreateIrisProfileDckRotateAfterAddOpOptions {
-  profileId: IrisProfileId;
-  signer: IrisIdentityEventSigner;
-  rosterOps: SignedIrisProfileRosterOp[];
-  parentRosterOp: SignedIrisProfileRosterOp;
+export interface CreateNostrIdentityDckRotateAfterRemovalOpOptions {
+  profileId: NostrIdentityId;
+  signer: NostrIdentityEventSigner;
+  rosterOps: SignedNostrIdentityRosterOp[];
+  parentRosterOp: SignedNostrIdentityRosterOp;
   createdAt?: number;
   clientNonce?: string;
   dckPlaintext?: string;
 }
 
-export async function createIrisProfileDckRewrapOp(
-  options: CreateIrisProfileDckRewrapOpOptions,
-): Promise<SignedIrisProfileRosterOp | null> {
+export interface CreateNostrIdentityDckRotateAfterAddOpOptions {
+  profileId: NostrIdentityId;
+  signer: NostrIdentityEventSigner;
+  rosterOps: SignedNostrIdentityRosterOp[];
+  parentRosterOp: SignedNostrIdentityRosterOp;
+  createdAt?: number;
+  clientNonce?: string;
+  dckPlaintext?: string;
+}
+
+export async function createNostrIdentityDckRewrapOp(
+  options: CreateNostrIdentityDckRewrapOpOptions,
+): Promise<SignedNostrIdentityRosterOp | null> {
   const rosterOps = [...options.rosterOps, options.parentRosterOp];
-  const projection = projectIrisProfileRoster(options.profileId, rosterOps);
-  const latestEpoch = Object.values(projection.key_epochs)
+  const projection = projectNostrIdentityRoster(options.profileId, rosterOps);
+  const latestEpoch = Object.values(projection.secret_epochs)
     .sort((left, right) => right.epoch - left.epoch)[0];
-  if (!latestEpoch || latestEpoch.wrapped_dck[options.appKeyPubkey]) {
+  if (!latestEpoch || latestEpoch.wrapped_secrets[options.appKeyPubkey]) {
     return null;
   }
 
@@ -59,14 +59,14 @@ export async function createIrisProfileDckRewrapOp(
   }
 
   const signerPubkey = normalizeHexPubkeyOrThrow(await options.signer.getPublicKey(), 'recovery signer');
-  const existingWrap = latestEpoch.wrapped_dck[signerPubkey];
+  const existingWrap = latestEpoch.wrapped_secrets[signerPubkey];
   if (!existingWrap) {
     throw new Error('Existing Drive key epoch is not wrapped for this recovery key');
   }
 
   const dckPlaintext = await options.signer.nip44Decrypt(latestEpoch.signed_by_pubkey, existingWrap);
   const recipients = Object.values(projection.active_facets)
-    .filter((facet) => facet.capabilities?.can_receive_key_wraps)
+    .filter((facet) => facet.capabilities?.can_receive_secret_wraps)
     .map((facet) => facet.pubkey)
     .concat(options.appKeyPubkey)
     .filter((pubkey, index, values) => values.indexOf(pubkey) === index)
@@ -76,26 +76,26 @@ export async function createIrisProfileDckRewrapOp(
     wrappedDck[recipient] = await options.signer.nip44Encrypt(recipient, dckPlaintext);
   }
 
-  const draft = buildIrisProfileRosterOpEventDraft({
+  const draft = buildNostrIdentityRosterOpEventDraft({
     signerPubkey,
     profileId: options.profileId,
-    parents: irisProfileRosterParentIds(rosterOps),
+    parents: nostrIdentityRosterParentIds(rosterOps),
     createdAt: options.createdAt ?? currentUnixSeconds(),
     clientNonce: options.clientNonce ?? `${options.parentRosterOp.content.client_nonce}:rewrap-dck`,
     op: {
-      op: 'rotate_key_epoch',
+      op: 'rotate_secret_epoch',
       epoch: latestEpoch.epoch + 1,
-      wrapped_dck: wrappedDck,
+      wrapped_secrets: wrappedDck,
     },
   });
   const signed = await options.signer.signEvent(draft);
-  return parseIrisProfileRosterOpEvent(signed as NostrToolsEvent);
+  return parseNostrIdentityRosterOpEvent(signed as NostrToolsEvent);
 }
 
-export async function createIrisProfileDckRotateAfterRemovalOp(
-  options: CreateIrisProfileDckRotateAfterRemovalOpOptions,
-): Promise<SignedIrisProfileRosterOp | null> {
-  return createIrisProfileDckRotateForCurrentRecipientsOp({
+export async function createNostrIdentityDckRotateAfterRemovalOp(
+  options: CreateNostrIdentityDckRotateAfterRemovalOpOptions,
+): Promise<SignedNostrIdentityRosterOp | null> {
+  return createNostrIdentityDckRotateForCurrentRecipientsOp({
     ...options,
     requireExistingEpoch: true,
     missingEpochResult: null,
@@ -104,10 +104,10 @@ export async function createIrisProfileDckRotateAfterRemovalOp(
   });
 }
 
-export async function createIrisProfileDckRotateAfterAddOp(
-  options: CreateIrisProfileDckRotateAfterAddOpOptions,
-): Promise<SignedIrisProfileRosterOp> {
-  const op = await createIrisProfileDckRotateForCurrentRecipientsOp({
+export async function createNostrIdentityDckRotateAfterAddOp(
+  options: CreateNostrIdentityDckRotateAfterAddOpOptions,
+): Promise<SignedNostrIdentityRosterOp> {
+  const op = await createNostrIdentityDckRotateForCurrentRecipientsOp({
     ...options,
     requireExistingEpoch: false,
     missingEpochResult: 'create',
@@ -118,11 +118,11 @@ export async function createIrisProfileDckRotateAfterAddOp(
   return op;
 }
 
-async function createIrisProfileDckRotateForCurrentRecipientsOp(options: {
-  profileId: IrisProfileId;
-  signer: IrisIdentityEventSigner;
-  rosterOps: SignedIrisProfileRosterOp[];
-  parentRosterOp: SignedIrisProfileRosterOp;
+async function createNostrIdentityDckRotateForCurrentRecipientsOp(options: {
+  profileId: NostrIdentityId;
+  signer: NostrIdentityEventSigner;
+  rosterOps: SignedNostrIdentityRosterOp[];
+  parentRosterOp: SignedNostrIdentityRosterOp;
   createdAt?: number;
   clientNonce?: string;
   dckPlaintext?: string;
@@ -130,14 +130,14 @@ async function createIrisProfileDckRotateForCurrentRecipientsOp(options: {
   missingEpochResult: 'create' | null;
   missingEpochError: string | null;
   defaultClientNonceSuffix: string;
-}): Promise<SignedIrisProfileRosterOp | null> {
+}): Promise<SignedNostrIdentityRosterOp | null> {
   const rosterOps = [...options.rosterOps, options.parentRosterOp];
-  const projection = projectIrisProfileRoster(options.profileId, rosterOps);
-  const latestEpoch = Object.values(projection.key_epochs)
+  const projection = projectNostrIdentityRoster(options.profileId, rosterOps);
+  const latestEpoch = Object.values(projection.secret_epochs)
     .sort((left, right) => right.epoch - left.epoch)[0];
   if (!latestEpoch) {
     if (options.missingEpochResult !== 'create') return null;
-    if (!Object.values(projection.active_facets).some((facet) => facet.capabilities?.can_receive_key_wraps)) {
+    if (!Object.values(projection.active_facets).some((facet) => facet.capabilities?.can_receive_secret_wraps)) {
       if (options.missingEpochError) throw new Error(options.missingEpochError);
       return null;
     }
@@ -149,12 +149,12 @@ async function createIrisProfileDckRotateForCurrentRecipientsOp(options: {
 
   const signerPubkey = normalizeHexPubkeyOrThrow(await options.signer.getPublicKey(), 'recovery signer');
   const signerFacet = projection.active_facets[signerPubkey];
-  if (!signerFacet?.capabilities?.can_decrypt_key_epochs
+  if (!signerFacet?.capabilities?.can_decrypt_secret_epochs
     || !(signerFacet.capabilities.can_admin_profile || signerFacet.capabilities.can_recover_app_keys)) {
     throw new Error('Signer cannot rotate Drive key epochs');
   }
   if (latestEpoch) {
-    const existingWrap = latestEpoch.wrapped_dck[signerPubkey];
+    const existingWrap = latestEpoch.wrapped_secrets[signerPubkey];
     if (!existingWrap) {
       throw new Error('Existing Drive key epoch is not wrapped for this recovery key');
     }
@@ -164,7 +164,7 @@ async function createIrisProfileDckRotateForCurrentRecipientsOp(options: {
   }
 
   const recipients = Object.values(projection.active_facets)
-    .filter((facet) => facet.capabilities?.can_receive_key_wraps)
+    .filter((facet) => facet.capabilities?.can_receive_secret_wraps)
     .map((facet) => facet.pubkey)
     .filter((pubkey, index, values) => values.indexOf(pubkey) === index)
     .sort();
@@ -178,20 +178,20 @@ async function createIrisProfileDckRotateForCurrentRecipientsOp(options: {
     wrappedDck[recipient] = await options.signer.nip44Encrypt(recipient, dckPlaintext);
   }
 
-  const draft = buildIrisProfileRosterOpEventDraft({
+  const draft = buildNostrIdentityRosterOpEventDraft({
     signerPubkey,
     profileId: options.profileId,
-    parents: irisProfileRosterParentIds(rosterOps),
+    parents: nostrIdentityRosterParentIds(rosterOps),
     createdAt: options.createdAt ?? currentUnixSeconds(),
     clientNonce: options.clientNonce ?? `${options.parentRosterOp.content.client_nonce}:${options.defaultClientNonceSuffix}`,
     op: {
-      op: 'rotate_key_epoch',
+      op: 'rotate_secret_epoch',
       epoch: latestEpoch ? latestEpoch.epoch + 1 : 1,
-      wrapped_dck: wrappedDck,
+      wrapped_secrets: wrappedDck,
     },
   });
   const signed = await options.signer.signEvent(draft);
-  return parseIrisProfileRosterOpEvent(signed as NostrToolsEvent);
+  return parseNostrIdentityRosterOpEvent(signed as NostrToolsEvent);
 }
 
 function normalizeHexPubkeyOrThrow(pubkey: string, label: string): string {

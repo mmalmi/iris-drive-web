@@ -8,7 +8,7 @@ const driveIdentityAccounts = [
     npub: nip19.npubEncode(getPublicKey(BOOTSTRAP_SECKEY)),
     type: 'drive_profile',
     nsec: nip19.nsecEncode(BOOTSTRAP_SECKEY),
-    irisProfileId: '019ed693-4110-7352-8cc3-be90158ba91e',
+    nostrIdentityId: '019ed693-4110-7352-8cc3-be90158ba91e',
     addedAt: 1,
   },
   {
@@ -16,7 +16,7 @@ const driveIdentityAccounts = [
     npub: nip19.npubEncode(getPublicKey(FOLLOW_SECKEY)),
     type: 'drive_profile',
     nsec: nip19.nsecEncode(FOLLOW_SECKEY),
-    irisProfileId: '019ed693-4110-7352-8cc3-be90158ba92f',
+    nostrIdentityId: '019ed693-4110-7352-8cc3-be90158ba92f',
     addedAt: 2,
   },
 ];

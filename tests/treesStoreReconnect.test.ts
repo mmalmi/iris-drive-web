@@ -64,6 +64,10 @@ vi.mock('../src/nostr', () => ({
   nostrStore,
 }));
 
+vi.mock('../src/drive/profileRoute', () => ({
+  isActiveNostrIdentityRouteScope: () => false,
+}));
+
 describe('createTreesStore relay reconnect refresh', () => {
   beforeEach(() => {
     vi.resetModules();

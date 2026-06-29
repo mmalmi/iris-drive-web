@@ -3,7 +3,7 @@
    * Shared folder action buttons - used in FileBrowser and Viewer
    * Port of React FolderActions component
    */
-  import { nhashEncode, toHex, LinkType } from '@hashtree/core';
+  import { nhashEncode, toHex } from '@hashtree/core';
   import type { CID } from '@hashtree/core';
   import { open as openCreateModal } from './Modals/CreateModal.svelte';
   import { open as openRenameModal } from './Modals/RenameModal.svelte';
@@ -13,7 +13,7 @@
   import { npubToPubkey } from '../nostr';
   import { uploadFiles, uploadDirectory } from '../stores/upload';
   import { deleteCurrentFolder, buildRouteUrl, getCurrentRootCid } from '../actions';
-  import { nostrStore, autosaveIfOwn, deleteTree } from '../nostr';
+  import { nostrStore, deleteTree } from '../nostr';
   import { getTree } from '../store';
   import { createZipFromDirectory, downloadBlob, ZipCancelledError } from '../utils/compression';
   import { setUploadProgress } from '../stores/upload';

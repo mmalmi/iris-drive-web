@@ -1,4 +1,4 @@
-import { cid, toHex, type CID, type TreeVisibility } from '@hashtree/core';
+import { toHex, type CID, type TreeVisibility } from '@hashtree/core';
 import { useNostrStore } from '../nostr';
 import { getTree } from '../store';
 import { navigate } from '../utils/navigate';

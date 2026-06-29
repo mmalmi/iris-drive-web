@@ -2,19 +2,19 @@ import { fallbackIdentityName } from '@iris/svelte-ui/profile';
 import {
   representativeProfileAuthors,
   selectLatestRepresentativeProfileEvent,
-  type NostrProfileEventLike,
+  type NostrMetadataEventLike,
 } from '@iris/identity';
 import type { NDKKind } from 'ndk';
 import { verifyEvent, type Event as NostrToolsEvent } from 'nostr-tools';
 import { writable, type Readable } from 'svelte/store';
 import {
-  KIND_IRIS_PROFILE_ROSTER_OP,
-  parseIrisProfileRosterOpEvent,
-  projectIrisProfileRoster,
-  type SignedIrisProfileRosterOp,
+  KIND_NOSTR_IDENTITY_ROSTER_OP,
+  parseNostrIdentityRosterOpEvent,
+  projectNostrIdentityRoster,
+  type SignedNostrIdentityRosterOp,
 } from '../drive/protocol';
 import { configureNdkRelays, ndk } from '../nostr/ndk';
-import { getStoredIrisIdentitySessionForAccount } from '../nostr/auth';
+import { getStoredNostrIdentitySessionForAccount } from '../nostr/auth';
 import { DEFAULT_PUBLIC_RELAYS } from '@iris/hashtree-app/defaultRelays';
 import { getProfileName, type Profile } from './profile';
 
@@ -71,22 +71,22 @@ async function resolveIdentityProfileName(
 async function identityProjectionForAccount(
   profileId: string | undefined,
   appKeyPubkey: string,
-): Promise<NonNullable<ReturnType<typeof projectIrisProfileRoster>> | null> {
-  const session = getStoredIrisIdentitySessionForAccount(appKeyPubkey);
+): Promise<NonNullable<ReturnType<typeof projectNostrIdentityRoster>> | null> {
+  const session = getStoredNostrIdentitySessionForAccount(appKeyPubkey);
   if (session) {
-    return projectIrisProfileRoster(session.profileId, session.rosterOps);
+    return projectNostrIdentityRoster(session.profileId, session.rosterOps);
   }
   if (!profileId) return null;
   const rosterOps = await fetchIdentityRosterOps(profileId);
-  return rosterOps.length > 0 ? projectIrisProfileRoster(profileId, rosterOps) : null;
+  return rosterOps.length > 0 ? projectNostrIdentityRoster(profileId, rosterOps) : null;
 }
 
 async function fetchIdentityRosterOps(
   profileId: string,
   timeoutMs = 5000,
-): Promise<SignedIrisProfileRosterOp[]> {
+): Promise<SignedNostrIdentityRosterOp[]> {
   await ensureIdentityProfileRelays();
-  const byId = new Map<string, SignedIrisProfileRosterOp>();
+  const byId = new Map<string, SignedNostrIdentityRosterOp>();
 
   await new Promise<void>((resolve) => {
     let resolved = false;
@@ -98,7 +98,7 @@ async function fetchIdentityRosterOps(
       resolve();
     };
     const sub = ndk.subscribe(
-      { kinds: [KIND_IRIS_PROFILE_ROSTER_OP as NDKKind], '#i': [profileId], limit: 500 },
+      { kinds: [KIND_NOSTR_IDENTITY_ROSTER_OP as NDKKind], '#i': [profileId], limit: 500 },
       { closeOnEose: true },
     );
     const timer = setTimeout(finish, timeoutMs);
@@ -110,7 +110,7 @@ async function fetchIdentityRosterOps(
           console.warn('[identityProfile] Ignoring roster event with invalid signature');
           return;
         }
-        const signed = parseIrisProfileRosterOpEvent(raw);
+        const signed = parseNostrIdentityRosterOpEvent(raw);
         if (signed.content.profile_id === profileId) {
           byId.set(signed.op_id, signed);
         }
@@ -127,13 +127,13 @@ async function fetchIdentityRosterOps(
 
 async function fetchIdentityProfileName(
   authors: string[],
-  projection: NonNullable<ReturnType<typeof projectIrisProfileRoster>>,
+  projection: NonNullable<ReturnType<typeof projectNostrIdentityRoster>>,
   fallbackName: string,
   store: ReturnType<typeof writable<IdentityProfileNameState>>,
 ): Promise<void> {
   await ensureIdentityProfileRelays();
 
-  const events: NostrProfileEventLike[] = [];
+  const events: NostrMetadataEventLike[] = [];
   await new Promise<void>((resolve) => {
     let resolved = false;
     const finish = () => {
@@ -172,8 +172,8 @@ async function fetchIdentityProfileName(
 }
 
 function identityNameFromEvents(
-  projection: NonNullable<ReturnType<typeof projectIrisProfileRoster>>,
-  events: NostrProfileEventLike[],
+  projection: NonNullable<ReturnType<typeof projectNostrIdentityRoster>>,
+  events: NostrMetadataEventLike[],
   fallbackName: string,
   loading = true,
 ): IdentityProfileNameState {

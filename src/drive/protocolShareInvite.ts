@@ -1,8 +1,8 @@
-import type { IrisProfileId, ShareInviteBundle, SharedFolder } from './protocolTypes';
+import type { NostrIdentityId, ShareInviteBundle, SharedFolder } from './protocolTypes';
 import { SHARE_INVITE_PREFIX } from './protocolTypes';
 import { base64UrlEncode } from './protocolJson';
-import { validateSignedIrisProfileRosterOps } from './protocolProfileValidation';
-import { projectIrisProfileRoster } from './protocolProfileProjection';
+import { validateSignedNostrIdentityRosterOps } from './protocolProfileValidation';
+import { projectNostrIdentityRoster } from './protocolProfileProjection';
 import { validateShareRosterCheckpoint } from './protocolShareEvents';
 import { shareMembers } from './protocolShareAccess';
 import { validateSignedShareMemberRosterOps } from './protocolShareValidation';
@@ -20,7 +20,7 @@ export function parseShareInvite(input: string): ShareInviteBundle {
   if (parsed.schema !== 1) {
     throw new Error(`unsupported share invite schema ${parsed.schema}`);
   }
-  validateSignedIrisProfileRosterOps(parsed.shared_folder);
+  validateSignedNostrIdentityRosterOps(parsed.shared_folder);
   validateSignedShareMemberRosterOps(parsed.shared_folder);
   if (parsed.roster_checkpoint) {
     validateShareRosterCheckpoint(parsed.shared_folder, parsed.roster_checkpoint);
@@ -37,20 +37,20 @@ export function encodeShareInvite(bundle: ShareInviteBundle): string {
 
 export function sharedFolderFromInviteForProfile(
   invite: string,
-  localProfileId: IrisProfileId,
+  localProfileId: NostrIdentityId,
 ): SharedFolder {
   const bundle = parseShareInvite(invite);
   if (!shareInviteBundleIncludesProfile(bundle, localProfileId)) {
-    throw new Error(`share invite is not for IrisProfile ${localProfileId}`);
+    throw new Error(`share invite is not for NostrIdentity ${localProfileId}`);
   }
   return bundle.shared_folder;
 }
 
 export function shareInviteBundleIncludesProfile(
   bundle: ShareInviteBundle,
-  localProfileId: IrisProfileId,
+  localProfileId: NostrIdentityId,
 ): boolean {
-  const projection = projectIrisProfileRoster(
+  const projection = projectNostrIdentityRoster(
     bundle.shared_folder.share_id,
     bundle.shared_folder.roster_ops ?? [],
   );

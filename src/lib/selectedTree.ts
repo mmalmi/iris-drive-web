@@ -1,6 +1,7 @@
 import type { TreeVisibility } from '@hashtree/core';
 import { nip19 } from 'nostr-tools';
 import type { HashTreeEvent, NostrState } from '../nostr/store';
+import { activeNostrIdentityRootScope } from '../drive/profileRoute';
 
 export interface SelectedTreeRouteOptions {
   npub: string;
@@ -56,7 +57,9 @@ export function buildSelectedTreeForOwnRoute(
   state: SelectedTreeState,
   options: SelectedTreeRouteOptions
 ): HashTreeEvent | null {
-  const pubkey = decodeNpub(options.npub);
+  const pubkey = decodeNpub(options.npub) ?? (
+    activeNostrIdentityRootScope(state) === options.npub ? state.pubkey : null
+  );
   if (!pubkey || !state.isLoggedIn || state.pubkey !== pubkey) return null;
 
   const current = state.selectedTree?.pubkey === pubkey && state.selectedTree.name === options.treeName

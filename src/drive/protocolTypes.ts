@@ -4,17 +4,17 @@ export const KIND_APP_KEYS = 30078;
 export const KIND_DRIVE_ROOT = 30078;
 export const KIND_LEGACY_DRIVE_ROOT = 30079;
 export const D_TAG_APP_KEYS = 'iris-drive/app-keys';
-export const KIND_IRIS_PROFILE_ROSTER_OP = 7368;
-export const KIND_IRIS_PROFILE_FACET_ACCEPTANCE = 7368;
+export const KIND_NOSTR_IDENTITY_ROSTER_OP = 7368;
+export const KIND_NOSTR_IDENTITY_FACET_ACCEPTANCE = 7368;
 export const KIND_SHARE_MEMBER_ROSTER_OP = 30078;
 export const KIND_SHARE_ROSTER_CHECKPOINT = 30078;
 export const SHARE_INVITE_PREFIX = 'iris-drive://share-invite/';
-export const IRIS_PROFILE_ROSTER_SCHEMA = 1;
-export const IRIS_PROFILE_FACET_ACCEPTANCE_SCHEMA = 1;
+export const NOSTR_IDENTITY_ROSTER_SCHEMA = 1;
+export const NOSTR_IDENTITY_FACET_ACCEPTANCE_SCHEMA = 1;
 export const SHARE_MEMBER_ROSTER_SCHEMA = 1;
 export const SHARE_ROSTER_CHECKPOINT_SCHEMA = 1;
 
-export type IrisProfileId = string;
+export type NostrIdentityId = string;
 export type ShareRole = 'admin' | 'editor' | 'reader';
 export type ShareMemberStatus = 'pending' | 'active' | 'revoked';
 export type ShareRootWriteAuthorization =
@@ -27,97 +27,97 @@ export type ShareRootWriteAuthorization =
   | 'app_key_not_active'
   | 'not_an_app_key'
   | 'app_key_cannot_write_roots';
-export type IrisProfileKeyPurpose =
+export type NostrIdentityKeyPurpose =
   | 'app_key'
   | 'recovery_phrase'
   | 'nip46_signer'
   | 'social_profile';
 
-export interface IrisProfileCapabilities {
+export interface NostrIdentityCapabilities {
   can_write_roots?: boolean;
   can_admin_profile?: boolean;
   can_recover_app_keys?: boolean;
-  can_receive_key_wraps?: boolean;
-  can_decrypt_key_epochs?: boolean;
+  can_receive_secret_wraps?: boolean;
+  can_decrypt_secret_epochs?: boolean;
 }
 
-export interface IrisProfileFacet {
+export interface NostrIdentityFacet {
   pubkey: string;
-  profile_id?: IrisProfileId;
-  purposes?: IrisProfileKeyPurpose[];
-  capabilities?: IrisProfileCapabilities;
+  profile_id?: NostrIdentityId;
+  purposes?: NostrIdentityKeyPurpose[];
+  capabilities?: NostrIdentityCapabilities;
   added_at: number;
   label?: string;
 }
 
-export interface IrisProfileKeyEpoch {
+export interface NostrIdentitySecretEpoch {
   epoch: number;
   created_at: number;
   signed_by_pubkey: string;
-  wrapped_dck: Record<string, string>;
+  wrapped_secrets: Record<string, string>;
 }
 
-export interface IrisProfileTombstone {
+export interface NostrIdentityTombstone {
   pubkey: string;
-  profile_id?: IrisProfileId;
+  profile_id?: NostrIdentityId;
   removed_by_pubkey: string;
   removed_at: number;
   reason?: string;
 }
 
-export type IrisProfileRosterOp =
-  | { op: 'add_facet'; facet: IrisProfileFacet }
+export type NostrIdentityRosterOp =
+  | { op: 'add_facet'; facet: NostrIdentityFacet }
   | { op: 'tombstone_facet'; pubkey: string; reason?: string }
-  | { op: 'set_capabilities'; pubkey: string; capabilities: IrisProfileCapabilities }
-  | { op: 'rotate_key_epoch'; epoch: number; wrapped_dck?: Record<string, string> }
-  | { op: 'repair_key_wraps'; epoch: number; wrapped_dck?: Record<string, string> };
+  | { op: 'set_capabilities'; pubkey: string; capabilities: NostrIdentityCapabilities }
+  | { op: 'rotate_secret_epoch'; epoch: number; wrapped_secrets?: Record<string, string> }
+  | { op: 'repair_secret_wraps'; epoch: number; wrapped_secrets?: Record<string, string> };
 
-export interface IrisProfileRosterOpContent {
+export interface NostrIdentityRosterOpContent {
   schema: number;
-  profile_id: IrisProfileId;
+  profile_id: NostrIdentityId;
   actor_pubkey: string;
   actor_seq?: number;
   parents?: string[];
   client_nonce: string;
   created_at: number;
-  op: IrisProfileRosterOp;
+  op: NostrIdentityRosterOp;
 }
 
-export interface SignedIrisProfileRosterOp {
+export interface SignedNostrIdentityRosterOp {
   op_id: string;
   signer_pubkey: string;
-  content: IrisProfileRosterOpContent;
+  content: NostrIdentityRosterOpContent;
   event_json: string;
 }
 
-export interface IrisProfileFacetAcceptanceContent {
+export interface NostrIdentityFacetAcceptanceContent {
   schema: number;
-  profile_id: IrisProfileId;
+  profile_id: NostrIdentityId;
   facet_pubkey: string;
-  purposes: IrisProfileKeyPurpose[];
+  purposes: NostrIdentityKeyPurpose[];
   roster_op_id?: string;
   client_nonce: string;
   accepted_at: number;
 }
 
-export interface SignedIrisProfileFacetAcceptance {
+export interface SignedNostrIdentityFacetAcceptance {
   acceptance_id: string;
   signer_pubkey: string;
-  content: IrisProfileFacetAcceptanceContent;
+  content: NostrIdentityFacetAcceptanceContent;
   event_json: string;
 }
 
-export interface IrisProfileRosterProjection {
-  profile_id: IrisProfileId;
-  active_facets: Record<string, IrisProfileFacet>;
-  tombstones: Record<string, IrisProfileTombstone>;
-  key_epochs: Record<string, IrisProfileKeyEpoch>;
+export interface NostrIdentityRosterProjection {
+  profile_id: NostrIdentityId;
+  active_facets: Record<string, NostrIdentityFacet>;
+  tombstones: Record<string, NostrIdentityTombstone>;
+  secret_epochs: Record<string, NostrIdentitySecretEpoch>;
   accepted_op_ids: string[];
   rejected_op_ids: string[];
 }
 
 export interface ShareMember {
-  profile_id: IrisProfileId;
+  profile_id: NostrIdentityId;
   role: ShareRole;
   status: ShareMemberStatus;
   representative_npub_hint?: string;
@@ -134,12 +134,12 @@ export interface PendingShareInvite {
 
 export type ShareMemberRosterOp =
   | { op: 'grant_member'; member: ShareMember }
-  | { op: 'set_member_role'; profile_id: IrisProfileId; role: ShareRole }
-  | { op: 'revoke_member'; profile_id: IrisProfileId; reason?: string };
+  | { op: 'set_member_role'; profile_id: NostrIdentityId; role: ShareRole }
+  | { op: 'revoke_member'; profile_id: NostrIdentityId; reason?: string };
 
 export interface ShareMemberRosterOpContent {
   schema: number;
-  share_id: IrisProfileId;
+  share_id: NostrIdentityId;
   actor_pubkey: string;
   parents?: string[];
   key_roster_parents?: string[];
@@ -156,14 +156,14 @@ export interface SignedShareMemberRosterOp {
 }
 
 export interface ShareMemberRosterProjection {
-  share_id: IrisProfileId;
+  share_id: NostrIdentityId;
   members: Record<string, ShareMember>;
   accepted_op_ids: string[];
   rejected_op_ids: string[];
 }
 
 export interface ShareRecipient {
-  profile_id: IrisProfileId;
+  profile_id: NostrIdentityId;
   app_pubkey: string;
   role: ShareRole;
   label?: string;
@@ -172,7 +172,7 @@ export interface ShareRecipient {
 }
 
 export interface ResolvedShareRecipient {
-  profile_id: IrisProfileId;
+  profile_id: NostrIdentityId;
   representative_pubkey: string;
   representative_npub: string;
   display_name?: string;
@@ -181,37 +181,37 @@ export interface ResolvedShareRecipient {
 }
 
 export interface ShareRecipientProfileEvidence {
-  profile_id: IrisProfileId;
+  profile_id: NostrIdentityId;
   representative_pubkey?: string;
   representative_npub?: string;
   display_name?: string;
-  roster_ops?: SignedIrisProfileRosterOp[];
-  acceptances?: SignedIrisProfileFacetAcceptance[];
-  facet_acceptances?: SignedIrisProfileFacetAcceptance[];
+  roster_ops?: SignedNostrIdentityRosterOp[];
+  acceptances?: SignedNostrIdentityFacetAcceptance[];
+  facet_acceptances?: SignedNostrIdentityFacetAcceptance[];
 }
 
 export interface SharedFolder {
-  share_id: IrisProfileId;
-  owner_profile_id: IrisProfileId;
+  share_id: NostrIdentityId;
+  owner_profile_id: NostrIdentityId;
   source_path: string;
   display_name: string;
   local_role: ShareRole;
   members?: Record<string, ShareMember>;
   pending_invites?: Record<string, PendingShareInvite>;
   member_ops?: SignedShareMemberRosterOp[];
-  participant_profiles?: Record<string, IrisProfileId>;
+  participant_profiles?: Record<string, NostrIdentityId>;
   app_key_roots?: Record<string, DriveRootRef>;
-  roster_ops?: SignedIrisProfileRosterOp[];
+  roster_ops?: SignedNostrIdentityRosterOp[];
 }
 
 export interface ShareShortcut {
-  share_id: IrisProfileId;
+  share_id: NostrIdentityId;
   path: string;
   target_path: string;
 }
 
 export interface SharedFolderMemberView {
-  profile_id: IrisProfileId;
+  profile_id: NostrIdentityId;
   role: ShareRole;
   role_label: string;
   status: ShareMemberStatus;
@@ -234,7 +234,7 @@ export interface PendingShareInviteView {
 }
 
 export interface SharedFolderView {
-  share_id: IrisProfileId;
+  share_id: NostrIdentityId;
   display_name: string;
   source_path: string;
   shared_with_me_path: string;
@@ -262,7 +262,7 @@ export interface SharedFolderView {
 export interface ShareInviteBundle {
   schema: number;
   shared_folder: SharedFolder;
-  recipient_profile_id: IrisProfileId;
+  recipient_profile_id: NostrIdentityId;
   role: ShareRole;
   representative_npub_hint?: string;
   roster_checkpoint?: SignedShareRosterCheckpoint;
@@ -271,7 +271,7 @@ export interface ShareInviteBundle {
 
 export interface ShareRosterCheckpointContent {
   schema: number;
-  share_id: IrisProfileId;
+  share_id: NostrIdentityId;
   signer_pubkey: string;
   roster_head_op_ids: string[];
   member_roster_head_op_ids?: string[];
@@ -367,20 +367,21 @@ export interface BuildDriveRootEventOptions {
   observed?: Record<string, RootObservation>;
 }
 
-export interface BuildIrisProfileRosterOpEventOptions {
+export interface BuildNostrIdentityRosterOpEventOptions {
   signerSecretKey: Uint8Array;
-  profileId: IrisProfileId;
-  op: IrisProfileRosterOp;
+  profileId: NostrIdentityId;
+  op: NostrIdentityRosterOp;
   parents?: string[];
   actorSeq?: number;
   createdAt?: number;
   clientNonce?: string;
+  encryptedDeviceLabels?: string;
 }
 
-export interface BuildIrisProfileFacetAcceptanceEventOptions {
+export interface BuildNostrIdentityFacetAcceptanceEventOptions {
   signerSecretKey: Uint8Array;
-  profileId: IrisProfileId;
-  purposes: IrisProfileKeyPurpose[];
+  profileId: NostrIdentityId;
+  purposes: NostrIdentityKeyPurpose[];
   rosterOpId?: string;
   acceptedAt?: number;
   clientNonce?: string;

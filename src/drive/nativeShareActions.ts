@@ -3,7 +3,7 @@ import {
   getInjectedHtreeServerUrl,
 } from '../lib/nativeHtree';
 import type {
-  IrisProfileId,
+  NostrIdentityId,
   ShareRole,
   ShareShortcut,
 } from './protocol';
@@ -12,8 +12,8 @@ export type NativeShareAction =
   | { type: 'create_share'; source_path: string; display_name?: string }
   | {
     type: 'invite_share_member';
-    share_id: IrisProfileId;
-    profile_id: IrisProfileId;
+    share_id: NostrIdentityId;
+    profile_id: NostrIdentityId;
     app_key: string;
     role: ShareRole;
     representative_npub_hint?: string;
@@ -22,32 +22,32 @@ export type NativeShareAction =
   }
   | {
     type: 'invite_share_member_from_evidence';
-    share_id: IrisProfileId;
+    share_id: NostrIdentityId;
     evidence_json: string;
     role: ShareRole;
     display_name?: string;
   }
   | {
     type: 'record_pending_share_invite';
-    share_id: IrisProfileId;
+    share_id: NostrIdentityId;
     representative_npub_hint: string;
     role: ShareRole;
     display_name?: string;
   }
   | { type: 'accept_share_invite'; invite: string }
-  | { type: 'revoke_share_member'; share_id: IrisProfileId; profile_id: IrisProfileId; reason?: string }
-  | { type: 'set_share_member_role'; share_id: IrisProfileId; profile_id: IrisProfileId; role: ShareRole }
+  | { type: 'revoke_share_member'; share_id: NostrIdentityId; profile_id: NostrIdentityId; reason?: string }
+  | { type: 'set_share_member_role'; share_id: NostrIdentityId; profile_id: NostrIdentityId; role: ShareRole }
   | {
     type: 'add_share_shortcut';
-    share_id: IrisProfileId;
+    share_id: NostrIdentityId;
     path?: string;
     parent?: string;
     target_path?: string;
   }
-  | { type: 'repair_share_wraps'; share_id: IrisProfileId };
+  | { type: 'repair_share_wraps'; share_id: NostrIdentityId };
 
 export interface NativeShareMemberView {
-  profile_id: IrisProfileId;
+  profile_id: NostrIdentityId;
   role: ShareRole;
   role_label?: string;
   status: 'pending' | 'active' | 'revoked';
@@ -70,7 +70,7 @@ export interface NativePendingShareInviteView {
 }
 
 export interface NativeSharedFolderView {
-  share_id: IrisProfileId;
+  share_id: NostrIdentityId;
   display_name: string;
   source_path: string;
   shared_with_me_path: string;
@@ -100,8 +100,8 @@ export interface NativeSharedFolderView {
 
 export interface NativeShareActionResult {
   shares: NativeSharedFolderView[];
-  share_id?: IrisProfileId;
-  profile_id?: IrisProfileId;
+  share_id?: NostrIdentityId;
+  profile_id?: NostrIdentityId;
   role?: ShareRole;
   epoch?: number;
   last_share_invite?: string;

@@ -1,18 +1,18 @@
 import type {
-  IrisProfileRosterProjection,
+  NostrIdentityRosterProjection,
   ShareMember,
   ShareMemberRosterProjection,
   SharedFolder,
-  SignedIrisProfileRosterOp,
+  SignedNostrIdentityRosterOp,
   SignedShareMemberRosterOp,
 } from './protocolTypes';
-import { projectIrisProfileRoster } from './protocolProfileProjection';
+import { projectNostrIdentityRoster } from './protocolProfileProjection';
 import { signedShareMemberRosterOpIsValid } from './protocolShareValidation';
 import { profileIdForAppKey, shareRoleRank } from './protocolShareBase';
 
 export function projectSharedFolderMemberRoster(
   folder: SharedFolder,
-  keyProjection = projectIrisProfileRoster(folder.share_id, folder.roster_ops ?? []),
+  keyProjection = projectNostrIdentityRoster(folder.share_id, folder.roster_ops ?? []),
 ): ShareMemberRosterProjection {
   const projection: ShareMemberRosterProjection = {
     share_id: folder.share_id,
@@ -43,7 +43,7 @@ export function projectSharedFolderMemberRoster(
 export function applyShareMemberRosterOp(
   projection: ShareMemberRosterProjection,
   folder: SharedFolder,
-  keyProjection: IrisProfileRosterProjection,
+  keyProjection: NostrIdentityRosterProjection,
   signed: SignedShareMemberRosterOp,
   accepted: Map<string, SignedShareMemberRosterOp>,
 ): boolean {
@@ -69,7 +69,7 @@ export function applyShareMemberRosterOp(
 export function shareMemberSignerCanApply(
   projection: ShareMemberRosterProjection,
   folder: SharedFolder,
-  keyProjection: IrisProfileRosterProjection,
+  keyProjection: NostrIdentityRosterProjection,
   signed: SignedShareMemberRosterOp,
   accepted: Map<string, SignedShareMemberRosterOp>,
 ): boolean {
@@ -94,9 +94,9 @@ export function shareMemberSignerCanApply(
 
 export function projectShareKeyRosterParentClosure(
   folder: SharedFolder,
-  keyProjection: IrisProfileRosterProjection,
+  keyProjection: NostrIdentityRosterProjection,
   signed: SignedShareMemberRosterOp,
-): IrisProfileRosterProjection | null {
+): NostrIdentityRosterProjection | null {
   const parents = signed.content.key_roster_parents ?? [];
   if (parents.length === 0) return null;
   const accepted = new Set(keyProjection.accepted_op_ids);
@@ -117,9 +117,9 @@ export function projectShareKeyRosterParentClosure(
   }
   const parentOps = Array.from(seen)
     .map((opId) => opsById.get(opId))
-    .filter((op): op is SignedIrisProfileRosterOp => Boolean(op));
+    .filter((op): op is SignedNostrIdentityRosterOp => Boolean(op));
   if (parentOps.length !== seen.size) return null;
-  const parentProjection = projectIrisProfileRoster(folder.share_id, parentOps);
+  const parentProjection = projectNostrIdentityRoster(folder.share_id, parentOps);
   return parents.every((parent) => parentProjection.accepted_op_ids.includes(parent))
     ? parentProjection
     : null;
@@ -127,7 +127,7 @@ export function projectShareKeyRosterParentClosure(
 
 export function projectShareMemberParentClosure(
   folder: SharedFolder,
-  keyProjection: IrisProfileRosterProjection,
+  keyProjection: NostrIdentityRosterProjection,
   parents: string[],
   accepted: Map<string, SignedShareMemberRosterOp>,
 ): ShareMemberRosterProjection | null {
@@ -155,7 +155,7 @@ export function projectShareMemberParentClosure(
 
 export function isValidShareMemberBootstrap(
   folder: SharedFolder,
-  keyProjection: IrisProfileRosterProjection,
+  keyProjection: NostrIdentityRosterProjection,
   signed: SignedShareMemberRosterOp,
 ): boolean {
   const op = signed.content.op;

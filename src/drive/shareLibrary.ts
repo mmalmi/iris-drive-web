@@ -5,7 +5,7 @@ import {
   projectSharedFolderView,
   shareInviteBundleIncludesProfile,
   sharedFolderAppKeysForProfile,
-  type IrisProfileId,
+  type NostrIdentityId,
   type ShareInviteBundle,
   type ShareShortcut,
   type SharedFolder,
@@ -15,8 +15,8 @@ import {
 const STORAGE_KEY = 'iris-drive.accepted-shares.v1';
 
 export interface AcceptedShareRecord {
-  share_id: IrisProfileId;
-  local_profile_id: IrisProfileId;
+  share_id: NostrIdentityId;
+  local_profile_id: NostrIdentityId;
   accepted_at: number;
   invite_payload: string;
   folder: SharedFolder;
@@ -42,7 +42,7 @@ export function acceptShareInvite(input: string, acceptedAt = currentUnixSeconds
 
 export function acceptShareInviteForProfile(
   input: string,
-  localProfileId: IrisProfileId,
+  localProfileId: NostrIdentityId,
   acceptedAt = currentUnixSeconds(),
 ): AcceptedShareRecord {
   return acceptParsedShareInvite(input, localProfileId, acceptedAt);
@@ -50,7 +50,7 @@ export function acceptShareInviteForProfile(
 
 function acceptParsedShareInvite(
   input: string,
-  localProfileId: IrisProfileId | undefined,
+  localProfileId: NostrIdentityId | undefined,
   acceptedAt: number,
 ): AcceptedShareRecord {
   const bundle = parseShareInvite(input);
@@ -59,7 +59,7 @@ function acceptParsedShareInvite(
   return record;
 }
 
-export function addShareShortcut(shareId: IrisProfileId, path?: string): ShareShortcut | null {
+export function addShareShortcut(shareId: NostrIdentityId, path?: string): ShareShortcut | null {
   let shortcut: ShareShortcut | null = null;
   acceptedShares.update((records) => {
     const updated = addShortcutToAcceptedShares(records, shareId, path);
@@ -89,12 +89,12 @@ export function acceptedShareRecordFromBundle(
   bundle: ShareInviteBundle,
   invitePayload: string,
   acceptedAt: number,
-  localProfileId?: IrisProfileId,
+  localProfileId?: NostrIdentityId,
 ): AcceptedShareRecord {
   const folder = bundle.shared_folder;
   const resolvedLocalProfileId = localProfileId ?? bundle.recipient_profile_id;
   if (!shareInviteBundleIncludesProfile(bundle, resolvedLocalProfileId)) {
-    throw new Error(`share invite is not for IrisProfile ${resolvedLocalProfileId}`);
+    throw new Error(`share invite is not for NostrIdentity ${resolvedLocalProfileId}`);
   }
   return {
     share_id: folder.share_id,
@@ -123,7 +123,7 @@ export function upsertAcceptedShare(
 
 export function addShortcutToAcceptedShares(
   records: AcceptedShareRecord[],
-  shareId: IrisProfileId,
+  shareId: NostrIdentityId,
   path?: string,
 ): { records: AcceptedShareRecord[]; shortcut: ShareShortcut | null } {
   let shortcut: ShareShortcut | null = null;
@@ -154,7 +154,7 @@ export function defaultShareShortcutPath(folder: SharedFolder): string {
   return `My Drive/${sanitizeShortcutName(folder.display_name)}`;
 }
 
-function localAppKeyForShare(folder: SharedFolder, localProfileId: IrisProfileId): string | null {
+function localAppKeyForShare(folder: SharedFolder, localProfileId: NostrIdentityId): string | null {
   return sharedFolderAppKeysForProfile(folder, localProfileId)[0] ?? null;
 }
 

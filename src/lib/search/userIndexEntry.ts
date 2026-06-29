@@ -5,7 +5,7 @@ export interface UserIndexEntryInput {
   name?: string;
   displayName?: string;
   nip05?: string;
-  irisProfileId?: string;
+  nostrIdentityId?: string;
   linkedNpubs?: string[];
   shareRecipientEvidenceJson?: string;
 }
@@ -19,7 +19,7 @@ interface StoredUserIndexEntry {
   name?: string;
   displayName?: string;
   nip05?: string;
-  irisProfileId?: string;
+  nostrIdentityId?: string;
   linkedNpubs?: string[];
   shareRecipientEvidenceJson?: string;
 }
@@ -67,8 +67,8 @@ export function getUserSearchTerms(entry: UserIndexEntryInput): string[] {
     }
   }
 
-  if (entry.irisProfileId) {
-    terms.push(entry.irisProfileId.toLowerCase());
+  if (entry.nostrIdentityId) {
+    terms.push(entry.nostrIdentityId.toLowerCase());
   }
 
   for (const linkedNpub of entry.linkedNpubs ?? []) {
@@ -84,7 +84,7 @@ export function serializeStoredUserIndexEntry(entry: UserIndexEntryInput): strin
     name: entry.name,
     displayName: entry.displayName,
     nip05: entry.nip05,
-    irisProfileId: entry.irisProfileId,
+    nostrIdentityId: entry.nostrIdentityId,
     linkedNpubs: entry.linkedNpubs?.filter(Boolean),
     shareRecipientEvidenceJson: entry.shareRecipientEvidenceJson,
   };
@@ -122,7 +122,7 @@ export function parseStoredUserIndexEntry(value: string): UserIndexEntry | null 
     name: typeof parsed.name === 'string' ? parsed.name : undefined,
     displayName: typeof parsed.displayName === 'string' ? parsed.displayName : undefined,
     nip05: typeof parsed.nip05 === 'string' ? parsed.nip05 : undefined,
-    irisProfileId: typeof parsed.irisProfileId === 'string' ? parsed.irisProfileId : undefined,
+    nostrIdentityId: typeof parsed.nostrIdentityId === 'string' ? parsed.nostrIdentityId : undefined,
     linkedNpubs: Array.isArray(parsed.linkedNpubs)
       ? parsed.linkedNpubs.filter((item): item is string => typeof item === 'string')
       : undefined,

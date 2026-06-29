@@ -1,13 +1,13 @@
 import type {
-  IrisProfileId,
-  IrisProfileRosterProjection,
+  NostrIdentityId,
+  NostrIdentityRosterProjection,
   ShareMember,
   ShareRootWriteAuthorization,
   SharedFolder,
   SharedFolderMemberView,
   SharedFolderView,
 } from './protocolTypes';
-import { projectIrisProfileRoster } from './protocolProfileProjection';
+import { projectNostrIdentityRoster } from './protocolProfileProjection';
 import { projectSharedFolderMemberRoster } from './protocolShareProjection';
 import {
   profileIdForAppKey,
@@ -19,10 +19,10 @@ import {
 
 export function activeShareKeyRecipients(
   folder: SharedFolder,
-  projection: IrisProfileRosterProjection,
+  projection: NostrIdentityRosterProjection,
 ): string[] {
   return Object.values(projection.active_facets)
-    .filter((facet) => facet.capabilities?.can_receive_key_wraps)
+    .filter((facet) => facet.capabilities?.can_receive_secret_wraps)
     .filter((facet) => activeMemberForAppKey(folder, projection, facet.pubkey))
     .map((facet) => facet.pubkey)
     .sort();
@@ -30,7 +30,7 @@ export function activeShareKeyRecipients(
 
 export function activeShareAppKeyPubkeys(
   folder: SharedFolder,
-  projection: IrisProfileRosterProjection,
+  projection: NostrIdentityRosterProjection,
 ): string[] {
   return Object.values(projection.active_facets)
     .filter((facet) => facet.purposes?.includes('app_key'))
@@ -41,15 +41,15 @@ export function activeShareAppKeyPubkeys(
 
 export function tombstonedShareAppKeyPubkeys(
   folder: SharedFolder,
-  projection: IrisProfileRosterProjection,
+  projection: NostrIdentityRosterProjection,
 ): string[] {
   return Object.keys(projection.tombstones)
     .filter((pubkey) => Boolean(profileIdForAppKey(projection, pubkey)))
     .sort();
 }
 
-export function latestKeyEpoch(projection: IrisProfileRosterProjection): number | undefined {
-  const epochs = Object.keys(projection.key_epochs).map((epoch) => Number(epoch));
+export function latestKeyEpoch(projection: NostrIdentityRosterProjection): number | undefined {
+  const epochs = Object.keys(projection.secret_epochs).map((epoch) => Number(epoch));
   return epochs.length ? Math.max(...epochs) : undefined;
 }
 
@@ -57,12 +57,12 @@ export function sharedFolderAppKeyWriteAuthorization(
   folder: SharedFolder,
   appKeyPubkey: string,
 ): ShareRootWriteAuthorization {
-  const projection = projectIrisProfileRoster(folder.share_id, folder.roster_ops ?? []);
+  const projection = projectNostrIdentityRoster(folder.share_id, folder.roster_ops ?? []);
   return sharedFolderAppKeyWriteAuthorizationWithProjection(folder, projection, appKeyPubkey);
 }
 
 export function sharedFolderAuthorizedWriterPubkeys(folder: SharedFolder): string[] {
-  const projection = projectIrisProfileRoster(folder.share_id, folder.roster_ops ?? []);
+  const projection = projectNostrIdentityRoster(folder.share_id, folder.roster_ops ?? []);
   return Object.keys(shareParticipantProfiles(projection))
     .filter((pubkey) => (
       sharedFolderAppKeyWriteAuthorizationWithProjection(folder, projection, pubkey) === 'authorized'
@@ -70,8 +70,8 @@ export function sharedFolderAuthorizedWriterPubkeys(folder: SharedFolder): strin
     .sort();
 }
 
-export function sharedFolderAppKeysForProfile(folder: SharedFolder, profileId: IrisProfileId): string[] {
-  const projection = projectIrisProfileRoster(folder.share_id, folder.roster_ops ?? []);
+export function sharedFolderAppKeysForProfile(folder: SharedFolder, profileId: NostrIdentityId): string[] {
+  const projection = projectNostrIdentityRoster(folder.share_id, folder.roster_ops ?? []);
   return Object.entries(shareParticipantProfiles(projection))
     .filter(([, participantProfileId]) => participantProfileId === profileId)
     .map(([appKeyPubkey]) => appKeyPubkey)
@@ -82,7 +82,7 @@ export function sharedFolderAppKeysForProfile(folder: SharedFolder, profileId: I
 
 export function shareMembers(
   folder: SharedFolder,
-  projection: IrisProfileRosterProjection,
+  projection: NostrIdentityRosterProjection,
 ): Record<string, ShareMember> {
   if (!folder.member_ops?.length) return { ...(folder.members ?? {}) };
   return projectSharedFolderMemberRoster(folder, projection).members;
@@ -90,7 +90,7 @@ export function shareMembers(
 
 export function activeMemberForAppKey(
   folder: SharedFolder,
-  projection: IrisProfileRosterProjection,
+  projection: NostrIdentityRosterProjection,
   appKeyPubkey: string,
 ): ShareMember | undefined {
   const profileId = profileIdForAppKey(projection, appKeyPubkey);
@@ -101,7 +101,7 @@ export function activeMemberForAppKey(
 
 export function memberForAppKey(
   folder: SharedFolder,
-  projection: IrisProfileRosterProjection,
+  projection: NostrIdentityRosterProjection,
   appKeyPubkey: string,
 ): ShareMember | undefined {
   const profileId = profileIdForAppKey(projection, appKeyPubkey);
@@ -110,7 +110,7 @@ export function memberForAppKey(
 
 export function sharedFolderAppKeyWriteAuthorizationWithProjection(
   folder: SharedFolder,
-  projection: IrisProfileRosterProjection,
+  projection: NostrIdentityRosterProjection,
   appKeyPubkey: string,
 ): ShareRootWriteAuthorization {
   const profileId = profileIdForAppKey(projection, appKeyPubkey);
@@ -129,7 +129,7 @@ export function sharedFolderAppKeyWriteAuthorizationWithProjection(
 
 export function sharedFolderAppKeyCanAdmin(
   folder: SharedFolder,
-  projection: IrisProfileRosterProjection,
+  projection: NostrIdentityRosterProjection,
   appKeyPubkey: string,
 ): boolean {
   const member = activeMemberForAppKey(folder, projection, appKeyPubkey);
@@ -139,7 +139,7 @@ export function sharedFolderAppKeyCanAdmin(
 
 export function shareKeyStatus(
   folder: SharedFolder,
-  projection: IrisProfileRosterProjection,
+  projection: NostrIdentityRosterProjection,
   appKeyPubkey: string,
   currentKeyEpoch: number | undefined,
   missing: string[],
@@ -151,16 +151,16 @@ export function shareKeyStatus(
   if (currentKeyEpoch === undefined) return 'no_key_epoch';
   const facet = projection.active_facets[appKeyPubkey];
   if (!facet) return projection.tombstones[appKeyPubkey] ? 'revoked' : 'not_a_recipient';
-  if (!facet.capabilities?.can_receive_key_wraps) return 'not_a_recipient';
-  const epoch = projection.key_epochs[String(currentKeyEpoch)];
+  if (!facet.capabilities?.can_receive_secret_wraps) return 'not_a_recipient';
+  const epoch = projection.secret_epochs[String(currentKeyEpoch)];
   if (!epoch) return 'no_key_epoch';
-  if (epoch.wrapped_dck[appKeyPubkey]) return missing.length ? 'repair_needed' : 'available';
+  if (epoch.wrapped_secrets[appKeyPubkey]) return missing.length ? 'repair_needed' : 'available';
   return 'key_unavailable';
 }
 
 export function shareMemberViews(
   folder: SharedFolder,
-  projection: IrisProfileRosterProjection,
+  projection: NostrIdentityRosterProjection,
   currentAppKeyPubkey = '',
   currentAppKeyCanAdmin = false,
 ): SharedFolderMemberView[] {

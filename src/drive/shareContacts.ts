@@ -6,7 +6,7 @@ export interface ShareContactCandidate {
   npub?: string;
   displayName?: string;
   nip05?: string;
-  irisProfileId?: string;
+  nostrIdentityId?: string;
   linkedNpubs?: string[];
   shareRecipientEvidenceJson?: string;
 }
@@ -15,7 +15,7 @@ export interface RankedShareContact {
   representative_npub: string;
   pubkey: string;
   display_name: string;
-  iris_profile_id?: string;
+  nostr_identity_id?: string;
   linked_npubs: string[];
   recipient_evidence_json?: string;
   score: number;
@@ -73,7 +73,7 @@ function rankedShareContact(
     display,
     candidate.nip05,
     npub,
-    candidate.irisProfileId,
+    candidate.nostrIdentityId,
     ...(candidate.linkedNpubs ?? []),
   ]
     .filter(Boolean)
@@ -96,7 +96,7 @@ function rankedShareContact(
     representative_npub: npub,
     pubkey: candidate.pubkey.toLowerCase(),
     display_name: display,
-    iris_profile_id: candidate.irisProfileId,
+    nostr_identity_id: candidate.nostrIdentityId,
     linked_npubs: Array.from(new Set([npub, ...linkedNpubs])).sort(),
     recipient_evidence_json: candidate.shareRecipientEvidenceJson,
     score: queryScore + socialScore,

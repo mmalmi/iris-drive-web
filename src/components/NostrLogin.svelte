@@ -1,6 +1,6 @@
 <script lang="ts">
   import { navigate } from '../utils/navigate';
-  import { nostrStore, loginWithExtension, loginWithNsec, generateNewKey, getCurrentIrisIdentitySession } from '../nostr';
+  import { nostrStore, loginWithExtension, loginWithNsec, generateNewKey, getCurrentNostrIdentitySession } from '../nostr';
   import { isFilesApp } from '../appType';
   import { Avatar } from './User';
   import { driveRootPath } from '../drive/setup';
@@ -15,11 +15,11 @@
   let hasActiveDriveSession = $derived.by(() => {
     isLoggedIn;
     pubkey;
-    return getCurrentIrisIdentitySession()?.status === 'active';
+    return getCurrentNostrIdentitySession()?.status === 'active';
   });
 
   function goToProfile() {
-    const driveSession = getCurrentIrisIdentitySession();
+    const driveSession = getCurrentNostrIdentitySession();
     if (driveSession?.status === 'active') {
       navigate(driveRootPath(driveSession.profileId));
       return;

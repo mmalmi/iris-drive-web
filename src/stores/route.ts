@@ -93,7 +93,7 @@ export function parseRouteFromHash(hash: string): RouteInfo {
     return { npub: null, treeName: null, cid: null, path: [], isPermalink: false, params: emptyParams, compareBranches: null };
   }
 
-  // User / IrisProfile routes
+  // User / NostrIdentity routes
   if (isIrisDriveRouteScope(parts[0])) {
     const npub = parts[0];
 

@@ -1,6 +1,6 @@
 import type {
-  IrisProfileId,
-  IrisProfileRosterProjection,
+  NostrIdentityId,
+  NostrIdentityRosterProjection,
   ShareMemberStatus,
   ShareRole,
   ShareRootWriteAuthorization,
@@ -8,17 +8,17 @@ import type {
 } from './protocolTypes';
 
 export function profileIdForAppKey(
-  projection: IrisProfileRosterProjection,
+  projection: NostrIdentityRosterProjection,
   appKeyPubkey: string,
-): IrisProfileId | undefined {
+): NostrIdentityId | undefined {
   return projection.active_facets[appKeyPubkey]?.profile_id
     ?? projection.tombstones[appKeyPubkey]?.profile_id;
 }
 
 export function shareParticipantProfiles(
-  projection: IrisProfileRosterProjection,
-): Record<string, IrisProfileId> {
-  const participantProfiles: Record<string, IrisProfileId> = {};
+  projection: NostrIdentityRosterProjection,
+): Record<string, NostrIdentityId> {
+  const participantProfiles: Record<string, NostrIdentityId> = {};
   for (const [appKeyPubkey, facet] of Object.entries(projection.active_facets)) {
     if (facet.profile_id) participantProfiles[appKeyPubkey] = facet.profile_id;
   }

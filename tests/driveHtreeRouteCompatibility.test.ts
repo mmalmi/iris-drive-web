@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { parseRouteFromHash } from '../src/stores/route';
 
 const OWNER_NPUB = 'npub1xdhnr9mrv47kkrn95k6cwecearydeh8e895990n3acntwvmgk2dsdeeycm';
-const IRIS_PROFILE_ID = '60ae13c3-cb5b-4d10-bcf7-47e67f38e574';
+const NOSTR_IDENTITY_ID = '60ae13c3-cb5b-4d10-bcf7-47e67f38e574';
 
 function driveRouteHashForHtreeRemote(remoteUrl: string): string {
   const raw = remoteUrl.trim();
@@ -54,11 +54,11 @@ describe('drive htree route compatibility', () => {
     expect(route.params.get('k')).toBe(key);
   });
 
-  it('opens native idrive IrisProfile drive URLs', () => {
-    const route = parseRouteFromHash(`#/${IRIS_PROFILE_ID}/main/Documents/report.txt`);
+  it('opens native idrive NostrIdentity drive URLs', () => {
+    const route = parseRouteFromHash(`#/${NOSTR_IDENTITY_ID}/main/Documents/report.txt`);
 
     expect(route).toMatchObject({
-      npub: IRIS_PROFILE_ID,
+      npub: NOSTR_IDENTITY_ID,
       treeName: 'main',
       path: ['Documents', 'report.txt'],
       isPermalink: false,

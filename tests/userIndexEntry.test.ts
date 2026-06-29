@@ -13,7 +13,7 @@ describe('user search index entry helpers', () => {
       name: 'Alice Example',
       displayName: 'Alice',
       nip05: 'alice@example.com',
-      irisProfileId: '123e4567-e89b-42d3-a456-426614174011',
+      nostrIdentityId: '123e4567-e89b-42d3-a456-426614174011',
       linkedNpubs: ['npub1alice'],
     });
 
@@ -30,14 +30,14 @@ describe('user search index entry helpers', () => {
       name: 'Alice Example',
       displayName: 'Alice',
       nip05: 'alice@example.com',
-      irisProfileId: '123e4567-e89b-42d3-a456-426614174011',
+      nostrIdentityId: '123e4567-e89b-42d3-a456-426614174011',
       linkedNpubs: ['npub1alice'],
       shareRecipientEvidenceJson: '{"profile_id":"123e4567-e89b-42d3-a456-426614174011"}',
     });
 
     expect(serialized).toContain('"pubkey"');
     expect(serialized).not.toContain('"npub"');
-    expect(serialized).toContain('"irisProfileId"');
+    expect(serialized).toContain('"nostrIdentityId"');
     expect(serialized).toContain('"linkedNpubs"');
     expect(serialized).toContain('"shareRecipientEvidenceJson"');
   });
@@ -60,7 +60,7 @@ describe('user search index entry helpers', () => {
       pubkey: 'f'.repeat(64),
       npub: 'npub1lllllllllllllllllllllllllllllllllllllllllllllllllllsq7lrjw',
       displayName: 'Alice',
-      irisProfileId: '123e4567-e89b-42d3-a456-426614174011',
+      nostrIdentityId: '123e4567-e89b-42d3-a456-426614174011',
       linkedNpubs: ['npub1alice'],
       shareRecipientEvidenceJson: '{"profile_id":"123e4567-e89b-42d3-a456-426614174011"}',
     }));
@@ -69,7 +69,7 @@ describe('user search index entry helpers', () => {
       pubkey: 'f'.repeat(64),
       npub: 'npub1lllllllllllllllllllllllllllllllllllllllllllllllllllsq7lrjw',
       displayName: 'Alice',
-      irisProfileId: '123e4567-e89b-42d3-a456-426614174011',
+      nostrIdentityId: '123e4567-e89b-42d3-a456-426614174011',
       linkedNpubs: ['npub1alice'],
       shareRecipientEvidenceJson: '{"profile_id":"123e4567-e89b-42d3-a456-426614174011"}',
     });

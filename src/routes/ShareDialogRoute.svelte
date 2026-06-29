@@ -45,7 +45,7 @@
           ? {
             representative_npub: selectedRecipient.representative_npub,
             display_name: selectedRecipient.display_name,
-            iris_profile_id: selectedRecipient.iris_profile_id,
+            nostr_identity_id: selectedRecipient.nostr_identity_id,
           }
           : null,
       )
@@ -201,7 +201,7 @@
   }
 
   function shareMemberDisplayName(member: NativeShareMemberView) {
-    return member.display_name || 'IrisProfile';
+    return member.display_name || 'NostrIdentity';
   }
 
   function shareMemberDetail(member: NativeShareMemberView) {

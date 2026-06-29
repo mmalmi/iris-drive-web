@@ -5,12 +5,12 @@ import {
   SHARE_MEMBER_ROSTER_SCHEMA,
   SHARE_ROSTER_CHECKPOINT_SCHEMA,
   type BuildShareRosterCheckpointEventOptions,
-  type IrisProfileId,
+  type NostrIdentityId,
   type ShareMemberRosterOpContent,
   type ShareMemberRosterProjection,
   type ShareRosterCheckpointContent,
   type SharedFolder,
-  type SignedIrisProfileRosterOp,
+  type SignedNostrIdentityRosterOp,
   type SignedShareMemberRosterOp,
   type SignedShareRosterCheckpoint,
 } from './protocolTypes';
@@ -28,8 +28,8 @@ import {
   parseShareRosterCheckpointDTag,
   shareRosterCheckpointDTag,
 } from './protocolDtags';
-import { projectIrisProfileRoster } from './protocolProfileProjection';
-import { validateSignedIrisProfileRosterOps } from './protocolProfileValidation';
+import { projectNostrIdentityRoster } from './protocolProfileProjection';
+import { validateSignedNostrIdentityRosterOps } from './protocolProfileValidation';
 import {
   activeShareAppKeyPubkeys,
   activeShareKeyRecipients,
@@ -44,7 +44,7 @@ import { validateSignedShareMemberRosterOps } from './protocolShareValidation';
 
 export function buildShareRosterCheckpointEvent(options: BuildShareRosterCheckpointEventOptions): Event {
   const signerPubkey = getPublicKey(options.signerSecretKey);
-  if (!sharedFolderAppKeyCanAdmin(options.folder, projectIrisProfileRoster(
+  if (!sharedFolderAppKeyCanAdmin(options.folder, projectNostrIdentityRoster(
     options.folder.share_id,
     options.folder.roster_ops ?? [],
   ), signerPubkey)) {
@@ -136,7 +136,7 @@ export function validateShareRosterCheckpoint(
   folder: SharedFolder,
   checkpoint: SignedShareRosterCheckpoint,
 ): void {
-  validateSignedIrisProfileRosterOps(folder);
+  validateSignedNostrIdentityRosterOps(folder);
   validateSignedShareMemberRosterOps(folder);
   const parsed = parseShareRosterCheckpointEvent(JSON.parse(checkpoint.event_json) as Event);
   if (
@@ -146,7 +146,7 @@ export function validateShareRosterCheckpoint(
   ) {
     throw new Error('share roster checkpoint event_json does not match checkpoint fields');
   }
-  const projection = projectIrisProfileRoster(folder.share_id, folder.roster_ops ?? []);
+  const projection = projectNostrIdentityRoster(folder.share_id, folder.roster_ops ?? []);
   if (!sharedFolderAppKeyCanAdmin(folder, projection, checkpoint.signer_pubkey)) {
     throw new Error('share roster checkpoint signer cannot administer this share');
   }
@@ -167,13 +167,13 @@ export function shareRosterCheckpointContent(
   clientNonce: string,
   createdAt: number,
 ): ShareRosterCheckpointContent {
-  const projection = projectIrisProfileRoster(folder.share_id, folder.roster_ops ?? []);
+  const projection = projectNostrIdentityRoster(folder.share_id, folder.roster_ops ?? []);
   const memberProjection = projectSharedFolderMemberRoster(folder, projection);
   const currentKeyEpoch = latestKeyEpoch(projection);
   const missingKeyWrapPubkeys = currentKeyEpoch === undefined
     ? []
     : activeShareKeyRecipients(folder, projection)
-      .filter((pubkey) => !projection.key_epochs[String(currentKeyEpoch)]?.wrapped_dck[pubkey]);
+      .filter((pubkey) => !projection.secret_epochs[String(currentKeyEpoch)]?.wrapped_secrets[pubkey]);
   return {
     schema: SHARE_ROSTER_CHECKPOINT_SCHEMA,
     share_id: folder.share_id,
@@ -204,8 +204,8 @@ export function shareRosterCheckpointContent(
   };
 }
 
-export function shareRosterHeadOpIds(shareId: IrisProfileId, ops: SignedIrisProfileRosterOp[]): string[] {
-  const projection = projectIrisProfileRoster(shareId, ops);
+export function shareRosterHeadOpIds(shareId: NostrIdentityId, ops: SignedNostrIdentityRosterOp[]): string[] {
+  const projection = projectNostrIdentityRoster(shareId, ops);
   const accepted = new Set(projection.accepted_op_ids);
   const parented = new Set<string>();
   for (const op of ops) {
@@ -218,7 +218,7 @@ export function shareRosterHeadOpIds(shareId: IrisProfileId, ops: SignedIrisProf
 }
 
 export function shareMemberRosterHeadOpIds(
-  shareId: IrisProfileId,
+  shareId: NostrIdentityId,
   ops: SignedShareMemberRosterOp[],
   projection: ShareMemberRosterProjection,
 ): string[] {

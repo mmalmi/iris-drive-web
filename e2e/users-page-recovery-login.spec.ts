@@ -11,7 +11,7 @@ import {
 import NDK, { NDKNip46Backend, NDKPrivateKeySigner } from '../node_modules/ndk/dist/index.js';
 import { generateSecretKey, getPublicKey, nip19, nip44, type Event } from 'nostr-tools';
 import { privateKeyFromSeedWords } from 'nostr-tools/nip06';
-import type { IrisProfileKeyPurpose } from '../src/drive/protocol';
+import type { NostrIdentityKeyPurpose } from '../src/drive/protocol';
 import {
   seedRecoverableProfile,
   signWithRecoverySecret,
@@ -21,7 +21,7 @@ import {
 const SEED_WORDS = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
 
 type RecoveryRunOptions = {
-  purpose: IrisProfileKeyPurpose;
+  purpose: NostrIdentityKeyPurpose;
   beforePage?: (page: Page, profile: RecoveryProfile, relayUrl: string) => Promise<(() => void) | void>;
   exercise: (page: Page, profile: RecoveryProfile, relayUrl: string) => Promise<void>;
 };
@@ -48,11 +48,11 @@ async function assertRecovered(page: Page, profile: RecoveryProfile): Promise<vo
       && accounts.some((account: {
         pubkey?: string;
         type?: string;
-        irisProfileId?: string;
+        nostrIdentityId?: string;
         nsec?: string;
       }) => account.pubkey === activePubkey
         && account.type === 'drive_profile'
-        && account.irisProfileId === profileId
+        && account.nostrIdentityId === profileId
         && typeof account.nsec === 'string'
         && account.nsec.startsWith('nsec1'));
   }, profile.profileId, { timeout: 10000 });

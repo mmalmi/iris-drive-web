@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { generateSecretKey, getPublicKey, nip19, nip44 } from 'nostr-tools';
-import { createIrisIdentitySignerFromNsec } from '@iris/identity';
+import { createNostrIdentitySignerFromNsec } from '@iris/identity';
 import {
-  createIrisProfileDckRotateAfterAddOp,
-  createIrisProfileDckRotateAfterRemovalOp,
-  createIrisProfileDckRewrapOp,
-  projectIrisProfileRoster,
-  signIrisProfileRosterOp,
+  createNostrIdentityDckRotateAfterAddOp,
+  createNostrIdentityDckRotateAfterRemovalOp,
+  createNostrIdentityDckRewrapOp,
+  projectNostrIdentityRoster,
+  signNostrIdentityRosterOp,
   wrapDriveContentKeyForAppKeys,
 } from '../src/drive/protocol';
 import { appFacet } from './driveProtocolInterop.helpers';
@@ -19,7 +19,7 @@ describe('iris-drive recovery DCK rewrap', () => {
     const appKeySecret = generateSecretKey();
     const appKeyPubkey = getPublicKey(appKeySecret);
 
-    const bootstrap = signIrisProfileRosterOp({
+    const bootstrap = signNostrIdentityRosterOp({
       signerSecretKey: adminSecret,
       profileId,
       createdAt: 10,
@@ -29,7 +29,7 @@ describe('iris-drive recovery DCK rewrap', () => {
         facet: appFacet(adminPubkey, 10, 'Admin', true, true),
       },
     });
-    const addAppKey = signIrisProfileRosterOp({
+    const addAppKey = signNostrIdentityRosterOp({
       signerSecretKey: adminSecret,
       profileId,
       parents: [bootstrap.op_id],
@@ -41,9 +41,9 @@ describe('iris-drive recovery DCK rewrap', () => {
       },
     });
 
-    const rotation = await createIrisProfileDckRotateAfterAddOp({
+    const rotation = await createNostrIdentityDckRotateAfterAddOp({
       profileId,
-      signer: createIrisIdentitySignerFromNsec(nip19.nsecEncode(adminSecret)),
+      signer: createNostrIdentitySignerFromNsec(nip19.nsecEncode(adminSecret)),
       rosterOps: [bootstrap],
       parentRosterOp: addAppKey,
       createdAt: 12,
@@ -52,18 +52,18 @@ describe('iris-drive recovery DCK rewrap', () => {
     });
 
     expect(rotation.content.op).toMatchObject({
-      op: 'rotate_key_epoch',
+      op: 'rotate_secret_epoch',
       epoch: 1,
     });
-    const projection = projectIrisProfileRoster(profileId, [bootstrap, addAppKey, rotation]);
+    const projection = projectNostrIdentityRoster(profileId, [bootstrap, addAppKey, rotation]);
     expect(projection.active_facets[appKeyPubkey]?.capabilities?.can_admin_profile).toBeFalsy();
-    expect(Object.keys(projection.key_epochs['1'].wrapped_dck).sort()).toEqual([
+    expect(Object.keys(projection.secret_epochs['1'].wrapped_secrets).sort()).toEqual([
       adminPubkey,
       appKeyPubkey,
     ].sort());
 
     const appConversationKey = nip44.v2.utils.getConversationKey(appKeySecret, adminPubkey);
-    expect(nip44.v2.decrypt(projection.key_epochs['1'].wrapped_dck[appKeyPubkey], appConversationKey))
+    expect(nip44.v2.decrypt(projection.secret_epochs['1'].wrapped_secrets[appKeyPubkey], appConversationKey))
       .toBe('drive-content-key-v1');
   });
 
@@ -77,7 +77,7 @@ describe('iris-drive recovery DCK rewrap', () => {
     const appKeyPubkey = getPublicKey(appKeySecret);
     const dckPlaintext = 'drive-content-key-v1';
 
-    const bootstrap = signIrisProfileRosterOp({
+    const bootstrap = signNostrIdentityRosterOp({
       signerSecretKey: adminSecret,
       profileId,
       createdAt: 10,
@@ -87,7 +87,7 @@ describe('iris-drive recovery DCK rewrap', () => {
         facet: appFacet(adminPubkey, 10, 'Admin', true, true),
       },
     });
-    const addRecovery = signIrisProfileRosterOp({
+    const addRecovery = signNostrIdentityRosterOp({
       signerSecretKey: adminSecret,
       profileId,
       parents: [bootstrap.op_id],
@@ -100,31 +100,31 @@ describe('iris-drive recovery DCK rewrap', () => {
           purposes: ['recovery_phrase'],
           capabilities: {
             can_recover_app_keys: true,
-            can_receive_key_wraps: true,
-            can_decrypt_key_epochs: true,
+            can_receive_secret_wraps: true,
+            can_decrypt_secret_epochs: true,
           },
           added_at: 11,
           label: 'Recovery phrase',
         },
       },
     });
-    const originalEpoch = signIrisProfileRosterOp({
+    const originalEpoch = signNostrIdentityRosterOp({
       signerSecretKey: adminSecret,
       profileId,
       parents: [bootstrap.op_id, addRecovery.op_id],
       createdAt: 12,
       clientNonce: 'rotate-dck-1',
       op: {
-        op: 'rotate_key_epoch',
+        op: 'rotate_secret_epoch',
         epoch: 1,
-        wrapped_dck: wrapDriveContentKeyForAppKeys(
+        wrapped_secrets: wrapDriveContentKeyForAppKeys(
           adminSecret,
           dckPlaintext,
           [adminPubkey, recoveryPubkey],
         ),
       },
     });
-    const addAppKey = signIrisProfileRosterOp({
+    const addAppKey = signNostrIdentityRosterOp({
       signerSecretKey: recoverySecret,
       profileId,
       parents: [bootstrap.op_id, addRecovery.op_id, originalEpoch.op_id],
@@ -136,9 +136,9 @@ describe('iris-drive recovery DCK rewrap', () => {
       },
     });
 
-    const rewrap = await createIrisProfileDckRewrapOp({
+    const rewrap = await createNostrIdentityDckRewrapOp({
       profileId,
-      signer: createIrisIdentitySignerFromNsec(nip19.nsecEncode(recoverySecret)),
+      signer: createNostrIdentitySignerFromNsec(nip19.nsecEncode(recoverySecret)),
       rosterOps: [bootstrap, addRecovery, originalEpoch],
       appKeyPubkey,
       parentRosterOp: addAppKey,
@@ -148,26 +148,26 @@ describe('iris-drive recovery DCK rewrap', () => {
 
     expect(rewrap?.signer_pubkey).toBe(recoveryPubkey);
     expect(rewrap?.content.op).toMatchObject({
-      op: 'rotate_key_epoch',
+      op: 'rotate_secret_epoch',
       epoch: 2,
     });
-    const projection = projectIrisProfileRoster(profileId, [
+    const projection = projectNostrIdentityRoster(profileId, [
       bootstrap,
       addRecovery,
       originalEpoch,
       addAppKey,
       rewrap!,
     ]);
-    const epoch = projection.key_epochs['2'];
+    const epoch = projection.secret_epochs['2'];
     expect(epoch.signed_by_pubkey).toBe(recoveryPubkey);
-    expect(Object.keys(epoch.wrapped_dck).sort()).toEqual([
+    expect(Object.keys(epoch.wrapped_secrets).sort()).toEqual([
       adminPubkey,
       appKeyPubkey,
       recoveryPubkey,
     ].sort());
 
     const appConversationKey = nip44.v2.utils.getConversationKey(appKeySecret, recoveryPubkey);
-    expect(nip44.v2.decrypt(epoch.wrapped_dck[appKeyPubkey], appConversationKey)).toBe(dckPlaintext);
+    expect(nip44.v2.decrypt(epoch.wrapped_secrets[appKeyPubkey], appConversationKey)).toBe(dckPlaintext);
   });
 
   it('rotates a fresh DCK epoch after recovery removes an app key', async () => {
@@ -180,7 +180,7 @@ describe('iris-drive recovery DCK rewrap', () => {
     const oldDckPlaintext = 'drive-content-key-v1';
     const newDckPlaintext = 'drive-content-key-v2';
 
-    const bootstrap = signIrisProfileRosterOp({
+    const bootstrap = signNostrIdentityRosterOp({
       signerSecretKey: adminSecret,
       profileId,
       createdAt: 10,
@@ -190,7 +190,7 @@ describe('iris-drive recovery DCK rewrap', () => {
         facet: appFacet(adminPubkey, 10, 'Admin', true, true),
       },
     });
-    const addRecovery = signIrisProfileRosterOp({
+    const addRecovery = signNostrIdentityRosterOp({
       signerSecretKey: adminSecret,
       profileId,
       parents: [bootstrap.op_id],
@@ -203,14 +203,14 @@ describe('iris-drive recovery DCK rewrap', () => {
           purposes: ['recovery_phrase'],
           capabilities: {
             can_recover_app_keys: true,
-            can_receive_key_wraps: true,
-            can_decrypt_key_epochs: true,
+            can_receive_secret_wraps: true,
+            can_decrypt_secret_epochs: true,
           },
           added_at: 11,
         },
       },
     });
-    const addPhone = signIrisProfileRosterOp({
+    const addPhone = signNostrIdentityRosterOp({
       signerSecretKey: adminSecret,
       profileId,
       parents: [bootstrap.op_id, addRecovery.op_id],
@@ -221,23 +221,23 @@ describe('iris-drive recovery DCK rewrap', () => {
         facet: appFacet(phonePubkey, 12, 'Phone', true, false),
       },
     });
-    const originalEpoch = signIrisProfileRosterOp({
+    const originalEpoch = signNostrIdentityRosterOp({
       signerSecretKey: adminSecret,
       profileId,
       parents: [bootstrap.op_id, addRecovery.op_id, addPhone.op_id],
       createdAt: 13,
       clientNonce: 'rotate-dck-1',
       op: {
-        op: 'rotate_key_epoch',
+        op: 'rotate_secret_epoch',
         epoch: 1,
-        wrapped_dck: wrapDriveContentKeyForAppKeys(
+        wrapped_secrets: wrapDriveContentKeyForAppKeys(
           adminSecret,
           oldDckPlaintext,
           [adminPubkey, recoveryPubkey, phonePubkey],
         ),
       },
     });
-    const removePhone = signIrisProfileRosterOp({
+    const removePhone = signNostrIdentityRosterOp({
       signerSecretKey: recoverySecret,
       profileId,
       parents: [bootstrap.op_id, addRecovery.op_id, addPhone.op_id, originalEpoch.op_id],
@@ -250,9 +250,9 @@ describe('iris-drive recovery DCK rewrap', () => {
       },
     });
 
-    const rotation = await createIrisProfileDckRotateAfterRemovalOp({
+    const rotation = await createNostrIdentityDckRotateAfterRemovalOp({
       profileId,
-      signer: createIrisIdentitySignerFromNsec(nip19.nsecEncode(recoverySecret)),
+      signer: createNostrIdentitySignerFromNsec(nip19.nsecEncode(recoverySecret)),
       rosterOps: [bootstrap, addRecovery, addPhone, originalEpoch],
       parentRosterOp: removePhone,
       createdAt: 15,
@@ -262,10 +262,10 @@ describe('iris-drive recovery DCK rewrap', () => {
 
     expect(rotation?.signer_pubkey).toBe(recoveryPubkey);
     expect(rotation?.content.op).toMatchObject({
-      op: 'rotate_key_epoch',
+      op: 'rotate_secret_epoch',
       epoch: 2,
     });
-    const projection = projectIrisProfileRoster(profileId, [
+    const projection = projectNostrIdentityRoster(profileId, [
       bootstrap,
       addRecovery,
       addPhone,
@@ -273,16 +273,16 @@ describe('iris-drive recovery DCK rewrap', () => {
       removePhone,
       rotation!,
     ]);
-    const epoch = projection.key_epochs['2'];
+    const epoch = projection.secret_epochs['2'];
     expect(projection.active_facets[phonePubkey]).toBeUndefined();
     expect(projection.tombstones[phonePubkey]?.removed_by_pubkey).toBe(recoveryPubkey);
-    expect(Object.keys(epoch.wrapped_dck).sort()).toEqual([
+    expect(Object.keys(epoch.wrapped_secrets).sort()).toEqual([
       adminPubkey,
       recoveryPubkey,
     ].sort());
 
     const adminConversationKey = nip44.v2.utils.getConversationKey(adminSecret, recoveryPubkey);
-    expect(nip44.v2.decrypt(epoch.wrapped_dck[adminPubkey], adminConversationKey)).toBe(newDckPlaintext);
-    expect(epoch.wrapped_dck[phonePubkey]).toBeUndefined();
+    expect(nip44.v2.decrypt(epoch.wrapped_secrets[adminPubkey], adminConversationKey)).toBe(newDckPlaintext);
+    expect(epoch.wrapped_secrets[phonePubkey]).toBeUndefined();
   });
 });

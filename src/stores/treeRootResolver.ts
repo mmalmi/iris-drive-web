@@ -13,7 +13,7 @@ import {
 import { shouldWaitForLinkVisibleMetadata } from '../lib/treeRootRoutePolicy';
 import { getSecretKey, ndk, useNostrStore, type NostrState } from '../nostr';
 import { treeRootRegistry } from '../TreeRootRegistry';
-import { isIrisProfileId } from '../utils/route';
+import { isNostrIdentityId } from '../utils/route';
 import {
   getVisibilityInfoFromRegistry,
   subscriptionState,
@@ -90,7 +90,7 @@ async function applyDriveRootEvent(
   try {
     parsed = parseDriveRootEventForDevice(event, secretKey);
   } catch (error) {
-    console.warn('[treeRoot] Ignoring unreadable IrisProfile drive root:', error);
+    console.warn('[treeRoot] Ignoring unreadable NostrIdentity drive root:', error);
     return;
   }
 
@@ -141,7 +141,7 @@ function backfillDriveRootScope(key: string, rootScopeId: string, driveId: strin
       }
     })
     .catch((error) => {
-      console.warn('[treeRoot] Failed to backfill IrisProfile drive roots:', error);
+      console.warn('[treeRoot] Failed to backfill NostrIdentity drive roots:', error);
     });
 }
 
@@ -149,7 +149,7 @@ function driveRootScopeFromResolverKey(key: string): { rootScopeId: string; driv
   const slashIndex = key.indexOf('/');
   if (slashIndex <= 0 || slashIndex >= key.length - 1) return null;
   const rootScopeId = key.slice(0, slashIndex);
-  if (!isIrisProfileId(rootScopeId)) return null;
+  if (!isNostrIdentityId(rootScopeId)) return null;
   return {
     rootScopeId,
     driveId: key.slice(slashIndex + 1),
@@ -233,7 +233,7 @@ async function startResolverSubscription(
   const npub = key.slice(0, slashIndex);
   const treeName = key.slice(slashIndex + 1);
 
-  if (isIrisProfileId(npub)) {
+  if (isNostrIdentityId(npub)) {
     state.unsubscribeResolver = subscribeToDriveRootScope(key, npub, treeName);
     return;
   }

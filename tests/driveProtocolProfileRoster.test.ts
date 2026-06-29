@@ -3,26 +3,26 @@ import { finalizeEvent, generateSecretKey, getPublicKey, nip19, nip44, verifyEve
 import { toHex } from '@hashtree/core';
 import {
   D_TAG_APP_KEYS,
-  IRIS_PROFILE_ROSTER_SCHEMA,
+  NOSTR_IDENTITY_ROSTER_SCHEMA,
   KIND_APP_KEYS,
   KIND_DRIVE_ROOT,
-  KIND_IRIS_PROFILE_ROSTER_OP,
+  KIND_NOSTR_IDENTITY_ROSTER_OP,
   KIND_LEGACY_DRIVE_ROOT,
   KIND_SHARE_ROSTER_CHECKPOINT,
   SHARE_INVITE_PREFIX,
   buildAppKeysEvent,
   buildDriveRootEvent,
-  buildIrisProfileRosterOpEvent,
+  buildNostrIdentityRosterOpEvent,
   driveRootDTag,
   encodeShareInvite,
-  irisProfileRosterParentIds,
+  nostrIdentityRosterParentIds,
   isDriveRootEventNewer,
   parseAppKeysEvent,
   parseDriveRootEventForDevice,
   parseDriveRootEventPreview,
-  parseIrisProfileRosterOpEvent,
+  parseNostrIdentityRosterOpEvent,
   parseShareInvite,
-  projectIrisProfileRoster,
+  projectNostrIdentityRoster,
   projectSharedFolderMemberRoster,
   projectSharedFolderView,
   resolveShareRecipientFromEvidence,
@@ -32,8 +32,8 @@ import {
   sharedFolderKeyRecipientPubkeys,
   sharedFolderFromInviteForProfile,
   shareRecipientsForResolvedRecipient,
-  signIrisProfileFacetAcceptance,
-  signIrisProfileRosterOp,
+  signNostrIdentityFacetAcceptance,
+  signNostrIdentityRosterOp,
   signShareRosterCheckpoint,
   wrapDriveContentKeyForAppKeys,
   type SharedFolder,
@@ -48,19 +48,36 @@ import {
   signedShareMemberOp,
   socialFacet,
 } from './driveProtocolInterop.helpers';
+import {
+  DRIVE_DEVICE_LABEL_SCHEMA,
+  decryptDriveDeviceLabelsWithDck,
+  encryptDriveDeviceLabelsWithDck,
+  encryptedDeviceLabelPayloadsFromEventJson,
+} from '../src/drive/deviceLabels';
 
 
 describe('iris-drive protocol profile rosters', () => {
-  it('builds signed IrisProfile roster ops and self-acceptance events', () => {
+  it('builds signed NostrIdentity roster ops and self-acceptance events', () => {
     const profileId = '123e4567-e89b-42d3-a456-426614174070';
     const adminSecret = generateSecretKey();
     const adminPubkey = getPublicKey(adminSecret);
     const phoneSecret = generateSecretKey();
     const phonePubkey = getPublicKey(phoneSecret);
 
-    const addEvent = buildIrisProfileRosterOpEvent({
+    const bootstrap = signNostrIdentityRosterOp({
       signerSecretKey: adminSecret,
       profileId,
+      clientNonce: '123e4567-e89b-42d3-a456-426614174170',
+      createdAt: 1_700_001_099,
+      op: {
+        op: 'add_facet',
+        facet: appFacet(adminPubkey, 1_700_001_099, 'Admin', true, true),
+      },
+    });
+    const addEvent = buildNostrIdentityRosterOpEvent({
+      signerSecretKey: adminSecret,
+      profileId,
+      parents: [bootstrap.op_id],
       clientNonce: '123e4567-e89b-42d3-a456-426614174071',
       createdAt: 1_700_001_100,
       op: {
@@ -70,7 +87,7 @@ describe('iris-drive protocol profile rosters', () => {
     });
 
     expect(verifyEvent(addEvent)).toBe(true);
-    expect(addEvent.kind).toBe(KIND_IRIS_PROFILE_ROSTER_OP);
+    expect(addEvent.kind).toBe(KIND_NOSTR_IDENTITY_ROSTER_OP);
     expect(addEvent.pubkey).toBe(adminPubkey);
     expect(addEvent.content).toBe('');
     expect(addEvent.tags.some(([name]) => name === 'd')).toBe(false);
@@ -80,17 +97,17 @@ describe('iris-drive protocol profile rosters', () => {
     expect(addEvent.tags).toContainEqual(['key_pubkey', phonePubkey]);
     expect(addEvent.tags).toContainEqual(['p', phonePubkey]);
 
-    const parsedAdd = parseIrisProfileRosterOpEvent(addEvent);
+    const parsedAdd = parseNostrIdentityRosterOpEvent(addEvent);
     expect(parsedAdd.content).toMatchObject({
-      schema: IRIS_PROFILE_ROSTER_SCHEMA,
+      schema: NOSTR_IDENTITY_ROSTER_SCHEMA,
       profile_id: profileId,
       actor_pubkey: adminPubkey,
-      parents: [],
+      parents: [bootstrap.op_id],
       created_at: 1_700_001_100,
     });
-    expect(irisProfileRosterParentIds([parsedAdd])).toEqual([parsedAdd.op_id]);
+    expect(nostrIdentityRosterParentIds([bootstrap, parsedAdd])).toEqual([bootstrap.op_id, parsedAdd.op_id]);
 
-    const acceptance = signIrisProfileFacetAcceptance({
+    const acceptance = signNostrIdentityFacetAcceptance({
       signerSecretKey: phoneSecret,
       profileId,
       rosterOpId: parsedAdd.op_id,
@@ -105,15 +122,15 @@ describe('iris-drive protocol profile rosters', () => {
     expect(acceptanceEvent.tags).toContainEqual(['key_pubkey', phonePubkey]);
     expect(acceptanceEvent.tags).toContainEqual(['roster_op_id', parsedAdd.op_id]);
     expect(acceptance.signer_pubkey).toBe(phonePubkey);
-    expect(projectIrisProfileRoster(profileId, [parsedAdd]).active_facets[phonePubkey]).toBeTruthy();
+    expect(projectNostrIdentityRoster(profileId, [bootstrap, parsedAdd]).active_facets[phonePubkey]).toBeTruthy();
   });
 
-  it('signs IrisProfile roster ops with accepted projection parents', () => {
+  it('signs NostrIdentity roster ops with accepted projection parents', () => {
     const profileId = '123e4567-e89b-42d3-a456-426614174073';
     const adminSecret = generateSecretKey();
     const adminPubkey = getPublicKey(adminSecret);
     const phonePubkey = getPublicKey(generateSecretKey());
-    const first = signIrisProfileRosterOp({
+    const first = signNostrIdentityRosterOp({
       signerSecretKey: adminSecret,
       profileId,
       clientNonce: '123e4567-e89b-42d3-a456-426614174074',
@@ -123,10 +140,10 @@ describe('iris-drive protocol profile rosters', () => {
         facet: appFacet(adminPubkey, 1_700_001_102, 'Admin', true, true),
       },
     });
-    const second = signIrisProfileRosterOp({
+    const second = signNostrIdentityRosterOp({
       signerSecretKey: adminSecret,
       profileId,
-      parents: irisProfileRosterParentIds([first]),
+      parents: nostrIdentityRosterParentIds([first]),
       clientNonce: '123e4567-e89b-42d3-a456-426614174075',
       createdAt: 1_700_001_103,
       op: {
@@ -136,14 +153,79 @@ describe('iris-drive protocol profile rosters', () => {
     });
 
     expect(second.content.parents).toEqual([first.op_id]);
-    expect(irisProfileRosterParentIds([first, second])).toEqual([first.op_id, second.op_id]);
+    expect(nostrIdentityRosterParentIds([first, second])).toEqual([first.op_id, second.op_id]);
   });
 
-  it('rejects tampered IrisProfile roster fields during projection', () => {
+  it('carries compact encrypted device labels without public facet labels', async () => {
+    const profileId = '123e4567-e89b-42d3-a456-426614174175';
+    const adminSecret = generateSecretKey();
+    const adminPubkey = getPublicKey(adminSecret);
+    const phonePubkey = getPublicKey(generateSecretKey());
+    const dckPlaintext = 'f'.repeat(64);
+    const encryptedDeviceLabels = await encryptDriveDeviceLabelsWithDck({
+      schema: DRIVE_DEVICE_LABEL_SCHEMA,
+      profileId,
+      secretEpoch: 1,
+      labels: {
+        [adminPubkey]: 'Chrome on macOS',
+        [phonePubkey]: 'Firefox on Linux',
+      },
+      updatedAt: 1_700_001_103,
+    }, dckPlaintext);
+
+    const addEvent = buildNostrIdentityRosterOpEvent({
+      signerSecretKey: adminSecret,
+      profileId,
+      clientNonce: '123e4567-e89b-42d3-a456-426614174176',
+      createdAt: 1_700_001_103,
+      encryptedDeviceLabels,
+      op: {
+        op: 'add_facet',
+        facet: {
+          pubkey: phonePubkey,
+          purposes: ['app_key'],
+          capabilities: { can_write_roots: true },
+          added_at: 1_700_001_103,
+          label: 'Firefox on Linux',
+        },
+      },
+    });
+
+    expect(verifyEvent(addEvent)).toBe(true);
+    expect(addEvent.tags).toContainEqual(['encrypted_device_labels', encryptedDeviceLabels]);
+    expect(JSON.stringify(addEvent.tags)).not.toContain('Chrome on macOS');
+    expect(JSON.stringify(addEvent.tags)).not.toContain('Firefox on Linux');
+    expect(addEvent.tags.some(([name]) => name === 'key_label')).toBe(false);
+
+    const [payload] = encryptedDeviceLabelPayloadsFromEventJson(JSON.stringify(addEvent));
+    const decrypted = await decryptDriveDeviceLabelsWithDck(payload, dckPlaintext);
+
+    expect(payload).toBe(encryptedDeviceLabels);
+    expect(decrypted).toMatchObject({
+      schema: DRIVE_DEVICE_LABEL_SCHEMA,
+      profileId,
+      secretEpoch: 1,
+      labels: {
+        [adminPubkey]: 'Chrome on macOS',
+        [phonePubkey]: 'Firefox on Linux',
+      },
+      updatedAt: 1_700_001_103,
+    });
+    const parsedOp = parseNostrIdentityRosterOpEvent(addEvent).content.op;
+    expect(parsedOp).toMatchObject({
+      op: 'add_facet',
+      facet: {
+        pubkey: phonePubkey,
+      },
+    });
+    expect(parsedOp.op === 'add_facet' ? parsedOp.facet.label : undefined).toBeUndefined();
+  });
+
+  it('rejects tampered NostrIdentity roster fields during projection', () => {
     const profileId = '123e4567-e89b-42d3-a456-426614174076';
     const adminSecret = generateSecretKey();
     const adminPubkey = getPublicKey(adminSecret);
-    const op = signIrisProfileRosterOp({
+    const op = signNostrIdentityRosterOp({
       signerSecretKey: adminSecret,
       profileId,
       clientNonce: '123e4567-e89b-42d3-a456-426614174077',
@@ -155,10 +237,10 @@ describe('iris-drive protocol profile rosters', () => {
     });
     const tampered = structuredClone(op);
     if (tampered.content.op.op === 'add_facet') {
-      tampered.content.op.facet.label = 'Forged Admin';
+      tampered.content.op.facet.added_at += 1;
     }
 
-    const projection = projectIrisProfileRoster(profileId, [tampered]);
+    const projection = projectNostrIdentityRoster(profileId, [tampered]);
 
     expect(projection.accepted_op_ids).toEqual([]);
     expect(projection.rejected_op_ids).toEqual([op.op_id]);
@@ -172,7 +254,7 @@ describe('iris-drive protocol profile rosters', () => {
     const shareId = '123e4567-e89b-42d3-a456-426614174078';
     const ownerProfile = '123e4567-e89b-42d3-a456-426614174079';
     const aliceProfile = '123e4567-e89b-42d3-a456-426614174080';
-    const ownerRosterOp = signIrisProfileRosterOp({
+    const ownerRosterOp = signNostrIdentityRosterOp({
       signerSecretKey: ownerSecret,
       profileId: shareId,
       createdAt: 1_700_001_105,
@@ -181,7 +263,7 @@ describe('iris-drive protocol profile rosters', () => {
         facet: appFacet(ownerPubkey, 1_700_001_105, 'Owner', true, true, ownerProfile),
       },
     });
-    const aliceRosterOp = signIrisProfileRosterOp({
+    const aliceRosterOp = signNostrIdentityRosterOp({
       signerSecretKey: ownerSecret,
       profileId: shareId,
       parents: [ownerRosterOp.op_id],

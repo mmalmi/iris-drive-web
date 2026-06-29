@@ -7,7 +7,8 @@
     activatePendingDriveDeviceLinkIfApproved,
     approveDriveDeviceLinkRequest,
     createDriveDeviceLinkInvite,
-    getCurrentIrisIdentitySession,
+    getCurrentNostrIdentitySession,
+    loadDriveDeviceLabels,
     removeDriveProfileAppKeyWithAdmin,
     restoreSession,
     setDriveProfileAppKeyAdmin,
@@ -15,20 +16,22 @@
     type DriveDeviceLinkInvite,
     type DriveDeviceLinkRequest,
   } from '../../nostr';
-  import { projectIrisProfileRoster, type IrisIdentitySession, type IrisProfileRosterProjection } from '../../drive/protocol';
+  import { projectNostrIdentityRoster, type NostrIdentitySession, type NostrIdentityRosterProjection } from '../../drive/protocol';
   import {
     readStoredDeviceLinkInvite,
     saveStoredDeviceLinkInvite,
   } from './deviceLinkInvites';
   import { appStore } from '../../store';
+  import { currentBrowserDeviceLabel } from '../../drive/deviceLabels';
 
   type PendingRequest = UserSettingsPendingRequest & DriveDeviceLinkRequest;
 
-  let session = $state<IrisIdentitySession | null>(null);
-  let projection = $state<IrisProfileRosterProjection | null>(null);
+  let session = $state<NostrIdentitySession | null>(null);
+  let projection = $state<NostrIdentityRosterProjection | null>(null);
   let activeInvite = $state<DriveDeviceLinkInvite | null>(null);
   let inviteQrUrl = $state('');
   let pendingRequests = $state<PendingRequest[]>([]);
+  let deviceLabels = $state<Record<string, string>>({});
   let error = $state('');
   let actionBusyKey = $state('');
   let inviteBusy = $state(false);
@@ -51,7 +54,7 @@
   let keys = $derived<UserSettingsKey[]>(projection
     ? Object.values(projection.active_facets).map((facet) => ({
         pubkey: facet.pubkey,
-        label: facet.label,
+        label: deviceLabelForKey(facet.pubkey),
         purposes: facet.purposes,
         capabilities: facet.capabilities,
         addedAt: facet.added_at,
@@ -125,14 +128,16 @@
   });
 
   function refreshSession(): void {
-    session = getCurrentIrisIdentitySession();
+    session = getCurrentNostrIdentitySession();
     if (!session || session.status !== 'active') {
       projection = null;
       activeInvite = null;
+      deviceLabels = {};
       return;
     }
-    const nextProjection = projectIrisProfileRoster(session.profileId, session.rosterOps);
+    const nextProjection = projectNostrIdentityRoster(session.profileId, session.rosterOps);
     projection = nextProjection;
+    void refreshDeviceLabels(session);
     pendingRequests = visiblePendingRequests(pendingRequests, nextProjection);
     const currentCanManage = Boolean(nextProjection.active_facets[session.appKeyPubkey]?.capabilities?.can_admin_profile);
     if (!currentCanManage) {
@@ -143,10 +148,32 @@
     activeInvite = readStoredDeviceLinkInvite(session.profileId, session.appKeyPubkey);
   }
 
+  function deviceLabelForKey(pubkey: string): string | undefined {
+    const privateLabel = deviceLabels[pubkey]?.trim();
+    if (privateLabel) return privateLabel;
+    if (pubkey !== session?.appKeyPubkey) return undefined;
+    const sessionLabel = session.label?.trim();
+    if (sessionLabel) return sessionLabel;
+    return currentBrowserDeviceLabel();
+  }
+
+  async function refreshDeviceLabels(labelSession: NostrIdentitySession): Promise<void> {
+    const profileId = labelSession.profileId;
+    const appKeyPubkey = labelSession.appKeyPubkey;
+    try {
+      const labels = await loadDriveDeviceLabels();
+      if (session?.profileId === profileId && session.appKeyPubkey === appKeyPubkey) {
+        deviceLabels = labels;
+      }
+    } catch (labelError) {
+      console.warn('[UserSettings] Could not load encrypted Drive device labels:', labelError);
+    }
+  }
+
   async function restoreUserSession(): Promise<void> {
     error = '';
     try {
-      if (!getCurrentIrisIdentitySession()) {
+      if (!getCurrentNostrIdentitySession()) {
         await restoreSession({ autoCreate: false });
       }
     } catch (restoreError) {
@@ -200,7 +227,7 @@
 
   function visiblePendingRequests(
     requests: PendingRequest[],
-    rosterProjection: IrisProfileRosterProjection | null = projection,
+    rosterProjection: NostrIdentityRosterProjection | null = projection,
   ): PendingRequest[] {
     if (!rosterProjection) return requests;
     return requests.filter((request) => !rosterProjection.active_facets[request.pubkey]);

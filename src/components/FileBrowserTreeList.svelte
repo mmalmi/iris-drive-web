@@ -7,6 +7,7 @@
   import { TreeRow } from './ui';
   import type { TreeEntry } from '../stores';
   import { buildTreeHref } from './fileBrowserHrefs';
+  import { isNostrIdentityId } from '../utils/route';
 
   interface Props {
     viewedNpub: string | null;
@@ -35,13 +36,22 @@
     onKeyDown,
     fileListRef = $bindable(),
   }: Props = $props();
+
+  let viewedNostrIdentityId = $derived(viewedNpub && isNostrIdentityId(viewedNpub) ? viewedNpub : null);
 </script>
 
 <div class="h-10 shrink-0 px-3 border-b border-surface-2 flex items-center gap-2 bg-surface-0">
   {#if viewedNpub}
-    <a href="#/{viewedNpub}/profile" class="no-underline min-w-0">
-      <UserRow pubkey={npubToPubkey(viewedNpub) || viewedNpub} avatarSize={24} showBadge class="min-w-0" />
-    </a>
+    {#if viewedNostrIdentityId}
+      <div class="min-w-0 flex items-center gap-2 text-sm text-text-2" data-testid="drive-profile-root-scope" title={viewedNostrIdentityId}>
+        <span class="i-lucide-folder-root shrink-0 text-text-3"></span>
+        <span class="truncate">{viewedNostrIdentityId}</span>
+      </div>
+    {:else}
+      <a href="#/{viewedNpub}/profile" class="no-underline min-w-0">
+        <UserRow pubkey={npubToPubkey(viewedNpub) || viewedNpub} avatarSize={24} showBadge class="min-w-0" />
+      </a>
+    {/if}
   {:else if isLoggedIn && userNpub}
     <a href="#/{userNpub}/profile" class="no-underline min-w-0">
       <UserRow pubkey={npubToPubkey(userNpub) || userNpub} avatarSize={24} showBadge class="min-w-0" />

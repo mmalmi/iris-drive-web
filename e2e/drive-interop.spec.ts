@@ -18,7 +18,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseIrisProfileRosterOpEvent } from '../src/drive/protocol';
+import { parseNostrIdentityRosterOpEvent } from '../src/drive/protocol';
 import { generateSecretKey, getPublicKey, nip19 } from 'nostr-tools';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -92,7 +92,7 @@ function configureNativeBlossom(configDir: string): void {
   runIdriveJson(configDir, ['blossom-servers', 'add', getTestBlossomUrl()]);
 }
 
-type StoredIrisIdentitySessionForTest = {
+type StoredNostrIdentitySessionForTest = {
   schema: 1;
   profileId: string;
   appKeyNsec: string;
@@ -117,7 +117,7 @@ type BlossomPushDetails = {
   blockHashes: string[];
 };
 
-function readNativeIrisIdentitySession(configDir: string, label = 'native-e2e'): StoredIrisIdentitySessionForTest {
+function readNativeNostrIdentitySession(configDir: string, label = 'native-e2e'): StoredNostrIdentitySessionForTest {
   const nsec = fs.readFileSync(path.join(configDir, 'key'), 'utf8').trim();
   const configToml = fs.readFileSync(path.join(configDir, 'config.toml'), 'utf8');
   const profileId = configToml.match(/\[profile\][\s\S]*?profile_id = "([^"]+)"/)?.[1];
@@ -127,10 +127,10 @@ function readNativeIrisIdentitySession(configDir: string, label = 'native-e2e'):
   const rosterOps = Array.from(configToml.matchAll(/event_json = '([^']+)'/g)).map((match) => {
     const eventJson = match[1];
     const event = JSON.parse(eventJson);
-    return parseIrisProfileRosterOpEvent(event);
+    return parseNostrIdentityRosterOpEvent(event);
   });
   if (rosterOps.length === 0) {
-    throw new Error('Native config is missing IrisProfile roster ops');
+    throw new Error('Native config is missing NostrIdentity roster ops');
   }
 
   return {
@@ -148,7 +148,7 @@ async function prepareFreshPage(
   page: Page,
   relayUrl: string,
   nsec?: string,
-  irisIdentitySession?: StoredIrisIdentitySessionForTest,
+  nostrIdentitySession?: StoredNostrIdentitySessionForTest,
 ): Promise<void> {
   setupPageErrorHandler(page);
   await page.goto('/');
@@ -161,7 +161,7 @@ async function prepareFreshPage(
       if (session) {
         localStorage.setItem('iris:identity:session', JSON.stringify(session));
       }
-    }, { secret: nsec, session: irisIdentitySession ?? null });
+    }, { secret: nsec, session: nostrIdentitySession ?? null });
   }
   await page.reload({ waitUntil: 'domcontentloaded' });
   await waitForAppReady(page, 60000);
@@ -483,7 +483,7 @@ test.describe('Iris Drive web interop', () => {
     try {
       configureNativeBlossom(configDir);
       const init = runIdriveJson(configDir, ['init', '--label', 'native-e2e']);
-      const identitySession = readNativeIrisIdentitySession(configDir);
+      const identitySession = readNativeNostrIdentitySession(configDir);
       await prepareFreshPage(page, relayUrl, identitySession.appKeyNsec, identitySession);
       await createPrivateDriveTree(page);
       const appKeyNpub = init.current_app_key_npub;
@@ -521,9 +521,9 @@ test.describe('Iris Drive web interop', () => {
 
       await prepareFreshPage(page, relayUrl);
       const linked = await page.evaluate(async (nativeInvite) => {
-        const { getCurrentIrisIdentitySession, linkDriveDevice } = await import('/src/nostr');
+        const { getCurrentNostrIdentitySession, linkDriveDevice } = await import('/src/nostr');
         const result = await linkDriveDevice(nativeInvite);
-        const session = getCurrentIrisIdentitySession();
+        const session = getCurrentNostrIdentitySession();
         const stored = JSON.parse(localStorage.getItem('iris:identity:session') ?? 'null');
         return {
           linkedNpub: result?.npub ?? null,

@@ -134,7 +134,6 @@
       }
       const profile = await recoverDriveProfileWithAppKey({
         recovery: request,
-        label: 'Drive web',
       });
       navigate(driveRootPath(profile.session.profileId));
     } catch (error) {
@@ -198,6 +197,7 @@
         error={recoveryError}
         submitLabel="Continue"
         nostrAvailable={hasExtension}
+        showNip46Relay={false}
         initialRequest={initialRecoveryRequest}
         autoSubmitInitial={Boolean(initialRecoveryRequest)}
         shouldAutoSubmit={shouldAutoSubmitRecoveryRequest}
@@ -211,6 +211,7 @@
         methodLayout="column"
         disabled={recoveryBusy || creatingProfile}
         showCreateNew={true}
+        showNip46Relay={false}
         createNewTitle="No existing Drive user found for that key"
         createNewLabel="Create new"
         createNewBusy={creatingProfile}
@@ -236,7 +237,7 @@
         >
           <!-- Avatar -->
           <a
-            href={account.irisProfileId ? `#${driveRootPath(account.irisProfileId)}` : `#/${account.npub}/profile`}
+            href={account.nostrIdentityId ? `#${driveRootPath(account.nostrIdentityId)}` : `#/${account.npub}/profile`}
             class="shrink-0"
             onclick={(e) => e.stopPropagation()}
           >
@@ -246,13 +247,13 @@
           <!-- Info -->
           <div class="flex-1 min-w-0">
             <div class="font-medium truncate">
-              {#if account.irisProfileId}
-                <IdentityName profileId={account.irisProfileId} appKeyPubkey={account.pubkey} />
+              {#if account.nostrIdentityId}
+                <IdentityName profileId={account.nostrIdentityId} appKeyPubkey={account.pubkey} />
               {:else}
                 <Name pubkey={account.pubkey} />
               {/if}
             </div>
-            {#if account.irisProfileId}
+            {#if account.nostrIdentityId}
               <div class="text-xs text-text-3 truncate">Drive user</div>
             {/if}
           </div>

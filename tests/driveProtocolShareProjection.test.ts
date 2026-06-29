@@ -3,27 +3,27 @@ import { finalizeEvent, generateSecretKey, getPublicKey, nip19, nip44, verifyEve
 import { toHex } from '@hashtree/core';
 import {
   D_TAG_APP_KEYS,
-  IRIS_PROFILE_ROSTER_SCHEMA,
+  NOSTR_IDENTITY_ROSTER_SCHEMA,
   KIND_APP_KEYS,
   KIND_DRIVE_ROOT,
-  KIND_IRIS_PROFILE_ROSTER_OP,
+  KIND_NOSTR_IDENTITY_ROSTER_OP,
   KIND_LEGACY_DRIVE_ROOT,
   KIND_SHARE_ROSTER_CHECKPOINT,
   SHARE_INVITE_PREFIX,
   buildAppKeysEvent,
   buildDriveRootEvent,
-  buildIrisProfileRosterOpEvent,
+  buildNostrIdentityRosterOpEvent,
   driveRootDTag,
   encodeShareInvite,
-  irisProfileRosterOpDTag,
-  irisProfileRosterParentIds,
+  nostrIdentityRosterOpDTag,
+  nostrIdentityRosterParentIds,
   isDriveRootEventNewer,
   parseAppKeysEvent,
   parseDriveRootEventForDevice,
   parseDriveRootEventPreview,
-  parseIrisProfileRosterOpEvent,
+  parseNostrIdentityRosterOpEvent,
   parseShareInvite,
-  projectIrisProfileRoster,
+  projectNostrIdentityRoster,
   projectSharedFolderMemberRoster,
   projectSharedFolderView,
   resolveShareRecipientFromEvidence,
@@ -33,8 +33,8 @@ import {
   sharedFolderKeyRecipientPubkeys,
   sharedFolderFromInviteForProfile,
   shareRecipientsForResolvedRecipient,
-  signIrisProfileFacetAcceptance,
-  signIrisProfileRosterOp,
+  signNostrIdentityFacetAcceptance,
+  signNostrIdentityRosterOp,
   signShareRosterCheckpoint,
   wrapDriveContentKeyForAppKeys,
   type SharedFolder,
@@ -52,7 +52,7 @@ import {
 
 
 describe('iris-drive protocol shared folders', () => {
-  it('projects shared folders as IrisProfile members with AppKeys as subordinate actors', () => {
+  it('projects shared folders as NostrIdentity members with AppKeys as subordinate actors', () => {
     const ownerSecret = generateSecretKey();
     const ownerPubkey = getPublicKey(ownerSecret);
     const alicePubkey = getPublicKey(generateSecretKey());
@@ -68,9 +68,9 @@ describe('iris-drive protocol shared folders', () => {
       facet: appFacet(alicePubkey, 11, 'Alice phone', true, false, aliceProfile),
     }, [ownerOp.op_id]);
     const epochOp = signedRosterOp(ownerSecret, shareId, 12, {
-      op: 'rotate_key_epoch',
+      op: 'rotate_secret_epoch',
       epoch: 1,
-      wrapped_dck: { [ownerPubkey]: 'owner-wrap', [alicePubkey]: 'alice-wrap' },
+      wrapped_secrets: { [ownerPubkey]: 'owner-wrap', [alicePubkey]: 'alice-wrap' },
     }, [aliceOp.op_id]);
     const folder: SharedFolder = {
       share_id: shareId,
@@ -163,9 +163,9 @@ describe('iris-drive protocol shared folders', () => {
       facet: appFacet(ownerPubkey, 10, 'Owner', true, true, ownerProfile),
     });
     const epochOp = signedRosterOp(ownerSecret, shareId, 11, {
-      op: 'rotate_key_epoch',
+      op: 'rotate_secret_epoch',
       epoch: 1,
-      wrapped_dck: { [ownerPubkey]: 'owner-wrap' },
+      wrapped_secrets: { [ownerPubkey]: 'owner-wrap' },
     }, [ownerOp.op_id]);
     const folder: SharedFolder = {
       share_id: shareId,
@@ -228,9 +228,9 @@ describe('iris-drive protocol shared folders', () => {
       facet: appFacet(alicePubkey, 11, 'Alice phone', true, false, aliceProfile),
     }, [ownerOp.op_id]);
     const epochOp = signedRosterOp(ownerSecret, shareId, 12, {
-      op: 'rotate_key_epoch',
+      op: 'rotate_secret_epoch',
       epoch: 1,
-      wrapped_dck: { [ownerPubkey]: 'owner-wrap' },
+      wrapped_secrets: { [ownerPubkey]: 'owner-wrap' },
     }, [aliceOp.op_id]);
     const folder: SharedFolder = {
       share_id: shareId,
@@ -291,9 +291,9 @@ describe('iris-drive protocol shared folders', () => {
       reason: 'old install',
     }, [replacementOp.op_id]);
     const epochOp = signedRosterOp(replacementSecret, shareId, 14, {
-      op: 'rotate_key_epoch',
+      op: 'rotate_secret_epoch',
       epoch: 1,
-      wrapped_dck: { [replacementPubkey]: 'owner-wrap', [alicePubkey]: 'alice-wrap' },
+      wrapped_secrets: { [replacementPubkey]: 'owner-wrap', [alicePubkey]: 'alice-wrap' },
     }, [ownerTombstoneOp.op_id]);
     const ownerMemberOp = signedShareMemberOp(ownerSecret, shareId, 10, {
       op: 'grant_member',
@@ -421,7 +421,7 @@ describe('iris-drive protocol shared folders', () => {
 
     const tamperedKeyRoster = structuredClone(bundle);
     tamperedKeyRoster.shared_folder.roster_ops![0]!.event_json = '{}';
-    expect(() => parseShareInvite(encodeShareInvite(tamperedKeyRoster))).toThrow(/IrisProfile roster/);
+    expect(() => parseShareInvite(encodeShareInvite(tamperedKeyRoster))).toThrow(/NostrIdentity roster/);
   });
 
   it('explains share root write authorization through member identity and AppKey facets', () => {

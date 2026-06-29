@@ -8,7 +8,7 @@ export interface ShareDialogRequest {
 export interface ShareDialogRecipientHint {
   representative_npub: string;
   display_name?: string;
-  iris_profile_id?: string;
+  nostr_identity_id?: string;
 }
 
 export function parseShareDialogPath(input: string): ShareDialogRequest | null {
@@ -65,7 +65,7 @@ function shareDialogUrlWithRecipientHint(
   if (name) {
     params.set('recipient_name', name);
   }
-  const profileId = recipient.iris_profile_id?.trim();
+  const profileId = recipient.nostr_identity_id?.trim();
   if (profileId) {
     params.set('recipient_profile', profileId);
   }

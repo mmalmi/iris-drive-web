@@ -3,27 +3,27 @@ import { finalizeEvent, generateSecretKey, getPublicKey, nip19, nip44, verifyEve
 import { toHex } from '@hashtree/core';
 import {
   D_TAG_APP_KEYS,
-  IRIS_PROFILE_ROSTER_SCHEMA,
+  NOSTR_IDENTITY_ROSTER_SCHEMA,
   KIND_APP_KEYS,
   KIND_DRIVE_ROOT,
-  KIND_IRIS_PROFILE_ROSTER_OP,
+  KIND_NOSTR_IDENTITY_ROSTER_OP,
   KIND_LEGACY_DRIVE_ROOT,
   KIND_SHARE_ROSTER_CHECKPOINT,
   SHARE_INVITE_PREFIX,
   buildAppKeysEvent,
   buildDriveRootEvent,
-  buildIrisProfileRosterOpEvent,
+  buildNostrIdentityRosterOpEvent,
   driveRootDTag,
   encodeShareInvite,
-  irisProfileRosterOpDTag,
-  irisProfileRosterParentIds,
+  nostrIdentityRosterOpDTag,
+  nostrIdentityRosterParentIds,
   isDriveRootEventNewer,
   parseAppKeysEvent,
   parseDriveRootEventForDevice,
   parseDriveRootEventPreview,
-  parseIrisProfileRosterOpEvent,
+  parseNostrIdentityRosterOpEvent,
   parseShareInvite,
-  projectIrisProfileRoster,
+  projectNostrIdentityRoster,
   projectSharedFolderMemberRoster,
   projectSharedFolderView,
   resolveShareRecipientFromEvidence,
@@ -33,8 +33,8 @@ import {
   sharedFolderKeyRecipientPubkeys,
   sharedFolderFromInviteForProfile,
   shareRecipientsForResolvedRecipient,
-  signIrisProfileFacetAcceptance,
-  signIrisProfileRosterOp,
+  signNostrIdentityFacetAcceptance,
+  signNostrIdentityRosterOp,
   signShareRosterCheckpoint,
   wrapDriveContentKeyForAppKeys,
   type SharedFolder,
@@ -90,7 +90,7 @@ describe('iris-drive protocol invites and recipients', () => {
 
     expect(parseShareInvite(invite).shared_folder.share_id).toBe(shareId);
     expect(sharedFolderFromInviteForProfile(invite, recipientProfile).display_name).toBe('Photos');
-    expect(() => sharedFolderFromInviteForProfile(invite, otherProfile)).toThrow(/not for IrisProfile/);
+    expect(() => sharedFolderFromInviteForProfile(invite, otherProfile)).toThrow(/not for NostrIdentity/);
   });
 
   it('validates signed share roster checkpoints in invite bundles', () => {
@@ -179,7 +179,7 @@ describe('iris-drive protocol invites and recipients', () => {
     expect(() => parseShareInvite(tamperedInvite)).toThrow(/checkpoint/);
   });
 
-  it('resolves representative social proof to one IrisProfile recipient entity', () => {
+  it('resolves representative social proof to one NostrIdentity recipient entity', () => {
     const adminSecret = generateSecretKey();
     const adminPubkey = getPublicKey(adminSecret);
     const socialSecret = generateSecretKey();

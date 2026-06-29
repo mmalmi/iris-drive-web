@@ -8,9 +8,9 @@ import {
   shareContactCandidatesFromUsers,
 } from '../src/drive/shareContactSearch';
 import {
-  signIrisProfileFacetAcceptance,
-  signIrisProfileRosterOp,
-  type IrisProfileFacet,
+  signNostrIdentityFacetAcceptance,
+  signNostrIdentityRosterOp,
+  type NostrIdentityFacet,
 } from '../src/drive/protocol';
 import type { UserIndexEntry } from '../src/stores/searchIndex';
 
@@ -25,7 +25,7 @@ describe('shareContactSearch', () => {
       name: 'alice',
       displayName: 'Alice',
       nip05: 'alice.example',
-      irisProfileId: '123e4567-e89b-42d3-a456-426614174011',
+      nostrIdentityId: '123e4567-e89b-42d3-a456-426614174011',
       linkedNpubs: [nip19.npubEncode(getPublicKey(generateSecretKey()))],
       shareRecipientEvidenceJson: '{"profile_id":"123e4567-e89b-42d3-a456-426614174011"}',
     }])).toEqual([{
@@ -33,7 +33,7 @@ describe('shareContactSearch', () => {
       npub,
       displayName: 'Alice',
       nip05: 'alice.example',
-      irisProfileId: '123e4567-e89b-42d3-a456-426614174011',
+      nostrIdentityId: '123e4567-e89b-42d3-a456-426614174011',
       linkedNpubs: expect.arrayContaining([expect.stringMatching(/^npub1/)]),
       shareRecipientEvidenceJson: '{"profile_id":"123e4567-e89b-42d3-a456-426614174011"}',
     }]);
@@ -66,7 +66,7 @@ describe('shareContactSearch', () => {
 
     const ranked = await rankUserShareContacts('ali', [{
       ...userEntry(alice, 'Alice'),
-      irisProfileId: '123e4567-e89b-42d3-a456-426614174011',
+      nostrIdentityId: '123e4567-e89b-42d3-a456-426614174011',
       shareRecipientEvidenceJson: evidence,
     }], null);
 
@@ -77,7 +77,7 @@ describe('shareContactSearch', () => {
     const appSecret = generateSecretKey();
     const appPubkey = getPublicKey(appSecret);
     const profileId = '123e4567-e89b-42d3-a456-426614174051';
-    const rosterOp = signIrisProfileRosterOp({
+    const rosterOp = signNostrIdentityRosterOp({
       signerSecretKey: appSecret,
       profileId,
       createdAt: 10,
@@ -86,7 +86,7 @@ describe('shareContactSearch', () => {
         facet: appFacet(appPubkey, 10, 'Phone'),
       },
     });
-    const acceptance = signIrisProfileFacetAcceptance({
+    const acceptance = signNostrIdentityFacetAcceptance({
       signerSecretKey: appSecret,
       profileId,
       purposes: ['app_key'],
@@ -117,7 +117,7 @@ describe('shareContactSearch', () => {
       representative_npub: nip19.npubEncode(appPubkey),
       pubkey: appPubkey,
       display_name: 'Alice',
-      iris_profile_id: profileId,
+      nostr_identity_id: profileId,
       linked_npubs: [nip19.npubEncode(appPubkey)],
       recipient_evidence_json: evidenceJson,
       score: 10,
@@ -165,7 +165,7 @@ describe('shareContactSearch', () => {
     const results = await searchShareContacts(aliceNpub, {
       userSearch: async () => [{
         ...userEntry(alice, 'Alice'),
-        irisProfileId: '123e4567-e89b-42d3-a456-426614174011',
+        nostrIdentityId: '123e4567-e89b-42d3-a456-426614174011',
         shareRecipientEvidenceJson: evidence,
       }],
       graph: {
@@ -181,7 +181,7 @@ describe('shareContactSearch', () => {
     expect(results).toHaveLength(1);
     expect(results[0]!.display_name).toBe('Alice');
     expect(results[0]!.recipient_evidence_json).toBe(evidence);
-    expect(results[0]!.iris_profile_id).toBe('123e4567-e89b-42d3-a456-426614174011');
+    expect(results[0]!.nostr_identity_id).toBe('123e4567-e89b-42d3-a456-426614174011');
   });
 
   it('searches users before ranking and skips blank queries', async () => {
@@ -221,15 +221,15 @@ function userEntry(pubkey: string, displayName: string): UserIndexEntry {
   };
 }
 
-function appFacet(pubkey: string, addedAt: number, label: string): IrisProfileFacet {
+function appFacet(pubkey: string, addedAt: number, _label: string): NostrIdentityFacet {
   return {
     pubkey,
     purposes: ['app_key'],
     capabilities: {
-      can_receive_key_wraps: true,
-      can_decrypt_key_epochs: true,
+      can_admin_profile: true,
+      can_receive_secret_wraps: true,
+      can_decrypt_secret_epochs: true,
     },
     added_at: addedAt,
-    label,
   };
 }

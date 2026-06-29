@@ -55,7 +55,7 @@ describe('share dialog actions', () => {
         representative_npub: 'npub1alice',
         pubkey: 'b'.repeat(64),
         display_name: 'Alice',
-        iris_profile_id: '123e4567-e89b-42d3-a456-426614174011',
+        nostr_identity_id: '123e4567-e89b-42d3-a456-426614174011',
         linked_npubs: ['npub1alice'],
         recipient_evidence_json: '{"profile_id":"123e4567-e89b-42d3-a456-426614174011"}',
         score: 1,

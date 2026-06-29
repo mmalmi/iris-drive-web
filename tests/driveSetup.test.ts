@@ -45,7 +45,7 @@ describe('drive setup helpers', () => {
     expect(driveRootPath(npub)).toBe(`/${npub}/main`);
   });
 
-  it('extracts the admin AppKey npub from canonical IrisProfile invites for owner-only input', () => {
+  it('extracts the admin AppKey npub from canonical NostrIdentity invites for owner-only input', () => {
     const invite = encodeDeviceLinkInvite({
       profileId,
       adminAppKeyPubkey: pubkey,

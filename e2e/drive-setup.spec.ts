@@ -121,6 +121,7 @@ test.describe('Drive setup', () => {
     await page.getByTestId('add-existing-profile').click();
     await page.getByRole('button', { name: 'Link device' }).click();
     await expect(page.getByLabel('Link device')).toBeVisible();
+    await expect(page.getByLabel('Relay')).toHaveCount(0);
 
     await page.getByLabel('Link device').fill(owner.npub);
     await expectDriveRoute(page, owner.npub);
@@ -132,6 +133,7 @@ test.describe('Drive setup', () => {
 
     await page.getByTestId('add-existing-profile').click();
     await page.getByRole('button', { name: 'Link device' }).click();
+    await expect(page.getByLabel('Relay')).toHaveCount(0);
 
     await page.getByLabel('Link device').fill(inviteLink(admin.npub));
     const linkedPubkeyHandle = await page.waitForFunction((expectedProfileId: string) => {

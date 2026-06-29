@@ -17,7 +17,7 @@ export interface Account {
   npub: string;
   type: AccountType;
   nsec?: string; // Only for nsec accounts
-  irisProfileId?: string;
+  nostrIdentityId?: string;
   addedAt: number;
 }
 
@@ -73,7 +73,7 @@ function createAccountsStore() {
     updateAccount: (pubkey: string, patch: Partial<Account>) => {
       update(state => {
         const index = state.accounts.findIndex(
-          a => a.pubkey === pubkey || (patch.irisProfileId && a.irisProfileId === patch.irisProfileId)
+          a => a.pubkey === pubkey || (patch.nostrIdentityId && a.nostrIdentityId === patch.nostrIdentityId)
         );
         if (index < 0) return state;
         const existing = state.accounts[index];
@@ -129,13 +129,13 @@ export const accountsStore = createAccountsStore();
 // Legacy compatibility alias (matches Zustand API)
 export const useAccountsStore = accountsStore;
 
-export function getAccountIdentityKey(account: Pick<Account, 'irisProfileId' | 'pubkey' | 'type'>): string {
-  return account.irisProfileId ? `iris-profile:${account.irisProfileId}` : `${account.type}:${account.pubkey}`;
+export function getAccountIdentityKey(account: Pick<Account, 'nostrIdentityId' | 'pubkey' | 'type'>): string {
+  return account.nostrIdentityId ? `iris-profile:${account.nostrIdentityId}` : `${account.type}:${account.pubkey}`;
 }
 
 function isSameAccountIdentity(a: Account, b: Account): boolean {
-  if (a.irisProfileId && b.irisProfileId) {
-    return a.irisProfileId === b.irisProfileId;
+  if (a.nostrIdentityId && b.nostrIdentityId) {
+    return a.nostrIdentityId === b.nostrIdentityId;
   }
   return a.pubkey === b.pubkey;
 }
@@ -171,7 +171,7 @@ function saveAccountsToStorage(accounts: Account[]) {
     npub: a.npub,
     type: a.type,
     nsec: a.nsec,
-    irisProfileId: a.irisProfileId,
+    nostrIdentityId: a.nostrIdentityId,
     addedAt: a.addedAt,
   }));
   localStorage.setItem(STORAGE_KEY_ACCOUNTS, JSON.stringify(data));
@@ -213,7 +213,7 @@ export function saveActiveAccountToStorage(pubkey: string | null) {
  */
 export function createAccountFromNsec(
   nsec: string,
-  options: { type?: AccountType; irisProfileId?: string } = {},
+  options: { type?: AccountType; nostrIdentityId?: string } = {},
 ): Account | null {
   try {
     const decoded = nip19.decode(nsec);
@@ -225,7 +225,7 @@ export function createAccountFromNsec(
       npub: nip19.npubEncode(pubkey),
       type: options.type ?? 'nsec',
       nsec,
-      irisProfileId: options.irisProfileId,
+      nostrIdentityId: options.nostrIdentityId,
       addedAt: Date.now(),
     };
   } catch {

@@ -1,38 +1,38 @@
 import { toHex, type CID } from '@hashtree/core';
 import { getPublicKey } from 'nostr-tools';
-import type { IrisIdentitySession } from './deviceLink';
-import { NDKEvent, getCurrentIrisIdentitySession, getSecretKey, ndk } from '../nostr';
+import type { NostrIdentitySession } from './deviceLink';
+import { NDKEvent, getCurrentNostrIdentitySession, getSecretKey, ndk } from '../nostr';
 import { publishEventWithFallback } from '../lib/nostrPublish';
 import {
   buildDriveRootEvent,
-  projectIrisProfileRoster,
-  type IrisProfileRosterProjection,
+  projectNostrIdentityRoster,
+  type NostrIdentityRosterProjection,
 } from './protocol';
 
 type SessionProjection = {
-  projection: IrisProfileRosterProjection | null;
+  projection: NostrIdentityRosterProjection | null;
   activeAppKeyPubkeys: string[];
   keyEpoch: number;
 };
 
-function projectSession(session: IrisIdentitySession): SessionProjection {
-  let projection: IrisProfileRosterProjection | null = null;
+function projectSession(session: NostrIdentitySession): SessionProjection {
+  let projection: NostrIdentityRosterProjection | null = null;
   const activeAppKeyPubkeys = new Set<string>([session.appKeyPubkey]);
   let keyEpoch = 0;
 
   try {
-    projection = projectIrisProfileRoster(session.profileId, session.rosterOps ?? []);
+    projection = projectNostrIdentityRoster(session.profileId, session.rosterOps ?? []);
     for (const [pubkey, facet] of Object.entries(projection.active_facets)) {
       if (facet.purposes?.includes('app_key')) {
         activeAppKeyPubkeys.add(pubkey);
       }
     }
-    for (const epoch of Object.keys(projection.key_epochs)) {
+    for (const epoch of Object.keys(projection.secret_epochs)) {
       const parsed = Number(epoch);
       if (Number.isFinite(parsed)) keyEpoch = Math.max(keyEpoch, parsed);
     }
   } catch (error) {
-    console.warn('[driveRoot] Could not project IrisProfile roster for Drive root publish:', error);
+    console.warn('[driveRoot] Could not project NostrIdentity roster for Drive root publish:', error);
   }
 
   return {
@@ -65,16 +65,16 @@ function nextDriveRootPublishedAt(profileId: string, driveId: string, appKeyPubk
   return next;
 }
 
-export async function publishIrisProfileDriveRootIfAvailable(
+export async function publishNostrIdentityDriveRootIfAvailable(
   driveId: string,
   rootCid: CID,
   options: { publishedAt?: number; appKeySeq?: number } = {},
 ): Promise<boolean> {
-  const session = getCurrentIrisIdentitySession();
+  const session = getCurrentNostrIdentitySession();
   const secretKey = getSecretKey();
   if (!session || session.status !== 'active' || !secretKey) return true;
   if (!rootCid.key) {
-    console.warn('[driveRoot] Skipping IrisProfile Drive root publish without encrypted root key', {
+    console.warn('[driveRoot] Skipping NostrIdentity Drive root publish without encrypted root key', {
       profileId: session.profileId,
       driveId,
       rootHash: toHex(rootCid.hash),
@@ -84,13 +84,13 @@ export async function publishIrisProfileDriveRootIfAvailable(
 
   const appKeyPubkey = getPublicKey(secretKey);
   if (appKeyPubkey !== session.appKeyPubkey) {
-    console.warn('[driveRoot] Skipping IrisProfile Drive root publish because active key differs from session AppKey');
+    console.warn('[driveRoot] Skipping NostrIdentity Drive root publish because active key differs from session AppKey');
     return false;
   }
 
   const projected = projectSession(session);
   if (projected.projection && !projected.projection.active_facets[appKeyPubkey]) {
-    console.warn('[driveRoot] Skipping IrisProfile Drive root publish because AppKey is not active in roster');
+    console.warn('[driveRoot] Skipping NostrIdentity Drive root publish because AppKey is not active in roster');
     return false;
   }
 

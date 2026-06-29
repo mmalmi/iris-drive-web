@@ -1,48 +1,48 @@
 import { nip19 } from 'nostr-tools';
 import type {
-  IrisProfileFacet,
-  IrisProfileId,
-  IrisProfileKeyPurpose,
-  IrisProfileRosterProjection,
+  NostrIdentityFacet,
+  NostrIdentityId,
+  NostrIdentityKeyPurpose,
+  NostrIdentityRosterProjection,
   ResolvedShareRecipient,
   ShareRecipient,
   ShareRecipientProfileEvidence,
   ShareRole,
   SharedFolder,
-  SignedIrisProfileFacetAcceptance,
-  SignedIrisProfileRosterOp,
+  SignedNostrIdentityFacetAcceptance,
+  SignedNostrIdentityRosterOp,
 } from './protocolTypes';
 import { isHex32 } from './protocolJson';
-import { projectIrisProfileRoster } from './protocolProfileProjection';
+import { projectNostrIdentityRoster } from './protocolProfileProjection';
 import { activeShareKeyRecipients } from './protocolShareAccess';
 
 export function sharedFolderKeyRecipientPubkeys(folder: SharedFolder): string[] {
-  const projection = projectIrisProfileRoster(folder.share_id, folder.roster_ops ?? []);
+  const projection = projectNostrIdentityRoster(folder.share_id, folder.roster_ops ?? []);
   return activeShareKeyRecipients(folder, projection);
 }
 
 export function resolveShareRecipientFromProfileEvidence(
-  profileId: IrisProfileId,
+  profileId: NostrIdentityId,
   representativePubkey: string,
-  rosterOps: SignedIrisProfileRosterOp[],
-  acceptances: SignedIrisProfileFacetAcceptance[],
+  rosterOps: SignedNostrIdentityRosterOp[],
+  acceptances: SignedNostrIdentityFacetAcceptance[],
   displayName?: string,
 ): ResolvedShareRecipient {
   const normalizedRepresentative = representativePubkey.trim().toLowerCase();
   if (!isHex32(normalizedRepresentative)) {
     throw new Error('representative pubkey is invalid');
   }
-  const projection = projectIrisProfileRoster(profileId, rosterOps);
+  const projection = projectNostrIdentityRoster(profileId, rosterOps);
   const representativeFacet = projection.active_facets[normalizedRepresentative];
   if (!representativeFacet) {
-    throw new Error(`representative pubkey is not active in IrisProfile ${profileId}`);
+    throw new Error(`representative pubkey is not active in NostrIdentity ${profileId}`);
   }
   if (!representativeHasActiveSelfLink(projection, normalizedRepresentative, representativeFacet, acceptances)) {
     throw new Error('representative pubkey has no active self-signed profile link');
   }
   const appPubkeys = acceptedShareAppPubkeys(projection, acceptances);
   if (appPubkeys.length === 0) {
-    throw new Error('resolved IrisProfile has no accepted AppKeys for sharing');
+    throw new Error('resolved NostrIdentity has no accepted AppKeys for sharing');
   }
   return {
     profile_id: profileId,
@@ -82,10 +82,10 @@ export function shareRecipientsForResolvedRecipient(
 }
 
 export function representativeHasActiveSelfLink(
-  projection: IrisProfileRosterProjection,
+  projection: NostrIdentityRosterProjection,
   representativePubkey: string,
-  facet: IrisProfileFacet,
-  acceptances: SignedIrisProfileFacetAcceptance[],
+  facet: NostrIdentityFacet,
+  acceptances: SignedNostrIdentityFacetAcceptance[],
 ): boolean {
   return (
     facetHasPurpose(facet, 'social_profile')
@@ -117,20 +117,20 @@ export function evidenceRepresentativePubkey(evidence: ShareRecipientProfileEvid
 }
 
 export function acceptedShareAppPubkeys(
-  projection: IrisProfileRosterProjection,
-  acceptances: SignedIrisProfileFacetAcceptance[],
+  projection: NostrIdentityRosterProjection,
+  acceptances: SignedNostrIdentityFacetAcceptance[],
 ): string[] {
   return Object.values(projection.active_facets)
     .filter((facet) => facetHasPurpose(facet, 'app_key'))
-    .filter((facet) => Boolean(facet.capabilities?.can_receive_key_wraps))
+    .filter((facet) => Boolean(facet.capabilities?.can_receive_secret_wraps))
     .filter((facet) => hasActiveFacetAcceptance(projection, facet.pubkey, 'app_key', acceptances))
     .map((facet) => facet.pubkey)
     .sort();
 }
 
 export function acceptedSocialPubkeys(
-  projection: IrisProfileRosterProjection,
-  acceptances: SignedIrisProfileFacetAcceptance[],
+  projection: NostrIdentityRosterProjection,
+  acceptances: SignedNostrIdentityFacetAcceptance[],
 ): string[] {
   return Object.values(projection.active_facets)
     .filter((facet) => facetHasPurpose(facet, 'social_profile'))
@@ -140,10 +140,10 @@ export function acceptedSocialPubkeys(
 }
 
 export function hasActiveFacetAcceptance(
-  projection: IrisProfileRosterProjection,
+  projection: NostrIdentityRosterProjection,
   facetPubkey: string,
-  purpose: IrisProfileKeyPurpose,
-  acceptances: SignedIrisProfileFacetAcceptance[],
+  purpose: NostrIdentityKeyPurpose,
+  acceptances: SignedNostrIdentityFacetAcceptance[],
 ): boolean {
   return acceptances.some((acceptance) => (
     acceptance.content.facet_pubkey === facetPubkey
@@ -154,8 +154,8 @@ export function hasActiveFacetAcceptance(
 }
 
 export function isFacetAcceptanceActiveInRoster(
-  acceptance: SignedIrisProfileFacetAcceptance,
-  projection: IrisProfileRosterProjection,
+  acceptance: SignedNostrIdentityFacetAcceptance,
+  projection: NostrIdentityRosterProjection,
 ): boolean {
   if (acceptance.content.profile_id !== projection.profile_id) return false;
   const facet = projection.active_facets[acceptance.content.facet_pubkey];
@@ -163,6 +163,6 @@ export function isFacetAcceptanceActiveInRoster(
   return acceptance.content.purposes.every((purpose) => facetHasPurpose(facet, purpose));
 }
 
-export function facetHasPurpose(facet: IrisProfileFacet, purpose: IrisProfileKeyPurpose): boolean {
+export function facetHasPurpose(facet: NostrIdentityFacet, purpose: NostrIdentityKeyPurpose): boolean {
   return Boolean(facet.purposes?.includes(purpose));
 }

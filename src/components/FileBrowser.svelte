@@ -17,7 +17,8 @@
     buildEntryHref as buildFileEntryHref,
     buildTreeHref,
   } from './fileBrowserHrefs';
-  import { isActiveIrisProfileRouteScope } from '../drive/profileRoute';
+  import { isActiveNostrIdentityRouteScope } from '../drive/profileRoute';
+  import { isNostrIdentityId } from '../utils/route';
 
   import { getFileIcon } from '@iris/hashtree-app/fileIcon';
   import { BREAKPOINTS } from '@iris/hashtree-app/breakpoints';
@@ -68,7 +69,8 @@
 
   let inTreeView = $derived(!!currentTreeName || !!rootHash);
   let viewedNpub = $derived(currentNpub);
-  let isOwnDriveProfile = $derived(isActiveIrisProfileRouteScope(viewedNpub, $nostrStore));
+  let viewedNostrIdentityId = $derived(viewedNpub && isNostrIdentityId(viewedNpub) ? viewedNpub : null);
+  let isOwnDriveProfile = $derived(isActiveNostrIdentityRouteScope(viewedNpub, $nostrStore));
   let isOwnTrees = $derived(!viewedNpub || viewedNpub === userNpub || isOwnDriveProfile);
   let canEdit = $derived(isOwnTrees || !isLoggedIn);
 
@@ -442,9 +444,16 @@
   {:else}
     {#if viewedNpub}
       <div class="hidden lg:flex h-10 shrink-0 px-3 border-b border-surface-2 items-center gap-2 bg-surface-0">
-        <a href="#/{viewedNpub}/profile" class="no-underline min-w-0">
-          <UserRow pubkey={npubToPubkey(viewedNpub) || viewedNpub} avatarSize={24} showBadge class="min-w-0" />
-        </a>
+        {#if viewedNostrIdentityId}
+          <div class="min-w-0 flex items-center gap-2 text-sm text-text-2" data-testid="drive-profile-root-scope" title={viewedNostrIdentityId}>
+            <span class="i-lucide-folder-root shrink-0 text-text-3"></span>
+            <span class="truncate">{viewedNostrIdentityId}</span>
+          </div>
+        {:else}
+          <a href="#/{viewedNpub}/profile" class="no-underline min-w-0">
+            <UserRow pubkey={npubToPubkey(viewedNpub) || viewedNpub} avatarSize={24} showBadge class="min-w-0" />
+          </a>
+        {/if}
       </div>
     {/if}
     <div class="lg:hidden shrink-0 px-3 py-2 border-b border-surface-2 flex items-center gap-2 bg-surface-0">
@@ -454,9 +463,13 @@
         </a>
       {/if}
       {#if viewedNpub}
-        <a href="#/{viewedNpub}/profile" class="shrink-0">
-          <Avatar pubkey={npubToPubkey(viewedNpub) || ''} size={20} />
-        </a>
+        {#if viewedNostrIdentityId}
+          <span class="i-lucide-folder-root text-text-3 shrink-0"></span>
+        {:else}
+          <a href="#/{viewedNpub}/profile" class="shrink-0">
+            <Avatar pubkey={npubToPubkey(viewedNpub) || ''} size={20} />
+          </a>
+        {/if}
       {/if}
       <VisibilityIcon visibility={currentTreeVisibility} class="text-text-3 shrink-0" />
       <span class="i-lucide-folder-open text-warning shrink-0"></span>

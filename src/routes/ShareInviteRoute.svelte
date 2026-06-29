@@ -176,7 +176,7 @@
             <div class="rounded-lg border border-surface-2 bg-surface-1 px-3 py-2 flex items-center gap-3">
               <span class="i-lucide-user-round text-text-3"></span>
               <div class="min-w-0 flex-1">
-                <div class="text-sm font-medium text-text-1 truncate">{member.display_name || 'IrisProfile'}</div>
+                <div class="text-sm font-medium text-text-1 truncate">{member.display_name || 'NostrIdentity'}</div>
                 <div class="text-xs text-text-3 truncate">
                   {member.role_label || member.role} · {member.status_label || member.status}
                   {#if member.representative_npub_hint}

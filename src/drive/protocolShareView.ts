@@ -1,5 +1,5 @@
 import type { PendingShareInviteView, ShareShortcut, SharedFolder, SharedFolderView } from './protocolTypes';
-import { projectIrisProfileRoster } from './protocolProfileProjection';
+import { projectNostrIdentityRoster } from './protocolProfileProjection';
 import {
   activeShareKeyRecipients,
   shareKeyStatus,
@@ -20,13 +20,13 @@ export function projectSharedFolderView(
   shortcuts: ShareShortcut[],
   currentAppKeyPubkey: string,
 ): SharedFolderView {
-  const projection = projectIrisProfileRoster(folder.share_id, folder.roster_ops ?? []);
-  const epochNumbers = Object.keys(projection.key_epochs).map((epoch) => Number(epoch));
+  const projection = projectNostrIdentityRoster(folder.share_id, folder.roster_ops ?? []);
+  const epochNumbers = Object.keys(projection.secret_epochs).map((epoch) => Number(epoch));
   const currentKeyEpoch = epochNumbers.length ? Math.max(...epochNumbers) : undefined;
   const missing = currentKeyEpoch === undefined
     ? []
     : activeShareKeyRecipients(folder, projection)
-      .filter((pubkey) => !projection.key_epochs[String(currentKeyEpoch)]?.wrapped_dck[pubkey]);
+      .filter((pubkey) => !projection.secret_epochs[String(currentKeyEpoch)]?.wrapped_secrets[pubkey]);
   const keyStatus = shareKeyStatus(folder, projection, currentAppKeyPubkey, currentKeyEpoch, missing);
   const writeAuthorization = sharedFolderAppKeyWriteAuthorizationWithProjection(
     folder,

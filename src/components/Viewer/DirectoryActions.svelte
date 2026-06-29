@@ -5,11 +5,11 @@
    */
   import { getTree, decodeAsText } from '../../store';
   import { nostrStore } from '../../nostr';
-  import { routeStore, currentDirCidStore, treeRootStore, createTreesStore, directoryEntriesStore, permalinkSnapshotStore, resolvingPathStore } from '../../stores';
+  import { routeStore, currentDirCidStore, treeRootStore, createTreesStore, directoryEntriesStore, permalinkSnapshotStore } from '../../stores';
   import FolderActions from '../FolderActions.svelte';
   import ReadmePanel from './ReadmePanel.svelte';
   import { uploadFiles } from '../../stores/upload';
-  import { LinkType, toHex, type TreeEntry as HashTreeEntry, type TreeVisibility } from '@hashtree/core';
+  import { LinkType, type TreeEntry as HashTreeEntry, type TreeVisibility } from '@hashtree/core';
   import ViewerHeader from './ViewerHeader.svelte';
   import { buildSitesHref, findDirectorySiteEntry } from '../../lib/siteHref';
   import { buildTreeEventPermalink } from '../../lib/treeEventSnapshots';
@@ -22,15 +22,6 @@
   let currentPath = $derived(route.path);
   let dirEntries = $derived($directoryEntriesStore);
   let entries = $derived(dirEntries.entries);
-  let resolvingPath = $derived($resolvingPathStore);
-  // Detect stale entries while a navigation is still in flight: entries are
-  // "for" loadedHashKey, so when currentDirCid changes we should treat the
-  // store as still loading until the new entries land.
-  let currentDirHashKey = $derived(currentDirCid?.hash ? toHex(currentDirCid.hash) : null);
-  let entriesAreStale = $derived(
-    currentDirHashKey !== null && dirEntries.loadedHashKey !== currentDirHashKey
-  );
-
   let viewedNpub = $derived(route.npub ?? permalinkSnapshot.snapshot?.npub ?? null);
   let currentTreeName = $derived(route.treeName ?? permalinkSnapshot.snapshot?.treeName ?? null);
   let userNpub = $derived($nostrStore.npub);

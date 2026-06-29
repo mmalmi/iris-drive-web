@@ -22,14 +22,14 @@ export interface RouteInfo {
   compareBranches: { base: string; head: string } | null;
 }
 
-const IRIS_PROFILE_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const NOSTR_IDENTITY_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export function isIrisProfileId(value: string | undefined): value is string {
-  return !!value && IRIS_PROFILE_ID_RE.test(value);
+export function isNostrIdentityId(value: string | undefined): value is string {
+  return !!value && NOSTR_IDENTITY_ID_RE.test(value);
 }
 
 export function isIrisDriveRouteScope(value: string | undefined): value is string {
-  return !!value && (value.startsWith('npub') || isIrisProfileId(value));
+  return !!value && (value.startsWith('npub') || isNostrIdentityId(value));
 }
 
 function safeDecodeURIComponent(value: string): string {
@@ -94,7 +94,7 @@ export function parseRoute(): RouteInfo {
     return { npub: null, treeName: null, cid: null, path: [], isPermalink: false, params: emptyParams, compareBranches: null };
   }
 
-  // User / IrisProfile routes
+  // User / NostrIdentity routes
   if (isIrisDriveRouteScope(parts[0])) {
     const npub = parts[0];
 

@@ -10,6 +10,7 @@ import { toHex, type Hash, type RefResolverListEntry, type TreeVisibility } from
 import { nostrStore, type NostrState } from '../nostr';
 import Dexie from 'dexie';
 import { getAllLocalRoots, onCacheUpdate } from '../treeRootCache';
+import { isActiveNostrIdentityRouteScope } from '../drive/profileRoute';
 
 // Dexie database for link keys
 class LinkKeysDB extends Dexie {
@@ -158,8 +159,9 @@ export function createTreesStore(npub: string | null): Readable<TreeEntry[]> {
   }
 
   // Get current user's npub for comparison
-  const userNpub = nostrStore.getState().npub;
-  const isOwnTrees = npub === userNpub;
+  const nostrState = nostrStore.getState();
+  const userNpub = nostrState.npub;
+  const isOwnTrees = npub === userNpub || isActiveNostrIdentityRouteScope(npub, nostrState);
 
   // In-memory cache for decrypted link keys
   const decryptedLinkKeys: Record<string, string> = {};

@@ -35,7 +35,7 @@ describe('share dialog route', () => {
     const hinted = shareDialogRequestWithRecipientHint(request!, {
       representative_npub: 'npub1alice',
       display_name: 'Alice',
-      iris_profile_id: '123e4567-e89b-42d3-a456-426614174000',
+      nostr_identity_id: '123e4567-e89b-42d3-a456-426614174000',
     });
 
     expect(hinted.app_url).toBe(

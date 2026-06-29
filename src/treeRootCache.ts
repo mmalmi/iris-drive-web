@@ -11,8 +11,8 @@
 import type { Hash, TreeVisibility } from '@hashtree/core';
 import { fromHex } from '@hashtree/core';
 import { treeRootRegistry } from './TreeRootRegistry';
-import { isIrisProfileId, parseRoute } from './utils/route';
-import { publishIrisProfileDriveRootIfAvailable } from './drive/profileDriveRootPublish';
+import { isNostrIdentityId, parseRoute } from './utils/route';
+import { publishNostrIdentityDriveRootIfAvailable } from './drive/profileDriveRootPublish';
 
 /**
  * Initialize the publish function on the registry.
@@ -64,8 +64,8 @@ export async function initializePublishFn(): Promise<void> {
     }
 
     const rootCid = makeCid(record.hash, record.key);
-    if (isIrisProfileId(npub)) {
-      return publishIrisProfileDriveRootIfAvailable(treeName, rootCid, {
+    if (isNostrIdentityId(npub)) {
+      return publishNostrIdentityDriveRootIfAvailable(treeName, rootCid, {
         publishedAt: record.updatedAt,
         appKeySeq: record.updatedAt,
       });
@@ -82,7 +82,7 @@ export async function initializePublishFn(): Promise<void> {
     });
 
     if (!result?.success) return false;
-    return publishIrisProfileDriveRootIfAvailable(treeName, rootCid);
+    return publishNostrIdentityDriveRootIfAvailable(treeName, rootCid);
   });
 }
 

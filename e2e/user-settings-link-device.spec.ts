@@ -77,19 +77,23 @@ async function expectDeviceAdminBadges(page: Page, expectedRows: number, expecte
   await expect(keyList).not.toContainText('Receive keys');
 }
 
-async function expectDeviceLabels(page: Page, labels: string[]): Promise<void> {
+async function expectPrivateDeviceLabel(label: ReturnType<Page['locator']>): Promise<void> {
+  await expect(label).not.toHaveText(/^(Connected browser|Linked browser|Device)$/);
+  await expect(label).toHaveText(/.+/);
+}
+
+async function expectDeviceLabels(page: Page, count: number): Promise<void> {
   const rows = page.getByTestId('user-key-row');
-  await expect(rows).toHaveCount(labels.length, { timeout: 30000 });
-  for (const [index, label] of labels.entries()) {
-    await expect(rows.nth(index).locator('strong')).toHaveText(label);
+  await expect(rows).toHaveCount(count, { timeout: 30000 });
+  for (let index = 0; index < count; index += 1) {
+    await expectPrivateDeviceLabel(rows.nth(index).locator('strong'));
   }
 }
 
 async function expectLinkedDeviceLabel(page: Page): Promise<void> {
   const remoteLabel = page.getByTestId('user-key-row').nth(1).locator('strong');
-  await expect(remoteLabel).not.toHaveText('This device');
-  await expect(remoteLabel).not.toHaveText('Device');
-  await expect(remoteLabel).toHaveText(/.+/);
+  await expect(remoteLabel).not.toHaveText(/^(This device|Linked device)$/);
+  await expectPrivateDeviceLabel(remoteLabel);
 }
 
 async function createLinkInvite(page: Page): Promise<string> {
@@ -99,14 +103,14 @@ async function createLinkInvite(page: Page): Promise<string> {
   await expect(page.getByTestId('user-settings-summary')).toHaveCount(0);
   await expect(page.getByTestId('user-settings-devices').getByRole('heading', { name: 'Devices' })).toHaveCount(0);
   await expectDeviceAdminBadges(page, 1, 1);
-  await expectDeviceLabels(page, ['This device']);
+  await expectDeviceLabels(page, 1);
   await page.reload({ waitUntil: 'domcontentloaded' });
   await expect(page).toHaveURL(/#\/settings\/user/);
   await expect(page.getByTestId('user-settings-panel')).toBeVisible({ timeout: 30000 });
   await expect(page.getByTestId('user-settings-summary')).toHaveCount(0);
   await expect(page.getByTestId('user-settings-devices').getByRole('heading', { name: 'Devices' })).toHaveCount(0);
   await expectDeviceAdminBadges(page, 1, 1);
-  await expectDeviceLabels(page, ['This device']);
+  await expectDeviceLabels(page, 1);
   await page.getByTestId('user-add-device-toggle').click();
   await expect(page.getByTestId('user-add-device-panel')).toBeVisible();
   await expect(page.getByTestId('user-create-link')).toHaveCount(0);
@@ -152,7 +156,7 @@ async function expectPendingRequestAndApprove(page: Page): Promise<void> {
   await page.getByTestId('user-approve-link').click();
   await expect(page.getByTestId('user-link-request')).toHaveCount(0, { timeout: 30000 });
   await expectDeviceAdminBadges(page, 2, 1);
-  await expect(page.getByTestId('user-key-row').nth(0).locator('strong')).toHaveText('This device');
+  await expectPrivateDeviceLabel(page.getByTestId('user-key-row').nth(0).locator('strong'));
   await expectLinkedDeviceLabel(page);
   await expect(page.getByTestId('user-key-row').nth(1).getByTestId('user-grant-admin')).toBeVisible();
   await expect(page.getByTestId('user-key-row').nth(1).getByTestId('user-revoke-admin')).toHaveCount(0);
@@ -175,12 +179,12 @@ async function activateApprovedDevice(page: Page, profileId: string): Promise<vo
   await page.goto('/#/settings/user', { waitUntil: 'domcontentloaded' });
   await expect(page.getByTestId('user-settings-panel')).toBeVisible({ timeout: 30000 });
   await expectDeviceAdminBadges(page, 2, 1);
-  await expect(page.getByTestId('user-key-row').nth(0).locator('strong')).toHaveText('This device');
+  await expectPrivateDeviceLabel(page.getByTestId('user-key-row').nth(0).locator('strong'));
   await expectLinkedDeviceLabel(page);
 
   await expect.poll(async () => page.evaluate(async () => {
-    const { getCurrentIrisIdentitySession } = await import('/src/nostr');
-    const session = getCurrentIrisIdentitySession();
+    const { getCurrentNostrIdentitySession } = await import('/src/nostr');
+    const session = getCurrentNostrIdentitySession();
     const pubkey = (window as any).__nostrStore?.getState?.().pubkey;
     return {
       profileId: session?.profileId,
@@ -326,12 +330,12 @@ async function waitForPublishedProfileRoot(page: Page, relayUrl: string, expecte
     }]);
     const diagnostics = await page.evaluate(async (expectedHash: string) => {
       const { driveRootDTag, KIND_DRIVE_ROOT } = await import('/src/drive/protocol');
-      const { getCurrentIrisIdentitySession, isOwnTree, ndk } = await import('/src/nostr');
+      const { getCurrentNostrIdentitySession, isOwnTree, ndk } = await import('/src/nostr');
       const { parseRoute } = await import('/src/utils/route.ts');
       const { treeRootRegistry } = await import('/src/TreeRootRegistry');
       const { toHex } = await import('/src/lib/nhash.ts');
       const stored = JSON.parse(localStorage.getItem('iris:identity:session') ?? 'null');
-      const session = getCurrentIrisIdentitySession();
+      const session = getCurrentNostrIdentitySession();
       const state = (window as any).__nostrStore?.getState?.();
       const route = parseRoute();
       const profileId = stored?.profileId ?? session?.profileId ?? '';
@@ -402,8 +406,8 @@ async function gotoMain(page: Page): Promise<void> {
 
 async function gotoMainViaHeaderAvatar(page: Page, profileId: string): Promise<void> {
   const activeProfileId = await page.evaluate(async () => {
-    const { getCurrentIrisIdentitySession } = await import('/src/nostr');
-    const session = getCurrentIrisIdentitySession();
+    const { getCurrentNostrIdentitySession } = await import('/src/nostr');
+    const session = getCurrentNostrIdentitySession();
     const stored = JSON.parse(localStorage.getItem('iris:identity:session') ?? 'null');
     return session?.profileId ?? stored?.profileId ?? '';
   });
@@ -622,6 +626,30 @@ test.describe('Drive user settings link device', () => {
     const { deviceContext, devicePage, profileId } = await createLinkedDriveBrowsers(page, browser as Browser, relayUrl);
     try {
       await expectMainDirectoryTestFileSyncs(page, devicePage, profileId, relayUrl);
+    } finally {
+      await deviceContext.close();
+    }
+  });
+
+  test('activates a pasted invite after approval when the joining browser already has a Drive account', async ({ page, browser, relayUrl }) => {
+    test.setTimeout(120000);
+    await prepareDriveInstance(page, relayUrl);
+    const profileId = await createAdminDriveUser(page);
+    const invite = await createLinkInvite(page);
+    expect(invite).toMatch(/^https:\/\/drive\.iris\.to\/invite\//);
+
+    const deviceContext = await (browser as Browser).newContext();
+    const devicePage = await deviceContext.newPage();
+    try {
+      await prepareDriveInstance(devicePage, relayUrl);
+      await createAdminDriveUser(devicePage);
+      await linkDeviceFromUsers(devicePage, invite);
+
+      await devicePage.reload({ waitUntil: 'domcontentloaded' });
+      await expect(devicePage.getByTestId('user-pending-link')).toBeVisible({ timeout: 30000 });
+
+      await expectPendingRequestAndApprove(page);
+      await activateApprovedDevice(devicePage, profileId);
     } finally {
       await deviceContext.close();
     }

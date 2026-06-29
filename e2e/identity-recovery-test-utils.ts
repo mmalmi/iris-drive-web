@@ -1,9 +1,9 @@
 import { finalizeEvent, generateSecretKey, getPublicKey, nip19, type Event } from 'nostr-tools';
 import WebSocket from 'ws';
 import {
-  signIrisProfileFacetAcceptance,
-  signIrisProfileRosterOp,
-  type IrisProfileKeyPurpose,
+  signNostrIdentityFacetAcceptance,
+  signNostrIdentityRosterOp,
+  type NostrIdentityKeyPurpose,
 } from '../src/drive/protocol';
 
 export type RecoveryProfile = {
@@ -48,7 +48,7 @@ export async function publishEvent(relayUrl: string, event: Event): Promise<void
 export async function seedRecoverableProfile(
   relayUrl: string,
   recoverySecretKey: Uint8Array,
-  purpose: IrisProfileKeyPurpose,
+  purpose: NostrIdentityKeyPurpose,
 ): Promise<RecoveryProfile> {
   const profileId = crypto.randomUUID();
   const now = Math.floor(Date.now() / 1000);
@@ -57,7 +57,7 @@ export async function seedRecoverableProfile(
   const recoveryPubkey = getPublicKey(recoverySecretKey);
   const recoveryNsec = nip19.nsecEncode(recoverySecretKey);
 
-  const bootstrap = signIrisProfileRosterOp({
+  const bootstrap = signNostrIdentityRosterOp({
     signerSecretKey: adminSecretKey,
     profileId,
     createdAt: now,
@@ -70,15 +70,15 @@ export async function seedRecoverableProfile(
         capabilities: {
           can_write_roots: true,
           can_admin_profile: true,
-          can_receive_key_wraps: true,
-          can_decrypt_key_epochs: true,
+          can_receive_secret_wraps: true,
+          can_decrypt_secret_epochs: true,
         },
         added_at: now,
         label: 'Admin',
       },
     },
   });
-  const addRecovery = signIrisProfileRosterOp({
+  const addRecovery = signNostrIdentityRosterOp({
     signerSecretKey: adminSecretKey,
     profileId,
     parents: [bootstrap.op_id],
@@ -91,15 +91,15 @@ export async function seedRecoverableProfile(
         purposes: [purpose],
         capabilities: {
           can_recover_app_keys: true,
-          can_receive_key_wraps: true,
-          can_decrypt_key_epochs: true,
+          can_receive_secret_wraps: true,
+          can_decrypt_secret_epochs: true,
         },
         added_at: now + 1,
         label: 'Recovery key',
       },
     },
   });
-  const recoveryAcceptance = signIrisProfileFacetAcceptance({
+  const recoveryAcceptance = signNostrIdentityFacetAcceptance({
     signerSecretKey: recoverySecretKey,
     profileId,
     purposes: [purpose],

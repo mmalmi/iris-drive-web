@@ -1,50 +1,50 @@
 import {
-  buildIrisProfileFacetAcceptanceEvent as buildIdentityIrisProfileFacetAcceptanceEvent,
-  buildIrisProfileRosterOpEvent as buildIdentityIrisProfileRosterOpEvent,
-  parseIrisProfileFacetAcceptanceEvent as parseIdentityIrisProfileFacetAcceptanceEvent,
-  parseIrisProfileRosterOpEvent as parseIdentityIrisProfileRosterOpEvent,
-  signIrisProfileFacetAcceptance as signIdentityIrisProfileFacetAcceptance,
-  signIrisProfileRosterOp as signIdentityIrisProfileRosterOp,
-} from '@iris/identity/profileEvents';
+  buildNostrIdentityFacetAcceptanceEvent as buildIdentityNostrIdentityFacetAcceptanceEvent,
+  buildNostrIdentityRosterOpEvent as buildIdentityNostrIdentityRosterOpEvent,
+  parseNostrIdentityFacetAcceptanceEvent as parseIdentityNostrIdentityFacetAcceptanceEvent,
+  parseNostrIdentityRosterOpEvent as parseIdentityNostrIdentityRosterOpEvent,
+  signNostrIdentityFacetAcceptance as signIdentityNostrIdentityFacetAcceptance,
+  signNostrIdentityRosterOp as signIdentityNostrIdentityRosterOp,
+} from 'nostr-social-graph';
 import type { Event } from 'nostr-tools';
 import type {
-  BuildIrisProfileFacetAcceptanceEventOptions,
-  BuildIrisProfileRosterOpEventOptions,
-  SignedIrisProfileFacetAcceptance,
-  SignedIrisProfileRosterOp,
+  BuildNostrIdentityFacetAcceptanceEventOptions,
+  BuildNostrIdentityRosterOpEventOptions,
+  SignedNostrIdentityFacetAcceptance,
+  SignedNostrIdentityRosterOp,
 } from './protocolTypes';
 
-export function buildIrisProfileRosterOpEvent(options: BuildIrisProfileRosterOpEventOptions): Event {
-  return buildIdentityIrisProfileRosterOpEvent(options);
+export function buildNostrIdentityRosterOpEvent(options: BuildNostrIdentityRosterOpEventOptions): Event {
+  return buildIdentityNostrIdentityRosterOpEvent(options);
 }
 
-export function signIrisProfileRosterOp(
-  options: BuildIrisProfileRosterOpEventOptions,
-): SignedIrisProfileRosterOp {
-  return normalizeSignedRosterOp(signIdentityIrisProfileRosterOp(options));
+export function signNostrIdentityRosterOp(
+  options: BuildNostrIdentityRosterOpEventOptions,
+): SignedNostrIdentityRosterOp {
+  return normalizeSignedRosterOp(signIdentityNostrIdentityRosterOp(options));
 }
 
-export function buildIrisProfileFacetAcceptanceEvent(
-  options: BuildIrisProfileFacetAcceptanceEventOptions,
+export function buildNostrIdentityFacetAcceptanceEvent(
+  options: BuildNostrIdentityFacetAcceptanceEventOptions,
 ): Event {
-  return buildIdentityIrisProfileFacetAcceptanceEvent(options);
+  return buildIdentityNostrIdentityFacetAcceptanceEvent(options);
 }
 
-export function signIrisProfileFacetAcceptance(
-  options: BuildIrisProfileFacetAcceptanceEventOptions,
-): SignedIrisProfileFacetAcceptance {
-  return signIdentityIrisProfileFacetAcceptance(options);
+export function signNostrIdentityFacetAcceptance(
+  options: BuildNostrIdentityFacetAcceptanceEventOptions,
+): SignedNostrIdentityFacetAcceptance {
+  return signIdentityNostrIdentityFacetAcceptance(options);
 }
 
-export function parseIrisProfileRosterOpEvent(event: Event): SignedIrisProfileRosterOp {
-  return normalizeSignedRosterOp(parseIdentityIrisProfileRosterOpEvent(event));
+export function parseNostrIdentityRosterOpEvent(event: Event): SignedNostrIdentityRosterOp {
+  return normalizeSignedRosterOp(parseIdentityNostrIdentityRosterOpEvent(event));
 }
 
-export function parseIrisProfileFacetAcceptanceEvent(event: Event): SignedIrisProfileFacetAcceptance {
-  return parseIdentityIrisProfileFacetAcceptanceEvent(event);
+export function parseNostrIdentityFacetAcceptanceEvent(event: Event): SignedNostrIdentityFacetAcceptance {
+  return parseIdentityNostrIdentityFacetAcceptanceEvent(event);
 }
 
-function normalizeSignedRosterOp(signed: SignedIrisProfileRosterOp): SignedIrisProfileRosterOp {
+function normalizeSignedRosterOp(signed: SignedNostrIdentityRosterOp): SignedNostrIdentityRosterOp {
   return {
     ...signed,
     content: {

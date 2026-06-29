@@ -3,27 +3,27 @@ import { finalizeEvent, generateSecretKey, getPublicKey, nip19, nip44, verifyEve
 import { toHex } from '@hashtree/core';
 import {
   D_TAG_APP_KEYS,
-  IRIS_PROFILE_ROSTER_SCHEMA,
+  NOSTR_IDENTITY_ROSTER_SCHEMA,
   KIND_APP_KEYS,
   KIND_DRIVE_ROOT,
-  KIND_IRIS_PROFILE_ROSTER_OP,
+  KIND_NOSTR_IDENTITY_ROSTER_OP,
   KIND_LEGACY_DRIVE_ROOT,
   KIND_SHARE_ROSTER_CHECKPOINT,
   SHARE_INVITE_PREFIX,
   buildAppKeysEvent,
   buildDriveRootEvent,
-  buildIrisProfileRosterOpEvent,
+  buildNostrIdentityRosterOpEvent,
   driveRootDTag,
   encodeShareInvite,
-  irisProfileRosterOpDTag,
-  irisProfileRosterParentIds,
+  nostrIdentityRosterOpDTag,
+  nostrIdentityRosterParentIds,
   isDriveRootEventNewer,
   parseAppKeysEvent,
   parseDriveRootEventForDevice,
   parseDriveRootEventPreview,
-  parseIrisProfileRosterOpEvent,
+  parseNostrIdentityRosterOpEvent,
   parseShareInvite,
-  projectIrisProfileRoster,
+  projectNostrIdentityRoster,
   projectSharedFolderMemberRoster,
   projectSharedFolderView,
   resolveShareRecipientFromEvidence,
@@ -33,8 +33,8 @@ import {
   sharedFolderKeyRecipientPubkeys,
   sharedFolderFromInviteForProfile,
   shareRecipientsForResolvedRecipient,
-  signIrisProfileFacetAcceptance,
-  signIrisProfileRosterOp,
+  signNostrIdentityFacetAcceptance,
+  signNostrIdentityRosterOp,
   signShareRosterCheckpoint,
   wrapDriveContentKeyForAppKeys,
   type SharedFolder,
@@ -192,7 +192,7 @@ describe('iris-drive protocol root events', () => {
     expect(isDriveRootEventNewer(older, newer)).toBe(false);
   });
 
-  it('builds UUID-scoped AppKey drive roots for IrisProfile and share scopes', () => {
+  it('builds UUID-scoped AppKey drive roots for NostrIdentity and share scopes', () => {
     const profileId = '123e4567-e89b-42d3-a456-426614174000';
     const appSecret = generateSecretKey();
     const appPubkey = getPublicKey(appSecret);

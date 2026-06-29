@@ -30,7 +30,7 @@ describe('shareContacts', () => {
       {
         pubkey: alice,
         displayName: 'Alice',
-        irisProfileId: '123e4567-e89b-42d3-a456-426614174011',
+        nostrIdentityId: '123e4567-e89b-42d3-a456-426614174011',
       },
       {
         pubkey: bob,
@@ -46,7 +46,7 @@ describe('shareContacts', () => {
     expect(ranked[0].linked_npubs).toContain(nip19.npubEncode(alice));
     expect(ranked[0].linked_npubs).not.toContain('not-a-linked-npub');
     expect(ranked[0].recipient_evidence_json).toBe('{"profile_id":"123e4567-e89b-42d3-a456-426614174011"}');
-    expect(ranked[1].iris_profile_id).toBe('123e4567-e89b-42d3-a456-426614174011');
+    expect(ranked[1].nostr_identity_id).toBe('123e4567-e89b-42d3-a456-426614174011');
   });
 
   it('drops candidates with malformed representative npubs', () => {
