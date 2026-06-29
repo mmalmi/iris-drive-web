@@ -4,6 +4,7 @@
    * Shows list of app accounts, allows Drive user recovery, switching, and removing accounts.
    */
   import { onMount } from 'svelte';
+  import QRCode from 'qrcode';
   import AccountSwitcher from '@iris/svelte-ui/AccountSwitcher.svelte';
   import IdentityRecoveryPanel from '@iris/svelte-ui/IdentityRecoveryPanel.svelte';
   import type { IdentityCreateRequest, IdentityRecoveryRequest } from '@iris/svelte-ui';
@@ -16,12 +17,21 @@
     hasNostrExtension,
     type Account,
   } from '../accounts';
-  import { createDriveProfile, linkDriveDevice, recoverDriveProfileWithAppKey, restoreSession, waitForNostrExtension } from '../nostr';
-  import { parseDeviceLinkInvite } from '../drive/protocol';
+  import {
+    activateDriveDeviceApprovalIfApproved,
+    createDriveDeviceApprovalLink,
+    createDriveProfile,
+    recoverDriveProfileWithAppKey,
+    restoreSession,
+    waitForNostrExtension,
+    type DriveDeviceApprovalLink,
+  } from '../nostr';
   import { driveRootPath, normalizeOwnerNpub } from '../drive/setup';
   import { BackButton } from './ui';
 
   type UsersMode = 'list' | 'existing' | 'create' | 'no_existing';
+
+  const STORAGE_KEY_DEVICE_APPROVAL = 'iris:drive:pending-device-approval';
 
   interface AccountSwitcherItem {
     id: string;
@@ -46,6 +56,9 @@
   let recoveryError = $state('');
   let recoveryBusy = $state(false);
   let creatingProfile = $state(false);
+  let approvalLink = $state<DriveDeviceApprovalLink | null>(null);
+  let approvalQrUrl = $state('');
+  let approvalBusy = $state(false);
   let isExistingMode = $derived(mode === 'existing');
   let isCreateMode = $derived(mode === 'create');
   let isNoExistingMode = $derived(mode === 'no_existing');
@@ -71,6 +84,7 @@
   let accountOptions = $derived(sortedAccounts.map(accountSwitcherItem));
 
   onMount(() => {
+    approvalLink = readStoredApprovalLink();
     if (hasExtension) return;
 
     let cancelled = false;
@@ -83,6 +97,45 @@
 
     return () => {
       cancelled = true;
+    };
+  });
+
+  $effect(() => {
+    const link = approvalLink;
+    if (!link) {
+      approvalQrUrl = '';
+      return;
+    }
+    let cancelled = false;
+    QRCode.toDataURL(link.url, {
+      errorCorrectionLevel: 'M',
+      margin: 1,
+      scale: 6,
+      color: {
+        dark: '#111111',
+        light: '#ffffff',
+      },
+    }).then((url) => {
+      if (!cancelled) approvalQrUrl = url;
+    }).catch(() => {
+      if (!cancelled) approvalQrUrl = '';
+    });
+    return () => {
+      cancelled = true;
+    };
+  });
+
+  $effect(() => {
+    const link = approvalLink;
+    if (!link || !isExistingMode) return;
+    let cancelled = false;
+    const timer = setInterval(() => {
+      if (!cancelled) void checkApproval();
+    }, 3000);
+    void checkApproval();
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
     };
   });
 
@@ -122,6 +175,32 @@
     }
   }
 
+  function createApprovalRequest(): void {
+    const link = createDriveDeviceApprovalLink();
+    approvalLink = link;
+    saveStoredApprovalLink(link);
+    recoveryError = '';
+  }
+
+  async function checkApproval(): Promise<void> {
+    const link = approvalLink;
+    if (!link || approvalBusy) return;
+    approvalBusy = true;
+    try {
+      const approved = await activateDriveDeviceApprovalIfApproved(link.pendingApproval, link.appKeyNsec, {
+        timeoutMs: 2500,
+      });
+      if (!approved) return;
+      clearStoredApprovalLink();
+      approvalLink = null;
+      navigate(driveRootPath(approved.session.profileId));
+    } catch (error) {
+      recoveryError = error instanceof Error ? error.message : 'Approval check failed';
+    } finally {
+      approvalBusy = false;
+    }
+  }
+
   async function handleRecovery(request: IdentityRecoveryRequest) {
     if (recoveryBusy) return;
     recoveryBusy = true;
@@ -129,14 +208,6 @@
     try {
       const linkInput = request.method === 'nip46' ? request.nip46Connection?.trim() : '';
       if (linkInput) {
-        if (parseDeviceLinkInvite(linkInput)) {
-          const linked = await linkDriveDevice(linkInput);
-          if (!linked) {
-            throw new Error('Invalid Drive link');
-          }
-          navigate('/settings/user');
-          return;
-        }
         const ownerNpub = normalizeOwnerNpub(linkInput);
         if (ownerNpub) {
           navigate(driveRootPath(ownerNpub));
@@ -197,13 +268,33 @@
   function shouldAutoSubmitRecoveryRequest(request: IdentityRecoveryRequest): boolean {
     const linkInput = request.method === 'nip46' ? request.nip46Connection?.trim() : '';
     if (!linkInput) return false;
-    return Boolean(parseDeviceLinkInvite(linkInput) || normalizeOwnerNpub(linkInput));
+    return Boolean(normalizeOwnerNpub(linkInput));
   }
 
   function isRecoveryIdentityMiss(message: string): boolean {
     return message.includes('No Drive user found')
       || message.includes('No Drive identity found')
       || message.includes('No identity roster events found');
+  }
+
+  function readStoredApprovalLink(): DriveDeviceApprovalLink | null {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY_DEVICE_APPROVAL);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as DriveDeviceApprovalLink;
+      if (!parsed?.url || !parsed.appKeyNsec || !parsed.pendingApproval?.request) return null;
+      return parsed;
+    } catch {
+      return null;
+    }
+  }
+
+  function saveStoredApprovalLink(link: DriveDeviceApprovalLink): void {
+    localStorage.setItem(STORAGE_KEY_DEVICE_APPROVAL, JSON.stringify(link));
+  }
+
+  function clearStoredApprovalLink(): void {
+    localStorage.removeItem(STORAGE_KEY_DEVICE_APPROVAL);
   }
 </script>
 
@@ -233,8 +324,51 @@
 
   {#if isExistingMode}
     <div class="identity-recovery-shell bg-surface-1 rounded-lg p-4 space-y-3" data-testid="identity-recovery-section">
+      <section class="rounded-lg bg-surface-2 p-3 space-y-3" data-testid="device-approval-request-section">
+        <div class="flex items-center justify-between gap-3">
+          <h2 class="text-sm font-semibold text-text-1">Link this device</h2>
+          <button
+            type="button"
+            class="btn-ghost flex items-center gap-2 text-sm"
+            onclick={createApprovalRequest}
+            disabled={recoveryBusy || creatingProfile || approvalBusy}
+            data-testid="create-device-approval-request"
+          >
+            <span class={approvalLink ? 'i-lucide-refresh-cw' : 'i-lucide-qr-code'}></span>
+            <span>{approvalLink ? 'New QR' : 'Show QR'}</span>
+          </button>
+        </div>
+        {#if approvalLink}
+          <div class="grid gap-3 justify-items-center">
+            {#if approvalQrUrl}
+              <img
+                class="h-48 w-48 rounded bg-white p-2"
+                src={approvalQrUrl}
+                alt="Device approval QR code"
+                data-testid="device-approval-qr"
+              />
+            {/if}
+            <button
+              type="button"
+              class="btn-success flex w-full items-center justify-center gap-2 text-sm"
+              onclick={checkApproval}
+              disabled={approvalBusy}
+              data-testid="check-device-approval"
+            >
+              {#if approvalBusy}
+                <span class="i-lucide-loader-2 animate-spin"></span>
+              {:else}
+                <span class="i-lucide-refresh-cw"></span>
+              {/if}
+              <span>Check approval</span>
+            </button>
+          </div>
+        {/if}
+      </section>
+
       <IdentityRecoveryPanel
         methodLayout="column"
+        methods={['nsec', 'seed_phrase', 'nip07']}
         disabled={recoveryBusy || creatingProfile}
         error={recoveryError}
         submitLabel="Continue"
@@ -251,6 +385,7 @@
     <div class="identity-recovery-shell bg-surface-1 rounded-lg p-4 space-y-3" data-testid="identity-recovery-create-screen">
       <IdentityRecoveryPanel
         methodLayout="column"
+        methods={['nsec', 'seed_phrase', 'nip07']}
         disabled={recoveryBusy || creatingProfile}
         showCreateNew={true}
         showCreateNewName={true}

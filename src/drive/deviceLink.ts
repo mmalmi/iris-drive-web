@@ -1,22 +1,48 @@
 import { generateSecretKey, getPublicKey, nip19 } from 'nostr-tools';
+import {
+  createNostrIdentityDeviceApprovalRequest,
+  encodeNostrIdentityDeviceApprovalRequest,
+  parseNostrIdentityDeviceApprovalRequest,
+  createNostrIdentityDeviceLinkInvite,
+  encodeNostrIdentityDeviceLinkInvite,
+  parseNostrIdentityDeviceLinkInvite,
+  isCompleteNostrIdentityDeviceLinkInviteInput,
+  pubkeyToNpub,
+  npubToPubkey,
+  type LocalNostrIdentityDeviceApprovalRequest,
+  type NostrIdentityDeviceApprovalRequest,
+  type NostrIdentityDeviceApprovalRequestedResource,
+  type NostrIdentityDeviceLinkInvite,
+  type NostrIdentityDeviceLinkRequest,
+} from '@iris/identity';
 import type { NostrIdentityId, SignedNostrIdentityRosterOp } from './protocolTypes';
 
 export const DEVICE_LINK_INVITE_PREFIX = 'https://drive.iris.to/invite/';
+export const DEVICE_APPROVAL_REQUEST_PREFIX = 'https://drive.iris.to/approve-device/';
 export const DEVICE_LINK_INVITE_VERSION = 1;
+export const DEVICE_APPROVAL_REQUEST_TYPE = 'device_link';
 
-export interface DeviceLinkInvite {
-  profileId: NostrIdentityId;
-  adminAppKeyPubkey: string;
-  invitePubkey: string;
-}
+export const DRIVE_DEVICE_APPROVAL_RESOURCES: readonly NostrIdentityDeviceApprovalRequestedResource[] = [
+  {
+    type: 'iris_drive',
+    id: 'drive.iris.to',
+    scopes: [
+      'app_key',
+      'write_roots',
+      'receive_secret_wraps',
+      'decrypt_secret_epochs',
+    ],
+  },
+];
 
-export interface DeviceLinkRequest {
-  profileId: NostrIdentityId;
-  adminAppKeyPubkey: string;
-  invitePubkey: string;
-  deviceAppKeyPubkey: string;
-  label?: string;
-  requestedAt: number;
+export type DeviceLinkInvite = NostrIdentityDeviceLinkInvite;
+export type DeviceLinkRequest = NostrIdentityDeviceLinkRequest;
+export type DriveDeviceApprovalRequest = NostrIdentityDeviceApprovalRequest;
+export type LocalDriveDeviceApprovalRequest = LocalNostrIdentityDeviceApprovalRequest;
+
+export interface PendingDriveDeviceApproval {
+  request: DriveDeviceApprovalRequest;
+  requestSecretKeyNsec: string;
 }
 
 export type NostrIdentitySessionStatus = 'active' | 'pending_device_link';
@@ -31,6 +57,7 @@ export interface NostrIdentitySession {
   createdAt: number;
   label?: string;
   pendingDeviceLink?: DeviceLinkRequest;
+  pendingDeviceApproval?: PendingDriveDeviceApproval;
 }
 
 export interface StoredNostrIdentitySession {
@@ -42,48 +69,41 @@ export interface StoredNostrIdentitySession {
   createdAt: number;
   label?: string;
   pendingDeviceLink?: DeviceLinkRequest;
+  pendingDeviceApproval?: PendingDriveDeviceApproval;
 }
 
-type DeviceLinkInvitePayload = {
-  v: number;
-  profileId: string;
-  adminAppKeyNpub: string;
-  inviteNpub: string;
-};
+export interface DriveDeviceApprovalDraft {
+  appKeySecretKey: Uint8Array;
+  request: LocalDriveDeviceApprovalRequest;
+  url: string;
+  label?: string;
+}
 
 export function encodeDeviceLinkInvite(invite: DeviceLinkInvite): string {
-  const payload: DeviceLinkInvitePayload = {
-    v: DEVICE_LINK_INVITE_VERSION,
-    profileId: invite.profileId,
-    adminAppKeyNpub: pubkeyToNpub(invite.adminAppKeyPubkey),
-    inviteNpub: pubkeyToNpub(invite.invitePubkey),
-  };
-  return `${DEVICE_LINK_INVITE_PREFIX}${base64UrlEncode(JSON.stringify(payload))}`;
+  return encodeNostrIdentityDeviceLinkInvite(invite, { prefix: DEVICE_LINK_INVITE_PREFIX });
 }
 
 export function parseDeviceLinkInvite(input: string): DeviceLinkInvite | null {
-  const value = input.trim().replace(/^nostr:/i, '');
-  if (!value) return null;
-  const payload = payloadFromInviteUrl(value);
-  if (payload === null) return null;
-  try {
-    return normalizeInvitePayload(JSON.parse(base64UrlDecode(payload)) as DeviceLinkInvitePayload);
-  } catch {
-    return null;
-  }
+  return parseNostrIdentityDeviceLinkInvite(input, {
+    prefixes: [DEVICE_LINK_INVITE_PREFIX],
+  });
 }
 
 export function isCompleteDeviceLinkInviteInput(input: string): boolean {
   const value = input.trim().replace(/^nostr:/i, '');
   if (!value || /\s/.test(value)) return false;
   if (payloadFromShareInviteUrl(value) !== null) return false;
-  const payload = payloadFromInviteUrl(value);
-  if (payload === null) return false;
-  try {
-    return normalizeInvitePayload(JSON.parse(base64UrlDecode(payload)) as DeviceLinkInvitePayload) !== null;
-  } catch {
-    return false;
-  }
+  return isCompleteNostrIdentityDeviceLinkInviteInput(value, {
+    prefixes: [DEVICE_LINK_INVITE_PREFIX],
+  });
+}
+
+export function createDeviceLinkInvite(options: {
+  profileId: NostrIdentityId;
+  adminAppKeyPubkey: string;
+  inviteSecretKey?: Uint8Array;
+}): DeviceLinkInvite & { inviteSecretKey: Uint8Array } {
+  return createNostrIdentityDeviceLinkInvite(options);
 }
 
 export function createPendingDeviceLinkSession(options: {
@@ -117,42 +137,89 @@ export function createPendingDeviceLinkSession(options: {
   };
 }
 
-export function pubkeyToNpub(pubkey: string): string {
-  return nip19.npubEncode(requirePubkey(pubkey, 'pubkey'));
-}
-
-export function npubToPubkey(value: string): string | null {
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  if (/^[0-9a-f]{64}$/i.test(trimmed)) return trimmed.toLowerCase();
-  if (!trimmed.startsWith('npub1')) return null;
-  try {
-    const decoded = nip19.decode(trimmed);
-    return decoded.type === 'npub' && typeof decoded.data === 'string'
-      ? decoded.data.toLowerCase()
-      : null;
-  } catch {
-    return null;
-  }
-}
-
-function normalizeInvitePayload(payload: DeviceLinkInvitePayload): DeviceLinkInvite | null {
-  if (payload.v !== DEVICE_LINK_INVITE_VERSION) return null;
-  if (!payload.profileId || !payload.adminAppKeyNpub || !payload.inviteNpub) return null;
-  const adminAppKeyPubkey = npubToPubkey(payload.adminAppKeyNpub);
-  const invitePubkey = npubToPubkey(payload.inviteNpub);
-  if (!adminAppKeyPubkey || !invitePubkey) return null;
+export function createDriveDeviceApprovalDraft(options: {
+  appKeySecretKey?: Uint8Array;
+  requestSecretKey?: Uint8Array;
+  requestedAt?: number;
+  label?: string;
+  profileId?: NostrIdentityId;
+  adminAppKeyPubkey?: string;
+} = {}): DriveDeviceApprovalDraft {
+  const appKeySecretKey = options.appKeySecretKey ?? generateSecretKey();
+  const request = createNostrIdentityDeviceApprovalRequest({
+    deviceAppKeySecretKey: appKeySecretKey,
+    ...(options.requestSecretKey ? { requestSecretKey: options.requestSecretKey } : {}),
+    requestedAt: options.requestedAt ?? Math.floor(Date.now() / 1000),
+    requestType: DEVICE_APPROVAL_REQUEST_TYPE,
+    resources: DRIVE_DEVICE_APPROVAL_RESOURCES.map((resource) => ({ ...resource })),
+    expiresAt: (options.requestedAt ?? Math.floor(Date.now() / 1000)) + 15 * 60,
+    ...(options.profileId ? { profileId: options.profileId } : {}),
+    ...(options.adminAppKeyPubkey ? { adminAppKeyPubkey: options.adminAppKeyPubkey } : {}),
+    ...(options.label?.trim() ? { label: options.label.trim() } : {}),
+  });
   return {
-    profileId: payload.profileId,
-    adminAppKeyPubkey,
-    invitePubkey,
+    appKeySecretKey,
+    request,
+    url: encodeDriveDeviceApprovalRequest(request),
+    ...(options.label?.trim() ? { label: options.label.trim() } : {}),
   };
 }
 
-function payloadFromInviteUrl(input: string): string | null {
-  const lower = input.toLowerCase();
-  if (!lower.startsWith(DEVICE_LINK_INVITE_PREFIX)) return null;
-  return input.slice(DEVICE_LINK_INVITE_PREFIX.length).split(/[?#]/, 1)[0].trim();
+export function encodeDriveDeviceApprovalRequest(request: DriveDeviceApprovalRequest): string {
+  return encodeNostrIdentityDeviceApprovalRequest(request, { prefix: DEVICE_APPROVAL_REQUEST_PREFIX });
+}
+
+export function parseDriveDeviceApprovalRequest(input: string): DriveDeviceApprovalRequest | null {
+  return parseNostrIdentityDeviceApprovalRequest(input, {
+    prefixes: [DEVICE_APPROVAL_REQUEST_PREFIX],
+  });
+}
+
+export function isCompleteDriveDeviceApprovalRequestInput(input: string): boolean {
+  const value = input.trim().replace(/^nostr:/i, '');
+  if (!value || /\s/.test(value)) return false;
+  return parseDriveDeviceApprovalRequest(value) !== null;
+}
+
+export function pendingDriveDeviceApprovalFromDraft(
+  draft: Pick<DriveDeviceApprovalDraft, 'request'>,
+): PendingDriveDeviceApproval {
+  return {
+    request: serializableDriveDeviceApprovalRequest(draft.request),
+    requestSecretKeyNsec: nip19.nsecEncode(draft.request.requestSecretKey),
+  };
+}
+
+export function driveDeviceApprovalRequestSecretKey(pending: PendingDriveDeviceApproval): Uint8Array {
+  const decoded = nip19.decode(pending.requestSecretKeyNsec);
+  if (decoded.type !== 'nsec') {
+    throw new Error('Stored device approval request secret is not an nsec');
+  }
+  const secretKey = decoded.data as Uint8Array;
+  if (getPublicKey(secretKey) !== pending.request.requestPubkey) {
+    throw new Error('Stored device approval request secret does not match the request pubkey');
+  }
+  return secretKey;
+}
+
+export { pubkeyToNpub, npubToPubkey };
+
+function serializableDriveDeviceApprovalRequest(
+  request: LocalDriveDeviceApprovalRequest,
+): DriveDeviceApprovalRequest {
+  return {
+    requestPubkey: request.requestPubkey,
+    deviceAppKeyPubkey: request.deviceAppKeyPubkey,
+    requestSecret: request.requestSecret,
+    deviceAppKeyProof: request.deviceAppKeyProof,
+    requestedAt: request.requestedAt,
+    ...(request.requestType ? { requestType: request.requestType } : {}),
+    ...(request.resources ? { resources: request.resources.map((resource) => ({ ...resource })) } : {}),
+    ...(request.expiresAt !== undefined ? { expiresAt: request.expiresAt } : {}),
+    ...(request.profileId ? { profileId: request.profileId } : {}),
+    ...(request.adminAppKeyPubkey ? { adminAppKeyPubkey: request.adminAppKeyPubkey } : {}),
+    ...(request.label ? { label: request.label } : {}),
+  };
 }
 
 function payloadFromShareInviteUrl(input: string): string | null {
@@ -164,37 +231,4 @@ function payloadFromShareInviteUrl(input: string): string | null {
   ].find((candidate) => lower.startsWith(candidate));
   if (!prefix) return null;
   return input.slice(prefix.length).split(/[?#]/, 1)[0].trim();
-}
-
-function base64UrlEncode(value: string): string {
-  if (typeof Buffer !== 'undefined') {
-    return Buffer.from(value, 'utf8').toString('base64url');
-  }
-  const bytes = new TextEncoder().encode(value);
-  let binary = '';
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/u, '');
-}
-
-function base64UrlDecode(value: string): string {
-  if (looksLikePlaceholder(value)) throw new Error('device link invite is a placeholder');
-  if (typeof Buffer !== 'undefined') {
-    return Buffer.from(value, 'base64url').toString('utf8');
-  }
-  let base64 = value.replace(/-/g, '+').replace(/_/g, '/');
-  base64 += '='.repeat((4 - (base64.length % 4)) % 4);
-  const binary = atob(base64);
-  const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
-  return new TextDecoder().decode(bytes);
-}
-
-function looksLikePlaceholder(value: string): boolean {
-  const trimmed = value.trim();
-  return trimmed.includes('...') || trimmed === '<code>' || trimmed === '<payload>' || trimmed === '<invite>';
-}
-
-function requirePubkey(value: string, label: string): string {
-  const normalized = npubToPubkey(value);
-  if (!normalized) throw new Error(`${label} pubkey must be npub or 64-char hex`);
-  return normalized;
 }

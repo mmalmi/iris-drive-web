@@ -16,6 +16,7 @@
 
   // Route handlers
   import DeviceInviteRoute from '../routes/DeviceInviteRoute.svelte';
+  import DeviceApprovalRoute from '../routes/DeviceApprovalRoute.svelte';
   import HomeRoute from '../routes/HomeRoute.svelte';
   import ShareDialogRoute from '../routes/ShareDialogRoute.svelte';
   import ShareInviteRoute from '../routes/ShareInviteRoute.svelte';
@@ -26,6 +27,7 @@
   // Note: More specific routes must come before less specific ones
   const routePatterns = [
     { pattern: '/', component: HomeRoute },
+    { pattern: '/approve-device/:payload', component: DeviceApprovalRoute },
     { pattern: '/invite/:payload', component: DeviceInviteRoute },
     { pattern: '/share', component: ShareDialogRoute },
     { pattern: '/share-invite/:payload', component: ShareInviteRoute },
@@ -73,6 +75,8 @@
     <HomeRoute />
   {:else if route.component === DeviceInviteRoute}
     <DeviceInviteRoute payload={route.params.payload || ''} />
+  {:else if route.component === DeviceApprovalRoute}
+    <DeviceApprovalRoute payload={route.params.payload || ''} />
   {:else if route.component === ShareDialogRoute}
     <ShareDialogRoute />
   {:else if route.component === ShareInviteRoute}
