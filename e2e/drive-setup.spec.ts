@@ -1,4 +1,4 @@
-import { getPublicKey, generateSecretKey, nip19 } from 'nostr-tools';
+import { generateSecretKey } from 'nostr-tools';
 import { expect, test, type Page } from './fixtures';
 import {
   clearAllStorage,
@@ -9,30 +9,6 @@ import {
   waitForRelayConnected,
 } from './test-utils';
 import { seedRecoverableProfile } from './identity-recovery-test-utils';
-
-const profileId = '019ed693-4110-7352-8cc3-be90158ba91e';
-
-function keypair(): { nsec: string; npub: string } {
-  const secret = generateSecretKey();
-  const pubkey = getPublicKey(secret);
-  return {
-    nsec: nip19.nsecEncode(secret),
-    npub: nip19.npubEncode(pubkey),
-  };
-}
-
-function inviteLink(adminAppKeyNpub: string): string {
-  const inviteSecret = generateSecretKey();
-  const payload = Buffer
-    .from(JSON.stringify({
-      v: 1,
-      profileId,
-      adminAppKeyNpub,
-      inviteNpub: nip19.npubEncode(getPublicKey(inviteSecret)),
-    }))
-    .toString('base64url');
-  return `https://drive.iris.to/invite/${payload}`;
-}
 
 async function openFreshSetup(page: Page, relayUrl?: string): Promise<void> {
   setupPageErrorHandler(page);
@@ -99,7 +75,7 @@ test.describe('Drive setup', () => {
     await page.getByTestId('add-existing-profile').click();
     await expect(page).toHaveURL(/#\/users\/existing/);
     await expect(page.getByTestId('identity-recovery-section')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Link device' })).toBeVisible();
+    await expect(page.getByTestId('create-device-approval-request')).toBeVisible();
     await expect(page.locator('input[placeholder="nsec1..."]')).toHaveCount(0);
 
     await page.getByRole('button', { name: 'Secret key' }).click();
@@ -119,49 +95,42 @@ test.describe('Drive setup', () => {
     await expectDriveRoute(page, profile.profileId);
   });
 
-  test('auto-opens the owner drive when a link-app npub is entered', async ({ page }) => {
-    const owner = keypair();
+  test('shows approval QR controls instead of the legacy link-device input', async ({ page }) => {
     await openFreshSetup(page);
 
     await page.getByTestId('add-existing-profile').click();
-    await page.getByRole('button', { name: 'Link device' }).click();
-    await expect(page.getByLabel('Link device')).toBeVisible();
+    await expect(page).toHaveURL(/#\/users\/existing/);
+    await expect(page.getByRole('button', { name: 'Link device' })).toHaveCount(0);
+    await expect(page.getByLabel('Link device')).toHaveCount(0);
     await expect(page.getByLabel('Relay')).toHaveCount(0);
-
-    await page.getByLabel('Link device').fill(owner.npub);
-    await expectDriveRoute(page, owner.npub);
+    await expect(page.getByTestId('create-device-approval-request')).toBeVisible();
   });
 
-  test('creates a pending linked-device session when an invite link is entered', async ({ page, relayUrl }) => {
-    const admin = keypair();
-    await openFreshSetup(page, relayUrl);
+  test('creates a device approval QR/link from the add-existing setup flow', async ({ page }) => {
+    await openFreshSetup(page);
 
     await page.getByTestId('add-existing-profile').click();
-    await page.getByRole('button', { name: 'Link device' }).click();
-    await expect(page.getByLabel('Relay')).toHaveCount(0);
+    await expect(page).toHaveURL(/#\/users\/existing/);
+    await expect(page.getByTestId('device-approval-request-section')).toBeVisible({ timeout: 30000 });
+    await page.getByTestId('create-device-approval-request').click();
 
-    await page.getByLabel('Link device').fill(inviteLink(admin.npub));
-    const linkedPubkeyHandle = await page.waitForFunction((expectedProfileId: string) => {
-      const store = (window as unknown as {
-        __nostrStore?: { getState?: () => { npub?: string } };
-      }).__nostrStore;
-      const stored = JSON.parse(localStorage.getItem('iris:identity:session') ?? 'null');
-      if (
-        stored?.status === 'pending_device_link'
-        && stored?.profileId === expectedProfileId
-        && stored?.pendingDeviceLink?.adminAppKeyPubkey
-        && store?.getState?.().isLoggedIn === false
-      ) {
-        return stored.pendingDeviceLink.deviceAppKeyPubkey;
-      }
-      return null;
-    }, profileId);
-    const linkedPubkey = await linkedPubkeyHandle.jsonValue() as string;
-
-    const decodedAdmin = nip19.decode(admin.npub);
-    expect(decodedAdmin.type).toBe('npub');
-    expect(linkedPubkey).not.toBe(decodedAdmin.data);
-    await expect(page).toHaveURL(/#\/settings\/user/);
-    await expect(page.getByTestId('user-pending-link')).toBeVisible({ timeout: 30000 });
+    const qrCode = page.getByTestId('device-approval-qr');
+    await expect(qrCode).toBeVisible({ timeout: 10000 });
+    await expect.poll(async () => qrCode.getAttribute('src'), { timeout: 10000 }).toMatch(/^data:image\/png;base64,/);
+    const approvalState = await page.evaluate(() => {
+      const approval = JSON.parse(localStorage.getItem('iris:drive:pending-device-approval') ?? 'null') as {
+        url?: string;
+        pendingApproval?: { request?: { deviceAppKeyPubkey?: string } };
+      } | null;
+      const session = JSON.parse(localStorage.getItem('iris:identity:session') ?? 'null') as { status?: string } | null;
+      return {
+        url: approval?.url ?? '',
+        deviceAppKeyPubkey: approval?.pendingApproval?.request?.deviceAppKeyPubkey ?? '',
+        sessionStatus: session?.status ?? '',
+      };
+    });
+    expect(approvalState.url).toMatch(/^https:\/\/drive\.iris\.to\/approve-device\//);
+    expect(approvalState.deviceAppKeyPubkey).toMatch(/^[0-9a-f]{64}$/);
+    expect(approvalState.sessionStatus).not.toBe('pending_device_link');
   });
 });

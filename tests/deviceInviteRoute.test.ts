@@ -25,4 +25,17 @@ describe('device approval route', () => {
     expect(router).not.toContain("'/invite/:payload'");
     expect(routerStore).not.toContain("pathname.startsWith('/invite/')");
   });
+
+  it('uses approve-device as the visible settings add-device flow', () => {
+    const settings = fs.readFileSync(path.join(appRoot, 'src/components/settings/UserSettings.svelte'), 'utf8');
+
+    expect(settings).toContain('data-testid="device-approval-section"');
+    expect(settings).toContain('data-testid="device-approval-input"');
+    expect(settings).toContain('approveDriveDeviceApprovalRequest');
+    expect(settings).toContain('showAddDeviceSection={false}');
+    expect(settings).not.toContain('createDriveDeviceLinkInvite');
+    expect(settings).not.toContain('subscribeDriveDeviceLinkRequests');
+    expect(settings).not.toContain('deviceLinkInvites');
+    expect(settings).not.toContain('user-link-invite');
+  });
 });

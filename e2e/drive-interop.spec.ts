@@ -176,20 +176,14 @@ async function prepareFreshPage(
   await waitForRelayConnected(page, 30000);
 }
 
-async function createWebOwnerInviteThroughSettings(page: Page): Promise<string> {
-  await page.evaluate(async () => {
-    const { createDriveProfile } = await import('/src/nostr');
+async function createLegacyWebOwnerDeviceInvite(page: Page): Promise<string> {
+  const invite = await page.evaluate(async () => {
+    const { createDriveDeviceLinkInvite, createDriveProfile } = await import('/src/nostr');
     await createDriveProfile();
+    return createDriveDeviceLinkInvite();
   });
   await flushPendingPublishes(page);
-  await page.goto('/#/settings/user', { waitUntil: 'domcontentloaded' });
-  await expect(page.getByTestId('user-settings-panel')).toBeVisible({ timeout: 30000 });
-  await page.getByTestId('user-add-device-toggle').click();
-  await expect(page.getByTestId('user-link-invite-qr')).toBeVisible({ timeout: 10000 });
-  return page.evaluate(() => {
-    const all = JSON.parse(localStorage.getItem('iris:drive:device-link-invites') ?? '{}') as Record<string, { url?: string }>;
-    return Object.values(all).find((invite) => invite.url?.startsWith('https://drive.iris.to/invite/'))?.url ?? '';
-  });
+  return invite.url;
 }
 
 async function createFileWithContent(page: Page, fileName: string, content: string): Promise<void> {
@@ -739,7 +733,7 @@ test.describe('Iris Drive web interop', () => {
     }
   });
 
-  test('native idrive link request appears in web owner device settings', async ({ page, relayUrl }) => {
+  test('native idrive approval request can be pasted into web owner device settings', async ({ page, relayUrl }) => {
     test.setTimeout(300000);
     test.skip(!fs.existsSync(repoRoot()), 'iris-drive repo not available');
 
@@ -749,7 +743,7 @@ test.describe('Iris Drive web interop', () => {
 
     try {
       await prepareFreshPage(page, relayUrl);
-      const invite = await createWebOwnerInviteThroughSettings(page);
+      const invite = await createLegacyWebOwnerDeviceInvite(page);
       expect(invite).toMatch(/^https:\/\/drive\.iris\.to\/invite\//);
       const profileId = await page.evaluate(() => {
         const stored = JSON.parse(localStorage.getItem('iris:identity:session') ?? 'null');
@@ -757,14 +751,38 @@ test.describe('Iris Drive web interop', () => {
       });
       expect(profileId).toMatch(/^[0-9a-f-]{36}$/);
 
-      runIdriveJson(nativeConfigDir, ['link', invite, '--label', 'iOS native']);
+      const linked = runIdriveJson(nativeConfigDir, ['link', invite, '--label', 'iOS native']);
+      const approvalRequest = linked.app_key_link_request?.url ?? '';
+      expect(approvalRequest).toMatch(/^https:\/\/drive\.iris\.to\/approve-device\//);
       configureNativeBlossom(nativeConfigDir);
       daemon = startIdriveDaemon(nativeConfigDir, relayUrl);
 
-      await expect(page.getByTestId('user-link-request')).toBeVisible({ timeout: 45000 });
-      await expect(page.getByTestId('user-link-request')).toContainText('iOS native');
-      await page.getByTestId('user-approve-link').click();
-      await expect(page.getByTestId('user-link-request')).toHaveCount(0, { timeout: 45000 });
+      await page.goto('/#/settings/user', { waitUntil: 'domcontentloaded' });
+      await expect(page.getByTestId('user-settings-panel')).toBeVisible({ timeout: 30000 });
+      await expect(page.getByTestId('device-approval-section')).toBeVisible({ timeout: 30000 });
+      await expect(page.getByTestId('user-add-device-section')).toHaveCount(0);
+      await page.getByTestId('device-approval-input').fill(approvalRequest);
+      await page.getByTestId('approve-device-request').click();
+      await flushPendingPublishes(page);
+      await expect.poll(async () => page.evaluate(async () => {
+        const { getCurrentNostrIdentitySession } = await import('/src/nostr');
+        const { projectNostrIdentityRoster } = await import('/src/drive/protocol');
+        const session = getCurrentNostrIdentitySession();
+        const projection = session?.status === 'active'
+          ? projectNostrIdentityRoster(session.profileId, session.rosterOps)
+          : null;
+        return {
+          rowCount: document.querySelectorAll('[data-testid="user-key-row"]').length,
+          activeCount: projection ? Object.keys(projection.active_facets).length : 0,
+          rosterOps: session?.rosterOps.length ?? 0,
+          error: document.querySelector('[data-testid="user-settings-error"]')?.textContent?.trim() ?? '',
+        };
+      }), { timeout: 45000 }).toMatchObject({
+        rowCount: 2,
+        activeCount: 2,
+        error: '',
+      });
+      await expect(page.getByTestId('user-key-row').nth(1)).toContainText('iOS native');
 
       await expect.poll(() => {
         runIdriveJson(nativeConfigDir, ['sync', '--relay', relayUrl, '--timeout', '3']);
