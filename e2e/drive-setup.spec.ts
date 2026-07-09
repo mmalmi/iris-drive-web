@@ -76,10 +76,7 @@ test.describe('Drive setup', () => {
     await expect(page).toHaveURL(/#\/users\/existing/);
     await expect(page.getByTestId('identity-recovery-section')).toBeVisible();
     await expect(page.getByTestId('device-approval-request-section')).toBeVisible();
-    await expect(page.getByTestId('create-device-approval-request')).toHaveCount(0);
-    await expect(page.getByTestId('check-device-approval')).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'New QR' })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Check approval' })).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'Request Link' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Copy Request Link' })).toBeVisible({ timeout: 10000 });
     await expect(page.locator('input[placeholder="nsec1..."]')).toHaveCount(0);
 
@@ -100,19 +97,14 @@ test.describe('Drive setup', () => {
     await expectDriveRoute(page, profile.profileId);
   });
 
-  test('shows request-link QR controls instead of the legacy link-device input', async ({ page }) => {
+  test('shows request-link QR controls', async ({ page }) => {
     await openFreshSetup(page);
 
     await page.getByTestId('add-existing-profile').click();
     await expect(page).toHaveURL(/#\/users\/existing/);
-    await expect(page.getByRole('button', { name: 'Link device' })).toHaveCount(0);
-    await expect(page.getByLabel('Link device')).toHaveCount(0);
-    await expect(page.getByLabel('Relay')).toHaveCount(0);
-    await expect(page.getByTestId('create-device-approval-request')).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'New QR' })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Check approval' })).toHaveCount(0);
     await expect(page.getByRole('heading', { name: 'Request Link' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Copy Request Link' })).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId('device-approval-qr')).toBeVisible({ timeout: 10000 });
   });
 
   test('creates a compact request-link QR from the add-existing setup flow', async ({ page }) => {

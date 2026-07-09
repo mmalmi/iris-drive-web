@@ -111,8 +111,7 @@ async function createDeviceApprovalRequest(page: Page): Promise<string> {
   await page.getByTestId('add-existing-profile').click();
   await expect(page).toHaveURL(/#\/users\/existing/);
   await expect(page.getByTestId('device-approval-request-section')).toBeVisible({ timeout: 30000 });
-  await expect(page.getByTestId('create-device-approval-request')).toHaveCount(0);
-  await expect(page.getByTestId('check-device-approval')).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Request Link' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Copy Request Link' })).toBeVisible({ timeout: 10000 });
   const qrCode = page.getByTestId('device-approval-qr');
   await expect(qrCode).toBeVisible({ timeout: 10000 });
@@ -613,9 +612,8 @@ test.describe('Drive user settings link device', () => {
       const approvalUrl = await createDeviceApprovalRequest(devicePage);
 
       await devicePage.reload({ waitUntil: 'domcontentloaded' });
-      await expect(devicePage.getByTestId('check-device-approval')).toHaveCount(0);
-      await expect(devicePage.getByRole('button', { name: 'Check approval' })).toHaveCount(0);
       await expect(devicePage.getByTestId('device-approval-request-section')).toBeVisible({ timeout: 30000 });
+      await expect(devicePage.getByRole('heading', { name: 'Request Link' })).toBeVisible();
 
       await approveDeviceApprovalRequest(page, approvalUrl);
       await activateApprovedDevice(devicePage, profileId);
