@@ -170,10 +170,6 @@
   async function handleGenerateNew(request?: IdentityCreateRequest) {
     if (creatingProfile) return;
     const name = request?.name?.trim() ?? '';
-    if (!name) {
-      recoveryError = 'Name is required';
-      return;
-    }
     creatingProfile = true;
     recoveryError = '';
     try {
@@ -432,7 +428,7 @@
         <button
           type="submit"
           class="btn-success flex w-full items-center justify-center gap-2"
-          disabled={recoveryBusy || creatingProfile || !createProfileName.trim()}
+          disabled={recoveryBusy || creatingProfile}
           data-testid="create-new-after-recovery-miss"
         >
           {#if creatingProfile}

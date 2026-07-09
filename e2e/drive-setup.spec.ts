@@ -52,8 +52,7 @@ test.describe('Drive setup', () => {
     await expect(page.getByRole('heading', { name: 'Create Profile' })).toHaveCount(1);
     await expect(page.getByText('This name is used for your Drive user profile.')).toHaveCount(0);
     await expect(page.getByTestId('identity-create-name')).toBeVisible();
-    await expect(page.getByTestId('create-new-after-recovery-miss')).toBeDisabled();
-    await page.getByTestId('identity-create-name').fill('Drive Test User');
+    await expect(page.getByTestId('create-new-after-recovery-miss')).toBeEnabled();
     await page.getByTestId('identity-create-name').press('Enter');
 
     const profileIdHandle = await page.waitForFunction(() => {
