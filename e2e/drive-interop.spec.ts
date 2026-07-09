@@ -753,8 +753,8 @@ test.describe('Iris Drive web interop', () => {
 
       const linked = runIdriveJson(nativeConfigDir, ['link', invite, '--label', 'iOS native']);
       const approvalRequest = linked.app_key_link_request?.url ?? '';
-      expect(approvalRequest).toMatch(/^iris-drive:\/\/app-key-link\?app_key=[0-9a-f]{64}/);
-      expect(approvalRequest.length).toBeLessThan(160);
+      expect(approvalRequest).toMatch(/^https:\/\/drive\.iris\.to\/approve-device\//);
+      expect(approvalRequest).not.toContain('app_key=');
       configureNativeBlossom(nativeConfigDir);
       daemon = startIdriveDaemon(nativeConfigDir, relayUrl);
 
@@ -764,6 +764,7 @@ test.describe('Iris Drive web interop', () => {
       await expect(page.getByTestId('user-add-device-section')).toHaveCount(0);
       await page.getByTestId('device-approval-input').fill(approvalRequest);
       await page.getByTestId('approve-device-request').click();
+      await expect(page.getByTestId('device-approval-input')).toHaveValue('', { timeout: 60000 });
       await flushPendingPublishes(page);
       await expect.poll(async () => page.evaluate(async () => {
         const { getCurrentNostrIdentitySession } = await import('/src/nostr');

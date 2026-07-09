@@ -1,7 +1,6 @@
 import { generateSecretKey, getPublicKey, nip19 } from 'nostr-tools';
 import {
   createNostrIdentityDeviceApprovalRequest,
-  encodeCompactNostrIdentityDeviceApprovalRequest,
   encodeNostrIdentityDeviceApprovalRequest,
   parseCompactNostrIdentityDeviceApprovalRequest,
   parseNostrIdentityDeviceApprovalRequest,
@@ -173,26 +172,13 @@ export function createDriveDeviceApprovalDraft(options: {
   return {
     appKeySecretKey,
     request,
-    url: encodeCompactDriveDeviceApprovalRequest(request),
+    url: encodeDriveDeviceApprovalRequest(request),
     ...(options.label?.trim() ? { label: options.label.trim() } : {}),
   };
 }
 
 export function encodeDriveDeviceApprovalRequest(request: FullDriveDeviceApprovalRequest): string {
   return encodeNostrIdentityDeviceApprovalRequest(request, { prefix: DEVICE_APPROVAL_REQUEST_PREFIX });
-}
-
-export function encodeCompactDriveDeviceApprovalRequest(
-  request: Pick<FullDriveDeviceApprovalRequest, 'deviceAppKeyPubkey' | 'label'>,
-): string {
-  let url = encodeCompactNostrIdentityDeviceApprovalRequest(request.deviceAppKeyPubkey, {
-    prefix: DEVICE_APPROVAL_COMPACT_PREFIX,
-  });
-  const label = normalizeCompactLabel(request.label);
-  if (label) {
-    url += `&label=${encodeCompactQueryValue(label)}`;
-  }
-  return url;
 }
 
 export function parseDriveDeviceApprovalRequest(input: string): DriveDeviceApprovalRequest | null {
@@ -294,22 +280,6 @@ function normalizeCompactLabel(label: string | undefined): string | null {
     .trim();
   if (!normalized) return null;
   return Array.from(normalized).slice(0, 64).join('');
-}
-
-function encodeCompactQueryValue(value: string): string {
-  return Array.from(new TextEncoder().encode(value))
-    .map((byte) => (
-      (byte >= 0x30 && byte <= 0x39)
-        || (byte >= 0x41 && byte <= 0x5a)
-        || (byte >= 0x61 && byte <= 0x7a)
-        || byte === 0x2d
-        || byte === 0x2e
-        || byte === 0x5f
-        || byte === 0x7e
-    )
-      ? String.fromCharCode(byte)
-      : `%${byte.toString(16).toUpperCase().padStart(2, '0')}`)
-    .join('');
 }
 
 function decodeCompactQueryValue(value: string): string {

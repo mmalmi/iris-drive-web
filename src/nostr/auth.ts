@@ -741,6 +741,10 @@ export async function approveDriveDeviceApprovalRequest(
     dckRotationOp,
   ]);
   if (!updated) throw new Error('Approved key removed the active Drive user');
+  const updatedProjection = projectNostrIdentityRoster(updated.profileId, updated.rosterOps);
+  if (!updatedProjection.active_facets[request.deviceAppKeyPubkey]) {
+    throw new Error('Approved Drive key was not added to the active roster');
+  }
   saveStoredDeviceLabels(updated.profileId, deviceLabels);
   return updated;
 }

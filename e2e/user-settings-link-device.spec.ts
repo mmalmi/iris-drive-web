@@ -120,8 +120,8 @@ async function createDeviceApprovalRequest(page: Page): Promise<string> {
     const stored = JSON.parse(localStorage.getItem('iris:drive:pending-device-approval') ?? 'null') as { url?: string } | null;
     return stored?.url ?? '';
   });
-  expect(approvalUrl).toMatch(/^iris-drive:\/\/app-key-link\?app_key=[0-9a-f]{64}/);
-  expect(approvalUrl.length).toBeLessThan(160);
+  expect(approvalUrl).toMatch(/^https:\/\/drive\.iris\.to\/approve-device\//);
+  expect(approvalUrl).not.toContain('app_key=');
   return approvalUrl;
 }
 

@@ -26,7 +26,7 @@
     waitForNostrExtension,
     type DriveDeviceApprovalLink,
   } from '../nostr';
-  import { encodeCompactDriveDeviceApprovalRequest } from '../drive/deviceLink';
+  import { encodeDriveDeviceApprovalRequest } from '../drive/deviceLink';
   import { driveRootPath, normalizeOwnerNpub } from '../drive/setup';
   import { BackButton } from './ui';
 
@@ -307,9 +307,9 @@
       if (!raw) return null;
       const parsed = JSON.parse(raw) as DriveDeviceApprovalLink;
       if (!parsed?.url || !parsed.appKeyNsec || !parsed.pendingApproval?.request) return null;
-      const compactUrl = encodeCompactDriveDeviceApprovalRequest(parsed.pendingApproval.request);
-      if (parsed.url === compactUrl) return parsed;
-      const normalized = { ...parsed, url: compactUrl };
+      const fullUrl = encodeDriveDeviceApprovalRequest(parsed.pendingApproval.request);
+      if (parsed.url === fullUrl) return parsed;
+      const normalized = { ...parsed, url: fullUrl };
       saveStoredApprovalLink(normalized);
       return normalized;
     } catch {

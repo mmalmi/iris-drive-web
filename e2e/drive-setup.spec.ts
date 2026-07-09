@@ -1,7 +1,8 @@
-import { generateSecretKey } from 'nostr-tools';
+import { generateSecretKey, getPublicKey, nip19 } from 'nostr-tools';
 import { expect, test, type Page } from './fixtures';
 import {
   clearAllStorage,
+  evaluateWithRetry,
   presetLocalRelayInDB,
   setupPageErrorHandler,
   useLocalRelay,
@@ -9,6 +10,20 @@ import {
   waitForRelayConnected,
 } from './test-utils';
 import { seedRecoverableProfile } from './identity-recovery-test-utils';
+import { createDriveDeviceApprovalDraft, pendingDriveDeviceApprovalFromDraft } from '../src/drive/deviceLink';
+
+function createStoredCompactApprovalLink(label = 'Browser') {
+  const draft = createDriveDeviceApprovalDraft({ label });
+  const appKeyPubkey = getPublicKey(draft.appKeySecretKey);
+  return {
+    url: `iris-drive://app-key-link?app_key=${draft.request.deviceAppKeyPubkey}&label=${encodeURIComponent(label)}`,
+    appKeyNsec: nip19.nsecEncode(draft.appKeySecretKey),
+    appKeyNpub: nip19.npubEncode(appKeyPubkey),
+    appKeyPubkey,
+    pendingApproval: pendingDriveDeviceApprovalFromDraft(draft),
+    label,
+  };
+}
 
 async function openFreshSetup(page: Page, relayUrl?: string): Promise<void> {
   setupPageErrorHandler(page);
@@ -113,7 +128,7 @@ test.describe('Drive setup', () => {
     await expect(page.getByTestId('device-approval-qr')).toBeVisible({ timeout: 10000 });
   });
 
-  test('creates a compact request-link QR from the add-existing setup flow', async ({ page }) => {
+  test('creates a full request-link QR from the add-existing setup flow', async ({ page }) => {
     await openFreshSetup(page);
 
     await page.getByTestId('add-existing-profile').click();
@@ -135,35 +150,31 @@ test.describe('Drive setup', () => {
         sessionStatus: session?.status ?? '',
       };
     });
-    expect(approvalState.url).toMatch(/^iris-drive:\/\/app-key-link\?app_key=[0-9a-f]{64}/);
-    expect(approvalState.url.length).toBeLessThan(160);
+    expect(approvalState.url).toMatch(/^https:\/\/drive\.iris\.to\/approve-device\//);
+    expect(approvalState.url).not.toContain('app_key=');
     expect(approvalState.deviceAppKeyPubkey).toMatch(/^[0-9a-f]{64}$/);
     expect(approvalState.sessionStatus).not.toBe('pending_device_link');
   });
 
-  test('normalizes a stored legacy approval URL before drawing the request-link QR', async ({ page }) => {
+  test('normalizes a stored compact approval URL before drawing the request-link QR', async ({ page }) => {
+    const legacyApproval = createStoredCompactApprovalLink('Browser');
     await openFreshSetup(page);
 
-    await page.evaluate(async () => {
-      const { createDriveDeviceApprovalLink } = await import('/src/nostr');
-      const { encodeDriveDeviceApprovalRequest } = await import('/src/drive/deviceLink');
-      const link = createDriveDeviceApprovalLink({ label: 'Browser' });
+    await evaluateWithRetry(page, (link) => {
       localStorage.setItem('iris:drive:pending-device-approval', JSON.stringify({
         ...link,
-        url: encodeDriveDeviceApprovalRequest(link.pendingApproval.request),
       }));
-    });
+    }, legacyApproval, 6);
 
     await page.goto('/#/users/existing', { waitUntil: 'domcontentloaded' });
     await expect(page.getByTestId('device-approval-request-section')).toBeVisible({ timeout: 30000 });
     await expect(page.getByTestId('device-approval-qr')).toBeVisible({ timeout: 10000 });
 
-    const storedUrl = await page.evaluate(() => {
+    const storedUrl = await evaluateWithRetry(page, () => {
       const stored = JSON.parse(localStorage.getItem('iris:drive:pending-device-approval') ?? 'null') as { url?: string } | null;
       return stored?.url ?? '';
-    });
-    expect(storedUrl).toMatch(/^iris-drive:\/\/app-key-link\?app_key=[0-9a-f]{64}/);
-    expect(storedUrl.length).toBeLessThan(160);
-    expect(storedUrl).not.toContain('/approve-device/');
+    }, undefined, 6);
+    expect(storedUrl).toMatch(/^https:\/\/drive\.iris\.to\/approve-device\//);
+    expect(storedUrl).not.toContain('app_key=');
   });
 });
