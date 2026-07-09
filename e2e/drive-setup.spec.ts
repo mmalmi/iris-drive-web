@@ -1,4 +1,4 @@
-import { generateSecretKey, getPublicKey, nip19 } from 'nostr-tools';
+import { generateSecretKey } from 'nostr-tools';
 import { expect, test, type Page } from './fixtures';
 import {
   clearAllStorage,
@@ -10,20 +10,6 @@ import {
   waitForRelayConnected,
 } from './test-utils';
 import { seedRecoverableProfile } from './identity-recovery-test-utils';
-import { createDriveDeviceApprovalDraft, pendingDriveDeviceApprovalFromDraft } from '../src/drive/deviceLink';
-
-function createStoredCompactApprovalLink(label = 'Browser') {
-  const draft = createDriveDeviceApprovalDraft({ label });
-  const appKeyPubkey = getPublicKey(draft.appKeySecretKey);
-  return {
-    url: `iris-drive://app-key-link?app_key=${draft.request.deviceAppKeyPubkey}&label=${encodeURIComponent(label)}`,
-    appKeyNsec: nip19.nsecEncode(draft.appKeySecretKey),
-    appKeyNpub: nip19.npubEncode(appKeyPubkey),
-    appKeyPubkey,
-    pendingApproval: pendingDriveDeviceApprovalFromDraft(draft),
-    label,
-  };
-}
 
 async function openFreshSetup(page: Page, relayUrl?: string): Promise<void> {
   setupPageErrorHandler(page);
@@ -156,25 +142,4 @@ test.describe('Drive setup', () => {
     expect(approvalState.sessionStatus).not.toBe('pending_device_link');
   });
 
-  test('normalizes a stored compact approval URL before drawing the request-link QR', async ({ page }) => {
-    const legacyApproval = createStoredCompactApprovalLink('Browser');
-    await openFreshSetup(page);
-
-    await evaluateWithRetry(page, (link) => {
-      localStorage.setItem('iris:drive:pending-device-approval', JSON.stringify({
-        ...link,
-      }));
-    }, legacyApproval, 6);
-
-    await page.goto('/#/users/existing', { waitUntil: 'domcontentloaded' });
-    await expect(page.getByTestId('device-approval-request-section')).toBeVisible({ timeout: 30000 });
-    await expect(page.getByTestId('device-approval-qr')).toBeVisible({ timeout: 10000 });
-
-    const storedUrl = await evaluateWithRetry(page, () => {
-      const stored = JSON.parse(localStorage.getItem('iris:drive:pending-device-approval') ?? 'null') as { url?: string } | null;
-      return stored?.url ?? '';
-    }, undefined, 6);
-    expect(storedUrl).toMatch(/^https:\/\/drive\.iris\.to\/approve-device\//);
-    expect(storedUrl).not.toContain('app_key=');
-  });
 });

@@ -132,7 +132,7 @@ describe('native app-key-link request interop', () => {
     })).resolves.toBeNull();
   });
 
-  it('parses previous native 30078 app-key-link frames for the active invite', async () => {
+  it('rejects previous native 30078 app-key-link frames', async () => {
     const deviceSecret = generateSecretKey();
     const device = getPublicKey(deviceSecret);
     const inviteSecret = generateSecretKey();
@@ -156,26 +156,12 @@ describe('native app-key-link request interop', () => {
       }),
     }, deviceSecret) as NostrToolsEvent;
 
-    const parsed = await parseDriveDeviceLinkRequestEventForAdmin(oldEvent, {
+    await expect(parseDriveDeviceLinkRequestEventForAdmin(oldEvent, {
       profileId,
       adminAppKeyPubkey,
       invitePubkey: getPublicKey(inviteSecret),
       inviteSecretKey: inviteSecret,
-    });
-
-    expect(parsed).toMatchObject({
-      pubkey: device,
-      label: 'TestFlight iPhone',
-      requestedAt: 1_782_377_000,
-      request: {
-        profileId,
-        adminAppKeyPubkey,
-        invitePubkey,
-        deviceAppKeyPubkey: device,
-        requestedAt: 1_782_377_000,
-        label: 'TestFlight iPhone',
-      },
-    });
+    })).resolves.toBeNull();
   });
 
   it('rejects old native 30078 app-key-link frames without the active invite pubkey', async () => {
@@ -247,17 +233,13 @@ describe('native app-key-link request interop', () => {
     }, (requests) => received.push(requests));
 
     expect(subscribe).toHaveBeenCalledTimes(2);
-    expect(subscribe.mock.calls[0][0]).toEqual(expect.arrayContaining([
+    expect(subscribe.mock.calls[0][0]).toEqual([
       expect.objectContaining({
         kinds: [7368],
         '#i': [profileId],
         '#p': [invitePubkey],
       }),
-      expect.objectContaining({
-        kinds: [30078],
-        '#d': [`iris-drive/${profileId}/app-key-link-request`],
-      }),
-    ]));
+    ]);
     expect(subscribe.mock.calls[0][1]).toMatchObject({ closeOnEose: false });
     expect(subscribe.mock.calls[1][1]).toMatchObject({ closeOnEose: true });
 

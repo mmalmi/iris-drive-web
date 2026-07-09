@@ -1,15 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import { generateSecretKey, getPublicKey } from 'nostr-tools';
 import {
+  buildDeviceApprovalReceiptEvent,
+  parseDeviceApprovalReceiptEvent,
+} from '@iris/identity';
+import {
   DEVICE_APPROVAL_REQUEST_PREFIX,
-  DEVICE_APPROVAL_COMPACT_PREFIX,
   DEVICE_APPROVAL_REQUEST_TYPE,
   DRIVE_DEVICE_APPROVAL_RESOURCES,
   createDriveDeviceApprovalDraft,
   driveDeviceApprovalRequestSecretKey,
   encodeDriveDeviceApprovalRequest,
   isCompleteDriveDeviceApprovalRequestInput,
-  isCompactDriveDeviceApprovalRequest,
   parseDriveDeviceApprovalRequest,
   pendingDriveDeviceApprovalFromDraft,
 } from '../src/drive/deviceLink';
@@ -33,9 +35,7 @@ describe('Drive device approval requests', () => {
     expect(draft.request.resources).toEqual(DRIVE_DEVICE_APPROVAL_RESOURCES);
     expect(draft.request.deviceAppKeyProof).not.toContain(draft.request.requestSecret);
 
-    const parsed = parseDriveDeviceApprovalRequest(draft.url);
-    expect(parsed && isCompactDriveDeviceApprovalRequest(parsed)).toBe(false);
-    expect(parsed).toEqual({
+    expect(parseDriveDeviceApprovalRequest(draft.url)).toEqual({
       requestPubkey: draft.request.requestPubkey,
       deviceAppKeyPubkey: draft.request.deviceAppKeyPubkey,
       requestSecret: draft.request.requestSecret,
@@ -50,25 +50,15 @@ describe('Drive device approval requests', () => {
     expect(isCompleteDriveDeviceApprovalRequestInput(`nostr:${draft.url}`)).toBe(true);
   });
 
-  it('still parses compact legacy approval request URLs as input only', () => {
+  it('rejects compact requests that lack proof, request key, and request secret', () => {
     const draft = createDriveDeviceApprovalDraft({
       requestedAt: 1_782_388_000,
       label: 'Browser',
     });
-    const legacyUrl = `${DEVICE_APPROVAL_COMPACT_PREFIX}?app_key=${draft.request.deviceAppKeyPubkey}&label=Browser`;
+    const legacyUrl = `iris-drive://app-key-link?app_key=${draft.request.deviceAppKeyPubkey}&label=Browser`;
 
-    expect(legacyUrl).toMatch(/^iris-drive:\/\/app-key-link\?app_key=[0-9a-f]{64}&label=Browser$/);
-    const parsed = parseDriveDeviceApprovalRequest(legacyUrl);
-
-    expect(parsed && isCompactDriveDeviceApprovalRequest(parsed)).toBe(true);
-    expect(parsed).toEqual({
-      format: 'compact_app_key_link',
-      deviceAppKeyPubkey: draft.request.deviceAppKeyPubkey,
-      requestedAt: 0,
-      requestType: DEVICE_APPROVAL_REQUEST_TYPE,
-      resources: DRIVE_DEVICE_APPROVAL_RESOURCES,
-      label: 'Browser',
-    });
+    expect(parseDriveDeviceApprovalRequest(legacyUrl)).toBeNull();
+    expect(isCompleteDriveDeviceApprovalRequestInput(legacyUrl)).toBe(false);
   });
 
   it('parses full approval request URLs', () => {
@@ -104,6 +94,36 @@ describe('Drive device approval requests', () => {
     expect(pending.request.requestSecret).toBe(draft.request.requestSecret);
     expect(pending.requestSecretKeyNsec).toMatch(/^nsec1/);
     expect(getPublicKey(driveDeviceApprovalRequestSecretKey(pending))).toBe(draft.request.requestPubkey);
+  });
+
+  it('accepts only a receipt bound to the exact persisted request', () => {
+    const adminSecretKey = generateSecretKey();
+    const adminPubkey = getPublicKey(adminSecretKey);
+    const draft = createDriveDeviceApprovalDraft({
+      requestedAt: 1_782_388_100,
+      profileId: '123e4567-e89b-42d3-a456-426614174000',
+      adminAppKeyPubkey: adminPubkey,
+    });
+    const receipt = buildDeviceApprovalReceiptEvent({
+      signerSecretKey: adminSecretKey,
+      request: draft.request,
+      profileId: '123e4567-e89b-42d3-a456-426614174000',
+      approvedAt: 1_782_388_101,
+    });
+
+    expect(parseDeviceApprovalReceiptEvent(receipt, {
+      requestSecretKey: draft.request.requestSecretKey,
+      request: draft.request,
+      approvedByPubkey: adminPubkey,
+    }).requestPubkey).toBe(draft.request.requestPubkey);
+    expect(() => parseDeviceApprovalReceiptEvent(receipt, {
+      requestSecretKey: draft.request.requestSecretKey,
+      request: {
+        ...draft.request,
+        requestSecret: 'different_request_secret_abcdefghijklmnopqrstuvwxyz',
+      },
+      approvedByPubkey: adminPubkey,
+    })).toThrow(/receipt secret mismatch/);
   });
 
   it('does not treat old invite URLs as approval requests', () => {
