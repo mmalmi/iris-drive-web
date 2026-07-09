@@ -57,13 +57,15 @@
   let recoveryBusy = $state(false);
   let creatingProfile = $state(false);
   let approvalLink = $state<DriveDeviceApprovalLink | null>(null);
+  let approvalLinkReady = $state(false);
   let approvalQrUrl = $state('');
   let approvalBusy = $state(false);
+  let copyRequestFeedback = $state('');
   let isExistingMode = $derived(mode === 'existing');
   let isCreateMode = $derived(mode === 'create');
   let isNoExistingMode = $derived(mode === 'no_existing');
   let isSecondaryMode = $derived(isExistingMode || isCreateMode || isNoExistingMode);
-  let headerTitle = $derived(isCreateMode || isNoExistingMode ? 'Create new' : isExistingMode ? 'Sign in' : 'Users');
+  let headerTitle = $derived(isCreateMode || isNoExistingMode ? 'Create Profile' : isExistingMode ? 'Sign in' : 'Users');
   let backHref = $derived(isNoExistingMode ? '/users/existing' : '/users');
   let initialRecoveryRequest = $derived<IdentityRecoveryRequest | null>(
     initialDeviceLink.trim()
@@ -85,6 +87,7 @@
 
   onMount(() => {
     approvalLink = readStoredApprovalLink();
+    approvalLinkReady = true;
     if (hasExtension) return;
 
     let cancelled = false;
@@ -123,6 +126,12 @@
     return () => {
       cancelled = true;
     };
+  });
+
+  $effect(() => {
+    if (approvalLinkReady && isExistingMode && !approvalLink) {
+      createApprovalRequest();
+    }
   });
 
   $effect(() => {
@@ -180,6 +189,18 @@
     approvalLink = link;
     saveStoredApprovalLink(link);
     recoveryError = '';
+    copyRequestFeedback = '';
+  }
+
+  async function copyApprovalRequest(): Promise<void> {
+    const link = approvalLink;
+    if (!link) return;
+    try {
+      await navigator.clipboard.writeText(link.url);
+      copyRequestFeedback = 'Request link copied';
+    } catch {
+      copyRequestFeedback = 'Clipboard unavailable';
+    }
   }
 
   async function checkApproval(): Promise<void> {
@@ -326,17 +347,11 @@
     <div class="identity-recovery-shell bg-surface-1 rounded-lg p-4 space-y-3" data-testid="identity-recovery-section">
       <section class="rounded-lg bg-surface-2 p-3 space-y-3" data-testid="device-approval-request-section">
         <div class="flex items-center justify-between gap-3">
-          <h2 class="text-sm font-semibold text-text-1">Link this device</h2>
-          <button
-            type="button"
-            class="btn-ghost flex items-center gap-2 text-sm"
-            onclick={createApprovalRequest}
-            disabled={recoveryBusy || creatingProfile || approvalBusy}
-            data-testid="create-device-approval-request"
-          >
-            <span class={approvalLink ? 'i-lucide-refresh-cw' : 'i-lucide-qr-code'}></span>
-            <span>{approvalLink ? 'New QR' : 'Show QR'}</span>
-          </button>
+          <h2 class="text-sm font-semibold text-text-1">Request Link</h2>
+          <div class="flex items-center gap-2 text-xs text-text-3">
+            <span class="i-lucide-loader-2 animate-spin"></span>
+            <span>Waiting for approval</span>
+          </div>
         </div>
         {#if approvalLink}
           <div class="grid gap-3 justify-items-center">
@@ -350,18 +365,16 @@
             {/if}
             <button
               type="button"
-              class="btn-success flex w-full items-center justify-center gap-2 text-sm"
-              onclick={checkApproval}
-              disabled={approvalBusy}
-              data-testid="check-device-approval"
+              class="btn-ghost flex w-full items-center justify-center gap-2 border border-surface-3 text-sm"
+              onclick={copyApprovalRequest}
+              data-testid="copy-device-approval-request"
             >
-              {#if approvalBusy}
-                <span class="i-lucide-loader-2 animate-spin"></span>
-              {:else}
-                <span class="i-lucide-refresh-cw"></span>
-              {/if}
-              <span>Check approval</span>
+              <span class="i-lucide-link"></span>
+              <span>Copy Request Link</span>
             </button>
+            {#if copyRequestFeedback}
+              <p class="text-xs text-text-3" data-testid="copy-device-approval-feedback">{copyRequestFeedback}</p>
+            {/if}
           </div>
         {/if}
       </section>
@@ -393,9 +406,9 @@
         createNewNameLabel="Name"
         createNewNamePlaceholder="Ada Lovelace"
         showNip46Relay={false}
-        createNewTitle={isNoExistingMode ? 'No existing Drive user found for that key' : 'Create Drive user'}
+        createNewTitle={isNoExistingMode ? 'No existing Drive user found for that key' : 'Create Profile'}
         createNewDescription="This name is used for your Drive user profile."
-        createNewLabel={isNoExistingMode ? 'Create new' : 'Create'}
+        createNewLabel="Create Profile"
         createNewBusy={creatingProfile}
         createNewDisabled={recoveryBusy || creatingProfile}
         createNewTestId="create-new-after-recovery-miss"
@@ -426,7 +439,7 @@
         {:else}
           <span class="i-lucide-plus"></span>
         {/if}
-        Create new
+        Create Profile
       </button>
 
       <button
@@ -437,7 +450,7 @@
         disabled={creatingProfile}
       >
         <span class="i-lucide-key-round"></span>
-        Add existing
+        Sign in
       </button>
     </div>
   {/if}

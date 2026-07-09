@@ -13,6 +13,8 @@ import {
   createNostrIdentitySignerFromSeedPhrase,
   encodeDeviceLinkInvite,
   normalizeHexPubkey,
+  nostrIdentityAppKeyApprovalCandidateFilters,
+  nostrIdentityAppKeyApprovalCandidatesFromEvents,
   parseNostrIdentityDeviceApprovalReceiptEvent,
   parseNostrIdentityDeviceApprovalReceiptRosterOp,
   parseDeviceLinkRequestEvent as parseIdentityDeviceLinkRequestEvent,
@@ -20,6 +22,7 @@ import {
   signDeviceLinkRequestEvent,
   type NostrIdentityDeviceApprovalReceipt,
   type NostrIdentityEventSigner,
+  type NostrIdentityAppKeyApprovalCandidate,
   type RemoveNostrAppKeyResult,
 } from '@iris/identity';
 import { APP_KEY_WRITER_CAPABILITIES } from 'nostr-social-graph';
@@ -47,9 +50,11 @@ import {
   createNostrIdentityDckRewrapOp,
   DEVICE_APPROVAL_REQUEST_TYPE,
   DRIVE_DEVICE_APPROVAL_RESOURCES,
+  isCompactDriveDeviceApprovalRequest,
   KIND_NOSTR_IDENTITY_FACET_ACCEPTANCE,
   KIND_NOSTR_IDENTITY_ROSTER_OP,
   type DriveDeviceApprovalRequest,
+  type FullDriveDeviceApprovalRequest,
   type PendingDriveDeviceApproval,
   type DeviceLinkRequest,
   parseDeviceLinkInvite,
@@ -668,8 +673,11 @@ export async function approveDriveDeviceApprovalRequest(
     labels: deviceLabels,
     updatedAt: approvedAt,
   }, dckPlaintext);
+  const requestForApproval = isCompactDriveDeviceApprovalRequest(request)
+    ? { deviceAppKeyPubkey: request.deviceAppKeyPubkey } as FullDriveDeviceApprovalRequest
+    : { ...request, label: undefined };
   const content = approveNostrIdentityDeviceApprovalRequest({
-    request: { ...request, label: undefined },
+    request: requestForApproval,
     profileId: session.profileId,
     rosterOps,
     approvedByPubkey: session.appKeyPubkey,
@@ -695,19 +703,23 @@ export async function approveDriveDeviceApprovalRequest(
     clientNonce: `${content.client_nonce}:rotate-dck`,
     dckPlaintext,
   });
-  const receiptEvent = buildNostrIdentityDeviceApprovalReceiptEvent({
-    signerSecretKey: secretKey,
-    request,
-    profileId: session.profileId,
-    approvedAt,
-    subjectPubkey: session.appKeyPubkey,
-    rosterOpEvent: JSON.parse(signed.event_json) as NostrToolsEvent,
-  });
+  const receiptEvent = isCompactDriveDeviceApprovalRequest(request)
+    ? null
+    : buildNostrIdentityDeviceApprovalReceiptEvent({
+        signerSecretKey: secretKey,
+        request,
+        profileId: session.profileId,
+        approvedAt,
+        subjectPubkey: session.appKeyPubkey,
+        rosterOpEvent: JSON.parse(signed.event_json) as NostrToolsEvent,
+      });
 
   await publishCurrentDriveIdentityRosterOps({ ...session, rosterOps });
   await publishSignedIdentityEventJson(signed.event_json);
   await publishSignedIdentityEventJson(dckRotationOp.event_json);
-  await publishRawNostrEvent(receiptEvent as NostrToolsEvent);
+  if (receiptEvent) {
+    await publishRawNostrEvent(receiptEvent as NostrToolsEvent);
+  }
   const updated = appendCurrentNostrIdentitySessionRosterOps(session.profileId, [
     ...rosterOps,
     signed,
@@ -732,6 +744,19 @@ export async function activateDriveDeviceApprovalIfApproved(
   if (appKeyPubkey !== pendingApproval.request.deviceAppKeyPubkey) {
     throw new Error('Pending Drive AppKey does not match approval request');
   }
+  const candidate = await fetchDriveDeviceApprovalCandidates(appKeyPubkey, options.timeoutMs ?? 5000)
+    .then((candidates) => candidates[0] ?? null)
+    .catch(() => null);
+  if (candidate) {
+    const activated = await activateDriveDeviceApprovalCandidate(
+      candidate,
+      appKeySecretKey,
+      appKeyNsec,
+      pendingApproval.request.label,
+    );
+    if (activated) return activated;
+  }
+
   const requestSecretKey = driveDeviceApprovalRequestSecretKey(pendingApproval);
   const receipt = await fetchDriveDeviceApprovalReceipt(
     pendingApproval.request,
@@ -776,6 +801,58 @@ export async function activateDriveDeviceApprovalIfApproved(
     npub: session.appKeyNpub,
     session,
     receipt,
+  };
+}
+
+async function activateDriveDeviceApprovalCandidate(
+  candidate: NostrIdentityAppKeyApprovalCandidate,
+  appKeySecretKey: Uint8Array,
+  appKeyNsec: string,
+  label?: string,
+): Promise<DriveDeviceApprovalActivation | null> {
+  const appKeyPubkey = getPublicKey(appKeySecretKey);
+  const projection = projectNostrIdentityRoster(candidate.profileId, candidate.profileRosterOps);
+  const facet = projection.active_facets[appKeyPubkey];
+  const latestEpoch = Object.values(projection.secret_epochs)
+    .sort((left, right) => right.epoch - left.epoch)[0];
+  if (!facet?.capabilities?.can_write_roots
+    || !facet.capabilities.can_receive_secret_wraps
+    || !facet.capabilities.can_decrypt_secret_epochs
+    || !latestEpoch?.wrapped_secrets[appKeyPubkey]) {
+    return null;
+  }
+
+  const session: NostrIdentitySession = {
+    profileId: candidate.profileId,
+    appKeyPubkey,
+    appKeyNpub: nip19.npubEncode(appKeyPubkey),
+    appKeyNsec,
+    status: 'active',
+    rosterOps: candidate.profileRosterOps,
+    createdAt: candidate.latestRosterOpCreatedAt ?? currentUnixSeconds(),
+    ...(label?.trim() ? { label: label.trim() } : {}),
+  };
+  await applySecretKey(appKeySecretKey, DRIVE_DEFAULT_TREES, {
+    nostrIdentityId: session.profileId,
+  });
+  const labels = await collectDriveDeviceLabels(session, candidate.profileRosterOps).catch(() => ({
+    [session.appKeyPubkey]: session.label ?? currentBrowserDeviceLabel(),
+  }));
+  saveStoredDeviceLabels(session.profileId, labels);
+  saveNostrIdentitySession(session);
+  return {
+    nsec: appKeyNsec,
+    npub: session.appKeyNpub,
+    session,
+    receipt: {
+      schema: 1,
+      profileId: candidate.profileId,
+      requestPubkey: '',
+      deviceAppKeyPubkey: appKeyPubkey,
+      approvedByPubkey: candidate.adminAppKeyPubkey,
+      approvedAt: candidate.latestRosterOpCreatedAt ?? currentUnixSeconds(),
+      requestSecret: '',
+    },
   };
 }
 
@@ -1814,13 +1891,16 @@ function validateDriveDeviceApprovalRequest(
   if (request.requestType !== DEVICE_APPROVAL_REQUEST_TYPE) {
     throw new Error('Device approval request is not for Drive device linking');
   }
-  if (request.profileId !== undefined && request.profileId !== session.profileId) {
+  const profileId = isCompactDriveDeviceApprovalRequest(request) ? undefined : request.profileId;
+  const adminAppKeyPubkey = isCompactDriveDeviceApprovalRequest(request) ? undefined : request.adminAppKeyPubkey;
+  const expiresAt = isCompactDriveDeviceApprovalRequest(request) ? undefined : request.expiresAt;
+  if (profileId !== undefined && profileId !== session.profileId) {
     throw new Error('Device approval request is for another Drive user');
   }
-  if (request.adminAppKeyPubkey !== undefined && request.adminAppKeyPubkey !== session.appKeyPubkey) {
+  if (adminAppKeyPubkey !== undefined && adminAppKeyPubkey !== session.appKeyPubkey) {
     throw new Error('Device approval request is for another Drive admin');
   }
-  if (request.expiresAt !== undefined && request.expiresAt < currentUnixSeconds()) {
+  if (expiresAt !== undefined && expiresAt < currentUnixSeconds()) {
     throw new Error('Device approval request has expired');
   }
   const requestedResources = JSON.stringify(request.resources ?? []);
@@ -1841,7 +1921,7 @@ function validateDriveDeviceApprovalRequest(
 }
 
 async function fetchDriveDeviceApprovalReceipt(
-  request: DriveDeviceApprovalRequest,
+  request: FullDriveDeviceApprovalRequest,
   requestSecretKey: Uint8Array,
   timeoutMs = 5000,
 ): Promise<NostrIdentityDeviceApprovalReceipt | null> {
@@ -1983,6 +2063,70 @@ async function fetchNostrIdentityRosterOps(
 
   return Array.from(byId.values())
     .sort((left, right) => left.content.created_at - right.content.created_at || left.op_id.localeCompare(right.op_id));
+}
+
+async function fetchDriveDeviceApprovalCandidates(
+  appKeyPubkey: string,
+  timeoutMs = 5000,
+): Promise<NostrIdentityAppKeyApprovalCandidate[]> {
+  const discoveryEvents = await fetchRawNostrEvents(
+    nostrIdentityAppKeyApprovalCandidateFilters(appKeyPubkey) as NDKFilter<number>[],
+    timeoutMs,
+  );
+  const profileIds = new Set<NostrIdentityId>();
+  for (const event of discoveryEvents) {
+    try {
+      const op = parseNostrIdentityRosterOpEvent(event);
+      profileIds.add(op.content.profile_id);
+    } catch {
+      // The discovery filter can include non-roster events on noisy relays.
+    }
+  }
+  const rosterEvents: NostrToolsEvent[] = [];
+  for (const profileId of profileIds) {
+    const ops = await fetchNostrIdentityRosterOps(profileId, timeoutMs);
+    for (const op of ops) {
+      rosterEvents.push(JSON.parse(op.event_json) as NostrToolsEvent);
+    }
+  }
+  return nostrIdentityAppKeyApprovalCandidatesFromEvents(appKeyPubkey, [
+    ...discoveryEvents,
+    ...rosterEvents,
+  ]);
+}
+
+async function fetchRawNostrEvents(
+  filters: NDKFilter<number>[],
+  timeoutMs = 5000,
+): Promise<NostrToolsEvent[]> {
+  await waitForWorkerAdapter(2000).catch(() => null);
+  const byId = new Map<string, NostrToolsEvent>();
+
+  await new Promise<void>((resolve) => {
+    let resolved = false;
+    const finish = () => {
+      if (resolved) return;
+      resolved = true;
+      clearTimeout(timer);
+      sub.stop();
+      resolve();
+    };
+    const sub = ndk.subscribe(filters, { closeOnEose: true });
+    const timer = setTimeout(finish, timeoutMs);
+
+    sub.on('event', (event) => {
+      const raw = event.rawEvent() as NostrToolsEvent;
+      if (!verifyEvent(raw)) {
+        console.warn('[auth] Ignoring Iris identity discovery event with invalid signature');
+        return;
+      }
+      byId.set(raw.id, raw);
+    });
+    sub.on('eose', finish);
+  });
+
+  return Array.from(byId.values())
+    .sort((left, right) => left.created_at - right.created_at || left.id.localeCompare(right.id));
 }
 
 async function discoverRecoverableNostrIdentityRoster(

@@ -6,13 +6,15 @@ import {
   DRIVE_DEVICE_APPROVAL_RESOURCES,
   createDriveDeviceApprovalDraft,
   driveDeviceApprovalRequestSecretKey,
+  encodeDriveDeviceApprovalRequest,
   isCompleteDriveDeviceApprovalRequestInput,
+  isCompactDriveDeviceApprovalRequest,
   parseDriveDeviceApprovalRequest,
   pendingDriveDeviceApprovalFromDraft,
 } from '../src/drive/deviceLink';
 
 describe('Drive device approval requests', () => {
-  it('creates scoped canonical NostrIdentity approval QR payloads', () => {
+  it('creates compact native-compatible request-link QR payloads', () => {
     const appKeySecretKey = generateSecretKey();
     const requestSecretKey = generateSecretKey();
     const draft = createDriveDeviceApprovalDraft({
@@ -22,7 +24,10 @@ describe('Drive device approval requests', () => {
       label: 'Browser',
     });
 
-    expect(draft.url.startsWith(DEVICE_APPROVAL_REQUEST_PREFIX)).toBe(true);
+    expect(draft.url).toMatch(/^iris-drive:\/\/app-key-link\?app_key=[0-9a-f]{64}&label=Browser$/);
+    expect(draft.url.length).toBeLessThan(120);
+    expect(draft.url).not.toContain('requestSecret');
+    expect(draft.url).not.toContain('deviceAppKeyProof');
     expect(draft.request.deviceAppKeyPubkey).toBe(getPublicKey(appKeySecretKey));
     expect(draft.request.requestPubkey).toBe(getPublicKey(requestSecretKey));
     expect(draft.request.requestType).toBe(DEVICE_APPROVAL_REQUEST_TYPE);
@@ -30,6 +35,30 @@ describe('Drive device approval requests', () => {
     expect(draft.request.deviceAppKeyProof).not.toContain(draft.request.requestSecret);
 
     const parsed = parseDriveDeviceApprovalRequest(draft.url);
+    expect(parsed && isCompactDriveDeviceApprovalRequest(parsed)).toBe(true);
+    expect(parsed).toEqual({
+      format: 'compact_app_key_link',
+      deviceAppKeyPubkey: draft.request.deviceAppKeyPubkey,
+      requestedAt: 0,
+      requestType: DEVICE_APPROVAL_REQUEST_TYPE,
+      resources: DRIVE_DEVICE_APPROVAL_RESOURCES,
+      label: 'Browser',
+    });
+    expect(isCompleteDriveDeviceApprovalRequestInput(draft.url)).toBe(true);
+    expect(isCompleteDriveDeviceApprovalRequestInput(`nostr:${draft.url}`)).toBe(true);
+  });
+
+  it('still parses full legacy approval request URLs', () => {
+    const draft = createDriveDeviceApprovalDraft({
+      requestedAt: 1_782_388_000,
+      label: 'Browser',
+    });
+    const legacyUrl = encodeDriveDeviceApprovalRequest(draft.request);
+
+    expect(legacyUrl.startsWith(DEVICE_APPROVAL_REQUEST_PREFIX)).toBe(true);
+    const parsed = parseDriveDeviceApprovalRequest(legacyUrl);
+
+    expect(parsed && isCompactDriveDeviceApprovalRequest(parsed)).toBe(false);
     expect(parsed).toEqual({
       requestPubkey: draft.request.requestPubkey,
       deviceAppKeyPubkey: draft.request.deviceAppKeyPubkey,
@@ -41,8 +70,6 @@ describe('Drive device approval requests', () => {
       expiresAt: draft.request.expiresAt,
       label: 'Browser',
     });
-    expect(isCompleteDriveDeviceApprovalRequestInput(draft.url)).toBe(true);
-    expect(isCompleteDriveDeviceApprovalRequestInput(`nostr:${draft.url}`)).toBe(true);
   });
 
   it('stores request secrets separately from the public approval request', () => {

@@ -37,7 +37,7 @@ test.describe('Users Page', () => {
     }
   }
 
-  test('should show Create new button on users page', async ({ page }) => {
+  test('should show Create Profile button on users page', async ({ page }) => {
     // First login to be able to access users page
     await page.getByRole('button', { name: /New/i }).click();
     await page.waitForTimeout(1000);
@@ -48,9 +48,9 @@ test.describe('Users Page', () => {
 
     // Should see the first-view actions
     await expect(page.getByTestId('generate-new-account')).toBeVisible();
-    await expect(page.getByTestId('generate-new-account')).toHaveText(/Create new/);
+    await expect(page.getByTestId('generate-new-account')).toHaveText(/Create Profile/);
     await expect(page.getByTestId('add-existing-profile')).toBeVisible();
-    await expect(page.getByTestId('add-existing-profile')).toHaveText(/Add existing/);
+    await expect(page.getByTestId('add-existing-profile')).toHaveText(/Sign in/);
     await expect(page.getByTestId('identity-recovery-section')).toHaveCount(0);
   });
 
@@ -102,7 +102,7 @@ test.describe('Users Page', () => {
     await expect(page.getByTestId('add-existing-profile')).toBeVisible();
   });
 
-  test('should create Drive profile when clicking Create new', async ({ page }) => {
+  test('should create Drive profile when clicking Create Profile', async ({ page }) => {
     // First login
     await page.getByRole('button', { name: /New/i }).click();
     await page.waitForTimeout(1500);
@@ -113,7 +113,7 @@ test.describe('Users Page', () => {
     await page.waitForTimeout(500);
     await closeModals(page);
 
-    // Click Create new
+    // Click Create Profile
     await page.getByTestId('generate-new-account').click();
     await expect(page).toHaveURL(/#\/users\/create/);
     await expect(page.getByTestId('identity-create-name')).toBeVisible();

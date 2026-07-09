@@ -213,20 +213,10 @@
     <div class="rounded-lg bg-surface-2 p-4" data-testid="user-pending-link">
       <h3 class="mb-2 text-sm font-semibold text-text-1">Waiting for approval</h3>
       <p class="mb-3 text-sm text-text-3">This device has requested access to Drive.</p>
-      <button
-        type="button"
-        class="btn-success flex w-full items-center justify-center gap-2"
-        onclick={checkPendingApproval}
-        disabled={checkingApproval}
-        data-testid="user-check-approval"
-      >
-        {#if checkingApproval}
-          <span class="i-lucide-loader-2 animate-spin"></span>
-        {:else}
-          <span class="i-lucide-refresh-cw"></span>
-        {/if}
-        <span>Check approval</span>
-      </button>
+      <div class="flex items-center gap-2 text-sm text-text-3" data-testid="user-approval-status">
+        <span class="i-lucide-loader-2 animate-spin"></span>
+        <span>{checkingApproval ? 'Checking approval' : 'Waiting for approval'}</span>
+      </div>
     </div>
   {:else if session && projection}
     {#if canManage}
@@ -249,7 +239,7 @@
             class="min-w-0 flex-1 rounded-lg border border-surface-3 bg-surface-1 px-3 py-2 text-sm text-text-1 outline-none focus:border-accent"
             type="text"
             value={approvalInput}
-            placeholder="https://drive.iris.to/approve-device/..."
+            placeholder="Request Link"
             autocomplete="off"
             autocapitalize="none"
             spellcheck="false"

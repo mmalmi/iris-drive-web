@@ -111,7 +111,9 @@ async function createDeviceApprovalRequest(page: Page): Promise<string> {
   await page.getByTestId('add-existing-profile').click();
   await expect(page).toHaveURL(/#\/users\/existing/);
   await expect(page.getByTestId('device-approval-request-section')).toBeVisible({ timeout: 30000 });
-  await page.getByTestId('create-device-approval-request').click();
+  await expect(page.getByTestId('create-device-approval-request')).toHaveCount(0);
+  await expect(page.getByTestId('check-device-approval')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Copy Request Link' })).toBeVisible({ timeout: 10000 });
   const qrCode = page.getByTestId('device-approval-qr');
   await expect(qrCode).toBeVisible({ timeout: 10000 });
   await expect.poll(async () => qrCode.getAttribute('src'), { timeout: 10000 }).toMatch(/^data:image\/png;base64,/);
@@ -119,7 +121,8 @@ async function createDeviceApprovalRequest(page: Page): Promise<string> {
     const stored = JSON.parse(localStorage.getItem('iris:drive:pending-device-approval') ?? 'null') as { url?: string } | null;
     return stored?.url ?? '';
   });
-  expect(approvalUrl).toMatch(/^https:\/\/drive\.iris\.to\/approve-device\//);
+  expect(approvalUrl).toMatch(/^iris-drive:\/\/app-key-link\?app_key=[0-9a-f]{64}/);
+  expect(approvalUrl.length).toBeLessThan(160);
   return approvalUrl;
 }
 
@@ -610,7 +613,9 @@ test.describe('Drive user settings link device', () => {
       const approvalUrl = await createDeviceApprovalRequest(devicePage);
 
       await devicePage.reload({ waitUntil: 'domcontentloaded' });
-      await expect(devicePage.getByTestId('check-device-approval')).toBeVisible({ timeout: 30000 });
+      await expect(devicePage.getByTestId('check-device-approval')).toHaveCount(0);
+      await expect(devicePage.getByRole('button', { name: 'Check approval' })).toHaveCount(0);
+      await expect(devicePage.getByTestId('device-approval-request-section')).toBeVisible({ timeout: 30000 });
 
       await approveDeviceApprovalRequest(page, approvalUrl);
       await activateApprovedDevice(devicePage, profileId);

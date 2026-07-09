@@ -753,7 +753,8 @@ test.describe('Iris Drive web interop', () => {
 
       const linked = runIdriveJson(nativeConfigDir, ['link', invite, '--label', 'iOS native']);
       const approvalRequest = linked.app_key_link_request?.url ?? '';
-      expect(approvalRequest).toMatch(/^https:\/\/drive\.iris\.to\/approve-device\//);
+      expect(approvalRequest).toMatch(/^iris-drive:\/\/app-key-link\?app_key=[0-9a-f]{64}/);
+      expect(approvalRequest.length).toBeLessThan(160);
       configureNativeBlossom(nativeConfigDir);
       daemon = startIdriveDaemon(nativeConfigDir, relayUrl);
 

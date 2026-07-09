@@ -45,8 +45,8 @@ test.describe('Drive setup', () => {
       'href',
       'https://irisdrive.iris.to/',
     );
-    await expect(page.getByTestId('generate-new-account')).toHaveText(/Create new/);
-    await expect(page.getByTestId('add-existing-profile')).toHaveText(/Add existing/);
+    await expect(page.getByTestId('generate-new-account')).toHaveText(/Create Profile/);
+    await expect(page.getByTestId('add-existing-profile')).toHaveText(/Sign in/);
     await page.getByTestId('generate-new-account').click();
     await expect(page).toHaveURL(/#\/users\/create/);
     await expect(page.getByTestId('identity-create-name')).toBeVisible();
@@ -75,7 +75,12 @@ test.describe('Drive setup', () => {
     await page.getByTestId('add-existing-profile').click();
     await expect(page).toHaveURL(/#\/users\/existing/);
     await expect(page.getByTestId('identity-recovery-section')).toBeVisible();
-    await expect(page.getByTestId('create-device-approval-request')).toBeVisible();
+    await expect(page.getByTestId('device-approval-request-section')).toBeVisible();
+    await expect(page.getByTestId('create-device-approval-request')).toHaveCount(0);
+    await expect(page.getByTestId('check-device-approval')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'New QR' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Check approval' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Copy Request Link' })).toBeVisible({ timeout: 10000 });
     await expect(page.locator('input[placeholder="nsec1..."]')).toHaveCount(0);
 
     await page.getByRole('button', { name: 'Secret key' }).click();
@@ -95,7 +100,7 @@ test.describe('Drive setup', () => {
     await expectDriveRoute(page, profile.profileId);
   });
 
-  test('shows approval QR controls instead of the legacy link-device input', async ({ page }) => {
+  test('shows request-link QR controls instead of the legacy link-device input', async ({ page }) => {
     await openFreshSetup(page);
 
     await page.getByTestId('add-existing-profile').click();
@@ -103,16 +108,19 @@ test.describe('Drive setup', () => {
     await expect(page.getByRole('button', { name: 'Link device' })).toHaveCount(0);
     await expect(page.getByLabel('Link device')).toHaveCount(0);
     await expect(page.getByLabel('Relay')).toHaveCount(0);
-    await expect(page.getByTestId('create-device-approval-request')).toBeVisible();
+    await expect(page.getByTestId('create-device-approval-request')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'New QR' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Check approval' })).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'Request Link' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Copy Request Link' })).toBeVisible({ timeout: 10000 });
   });
 
-  test('creates a device approval QR/link from the add-existing setup flow', async ({ page }) => {
+  test('creates a compact request-link QR from the add-existing setup flow', async ({ page }) => {
     await openFreshSetup(page);
 
     await page.getByTestId('add-existing-profile').click();
     await expect(page).toHaveURL(/#\/users\/existing/);
     await expect(page.getByTestId('device-approval-request-section')).toBeVisible({ timeout: 30000 });
-    await page.getByTestId('create-device-approval-request').click();
 
     const qrCode = page.getByTestId('device-approval-qr');
     await expect(qrCode).toBeVisible({ timeout: 10000 });
@@ -129,7 +137,8 @@ test.describe('Drive setup', () => {
         sessionStatus: session?.status ?? '',
       };
     });
-    expect(approvalState.url).toMatch(/^https:\/\/drive\.iris\.to\/approve-device\//);
+    expect(approvalState.url).toMatch(/^iris-drive:\/\/app-key-link\?app_key=[0-9a-f]{64}/);
+    expect(approvalState.url.length).toBeLessThan(160);
     expect(approvalState.deviceAppKeyPubkey).toMatch(/^[0-9a-f]{64}$/);
     expect(approvalState.sessionStatus).not.toBe('pending_device_link');
   });
