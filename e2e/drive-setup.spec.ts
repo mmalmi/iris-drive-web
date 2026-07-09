@@ -49,10 +49,12 @@ test.describe('Drive setup', () => {
     await expect(page.getByTestId('add-existing-profile')).toHaveText(/Sign in/);
     await page.getByTestId('generate-new-account').click();
     await expect(page).toHaveURL(/#\/users\/create/);
+    await expect(page.getByRole('heading', { name: 'Create Profile' })).toHaveCount(1);
+    await expect(page.getByText('This name is used for your Drive user profile.')).toHaveCount(0);
     await expect(page.getByTestId('identity-create-name')).toBeVisible();
     await expect(page.getByTestId('create-new-after-recovery-miss')).toBeDisabled();
     await page.getByTestId('identity-create-name').fill('Drive Test User');
-    await page.getByTestId('create-new-after-recovery-miss').click();
+    await page.getByTestId('identity-create-name').press('Enter');
 
     const profileIdHandle = await page.waitForFunction(() => {
       const store = (window as unknown as {
@@ -64,6 +66,9 @@ test.describe('Drive setup', () => {
         : null;
     }, undefined, { timeout: 30000 });
     await expectDriveRoute(page, await profileIdHandle.jsonValue());
+    await expect(
+      page.getByRole('region', { name: 'Directory content' }).getByTitle('Add files'),
+    ).toBeVisible({ timeout: 30000 });
   });
 
   test('recovers with secret key through the shared add-user flow', async ({ page, relayUrl }) => {
@@ -104,6 +109,8 @@ test.describe('Drive setup', () => {
     await expect(page).toHaveURL(/#\/users\/existing/);
     await expect(page.getByRole('heading', { name: 'Request Link' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Copy Request Link' })).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole('button', { name: 'New QR' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Check approval' })).toHaveCount(0);
     await expect(page.getByTestId('device-approval-qr')).toBeVisible({ timeout: 10000 });
   });
 
@@ -133,5 +140,31 @@ test.describe('Drive setup', () => {
     expect(approvalState.url.length).toBeLessThan(160);
     expect(approvalState.deviceAppKeyPubkey).toMatch(/^[0-9a-f]{64}$/);
     expect(approvalState.sessionStatus).not.toBe('pending_device_link');
+  });
+
+  test('normalizes a stored legacy approval URL before drawing the request-link QR', async ({ page }) => {
+    await openFreshSetup(page);
+
+    await page.evaluate(async () => {
+      const { createDriveDeviceApprovalLink } = await import('/src/nostr');
+      const { encodeDriveDeviceApprovalRequest } = await import('/src/drive/deviceLink');
+      const link = createDriveDeviceApprovalLink({ label: 'Browser' });
+      localStorage.setItem('iris:drive:pending-device-approval', JSON.stringify({
+        ...link,
+        url: encodeDriveDeviceApprovalRequest(link.pendingApproval.request),
+      }));
+    });
+
+    await page.goto('/#/users/existing', { waitUntil: 'domcontentloaded' });
+    await expect(page.getByTestId('device-approval-request-section')).toBeVisible({ timeout: 30000 });
+    await expect(page.getByTestId('device-approval-qr')).toBeVisible({ timeout: 10000 });
+
+    const storedUrl = await page.evaluate(() => {
+      const stored = JSON.parse(localStorage.getItem('iris:drive:pending-device-approval') ?? 'null') as { url?: string } | null;
+      return stored?.url ?? '';
+    });
+    expect(storedUrl).toMatch(/^iris-drive:\/\/app-key-link\?app_key=[0-9a-f]{64}/);
+    expect(storedUrl.length).toBeLessThan(160);
+    expect(storedUrl).not.toContain('/approve-device/');
   });
 });

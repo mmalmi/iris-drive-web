@@ -522,22 +522,37 @@ async function applySecretKey(
   }
 
   const nsecHex = Array.from(nextKey).map(b => b.toString(16).padStart(2, '0')).join('');
-  await initOrUpdateBackendIdentity(pk, nsecHex);
+  void runPostLoginSetup(nextKey, pk, nsecHex, npubStr, defaultTrees);
 
-  // Initialize wallet with secret key
+  return { nsec, npub: npubStr };
+}
+
+async function runPostLoginSetup(
+  nextKey: Uint8Array,
+  pubkey: string,
+  nsecHex: string,
+  npubStr: string,
+  defaultTrees: readonly DefaultTree[],
+): Promise<void> {
+  try {
+    await initOrUpdateBackendIdentity(pubkey, nsecHex);
+  } catch (e) {
+    console.error('Backend identity setup failed:', e);
+  }
+
   initWallet(nextKey).catch(e => {
     console.error('Wallet initialization failed:', e);
   });
 
-  // Create default folders for new user
-  await createDefaultTrees(defaultTrees);
+  try {
+    await createDefaultTrees(defaultTrees);
+  } catch (e) {
+    console.error('Default folder setup failed:', e);
+  }
 
-  // Publish initial profile with npub.cash lightning address
   publishInitialProfile(npubStr).catch(e => {
     console.error('Failed to publish initial profile:', e);
   });
-
-  return { nsec, npub: npubStr };
 }
 
 async function generateInitialKey(): Promise<{ nsec: string; npub: string }> {

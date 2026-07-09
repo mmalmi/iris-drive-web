@@ -13,6 +13,7 @@
   import ViewerHeader from './ViewerHeader.svelte';
   import { buildSitesHref, findDirectorySiteEntry } from '../../lib/siteHref';
   import { buildTreeEventPermalink } from '../../lib/treeEventSnapshots';
+  import { isActiveNostrIdentityRouteScope } from '../../drive/profileRoute';
 
   let route = $derived($routeStore);
   let permalinkSnapshot = $derived($permalinkSnapshotStore);
@@ -42,7 +43,8 @@
 
   let currentTree = $derived(currentTreeName ? trees.find(t => t.name === currentTreeName) : null);
 
-  let canEdit = $derived(!viewedNpub || viewedNpub === userNpub || !isLoggedIn);
+  let isOwnDriveProfile = $derived(isActiveNostrIdentityRouteScope(viewedNpub, $nostrStore));
+  let canEdit = $derived(!viewedNpub || viewedNpub === userNpub || isOwnDriveProfile || !isLoggedIn);
 
   // Use the actual current path/back URL during navigation so the breadcrumb
   // and back button reflect the user's chosen target immediately. Older code

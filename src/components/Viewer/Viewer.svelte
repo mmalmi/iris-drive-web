@@ -16,6 +16,7 @@
     isNewerTreeEventSnapshot,
     snapshotMatchesRootCid,
   } from '../../lib/treeEventSnapshots';
+  import { isActiveNostrIdentityRouteScope } from '../../drive/profileRoute';
 
   let route = $derived($routeStore);
   let rootCid = $derived($treeRootStore);
@@ -34,7 +35,8 @@
   let userNpub = $derived($nostrStore.npub);
   let isLoggedIn = $derived($nostrStore.isLoggedIn);
   let viewedNpub = $derived(route.npub ?? permalinkSnapshot.snapshot?.npub ?? null);
-  let canEdit = $derived(!viewedNpub || viewedNpub === userNpub || !isLoggedIn);
+  let isOwnDriveProfile = $derived(isActiveNostrIdentityRouteScope(viewedNpub, $nostrStore));
+  let canEdit = $derived(!viewedNpub || viewedNpub === userNpub || isOwnDriveProfile || !isLoggedIn);
 
   // Get current tree for visibility info
   let targetNpub = $derived(viewedNpub || userNpub);

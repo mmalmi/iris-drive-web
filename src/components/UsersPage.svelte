@@ -26,6 +26,7 @@
     waitForNostrExtension,
     type DriveDeviceApprovalLink,
   } from '../nostr';
+  import { encodeCompactDriveDeviceApprovalRequest } from '../drive/deviceLink';
   import { driveRootPath, normalizeOwnerNpub } from '../drive/setup';
   import { BackButton } from './ui';
 
@@ -61,6 +62,7 @@
   let approvalQrUrl = $state('');
   let approvalBusy = $state(false);
   let copyRequestFeedback = $state('');
+  let createProfileName = $state('');
   let isExistingMode = $derived(mode === 'existing');
   let isCreateMode = $derived(mode === 'create');
   let isNoExistingMode = $derived(mode === 'no_existing');
@@ -184,6 +186,11 @@
     }
   }
 
+  function submitCreateProfile(event: SubmitEvent): void {
+    event.preventDefault();
+    void handleGenerateNew({ name: createProfileName });
+  }
+
   function createApprovalRequest(): void {
     const link = createDriveDeviceApprovalLink();
     approvalLink = link;
@@ -304,7 +311,11 @@
       if (!raw) return null;
       const parsed = JSON.parse(raw) as DriveDeviceApprovalLink;
       if (!parsed?.url || !parsed.appKeyNsec || !parsed.pendingApproval?.request) return null;
-      return parsed;
+      const compactUrl = encodeCompactDriveDeviceApprovalRequest(parsed.pendingApproval.request);
+      if (parsed.url === compactUrl) return parsed;
+      const normalized = { ...parsed, url: compactUrl };
+      saveStoredApprovalLink(normalized);
+      return normalized;
     } catch {
       return null;
     }
@@ -397,26 +408,41 @@
     </div>
   {:else if isCreateMode || isNoExistingMode}
     <div class="identity-recovery-shell bg-surface-1 rounded-lg p-4 space-y-3" data-testid="identity-recovery-create-screen">
-      <IdentityRecoveryPanel
-        methodLayout="column"
-        methods={['nsec', 'seed_phrase', 'nip07']}
-        methodLabels={{ seed_phrase: 'Recovery phrase' }}
-        disabled={recoveryBusy || creatingProfile}
-        showCreateNew={true}
-        showCreateNewName={true}
-        createNewNameRequired={true}
-        createNewNameLabel="Name"
-        createNewNamePlaceholder="Ada Lovelace"
-        showNip46Relay={false}
-        createNewTitle={isNoExistingMode ? 'No existing Drive user found for that key' : 'Create Profile'}
-        createNewDescription="This name is used for your Drive user profile."
-        createNewLabel="Create Profile"
-        createNewBusy={creatingProfile}
-        createNewDisabled={recoveryBusy || creatingProfile}
-        createNewTestId="create-new-after-recovery-miss"
-        onCreateNew={handleGenerateNew}
-        onCreateNewBack={() => navigate('/users/existing')}
-      />
+      {#if isNoExistingMode}
+        <p class="text-sm font-semibold text-text-1" data-testid="identity-recovery-create-new-view">
+          No existing Drive user found for that key
+        </p>
+      {/if}
+      <form class="space-y-3" onsubmit={submitCreateProfile}>
+        <label class="block space-y-2">
+          <span class="text-sm font-semibold text-text-2">Name</span>
+          <input
+            class="w-full rounded-lg border border-surface-3 bg-surface-0 px-3 py-2 text-sm text-text-1 outline-none focus:border-accent"
+            type="text"
+            value={createProfileName}
+            placeholder="Ada Lovelace"
+            autocomplete="name"
+            autocapitalize="words"
+            spellcheck="true"
+            disabled={recoveryBusy || creatingProfile}
+            data-testid="identity-create-name"
+            oninput={(event) => (createProfileName = (event.currentTarget as HTMLInputElement).value)}
+          />
+        </label>
+        <button
+          type="submit"
+          class="btn-success flex w-full items-center justify-center gap-2"
+          disabled={recoveryBusy || creatingProfile || !createProfileName.trim()}
+          data-testid="create-new-after-recovery-miss"
+        >
+          {#if creatingProfile}
+            <span class="i-lucide-loader-2 animate-spin"></span>
+          {:else}
+            <span class="i-lucide-plus"></span>
+          {/if}
+          <span>Create Profile</span>
+        </button>
+      </form>
     </div>
   {:else}
     <div class="account-switcher-shell mb-6" data-testid="drive-account-switcher">
