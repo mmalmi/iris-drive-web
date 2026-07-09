@@ -1,8 +1,4 @@
 import { nip19 } from 'nostr-tools';
-import {
-  pubkeyToNpub,
-} from './deviceLink';
-
 export const DRIVE_ROOT_NAME = 'main';
 const NPUB_LENGTH = 63;
 const SHARE_INVITE_PREFIXES = [
