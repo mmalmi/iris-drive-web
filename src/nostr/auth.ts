@@ -1972,7 +1972,7 @@ async function createRecoverySigner(recovery: DriveRecoveryRequest): Promise<Nos
     return createNostrIdentitySignerFromNsec(recovery.nsec);
   }
   if (recovery.method === 'seed_phrase') {
-    if (!recovery.seedWords?.trim()) throw new Error('Enter your seed phrase');
+    if (!recovery.seedWords?.trim()) throw new Error('Enter your recovery phrase');
     return createNostrIdentitySignerFromSeedPhrase({
       seedWords: recovery.seedWords,
       ...(recovery.seedPassphrase !== undefined ? { passphrase: recovery.seedPassphrase } : {}),

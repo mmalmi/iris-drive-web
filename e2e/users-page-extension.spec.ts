@@ -36,7 +36,7 @@ test.describe('Users Page NIP-07 availability', () => {
     const extensionOption = page.getByRole('button', { name: 'Browser extension' });
     await expect(extensionOption).toBeEnabled({ timeout: 5000 });
     const extensionBox = await extensionOption.boundingBox();
-    const seedBox = await page.getByRole('button', { name: 'Seed phrase' }).boundingBox();
+    const seedBox = await page.getByRole('button', { name: 'Recovery phrase' }).boundingBox();
     expect(extensionBox).not.toBeNull();
     expect(seedBox).not.toBeNull();
     expect(extensionBox!.y).toBeLessThan(seedBox!.y);

@@ -75,12 +75,10 @@ test.describe('Users Page', () => {
     await expect(page.getByTestId('recovery-profile-id')).toHaveCount(0);
     await expect(page.locator('input[placeholder="nsec1..."]')).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Browser extension' })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Seed phrase' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Link device' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Recovery phrase' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Secret key' })).toBeVisible();
     const methodButtons = [
-      page.getByRole('button', { name: 'Seed phrase' }),
-      page.getByRole('button', { name: 'Link device' }),
+      page.getByRole('button', { name: 'Recovery phrase' }),
       page.getByRole('button', { name: 'Secret key' }),
     ];
     const methodBoxes = await Promise.all(methodButtons.map((button) => button.boundingBox()));
@@ -93,7 +91,7 @@ test.describe('Users Page', () => {
       expect(methodBoxes[index]!.y).toBeGreaterThan(methodBoxes[index - 1]!.y);
     }
     await page.getByRole('button', { name: 'Secret key' }).click();
-    await expect(page.getByRole('button', { name: 'Seed phrase' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Recovery phrase' })).toHaveCount(0);
     await expect(page.locator('input[placeholder="nsec1..."]')).toBeVisible();
 
     await page.getByTestId('back-to-profile-actions').click();

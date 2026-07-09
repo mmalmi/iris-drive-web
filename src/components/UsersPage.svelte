@@ -382,6 +382,7 @@
       <IdentityRecoveryPanel
         methodLayout="column"
         methods={['nsec', 'seed_phrase', 'nip07']}
+        methodLabels={{ seed_phrase: 'Recovery phrase' }}
         disabled={recoveryBusy || creatingProfile}
         error={recoveryError}
         submitLabel="Continue"
@@ -399,6 +400,7 @@
       <IdentityRecoveryPanel
         methodLayout="column"
         methods={['nsec', 'seed_phrase', 'nip07']}
+        methodLabels={{ seed_phrase: 'Recovery phrase' }}
         disabled={recoveryBusy || creatingProfile}
         showCreateNew={true}
         showCreateNewName={true}
