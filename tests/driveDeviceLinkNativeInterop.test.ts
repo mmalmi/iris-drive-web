@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { finalizeEvent, generateSecretKey, getPublicKey, type Event as NostrToolsEvent } from 'nostr-tools';
-import { signDeviceLinkRequestEvent } from '@iris/identity';
+import {
+  signNostrIdentityDeviceLinkRequestEvent as signDeviceLinkRequestEvent,
+} from 'nostr-social-graph';
 import { parseDriveDeviceLinkRequestEventForAdmin } from '../src/nostr/auth';
 
 const profileId = '123e4567-e89b-42d3-a456-426614174099';

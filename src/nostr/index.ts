@@ -42,7 +42,6 @@ export {
   generateNewKey,
   createDriveProfile,
   createDriveDeviceApprovalLink,
-  parseDriveDeviceApprovalBootstrapInput,
   approveDriveDeviceApprovalBootstrap,
   activateDriveDeviceApprovalIfApproved,
   linkDriveDevice,

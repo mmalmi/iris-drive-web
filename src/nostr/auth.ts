@@ -3,39 +3,31 @@
  */
 import { generateSecretKey, getPublicKey, nip19, nip44, verifyEvent, type Event as NostrToolsEvent } from 'nostr-tools';
 import {
-  approveDeviceLinkRequest,
-  approveDeviceApprovalRequest,
-  buildDeviceApprovalRequestEvent,
+  approveDeviceApprovalBootstrap,
   buildDeviceApprovalReceiptEvent,
   createAttachedNostrIdentitySession,
   createNostrIdentitySignerFromNip07,
   createNostrIdentitySignerFromNip46,
   createNostrIdentitySignerFromNsec,
   createNostrIdentitySignerFromSeedPhrase,
-  encodeDeviceLinkInvite,
-  normalizeHexPubkey,
-  parseDeviceApprovalRequestEvent,
+  NOSTR_IDENTITY_DEVICE_APPROVAL_LABEL_MAX_BYTES,
   parseDeviceApprovalReceiptEvent,
   parseDeviceApprovalReceiptRosterOp,
-  parseDeviceLinkRequestEvent as parseIdentityDeviceLinkRequestEvent,
   removeNostrAppKeyFromIdentity,
-  signDeviceLinkRequestEvent,
-  type NostrIdentityDeviceApprovalReceipt,
+  type DeviceApprovalReceipt as NostrIdentityDeviceApprovalReceipt,
   type NostrIdentityEventSigner,
   type RemoveNostrAppKeyResult,
 } from '@iris/identity';
-import { APP_KEY_WRITER_CAPABILITIES } from 'nostr-social-graph';
-import type { NDKFilter, NDKKind, NostrEvent } from 'ndk';
-import { ndk, NDKNip46Signer, NDKPrivateKeySigner, NDKNip07Signer, NDKEvent } from './ndk';
 import {
-  closeDriveDeviceApprovalRelayClient,
-  createDriveDeviceApprovalRelayClient,
-  driveDeviceApprovalRequestFilter,
-  driveDeviceApprovalRequestRelayUrls,
-  publishDriveDeviceApprovalArtifacts,
-  subscribeDriveDeviceApprovalRelay,
-  type DriveDeviceApprovalRelayClient,
-} from './deviceApprovalRelay';
+  APP_KEY_WRITER_CAPABILITIES,
+  approveNostrIdentityDeviceLinkRequest as approveDeviceLinkRequest,
+  encodeNostrIdentityDeviceLinkInvite as encodeDeviceLinkInvite,
+  normalizeHexPubkey,
+  parseNostrIdentityDeviceLinkRequestEvent as parseIdentityDeviceLinkRequestEvent,
+  signNostrIdentityDeviceLinkRequestEvent as signDeviceLinkRequestEvent,
+} from 'nostr-social-graph';
+import type { NDKFilter, NDKKind } from 'ndk';
+import { ndk, NDKNip46Signer, NDKPrivateKeySigner, NDKNip07Signer, NDKEvent } from './ndk';
 import { nostrStore } from './store';
 import { initHashtreeBackend, getWorkerAdapter, updateFollowsSubscription, waitForWorkerAdapter } from '../lib/workerInit';
 import {
@@ -56,16 +48,13 @@ import {
   createNostrIdentityDckRotateAfterAddOp,
   createNostrIdentityDckRotateAfterRemovalOp,
   createNostrIdentityDckRewrapOp,
-  DEVICE_APPROVAL_REQUEST_TYPE,
-  DRIVE_DEVICE_APPROVAL_RESOURCES,
   KIND_NOSTR_IDENTITY_FACET_ACCEPTANCE,
   KIND_NOSTR_IDENTITY_ROSTER_OP,
-  type DriveDeviceApprovalRequest,
   type DriveDeviceApprovalBootstrap,
   type PendingDriveDeviceApproval,
   type DeviceLinkRequest,
   parseDeviceLinkInvite,
-  parseDriveDeviceApprovalBootstrap,
+  npubToPubkey,
   parseNostrIdentityFacetAcceptanceEvent,
   parseNostrIdentityRosterOpEvent,
   projectNostrIdentityRoster,
@@ -155,7 +144,6 @@ export interface DriveDeviceLinkRequest {
 
 export interface DriveDeviceApprovalLink {
   url: string;
-  requestEventPublished: true;
   appKeyNsec: string;
   appKeyNpub: string;
   appKeyPubkey: string;
@@ -652,70 +640,47 @@ export async function linkDriveDevice(inviteInput: string): Promise<{ nsec: stri
   return { nsec: session.appKeyNsec, npub: session.appKeyNpub, session };
 }
 
-export async function createDriveDeviceApprovalLink(
+export function createDriveDeviceApprovalLink(
   options: { label?: string } = {},
-): Promise<DriveDeviceApprovalLink> {
-  const label = options.label?.trim() || currentBrowserDeviceLabel();
+): DriveDeviceApprovalLink {
+  const label = options.label?.trim() || defaultDeviceApprovalLabel();
   const draft = createDriveDeviceApprovalDraft({ label });
   const appKeyPubkey = getPublicKey(draft.appKeySecretKey);
   const appKeyNsec = nip19.nsecEncode(draft.appKeySecretKey);
-  const requestEvent = buildDeviceApprovalRequestEvent({
-    request: draft.request,
-    requestSecretKey: draft.request.requestSecretKey,
-  });
-  const approvalRelayClient = createDriveDeviceApprovalRelayClient();
-  try {
-    await publishDriveDeviceApprovalArtifacts(approvalRelayClient, [requestEvent]);
-  } finally {
-    closeDriveDeviceApprovalRelayClient(approvalRelayClient);
-  }
   return {
     url: draft.url,
-    requestEventPublished: true,
     appKeyNsec,
     appKeyNpub: nip19.npubEncode(appKeyPubkey),
     appKeyPubkey,
     pendingApproval: pendingDriveDeviceApprovalFromDraft(draft),
-    ...(label ? { label } : {}),
+    ...(draft.bootstrap.label ? { label: draft.bootstrap.label } : {}),
   };
 }
 
-export function parseDriveDeviceApprovalBootstrapInput(
-  input: string,
-): DriveDeviceApprovalBootstrap | null {
-  return parseDriveDeviceApprovalBootstrap(input);
+function defaultDeviceApprovalLabel(): string {
+  const label = currentBrowserDeviceLabel();
+  if (new TextEncoder().encode(label).length <= NOSTR_IDENTITY_DEVICE_APPROVAL_LABEL_MAX_BYTES) {
+    return label;
+  }
+  const browser = label.split(' on ', 1)[0].trim();
+  return browser || 'Browser';
 }
 
 export async function approveDriveDeviceApprovalBootstrap(
   bootstrap: DriveDeviceApprovalBootstrap,
 ): Promise<NostrIdentitySession> {
-  const approvalRelayClient = createDriveDeviceApprovalRelayClient();
-  let request: DriveDeviceApprovalRequest | null = null;
-  try {
-    request = await fetchDriveDeviceApprovalRequest(bootstrap, approvalRelayClient);
-  } finally {
-    closeDriveDeviceApprovalRelayClient(approvalRelayClient);
-  }
-  if (!request) {
-    throw new Error('Signed Drive device approval request was not found');
-  }
-  return approveFetchedDriveDeviceApprovalRequest(request);
-}
-
-async function approveFetchedDriveDeviceApprovalRequest(
-  request: DriveDeviceApprovalRequest,
-): Promise<NostrIdentitySession> {
   const session = requireActiveDriveIdentitySession();
   requireCurrentDriveAdmin(session);
   if (!secretKey) throw new Error('No active Drive AppKey secret');
-  validateDriveDeviceApprovalRequest(request, session);
+  const deviceAppKeyPubkey = npubToPubkey(bootstrap.deviceAppKeyNpub);
+  if (!deviceAppKeyPubkey) throw new Error('Invalid Drive device approval stable key');
 
   const rosterOps = await currentDriveRosterOps(session);
   const approvedAt = currentUnixSeconds();
-  const label = request.label?.trim();
+  const label = bootstrap.label?.trim();
   const deviceLabels = await collectDriveDeviceLabels(session, rosterOps);
   if (label) {
-    deviceLabels[request.deviceAppKeyPubkey] = label;
+    deviceLabels[deviceAppKeyPubkey] = label;
   }
   const dckPlaintext = randomDriveContentKey();
   const secretEpoch = nextSecretEpochNumber(session.profileId, rosterOps);
@@ -726,8 +691,8 @@ async function approveFetchedDriveDeviceApprovalRequest(
     labels: deviceLabels,
     updatedAt: approvedAt,
   }, dckPlaintext);
-  const content = approveDeviceApprovalRequest({
-    request: { ...request, label: undefined },
+  const content = approveDeviceApprovalBootstrap({
+    bootstrap,
     profileId: session.profileId,
     rosterOps,
     approvedByPubkey: session.appKeyPubkey,
@@ -755,23 +720,17 @@ async function approveFetchedDriveDeviceApprovalRequest(
   });
   const receiptEvent = buildDeviceApprovalReceiptEvent({
     signerSecretKey: secretKey,
-    request,
+    bootstrap,
     profileId: session.profileId,
     approvedAt,
     subjectPubkey: session.appKeyPubkey,
     rosterOpEvent: JSON.parse(signed.event_json) as NostrToolsEvent,
   });
-  const approvalRelayClient = createDriveDeviceApprovalRelayClient();
   const approvalRosterOps = [...rosterOps, signed, dckRotationOp];
-
-  try {
-    await publishDriveDeviceApprovalArtifacts(approvalRelayClient, [
-      ...approvalRosterOps.map((op) => JSON.parse(op.event_json) as NostrEvent),
-      receiptEvent as NostrEvent,
-    ]);
-  } finally {
-    closeDriveDeviceApprovalRelayClient(approvalRelayClient);
+  for (const op of approvalRosterOps) {
+    await publishSignedIdentityEventJson(op.event_json);
   }
+  await publishRawNostrEvent(receiptEvent);
   const updated = appendCurrentNostrIdentitySessionRosterOps(session.profileId, [
     ...rosterOps,
     signed,
@@ -779,7 +738,7 @@ async function approveFetchedDriveDeviceApprovalRequest(
   ]);
   if (!updated) throw new Error('Approved key removed the active Drive user');
   const updatedProjection = projectNostrIdentityRoster(updated.profileId, updated.rosterOps);
-  if (!updatedProjection.active_facets[request.deviceAppKeyPubkey]) {
+  if (!updatedProjection.active_facets[deviceAppKeyPubkey]) {
     throw new Error('Approved Drive key was not added to the active roster');
   }
   saveStoredDeviceLabels(updated.profileId, deviceLabels);
@@ -797,29 +756,21 @@ export async function activateDriveDeviceApprovalIfApproved(
   }
   const appKeySecretKey = decoded.data as Uint8Array;
   const appKeyPubkey = getPublicKey(appKeySecretKey);
-  if (appKeyPubkey !== pendingApproval.request.deviceAppKeyPubkey) {
+  if (appKeyPubkey !== npubToPubkey(pendingApproval.bootstrap.deviceAppKeyNpub)) {
     throw new Error('Pending Drive AppKey does not match approval request');
   }
   const requestSecretKey = driveDeviceApprovalRequestSecretKey(pendingApproval);
-  const approvalRelayClient = createDriveDeviceApprovalRelayClient();
-  let receipt: NostrIdentityDeviceApprovalReceipt | null = null;
+  const receipt = await fetchDriveDeviceApprovalReceipt(
+    pendingApproval.bootstrap,
+    requestSecretKey,
+    options.timeoutMs,
+  );
   let remoteOps: SignedNostrIdentityRosterOp[] = [];
-  try {
-    receipt = await fetchDriveDeviceApprovalReceipt(
-      pendingApproval.request,
-      requestSecretKey,
-      approvalRelayClient,
-      options.timeoutMs,
+  if (receipt) {
+    remoteOps = await fetchNostrIdentityRosterOps(
+      receipt.profileId,
+      options.timeoutMs ?? 5000,
     );
-    if (receipt) {
-      remoteOps = await fetchNostrIdentityRosterOps(
-        receipt.profileId,
-        options.timeoutMs ?? 5000,
-        approvalRelayClient,
-      );
-    }
-  } finally {
-    closeDriveDeviceApprovalRelayClient(approvalRelayClient);
   }
   if (!receipt) return null;
   const receiptRosterOp = parseDeviceApprovalReceiptRosterOp(receipt);
@@ -842,8 +793,8 @@ export async function activateDriveDeviceApprovalIfApproved(
     appKeyNsec,
     status: 'active',
     rosterOps,
-    createdAt: pendingApproval.request.requestedAt,
-    ...(pendingApproval.request.label ? { label: pendingApproval.request.label } : {}),
+    createdAt: receipt.approvedAt,
+    ...(pendingApproval.bootstrap.label ? { label: pendingApproval.bootstrap.label } : {}),
   };
   await applySecretKey(appKeySecretKey, DRIVE_DEFAULT_TREES, {
     nostrIdentityId: session.profileId,
@@ -1210,6 +1161,9 @@ export async function recoverDriveProfileWithAppKey(
     encryptedDeviceLabels,
     clientNonce: randomClientNonce(),
   });
+  if (session.status !== 'active') {
+    throw new Error('Attached Drive AppKey did not create an active session');
+  }
   const dckRewrapOp = await createNostrIdentityDckRewrapOp({
     profileId,
     signer,
@@ -1823,86 +1777,15 @@ function driveDeviceLinkRequestFromRequest(request: DeviceLinkRequest): DriveDev
   };
 }
 
-async function fetchDriveDeviceApprovalRequest(
-  bootstrap: DriveDeviceApprovalBootstrap,
-  relayClient: DriveDeviceApprovalRelayClient,
-  timeoutMs = 5000,
-): Promise<DriveDeviceApprovalRequest | null> {
-  let request: DriveDeviceApprovalRequest | null = null;
-
-  await new Promise<void>((resolve) => {
-    let resolved = false;
-    const finish = () => {
-      if (resolved) return;
-      resolved = true;
-      clearTimeout(timer);
-      sub.stop();
-      resolve();
-    };
-    const filter = driveDeviceApprovalRequestFilter(bootstrap);
-    const sub = subscribeDriveDeviceApprovalRelay(relayClient, filter);
-    const timer = setTimeout(finish, timeoutMs);
-
-    sub.on('event', (event) => {
-      try {
-        request = parseDeviceApprovalRequestEvent(
-          event.rawEvent() as NostrToolsEvent,
-          bootstrap,
-        );
-        finish();
-      } catch {
-        // Ignore unrelated or tampered events sharing the indexed keys.
-      }
-    });
-    sub.on('eose', finish);
-    sub.start();
-  });
-
-  return request;
-}
-
-function validateDriveDeviceApprovalRequest(
-  request: DriveDeviceApprovalRequest,
-  session: NostrIdentitySession,
-): void {
-  if (request.requestType !== DEVICE_APPROVAL_REQUEST_TYPE) {
-    throw new Error('Device approval request is not for Drive device linking');
-  }
-  const { profileId, adminAppKeyPubkey, expiresAt } = request;
-  if (profileId !== undefined && profileId !== session.profileId) {
-    throw new Error('Device approval request is for another Drive user');
-  }
-  if (adminAppKeyPubkey !== undefined && adminAppKeyPubkey !== session.appKeyPubkey) {
-    throw new Error('Device approval request is for another Drive admin');
-  }
-  if (expiresAt !== undefined && expiresAt < currentUnixSeconds()) {
-    throw new Error('Device approval request has expired');
-  }
-  driveDeviceApprovalRequestRelayUrls(request);
-  const requestedResources = JSON.stringify(request.resources ?? []);
-  for (const resource of DRIVE_DEVICE_APPROVAL_RESOURCES) {
-    const requiredScopes = resource.scopes ?? [];
-    const matching = request.resources?.find((candidate) => (
-      candidate.type === resource.type
-        && candidate.id === resource.id
-        && requiredScopes.every((scope) => candidate.scopes?.includes(scope))
-    ));
-    if (!matching) {
-      throw new Error('Device approval request is missing Drive access scope');
-    }
-  }
-  if (requestedResources.includes(session.appKeyPubkey)) {
-    throw new Error('Device approval request should not target the approving AppKey');
-  }
-}
-
 async function fetchDriveDeviceApprovalReceipt(
-  request: DriveDeviceApprovalRequest,
+  bootstrap: DriveDeviceApprovalBootstrap,
   requestSecretKey: Uint8Array,
-  relayClient: DriveDeviceApprovalRelayClient,
   timeoutMs = 5000,
 ): Promise<NostrIdentityDeviceApprovalReceipt | null> {
   let receipt: NostrIdentityDeviceApprovalReceipt | null = null;
+  const requestPubkey = npubToPubkey(bootstrap.requestNpub);
+  if (!requestPubkey) throw new Error('Invalid Drive device approval request key');
+  await waitForWorkerAdapter(2000).catch(() => null);
 
   await new Promise<void>((resolve) => {
     let resolved = false;
@@ -1915,10 +1798,10 @@ async function fetchDriveDeviceApprovalReceipt(
     };
     const filter: NDKFilter<number> = {
       kinds: [KIND_NOSTR_IDENTITY_ROSTER_OP],
-      '#p': [request.requestPubkey],
+      '#p': [requestPubkey],
       limit: 50,
     };
-    const sub = subscribeDriveDeviceApprovalRelay(relayClient, filter);
+    const sub = ndk.subscribe(filter, { closeOnEose: true }, false);
     const timer = setTimeout(finish, timeoutMs);
 
     sub.on('event', (event) => {
@@ -1927,7 +1810,7 @@ async function fetchDriveDeviceApprovalReceipt(
         if (!verifyEvent(raw)) return;
         const parsed = parseDeviceApprovalReceiptEvent(raw, {
           requestSecretKey,
-          request,
+          bootstrap,
         });
         receipt = parsed;
         finish();
@@ -1999,11 +1882,8 @@ async function createRecoverySigner(recovery: DriveRecoveryRequest): Promise<Nos
 async function fetchNostrIdentityRosterOps(
   profileId: NostrIdentityId,
   timeoutMs = 5000,
-  relayClient?: DriveDeviceApprovalRelayClient,
 ): Promise<SignedNostrIdentityRosterOp[]> {
-  if (!relayClient) {
-    await waitForWorkerAdapter(2000).catch(() => null);
-  }
+  await waitForWorkerAdapter(2000).catch(() => null);
   const byId = new Map<string, SignedNostrIdentityRosterOp>();
 
   await new Promise<void>((resolve) => {
@@ -2020,9 +1900,7 @@ async function fetchNostrIdentityRosterOps(
       '#i': [profileId],
       limit: 500,
     };
-    const sub = relayClient
-      ? subscribeDriveDeviceApprovalRelay(relayClient, filter)
-      : ndk.subscribe(filter, { closeOnEose: true }, false);
+    const sub = ndk.subscribe(filter, { closeOnEose: true }, false);
     const timer = setTimeout(finish, timeoutMs);
 
     sub.on('event', (event) => {

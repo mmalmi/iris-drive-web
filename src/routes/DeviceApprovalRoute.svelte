@@ -1,9 +1,9 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { parseDeviceApprovalBootstrap } from '@iris/identity';
   import {
     approveDriveDeviceApprovalBootstrap,
     getCurrentNostrIdentitySession,
-    parseDriveDeviceApprovalBootstrapInput,
     restoreSession,
   } from '../nostr';
   import { navigate } from '../utils/navigate';
@@ -22,7 +22,7 @@
   });
 
   async function approve(): Promise<void> {
-    const bootstrap = parseDriveDeviceApprovalBootstrapInput(approvalUrl);
+    const bootstrap = parseDeviceApprovalBootstrap(approvalUrl);
     if (!bootstrap) {
       error = 'Invalid device approval request';
       return;

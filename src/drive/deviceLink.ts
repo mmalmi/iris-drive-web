@@ -1,54 +1,30 @@
 import { generateSecretKey, getPublicKey, nip19 } from 'nostr-tools';
 import {
-  createNostrIdentityDeviceApprovalRequest,
   createDeviceApprovalBootstrap,
   encodeDeviceApprovalBootstrap,
-  parseDeviceApprovalBootstrap,
+  pubkeyToNpub,
+  npubToPubkey,
+  type DeviceApprovalBootstrap,
+} from '@iris/identity';
+import {
   createNostrIdentityDeviceLinkInvite,
   encodeNostrIdentityDeviceLinkInvite,
   parseNostrIdentityDeviceLinkInvite,
   isCompleteNostrIdentityDeviceLinkInviteInput,
-  nostrIdentityDeviceApprovalRelayResource,
-  pubkeyToNpub,
-  npubToPubkey,
-  type LocalNostrIdentityDeviceApprovalRequest,
-  type DeviceApprovalBootstrap,
-  type NostrIdentityDeviceApprovalRequest,
-  type NostrIdentityDeviceApprovalRequestedResource,
   type NostrIdentityDeviceLinkInvite,
   type NostrIdentityDeviceLinkRequest,
-} from '@iris/identity';
+} from 'nostr-social-graph';
 import type { NostrIdentityId, SignedNostrIdentityRosterOp } from './protocolTypes';
 
 export const DEVICE_LINK_INVITE_PREFIX = 'https://drive.iris.to/invite/';
-export const DEVICE_APPROVAL_REQUEST_PREFIX = 'https://drive.iris.to/approve-device/';
 export const DEVICE_LINK_INVITE_VERSION = 1;
-export const DEVICE_APPROVAL_REQUEST_TYPE = 'device_link';
-export const DRIVE_DEVICE_APPROVAL_RELAY_URL = 'wss://temp.iris.to';
-
-export const DRIVE_DEVICE_APPROVAL_RESOURCES: readonly NostrIdentityDeviceApprovalRequestedResource[] = [
-  {
-    type: 'iris_drive',
-    id: 'drive.iris.to',
-    scopes: [
-      'app_key',
-      'write_roots',
-      'receive_secret_wraps',
-      'decrypt_secret_epochs',
-    ],
-  },
-  nostrIdentityDeviceApprovalRelayResource(DRIVE_DEVICE_APPROVAL_RELAY_URL),
-];
 
 export type DeviceLinkInvite = NostrIdentityDeviceLinkInvite;
 export type DeviceLinkRequest = NostrIdentityDeviceLinkRequest;
-export type FullDriveDeviceApprovalRequest = NostrIdentityDeviceApprovalRequest;
-export type DriveDeviceApprovalRequest = FullDriveDeviceApprovalRequest;
-export type LocalDriveDeviceApprovalRequest = LocalNostrIdentityDeviceApprovalRequest;
 export type DriveDeviceApprovalBootstrap = DeviceApprovalBootstrap;
 
 export interface PendingDriveDeviceApproval {
-  request: FullDriveDeviceApprovalRequest;
+  bootstrap: DriveDeviceApprovalBootstrap;
   requestSecretKeyNsec: string;
 }
 
@@ -81,9 +57,9 @@ export interface StoredNostrIdentitySession {
 
 export interface DriveDeviceApprovalDraft {
   appKeySecretKey: Uint8Array;
-  request: LocalDriveDeviceApprovalRequest;
+  requestSecretKey: Uint8Array;
+  bootstrap: DriveDeviceApprovalBootstrap;
   url: string;
-  label?: string;
 }
 
 export function encodeDeviceLinkInvite(invite: DeviceLinkInvite): string {
@@ -147,52 +123,30 @@ export function createPendingDeviceLinkSession(options: {
 export function createDriveDeviceApprovalDraft(options: {
   appKeySecretKey?: Uint8Array;
   requestSecretKey?: Uint8Array;
-  requestedAt?: number;
+  requestSecret?: string;
   label?: string;
-  profileId?: NostrIdentityId;
-  adminAppKeyPubkey?: string;
 } = {}): DriveDeviceApprovalDraft {
   const appKeySecretKey = options.appKeySecretKey ?? generateSecretKey();
-  const request = createNostrIdentityDeviceApprovalRequest({
+  const { bootstrap, requestSecretKey } = createDeviceApprovalBootstrap({
     deviceAppKeySecretKey: appKeySecretKey,
     ...(options.requestSecretKey ? { requestSecretKey: options.requestSecretKey } : {}),
-    requestedAt: options.requestedAt ?? Math.floor(Date.now() / 1000),
-    requestType: DEVICE_APPROVAL_REQUEST_TYPE,
-    resources: DRIVE_DEVICE_APPROVAL_RESOURCES.map((resource) => ({ ...resource })),
-    expiresAt: (options.requestedAt ?? Math.floor(Date.now() / 1000)) + 15 * 60,
-    ...(options.profileId ? { profileId: options.profileId } : {}),
-    ...(options.adminAppKeyPubkey ? { adminAppKeyPubkey: options.adminAppKeyPubkey } : {}),
-    ...(options.label?.trim() ? { label: options.label.trim() } : {}),
+    ...(options.requestSecret ? { requestSecret: options.requestSecret } : {}),
+    ...(options.label ? { label: options.label } : {}),
   });
   return {
     appKeySecretKey,
-    request,
-    url: encodeDriveDeviceApprovalBootstrap(createDeviceApprovalBootstrap(request)),
-    ...(options.label?.trim() ? { label: options.label.trim() } : {}),
+    requestSecretKey,
+    bootstrap,
+    url: encodeDeviceApprovalBootstrap(bootstrap),
   };
 }
 
-export function encodeDriveDeviceApprovalBootstrap(bootstrap: DriveDeviceApprovalBootstrap): string {
-  return encodeDeviceApprovalBootstrap(bootstrap);
-}
-
-export function parseDriveDeviceApprovalBootstrap(input: string): DriveDeviceApprovalBootstrap | null {
-  const value = input.trim().replace(/^nostr:/i, '');
-  return parseDeviceApprovalBootstrap(value);
-}
-
-export function isCompleteDriveDeviceApprovalBootstrapInput(input: string): boolean {
-  const value = input.trim().replace(/^nostr:/i, '');
-  if (!value || /\s/.test(value)) return false;
-  return parseDriveDeviceApprovalBootstrap(value) !== null;
-}
-
 export function pendingDriveDeviceApprovalFromDraft(
-  draft: Pick<DriveDeviceApprovalDraft, 'request'>,
+  draft: Pick<DriveDeviceApprovalDraft, 'bootstrap' | 'requestSecretKey'>,
 ): PendingDriveDeviceApproval {
   return {
-    request: serializableDriveDeviceApprovalRequest(draft.request),
-    requestSecretKeyNsec: nip19.nsecEncode(draft.request.requestSecretKey),
+    bootstrap: { ...draft.bootstrap },
+    requestSecretKeyNsec: nip19.nsecEncode(draft.requestSecretKey),
   };
 }
 
@@ -202,31 +156,13 @@ export function driveDeviceApprovalRequestSecretKey(pending: PendingDriveDeviceA
     throw new Error('Stored device approval request secret is not an nsec');
   }
   const secretKey = decoded.data as Uint8Array;
-  if (getPublicKey(secretKey) !== pending.request.requestPubkey) {
+  if (getPublicKey(secretKey) !== npubToPubkey(pending.bootstrap.requestNpub)) {
     throw new Error('Stored device approval request secret does not match the request pubkey');
   }
   return secretKey;
 }
 
 export { pubkeyToNpub, npubToPubkey };
-
-function serializableDriveDeviceApprovalRequest(
-  request: LocalDriveDeviceApprovalRequest,
-): FullDriveDeviceApprovalRequest {
-  return {
-    requestPubkey: request.requestPubkey,
-    deviceAppKeyPubkey: request.deviceAppKeyPubkey,
-    requestSecret: request.requestSecret,
-    deviceAppKeyProof: request.deviceAppKeyProof,
-    requestedAt: request.requestedAt,
-    ...(request.requestType ? { requestType: request.requestType } : {}),
-    ...(request.resources ? { resources: request.resources.map((resource) => ({ ...resource })) } : {}),
-    ...(request.expiresAt !== undefined ? { expiresAt: request.expiresAt } : {}),
-    ...(request.profileId ? { profileId: request.profileId } : {}),
-    ...(request.adminAppKeyPubkey ? { adminAppKeyPubkey: request.adminAppKeyPubkey } : {}),
-    ...(request.label ? { label: request.label } : {}),
-  };
-}
 
 function payloadFromShareInviteUrl(input: string): string | null {
   const lower = input.toLowerCase();

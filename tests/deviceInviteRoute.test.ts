@@ -32,7 +32,7 @@ describe('device approval route', () => {
     expect(settings).toContain('data-testid="device-approval-section"');
     expect(settings).toContain('data-testid="device-approval-input"');
     expect(settings).toContain('approveDriveDeviceApprovalBootstrap');
-    expect(settings).toContain('showAddDeviceSection={false}');
+    expect(settings).not.toContain('showAddDeviceSection');
     expect(settings).not.toContain('createDriveDeviceLinkInvite');
     expect(settings).not.toContain('subscribeDriveDeviceLinkRequests');
     expect(settings).not.toContain('deviceLinkInvites');

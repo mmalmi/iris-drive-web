@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { parseDeviceApprovalBootstrap } from '@iris/identity';
   import UserSettingsPanel from '@iris/svelte-ui/UserSettingsPanel.svelte';
   import type { UserSettingsKey } from '@iris/svelte-ui/userSettings';
   import {
@@ -7,7 +8,6 @@
     approveDriveDeviceApprovalBootstrap,
     getCurrentNostrIdentitySession,
     loadDriveDeviceLabels,
-    parseDriveDeviceApprovalBootstrapInput,
     removeDriveProfileAppKeyWithAdmin,
     restoreSession,
     setDriveProfileAppKeyAdmin,
@@ -139,7 +139,7 @@
 
   async function approveApprovalInput(input = approvalInput): Promise<void> {
     if (approvalBusy) return;
-    const bootstrap = parseDriveDeviceApprovalBootstrapInput(input);
+    const bootstrap = parseDeviceApprovalBootstrap(input);
     if (!bootstrap) {
       error = 'Scan or paste a Drive device approval QR';
       return;
@@ -269,7 +269,6 @@
     <UserSettingsPanel
       {keys}
       {canManage}
-      showAddDeviceSection={false}
       showSummary={false}
       showDevicesHeading={false}
       keyBadgeMode="admin"

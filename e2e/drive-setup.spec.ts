@@ -114,7 +114,7 @@ test.describe('Drive setup', () => {
     await expect(page.getByTestId('device-approval-qr')).toBeVisible({ timeout: 10000 });
   });
 
-  test('creates a full request-link QR from the add-existing setup flow', async ({ page }) => {
+  test('creates a compact approval bootstrap QR from the add-existing setup flow', async ({ page }) => {
     await openFreshSetup(page);
 
     await page.getByTestId('add-existing-profile').click();
@@ -127,18 +127,18 @@ test.describe('Drive setup', () => {
     const approvalState = await page.evaluate(() => {
       const approval = JSON.parse(localStorage.getItem('iris:drive:pending-device-approval') ?? 'null') as {
         url?: string;
-        pendingApproval?: { request?: { deviceAppKeyPubkey?: string } };
+        pendingApproval?: { bootstrap?: { deviceAppKeyNpub?: string } };
       } | null;
       const session = JSON.parse(localStorage.getItem('iris:identity:session') ?? 'null') as { status?: string } | null;
       return {
         url: approval?.url ?? '',
-        deviceAppKeyPubkey: approval?.pendingApproval?.request?.deviceAppKeyPubkey ?? '',
+        deviceAppKeyNpub: approval?.pendingApproval?.bootstrap?.deviceAppKeyNpub ?? '',
         sessionStatus: session?.status ?? '',
       };
     });
     expect(approvalState.url).toMatch(/^https:\/\/drive\.iris\.to\/approve-device\//);
     expect(approvalState.url).not.toContain('app_key=');
-    expect(approvalState.deviceAppKeyPubkey).toMatch(/^[0-9a-f]{64}$/);
+    expect(approvalState.deviceAppKeyNpub).toMatch(/^npub1/);
     expect(approvalState.sessionStatus).not.toBe('pending_device_link');
   });
 
