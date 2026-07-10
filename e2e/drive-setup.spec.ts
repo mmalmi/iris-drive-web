@@ -139,7 +139,7 @@ test.describe('Drive setup', () => {
     expect(approvalState.url).toMatch(/^https:\/\/drive\.iris\.to\/approve-device\//);
     expect(approvalState.url).not.toContain('app_key=');
     expect(approvalState.deviceAppKeyNpub).toMatch(/^npub1/);
-    expect(approvalState.sessionStatus).not.toBe('pending_device_link');
+    expect(approvalState.sessionStatus).toBe('');
   });
 
 });

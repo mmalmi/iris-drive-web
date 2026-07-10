@@ -20,13 +20,9 @@ import {
 } from '@iris/identity';
 import {
   APP_KEY_WRITER_CAPABILITIES,
-  approveNostrIdentityDeviceLinkRequest as approveDeviceLinkRequest,
-  encodeNostrIdentityDeviceLinkInvite as encodeDeviceLinkInvite,
   normalizeHexPubkey,
-  parseNostrIdentityDeviceLinkRequestEvent as parseIdentityDeviceLinkRequestEvent,
-  signNostrIdentityDeviceLinkRequestEvent as signDeviceLinkRequestEvent,
 } from 'nostr-social-graph';
-import type { NDKFilter, NDKKind } from 'ndk';
+import type { NDKFilter } from 'ndk';
 import { ndk, NDKNip46Signer, NDKPrivateKeySigner, NDKNip07Signer, NDKEvent } from './ndk';
 import { nostrStore } from './store';
 import { initHashtreeBackend, getWorkerAdapter, updateFollowsSubscription, waitForWorkerAdapter } from '../lib/workerInit';
@@ -41,7 +37,6 @@ import { stopWebRTC } from '../store';
 import { needsMigrations, runMigrations } from '../migrations';
 import { initWallet, disposeWallet } from '../stores/wallet';
 import {
-  createPendingDeviceLinkSession,
   createDriveDeviceApprovalDraft,
   driveDeviceApprovalRequestSecretKey,
   pendingDriveDeviceApprovalFromDraft,
@@ -52,8 +47,6 @@ import {
   KIND_NOSTR_IDENTITY_ROSTER_OP,
   type DriveDeviceApprovalBootstrap,
   type PendingDriveDeviceApproval,
-  type DeviceLinkRequest,
-  parseDeviceLinkInvite,
   npubToPubkey,
   parseNostrIdentityFacetAcceptanceEvent,
   parseNostrIdentityRosterOpEvent,
@@ -126,22 +119,6 @@ export interface DriveRecoveryRemoveAppKeyResult {
   session: NostrIdentitySession | null;
 }
 
-export interface DriveDeviceLinkInvite {
-  profileId: NostrIdentityId;
-  adminAppKeyPubkey: string;
-  invitePubkey: string;
-  inviteSecretKeyNsec: string;
-  url: string;
-}
-
-export interface DriveDeviceLinkRequest {
-  id: string;
-  request: DeviceLinkRequest;
-  pubkey: string;
-  label?: string;
-  requestedAt: number;
-}
-
 export interface DriveDeviceApprovalLink {
   url: string;
   appKeyNsec: string;
@@ -156,13 +133,6 @@ export interface DriveDeviceApprovalActivation {
   npub: string;
   session: NostrIdentitySession;
   receipt: NostrIdentityDeviceApprovalReceipt;
-}
-
-export interface DriveDeviceLinkRequestScope {
-  profileId: NostrIdentityId;
-  adminAppKeyPubkey: string;
-  invitePubkey: string;
-  inviteSecretKey: Uint8Array;
 }
 
 type DefaultTree = {
@@ -291,19 +261,7 @@ export async function restoreSession(options: RestoreSessionOptions = {}): Promi
 
   initAccountsStore();
   logT('initAccountsStore');
-  const restoredIrisSession = restoreStoredNostrIdentitySession();
-  if (restoredIrisSession?.status === 'pending_device_link') {
-    secretKey = null;
-    ndk.signer = undefined;
-    nostrStore.setPubkey(null);
-    nostrStore.setNpub(null);
-    nostrStore.setIsLoggedIn(false);
-    nostrStore.setSelectedTree(null);
-    localStorage.removeItem(STORAGE_KEY_LOGIN_TYPE);
-    localStorage.removeItem(STORAGE_KEY_NSEC);
-    logT('pending device link');
-    return false;
-  }
+  restoreStoredNostrIdentitySession();
 
   // Migrate legacy single account to multi-account storage if needed
   const legacyLoginType = localStorage.getItem(STORAGE_KEY_LOGIN_TYPE);
@@ -612,34 +570,6 @@ export async function createDriveProfile(
   };
 }
 
-export async function linkDriveDevice(inviteInput: string): Promise<{ nsec: string; npub: string; session: NostrIdentitySession } | null> {
-  const invite = parseDeviceLinkInvite(inviteInput);
-  if (!invite) return null;
-  const session = createPendingDeviceLinkSession({
-    invite,
-    label: currentBrowserDeviceLabel(),
-  });
-  const decoded = nip19.decode(session.appKeyNsec);
-  if (decoded.type !== 'nsec') return null;
-  const appKeySecretKey = decoded.data as Uint8Array;
-  saveNostrIdentitySession(session);
-  if (session.label) {
-    saveStoredDeviceLabel(session.profileId, session.appKeyPubkey, session.label);
-  }
-  secretKey = null;
-  ndk.signer = undefined;
-  nostrStore.setPubkey(null);
-  nostrStore.setNpub(null);
-  nostrStore.setIsLoggedIn(false);
-  nostrStore.setSelectedTree(null);
-  accountsStore.setActiveAccount(null);
-  saveActiveAccountToStorage(null);
-  localStorage.removeItem(STORAGE_KEY_LOGIN_TYPE);
-  localStorage.removeItem(STORAGE_KEY_NSEC);
-  await publishDriveDeviceLinkRequest(session, appKeySecretKey);
-  return { nsec: session.appKeyNsec, npub: session.appKeyNpub, session };
-}
-
 export function createDriveDeviceApprovalLink(
   options: { label?: string } = {},
 ): DriveDeviceApprovalLink {
@@ -812,209 +742,6 @@ export async function activateDriveDeviceApprovalIfApproved(
   };
 }
 
-export async function createDriveDeviceLinkInvite(): Promise<DriveDeviceLinkInvite> {
-  const session = requireActiveDriveIdentitySession();
-  requireCurrentDriveAdmin(session);
-  await publishCurrentDriveIdentityRosterOps(session);
-  const inviteSecretKey = generateSecretKey();
-  const invitePubkey = getPublicKey(inviteSecretKey);
-  return {
-    profileId: session.profileId,
-    adminAppKeyPubkey: session.appKeyPubkey,
-    invitePubkey,
-    inviteSecretKeyNsec: nip19.nsecEncode(inviteSecretKey),
-    url: encodeDeviceLinkInvite({
-      profileId: session.profileId,
-      adminAppKeyPubkey: session.appKeyPubkey,
-      invitePubkey,
-    }),
-  };
-}
-
-export function subscribeDriveDeviceLinkRequestsForAdmin(
-  scope: DriveDeviceLinkRequestScope,
-  onRequests: (requests: DriveDeviceLinkRequest[]) => void,
-): () => void {
-  const requests = new Map<string, DriveDeviceLinkRequest>();
-  let stopped = false;
-  const emitRequests = () => {
-    if (stopped) return;
-    onRequests(Array.from(requests.values()).sort((left, right) => right.requestedAt - left.requestedAt));
-  };
-  const recordRequest = (request: DriveDeviceLinkRequest | null) => {
-    if (!request || stopped) return;
-    requests.set(request.id, request);
-    emitRequests();
-  };
-  const filters = driveDeviceLinkRequestFilters(scope);
-  const sub = ndk.subscribe(
-    filters,
-    { closeOnEose: false },
-  );
-
-  sub.on('event', (event) => {
-    void (async () => {
-      const parsed = await parseDriveDeviceLinkRequestEventForAdmin(event.rawEvent() as NostrToolsEvent, scope);
-      recordRequest(parsed);
-    })();
-  });
-
-  const backfill = () => {
-    void backfillDriveDeviceLinkRequestsForAdmin(scope)
-      .then((fetched) => {
-        if (stopped) return;
-        for (const request of fetched) {
-          requests.set(request.id, request);
-        }
-        emitRequests();
-      })
-      .catch((error) => {
-        console.warn('[auth] Could not backfill device link requests:', error);
-      });
-  };
-  backfill();
-  const backfillTimer = setInterval(backfill, 3000);
-
-  return () => {
-    stopped = true;
-    clearInterval(backfillTimer);
-    sub.stop();
-  };
-}
-
-function driveDeviceLinkRequestFilters(scope: DriveDeviceLinkRequestScope): NDKFilter[] {
-  return [
-    {
-      kinds: [KIND_NOSTR_IDENTITY_ROSTER_OP as NDKKind],
-      '#i': [scope.profileId],
-      '#p': [scope.invitePubkey],
-      limit: 200,
-    },
-  ];
-}
-
-async function backfillDriveDeviceLinkRequestsForAdmin(
-  scope: DriveDeviceLinkRequestScope,
-  timeoutMs = 2500,
-): Promise<DriveDeviceLinkRequest[]> {
-  const events: NostrToolsEvent[] = [];
-
-  await new Promise<void>((resolve) => {
-    let resolved = false;
-    const finish = () => {
-      if (resolved) return;
-      resolved = true;
-      clearTimeout(timer);
-      sub.stop();
-      resolve();
-    };
-    const sub = ndk.subscribe(driveDeviceLinkRequestFilters(scope), { closeOnEose: true });
-    const timer = setTimeout(finish, timeoutMs);
-
-    sub.on('event', (event) => {
-      events.push(event.rawEvent() as NostrToolsEvent);
-    });
-    sub.on('eose', finish);
-  });
-
-  const parsed = await Promise.all(
-    events.map((event) => parseDriveDeviceLinkRequestEventForAdmin(event, scope)),
-  );
-  return parsed.filter((request): request is DriveDeviceLinkRequest => Boolean(request));
-}
-
-export function subscribeDriveDeviceLinkRequests(
-  invite: Pick<DriveDeviceLinkInvite, 'profileId' | 'adminAppKeyPubkey' | 'invitePubkey' | 'inviteSecretKeyNsec'>,
-  onRequests: (requests: DriveDeviceLinkRequest[]) => void,
-): () => void {
-  return subscribeDriveDeviceLinkRequestsForAdmin(driveDeviceLinkRequestScopeFromInvite(invite), onRequests);
-}
-
-function driveDeviceLinkRequestScopeFromInvite(
-  invite: Pick<DriveDeviceLinkInvite, 'profileId' | 'adminAppKeyPubkey' | 'invitePubkey' | 'inviteSecretKeyNsec'>,
-): DriveDeviceLinkRequestScope {
-  const decoded = nip19.decode(invite.inviteSecretKeyNsec);
-  if (decoded.type !== 'nsec') {
-    throw new Error('Stored device-link invite secret is not an nsec');
-  }
-  const inviteSecretKey = decoded.data as Uint8Array;
-  if (getPublicKey(inviteSecretKey) !== invite.invitePubkey) {
-    throw new Error('Stored device-link invite secret does not match the invite pubkey');
-  }
-  return {
-    profileId: invite.profileId,
-    adminAppKeyPubkey: invite.adminAppKeyPubkey,
-    invitePubkey: invite.invitePubkey,
-    inviteSecretKey,
-  };
-}
-
-export async function approveDriveDeviceLinkRequest(
-  request: DeviceLinkRequest,
-): Promise<NostrIdentitySession> {
-  const session = requireActiveDriveIdentitySession();
-  requireCurrentDriveAdmin(session);
-  if (request.profileId !== session.profileId || request.adminAppKeyPubkey !== session.appKeyPubkey) {
-    throw new Error('Device link request does not match the current Drive user');
-  }
-  if (!secretKey) throw new Error('No active Drive AppKey secret');
-
-  const rosterOps = await currentDriveRosterOps(session);
-  const approvedAt = currentUnixSeconds();
-  const label = request.label?.trim();
-  const deviceLabels = await collectDriveDeviceLabels(session, rosterOps);
-  if (label) {
-    deviceLabels[request.deviceAppKeyPubkey] = label;
-  }
-  const dckPlaintext = randomDriveContentKey();
-  const secretEpoch = nextSecretEpochNumber(session.profileId, rosterOps);
-  const encryptedDeviceLabels = await encryptDriveDeviceLabelsWithDck({
-    schema: DRIVE_DEVICE_LABEL_SCHEMA,
-    profileId: session.profileId,
-    secretEpoch,
-    labels: deviceLabels,
-    updatedAt: approvedAt,
-  }, dckPlaintext);
-  const content = approveDeviceLinkRequest({
-    request: { ...request, label: undefined },
-    rosterOps,
-    approvedByPubkey: session.appKeyPubkey,
-    approvedAt,
-    clientNonce: randomClientNonce(),
-    capabilities: APP_KEY_WRITER_CAPABILITIES,
-  });
-  const signed = signNostrIdentityRosterOp({
-    signerSecretKey: secretKey,
-    profileId: content.profile_id,
-    parents: content.parents,
-    createdAt: content.created_at,
-    clientNonce: content.client_nonce,
-    encryptedDeviceLabels,
-    op: content.op,
-  });
-  const dckRotationOp = await createNostrIdentityDckRotateAfterAddOp({
-    profileId: session.profileId,
-    signer: createNostrIdentitySignerFromNsec(session.appKeyNsec),
-    rosterOps,
-    parentRosterOp: signed,
-    createdAt: approvedAt + 1,
-    clientNonce: `${content.client_nonce}:rotate-dck`,
-    dckPlaintext,
-  });
-
-  await publishCurrentDriveIdentityRosterOps({ ...session, rosterOps });
-  await publishSignedIdentityEventJson(signed.event_json);
-  await publishSignedIdentityEventJson(dckRotationOp.event_json);
-  const updated = appendCurrentNostrIdentitySessionRosterOps(session.profileId, [
-    ...rosterOps,
-    signed,
-    dckRotationOp,
-  ]);
-  if (!updated) throw new Error('Approved key removed the active Drive user');
-  saveStoredDeviceLabels(updated.profileId, deviceLabels);
-  return updated;
-}
-
 export async function setDriveProfileAppKeyAdmin(
   appKeyPubkey: string,
   admin: boolean,
@@ -1085,44 +812,6 @@ export async function removeDriveProfileAppKeyWithAdmin(
   await publishCurrentDriveIdentityRosterOps({ ...session, rosterOps });
   await publishSignedIdentityEventJson(signed.event_json);
   return appendCurrentNostrIdentitySessionRosterOps(session.profileId, [...rosterOps, signed], target);
-}
-
-export async function activatePendingDriveDeviceLinkIfApproved(): Promise<NostrIdentitySession | null> {
-  const session = currentNostrIdentitySession;
-  if (!session || session.status !== 'pending_device_link') return session;
-  const rosterOps = await fetchNostrIdentityRosterOps(session.profileId, 8000);
-  if (rosterOps.length === 0) return session;
-  const projection = projectNostrIdentityRoster(session.profileId, rosterOps);
-  const facet = projection.active_facets[session.appKeyPubkey];
-  const hasAdminFacet = Object.values(projection.active_facets)
-    .some((candidate) => candidate.capabilities?.can_admin_profile);
-  const latestEpoch = Object.values(projection.secret_epochs)
-    .sort((left, right) => right.epoch - left.epoch)[0];
-  if (!hasAdminFacet
-    || !facet?.capabilities?.can_write_roots
-    || !facet.capabilities.can_receive_secret_wraps
-    || !facet.capabilities.can_decrypt_secret_epochs
-    || !latestEpoch?.wrapped_secrets[session.appKeyPubkey]) {
-    return session;
-  }
-  const activeSession: NostrIdentitySession = {
-    ...session,
-    status: 'active',
-    rosterOps,
-  };
-  const decoded = nip19.decode(session.appKeyNsec);
-  if (decoded.type !== 'nsec') {
-    throw new Error('Pending Drive AppKey is not an nsec');
-  }
-  await applySecretKey(decoded.data as Uint8Array, DRIVE_DEFAULT_TREES, {
-    nostrIdentityId: activeSession.profileId,
-  });
-  const labels = await collectDriveDeviceLabels(activeSession, rosterOps).catch(() => ({
-    [activeSession.appKeyPubkey]: activeSession.label ?? currentBrowserDeviceLabel(),
-  }));
-  saveStoredDeviceLabels(activeSession.profileId, labels);
-  saveNostrIdentitySession(activeSession);
-  return activeSession;
 }
 
 export async function recoverDriveProfileWithAppKey(
@@ -1413,9 +1102,6 @@ function restoreStoredNostrIdentitySession(): NostrIdentitySession | null {
   const sessions = loadStoredNostrIdentitySessions();
   const legacyRaw = localStorage.getItem(STORAGE_KEY_IRIS_IDENTITY);
   const legacyStored = legacyRaw ? parseStoredNostrIdentitySession(legacyRaw) : null;
-  if (legacyStored?.status === 'pending_device_link') {
-    return activateStoredNostrIdentitySession(legacyStored);
-  }
 
   const storedForActiveAccount = activeAccountPubkey ? sessions[activeAccountPubkey] : undefined;
   if (storedForActiveAccount) {
@@ -1563,8 +1249,6 @@ function serializeDriveIdentitySession(session: NostrIdentitySession): StoredNos
     rosterOps: session.rosterOps,
     createdAt: session.createdAt,
     ...(session.label ? { label: session.label } : {}),
-    ...(session.pendingDeviceLink ? { pendingDeviceLink: session.pendingDeviceLink } : {}),
-    ...(session.pendingDeviceApproval ? { pendingDeviceApproval: session.pendingDeviceApproval } : {}),
   };
 }
 
@@ -1580,13 +1264,12 @@ function restoreDriveIdentitySession(stored: StoredNostrIdentitySession): NostrI
   const appKeyPubkey = getPublicKey(appKeySecretKey);
   const rosterOps = Array.isArray(stored.rosterOps) ? stored.rosterOps : [];
 
-  if (stored.status === 'active') {
-    const projection = projectNostrIdentityRoster(stored.profileId, rosterOps);
-    if (!projection.active_facets[appKeyPubkey]) {
-      throw new Error('stored Iris identity AppKey is not active in its Drive roster');
-    }
-  } else if (stored.status !== 'pending_device_link') {
+  if (stored.status !== 'active') {
     throw new Error(`unsupported Iris identity session status ${stored.status}`);
+  }
+  const projection = projectNostrIdentityRoster(stored.profileId, rosterOps);
+  if (!projection.active_facets[appKeyPubkey]) {
+    throw new Error('stored Iris identity AppKey is not active in its Drive roster');
   }
 
   return {
@@ -1598,8 +1281,6 @@ function restoreDriveIdentitySession(stored: StoredNostrIdentitySession): NostrI
     rosterOps,
     createdAt: Number.isFinite(stored.createdAt) ? stored.createdAt : currentUnixSeconds(),
     ...(stored.label ? { label: stored.label } : {}),
-    ...(stored.pendingDeviceLink ? { pendingDeviceLink: stored.pendingDeviceLink } : {}),
-    ...(stored.pendingDeviceApproval ? { pendingDeviceApproval: stored.pendingDeviceApproval } : {}),
   };
 }
 
@@ -1727,54 +1408,6 @@ async function publishCurrentDriveIdentityRosterOps(session: NostrIdentitySessio
   for (const op of session.rosterOps) {
     await publishSignedIdentityEventJson(op.event_json);
   }
-}
-
-async function publishDriveDeviceLinkRequest(
-  session: NostrIdentitySession,
-  appKeySecretKey: Uint8Array,
-): Promise<void> {
-  const request = session.pendingDeviceLink;
-  if (!request) return;
-  const event = signDeviceLinkRequestEvent({
-    signerSecretKey: appKeySecretKey,
-    request,
-  });
-  await publishRawNostrEvent(event);
-}
-
-export async function parseDriveDeviceLinkRequestEventForAdmin(
-  event: NostrToolsEvent,
-  scope: DriveDeviceLinkRequestScope,
-): Promise<DriveDeviceLinkRequest | null> {
-  try {
-    if (event.kind === KIND_NOSTR_IDENTITY_ROSTER_OP) {
-      return parseIdentityDriveDeviceLinkRequestEvent(event, scope);
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-function parseIdentityDriveDeviceLinkRequestEvent(
-  event: NostrToolsEvent,
-  scope: DriveDeviceLinkRequestScope,
-): DriveDeviceLinkRequest | null {
-  try {
-    return driveDeviceLinkRequestFromRequest(parseIdentityDeviceLinkRequestEvent(event, scope).request);
-  } catch {
-    return null;
-  }
-}
-
-function driveDeviceLinkRequestFromRequest(request: DeviceLinkRequest): DriveDeviceLinkRequest {
-  return {
-    id: `${request.profileId}:${request.deviceAppKeyPubkey}:${request.requestedAt}`,
-    request,
-    pubkey: request.deviceAppKeyPubkey,
-    label: request.label,
-    requestedAt: request.requestedAt,
-  };
 }
 
 async function fetchDriveDeviceApprovalReceipt(

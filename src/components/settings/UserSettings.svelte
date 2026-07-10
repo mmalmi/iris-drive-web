@@ -4,7 +4,6 @@
   import UserSettingsPanel from '@iris/svelte-ui/UserSettingsPanel.svelte';
   import type { UserSettingsKey } from '@iris/svelte-ui/userSettings';
   import {
-    activatePendingDriveDeviceLinkIfApproved,
     approveDriveDeviceApprovalBootstrap,
     getCurrentNostrIdentitySession,
     loadDriveDeviceLabels,
@@ -25,7 +24,6 @@
   let error = $state('');
   let actionBusyKey = $state('');
   let approvalBusy = $state(false);
-  let checkingApproval = $state(false);
   let restoring = $state(true);
 
   let canManage = $derived(Boolean(
@@ -60,19 +58,6 @@
     });
     return () => {
       cancelled = true;
-    };
-  });
-
-  $effect(() => {
-    if (session?.status !== 'pending_device_link') return;
-    let cancelled = false;
-    const timer = setInterval(() => {
-      if (!cancelled) void checkPendingApproval();
-    }, 3000);
-    void checkPendingApproval();
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
     };
   });
 
@@ -175,19 +160,6 @@
     await runAction(`remove:${key.pubkey}`, () => removeDriveProfileAppKeyWithAdmin(key.pubkey).then(() => undefined));
   }
 
-  async function checkPendingApproval(): Promise<void> {
-    if (checkingApproval) return;
-    checkingApproval = true;
-    error = '';
-    try {
-      await activatePendingDriveDeviceLinkIfApproved();
-      refreshSession();
-    } catch (approvalError) {
-      error = approvalError instanceof Error ? approvalError.message : 'Could not check approval';
-    } finally {
-      checkingApproval = false;
-    }
-  }
 </script>
 
 <div
@@ -208,15 +180,6 @@
   {#if restoring}
     <div class="rounded-lg bg-surface-2 p-4" data-testid="user-settings-loading">
       <h3 class="mb-2 text-sm font-semibold text-text-1">Loading devices</h3>
-    </div>
-  {:else if session?.status === 'pending_device_link'}
-    <div class="rounded-lg bg-surface-2 p-4" data-testid="user-pending-link">
-      <h3 class="mb-2 text-sm font-semibold text-text-1">Waiting for approval</h3>
-      <p class="mb-3 text-sm text-text-3">This device has requested access to Drive.</p>
-      <div class="flex items-center gap-2 text-sm text-text-3" data-testid="user-approval-status">
-        <span class="i-lucide-loader-2 animate-spin"></span>
-        <span>{checkingApproval ? 'Checking approval' : 'Waiting for approval'}</span>
-      </div>
     </div>
   {:else if session && projection}
     {#if canManage}

@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { generateSecretKey, getPublicKey, nip19 } from 'nostr-tools';
+import { generateSecretKey, getPublicKey, nip19, verifyEvent } from 'nostr-tools';
 import {
   approveDeviceApprovalBootstrap,
+  buildDeviceApprovalReceiptEvent,
   DEVICE_APPROVAL_BOOTSTRAP_PREFIX,
   isCompleteDeviceApprovalBootstrapInput,
   NOSTR_IDENTITY_DEVICE_APPROVAL_BOOTSTRAP_MAX_URI_LENGTH,
+  NOSTR_IDENTITY_DEVICE_APPROVAL_LABEL_MAX_BYTES,
+  NOSTR_IDENTITY_DEVICE_APPROVAL_RECEIPT_TYPE,
   parseDeviceApprovalBootstrap,
+  parseDeviceApprovalReceiptEvent,
 } from '@iris/identity';
 import {
   createDriveDeviceApprovalDraft,
@@ -19,11 +23,9 @@ describe('Drive device approval bootstraps', () => {
   it('creates approval input with only the stable npub, distinct ephemeral npub, 32-byte secret, and label', () => {
     const appKeySecretKey = generateSecretKey();
     const requestSecretKey = generateSecretKey();
-    const requestSecret = Buffer.alloc(32, 7).toString('base64url');
     const draft = createDriveDeviceApprovalDraft({
       appKeySecretKey,
       requestSecretKey,
-      requestSecret,
       label: 'Browser',
     });
 
@@ -35,7 +37,7 @@ describe('Drive device approval bootstraps', () => {
     expect(draft.bootstrap).toEqual({
       deviceAppKeyNpub: nip19.npubEncode(getPublicKey(appKeySecretKey)),
       requestNpub: nip19.npubEncode(getPublicKey(requestSecretKey)),
-      requestSecret,
+      requestSecret: draft.bootstrap.requestSecret,
       label: 'Browser',
     });
     expect(draft.bootstrap.deviceAppKeyNpub).not.toBe(draft.bootstrap.requestNpub);
@@ -48,7 +50,6 @@ describe('Drive device approval bootstraps', () => {
   it('approves the stable key directly from the bootstrap without request metadata', () => {
     const adminSecretKey = generateSecretKey();
     const draft = createDriveDeviceApprovalDraft({
-      requestSecret: Buffer.alloc(32, 8).toString('base64url'),
       label: 'Phone',
     });
 
@@ -68,9 +69,41 @@ describe('Drive device approval bootstraps', () => {
       .toBe(getPublicKey(draft.appKeySecretKey));
   });
 
+  it('uses an optional label bounded by the shared bootstrap contract', () => {
+    const exactLabel = 'x'.repeat(NOSTR_IDENTITY_DEVICE_APPROVAL_LABEL_MAX_BYTES);
+
+    expect(createDriveDeviceApprovalDraft().bootstrap).not.toHaveProperty('label');
+    expect(createDriveDeviceApprovalDraft({ label: ` ${exactLabel} ` }).bootstrap.label)
+      .toBe(exactLabel);
+    expect(() => createDriveDeviceApprovalDraft({ label: `${exactLabel}x` }))
+      .toThrow(/label exceeds/);
+  });
+
+  it('transports a signed encrypted receipt bound to the bootstrap', () => {
+    const adminSecretKey = generateSecretKey();
+    const draft = createDriveDeviceApprovalDraft({ label: 'Phone' });
+    const receiptEvent = buildDeviceApprovalReceiptEvent({
+      signerSecretKey: adminSecretKey,
+      bootstrap: draft.bootstrap,
+      profileId: PROFILE_ID,
+      approvedAt: 1_782_388_101,
+    });
+
+    expect(verifyEvent(receiptEvent)).toBe(true);
+    expect(receiptEvent.tags).toContainEqual(['type', NOSTR_IDENTITY_DEVICE_APPROVAL_RECEIPT_TYPE]);
+    expect(receiptEvent.content).not.toContain(draft.bootstrap.requestSecret);
+    expect(parseDeviceApprovalReceiptEvent(receiptEvent, {
+      requestSecretKey: draft.requestSecretKey,
+      bootstrap: draft.bootstrap,
+    })).toMatchObject({
+      profileId: PROFILE_ID,
+      requestPubkey: getPublicKey(draft.requestSecretKey),
+      deviceAppKeyPubkey: getPublicKey(draft.appKeySecretKey),
+    });
+  });
+
   it('rejects legacy links, URI suffixes, malformed values, and request metadata fields', () => {
     const draft = createDriveDeviceApprovalDraft({
-      requestSecret: Buffer.alloc(32, 9).toString('base64url'),
       label: 'Browser',
     });
     const legacyUrl = `iris-drive://app-key-link?app_key=${getPublicKey(draft.appKeySecretKey)}&label=Browser`;
@@ -116,7 +149,6 @@ describe('Drive device approval bootstraps', () => {
     const requestSecretKey = generateSecretKey();
     const draft = createDriveDeviceApprovalDraft({
       requestSecretKey,
-      requestSecret: Buffer.alloc(32, 10).toString('base64url'),
     });
     const pending = pendingDriveDeviceApprovalFromDraft(draft);
 

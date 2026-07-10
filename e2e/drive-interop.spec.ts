@@ -12,7 +12,7 @@ import {
   waitForAppReady,
   waitForRelayConnected,
 } from './test-utils.js';
-import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -63,28 +63,6 @@ function runIdriveJson(configDir: string, args: string[]): any {
     encoding: 'utf8',
   });
   return JSON.parse(stdout);
-}
-
-function startIdriveDaemon(configDir: string, relayUrl: string): ChildProcess {
-  return spawn(idriveBin(), ['daemon', '--relay', relayUrl, '--no-gateway'], {
-    env: { ...process.env, IRIS_DRIVE_CONFIG_DIR: configDir },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-}
-
-async function stopIdriveDaemon(child: ChildProcess): Promise<void> {
-  if (child.exitCode !== null) return;
-  child.kill('SIGINT');
-  await new Promise<void>((resolve) => {
-    const timer = setTimeout(() => {
-      if (child.exitCode === null) child.kill('SIGTERM');
-      resolve();
-    }, 3000);
-    child.once('exit', () => {
-      clearTimeout(timer);
-      resolve();
-    });
-  });
 }
 
 function configureNativeBlossom(configDir: string): void {
@@ -174,16 +152,6 @@ async function prepareFreshPage(
   await useLocalRelay(page, relayUrl);
   await configureBlossomServers(page);
   await waitForRelayConnected(page, 30000);
-}
-
-async function createLegacyWebOwnerDeviceInvite(page: Page): Promise<string> {
-  const invite = await page.evaluate(async () => {
-    const { createDriveDeviceLinkInvite, createDriveProfile } = await import('/src/nostr');
-    await createDriveProfile();
-    return createDriveDeviceLinkInvite();
-  });
-  await flushPendingPublishes(page);
-  return invite.url;
 }
 
 async function createFileWithContent(page: Page, fileName: string, content: string): Promise<void> {
@@ -692,136 +660,4 @@ test.describe('Iris Drive web interop', () => {
     }
   });
 
-  test('native idrive device-link invite creates pending drive-web identity session', async ({ page, relayUrl }) => {
-    test.skip(!fs.existsSync(repoRoot()), 'iris-drive repo not available');
-
-    const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'iris-drive-link-web-'));
-
-    try {
-      const owner = runIdriveJson(configDir, ['init', '--label', 'native-admin']);
-      const invite = owner.app_key_link_invite?.url;
-      expect(invite).toEqual(expect.stringMatching(/^https:\/\/drive\.iris\.to\/invite\//));
-      const adminAppKeyNpub = owner.current_app_key_npub;
-      expect(adminAppKeyNpub).toEqual(expect.stringMatching(/^npub1/));
-      const decodedAdmin = nip19.decode(adminAppKeyNpub);
-      expect(decodedAdmin.type).toBe('npub');
-      const adminAppKeyPubkey = decodedAdmin.data as string;
-
-      await prepareFreshPage(page, relayUrl);
-      const linked = await page.evaluate(async (nativeInvite) => {
-        const { getCurrentNostrIdentitySession, linkDriveDevice } = await import('/src/nostr');
-        const result = await linkDriveDevice(nativeInvite);
-        const session = getCurrentNostrIdentitySession();
-        const stored = JSON.parse(localStorage.getItem('iris:identity:session') ?? 'null');
-        return {
-          linkedNpub: result?.npub ?? null,
-          session,
-          stored,
-        };
-      }, invite);
-
-      expect(linked.linkedNpub).toEqual(expect.stringMatching(/^npub1/));
-      expect(linked.session?.profileId).toBe(owner.profile_id);
-      expect(linked.session?.status).toBe('pending_device_link');
-      expect(linked.session?.pendingDeviceLink?.adminAppKeyPubkey).toBe(adminAppKeyPubkey);
-      expect(linked.session?.pendingDeviceLink?.profileId).toBe(owner.profile_id);
-      expect(linked.session?.pendingDeviceLink?.deviceAppKeyPubkey).toBeTruthy();
-      expect(linked.stored?.profileId).toBe(owner.profile_id);
-      expect(linked.stored?.status).toBe('pending_device_link');
-    } finally {
-      fs.rmSync(configDir, { recursive: true, force: true });
-    }
-  });
-
-  test('native idrive approval request can be pasted into web owner device settings', async ({ page, relayUrl }) => {
-    test.setTimeout(300000);
-    test.skip(!fs.existsSync(repoRoot()), 'iris-drive repo not available');
-
-    const nativeConfigDir = fs.mkdtempSync(path.join(os.tmpdir(), 'iris-drive-native-link-request-'));
-    const nativeWorkDir = fs.mkdtempSync(path.join(os.tmpdir(), 'iris-drive-native-link-work-'));
-    let daemon: ChildProcess | null = null;
-
-    try {
-      await prepareFreshPage(page, relayUrl);
-      const invite = await createLegacyWebOwnerDeviceInvite(page);
-      expect(invite).toMatch(/^https:\/\/drive\.iris\.to\/invite\//);
-      const profileId = await page.evaluate(() => {
-        const stored = JSON.parse(localStorage.getItem('iris:identity:session') ?? 'null');
-        return stored?.profileId ?? '';
-      });
-      expect(profileId).toMatch(/^[0-9a-f-]{36}$/);
-
-      const linked = runIdriveJson(nativeConfigDir, ['link', invite, '--label', 'iOS native']);
-      const approvalRequest = linked.app_key_link_request?.url ?? '';
-      expect(approvalRequest).toMatch(/^https:\/\/drive\.iris\.to\/approve-device\//);
-      expect(approvalRequest).not.toContain('app_key=');
-      configureNativeBlossom(nativeConfigDir);
-      daemon = startIdriveDaemon(nativeConfigDir, relayUrl);
-
-      await page.goto('/#/settings/user', { waitUntil: 'domcontentloaded' });
-      await expect(page.getByTestId('user-settings-panel')).toBeVisible({ timeout: 30000 });
-      await expect(page.getByTestId('device-approval-section')).toBeVisible({ timeout: 30000 });
-      await expect(page.getByTestId('user-add-device-section')).toHaveCount(0);
-      await page.getByTestId('device-approval-input').fill(approvalRequest);
-      await page.getByTestId('approve-device-request').click();
-      await expect(page.getByTestId('device-approval-input')).toHaveValue('', { timeout: 60000 });
-      await flushPendingPublishes(page);
-      await expect.poll(async () => page.evaluate(async () => {
-        const { getCurrentNostrIdentitySession } = await import('/src/nostr');
-        const { projectNostrIdentityRoster } = await import('/src/drive/protocol');
-        const session = getCurrentNostrIdentitySession();
-        const projection = session?.status === 'active'
-          ? projectNostrIdentityRoster(session.profileId, session.rosterOps)
-          : null;
-        return {
-          rowCount: document.querySelectorAll('[data-testid="user-key-row"]').length,
-          activeCount: projection ? Object.keys(projection.active_facets).length : 0,
-          rosterOps: session?.rosterOps.length ?? 0,
-          error: document.querySelector('[data-testid="user-settings-error"]')?.textContent?.trim() ?? '',
-        };
-      }), { timeout: 45000 }).toMatchObject({
-        rowCount: 2,
-        activeCount: 2,
-        error: '',
-      });
-      await expect(page.getByTestId('user-key-row').nth(1)).toContainText('iOS native');
-
-      await expect.poll(() => {
-        runIdriveJson(nativeConfigDir, ['sync', '--relay', relayUrl, '--timeout', '3']);
-        const status = runIdriveJson(nativeConfigDir, ['status']);
-        return {
-          authorization: status.profile?.authorization_state,
-          pendingRequest: status.profile?.app_key_link_request?.url ?? '',
-        };
-      }, { timeout: 90000, intervals: [1000, 2000, 5000] }).toEqual({
-        authorization: 'authorized',
-        pendingRequest: '',
-      });
-
-      const nativeFileName = 'native-linked.txt';
-      const nativeContent = `native linked to web ${Date.now()}`;
-      fs.writeFileSync(path.join(nativeWorkDir, nativeFileName), nativeContent);
-      runIdriveJson(nativeConfigDir, ['import', nativeWorkDir]);
-      const nativePublish = runIdriveJson(nativeConfigDir, ['publish', '--relay', relayUrl, '--timeout', '5']);
-      expect(nativePublish.published_files_root).toBe(true);
-      const nativeRootHash = rootHashFromRootCid(nativePublish.root_cid);
-      await waitForPublishedProfileRoot(page, relayUrl, profileId, 'main', nativeRootHash);
-      await expectTreeFile(page, profileId, 'main', nativeFileName, nativeContent, nativeRootHash);
-
-      const webFileName = 'web-linked.txt';
-      const webContent = `web linked to native ${Date.now()}`;
-      const webRoot = await addFileViaTreeAPI(page, [], webFileName, webContent);
-      expect(webRoot).toBeTruthy();
-      await flushPendingPublishes(page);
-      const webPush = await pushProfileRootToBlossom(page, profileId, 'main');
-      await waitForNativeFiles(nativeConfigDir, relayUrl, [
-        { fileName: nativeFileName, content: nativeContent },
-        { fileName: webFileName, content: webContent },
-      ], { webPush });
-    } finally {
-      if (daemon) await stopIdriveDaemon(daemon);
-      fs.rmSync(nativeConfigDir, { recursive: true, force: true });
-      fs.rmSync(nativeWorkDir, { recursive: true, force: true });
-    }
-  });
 });

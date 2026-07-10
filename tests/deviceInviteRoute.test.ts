@@ -38,4 +38,29 @@ describe('device approval route', () => {
     expect(settings).not.toContain('deviceLinkInvites');
     expect(settings).not.toContain('user-link-invite');
   });
+
+  it('has no signed request-event transport or compatibility API', () => {
+    const auth = fs.readFileSync(path.join(appRoot, 'src/nostr/auth.ts'), 'utf8');
+    const barrel = fs.readFileSync(path.join(appRoot, 'src/nostr/index.ts'), 'utf8');
+    const deviceLink = fs.readFileSync(path.join(appRoot, 'src/drive/deviceLink.ts'), 'utf8');
+    const settings = fs.readFileSync(path.join(appRoot, 'src/components/settings/UserSettings.svelte'), 'utf8');
+    const source = `${auth}\n${barrel}\n${deviceLink}\n${settings}`;
+
+    for (const legacySymbol of [
+      'linkDriveDevice',
+      'createDriveDeviceLinkInvite',
+      'signNostrIdentityDeviceLinkRequestEvent',
+      'parseNostrIdentityDeviceLinkRequestEvent',
+      'publishDriveDeviceLinkRequest',
+      'subscribeDriveDeviceLinkRequests',
+      'backfillDriveDeviceLinkRequestsForAdmin',
+      'parseDriveDeviceLinkRequestEventForAdmin',
+      'approveDriveDeviceLinkRequest',
+      'activatePendingDriveDeviceLinkIfApproved',
+      'pending_device_link',
+      'pendingDeviceLink',
+    ]) {
+      expect(source).not.toContain(legacySymbol);
+    }
+  });
 });
