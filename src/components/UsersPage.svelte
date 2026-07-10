@@ -5,6 +5,7 @@
    */
   import { onMount } from 'svelte';
   import QRCode from 'qrcode';
+  import { createDeviceApprovalBootstrap } from '@iris/identity';
   import AccountSwitcher from '@iris/svelte-ui/AccountSwitcher.svelte';
   import IdentityRecoveryPanel from '@iris/svelte-ui/IdentityRecoveryPanel.svelte';
   import type { IdentityCreateRequest, IdentityRecoveryRequest } from '@iris/svelte-ui';
@@ -26,7 +27,7 @@
     waitForNostrExtension,
     type DriveDeviceApprovalLink,
   } from '../nostr';
-  import { encodeDriveDeviceApprovalRequest } from '../drive/deviceLink';
+  import { encodeDriveDeviceApprovalBootstrap } from '../drive/deviceLink';
   import { driveRootPath, normalizeOwnerNpub } from '../drive/setup';
   import { BackButton } from './ui';
 
@@ -132,7 +133,7 @@
 
   $effect(() => {
     if (approvalLinkReady && isExistingMode && !approvalLink) {
-      createApprovalRequest();
+      void createApprovalRequest();
     }
   });
 
@@ -187,12 +188,20 @@
     void handleGenerateNew({ name: createProfileName });
   }
 
-  function createApprovalRequest(): void {
-    const link = createDriveDeviceApprovalLink();
-    approvalLink = link;
-    saveStoredApprovalLink(link);
-    recoveryError = '';
-    copyRequestFeedback = '';
+  async function createApprovalRequest(): Promise<void> {
+    if (approvalBusy) return;
+    approvalBusy = true;
+    try {
+      const link = await createDriveDeviceApprovalLink();
+      approvalLink = link;
+      saveStoredApprovalLink(link);
+      recoveryError = '';
+      copyRequestFeedback = '';
+    } catch (error) {
+      recoveryError = error instanceof Error ? error.message : 'Approval request failed';
+    } finally {
+      approvalBusy = false;
+    }
   }
 
   async function copyApprovalRequest(): Promise<void> {
@@ -306,10 +315,17 @@
       const raw = localStorage.getItem(STORAGE_KEY_DEVICE_APPROVAL);
       if (!raw) return null;
       const parsed = JSON.parse(raw) as DriveDeviceApprovalLink;
-      if (!parsed?.url || !parsed.appKeyNsec || !parsed.pendingApproval?.request) return null;
-      const fullUrl = encodeDriveDeviceApprovalRequest(parsed.pendingApproval.request);
-      if (parsed.url === fullUrl) return parsed;
-      const normalized = { ...parsed, url: fullUrl };
+      if (
+        !parsed?.url
+        || parsed.requestEventPublished !== true
+        || !parsed.appKeyNsec
+        || !parsed.pendingApproval?.request
+      ) return null;
+      const compactUrl = encodeDriveDeviceApprovalBootstrap(
+        createDeviceApprovalBootstrap(parsed.pendingApproval.request),
+      );
+      if (parsed.url === compactUrl) return parsed;
+      const normalized = { ...parsed, url: compactUrl };
       saveStoredApprovalLink(normalized);
       return normalized;
     } catch {

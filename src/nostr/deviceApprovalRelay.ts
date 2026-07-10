@@ -8,9 +8,14 @@ import NDK, {
   type NostrEvent,
 } from 'ndk';
 import {
+  KIND_NOSTR_IDENTITY_ROSTER_OP,
+  NOSTR_IDENTITY_DEVICE_APPROVAL_REQUEST_EVENT_TYPE,
   nostrIdentityDeviceApprovalRequestRelays,
+  npubToPubkey,
+  type NostrIdentityDeviceApprovalBootstrap,
   type NostrIdentityDeviceApprovalRequest,
 } from '@iris/identity';
+import { DRIVE_DEVICE_APPROVAL_RELAY_URL } from '../drive/deviceLink';
 
 export interface DriveDeviceApprovalRelayClient {
   ndk: NDK;
@@ -27,14 +32,30 @@ export function driveDeviceApprovalRequestRelayUrls(
   return relayUrls;
 }
 
+export function driveDeviceApprovalRequestFilter(
+  bootstrap: NostrIdentityDeviceApprovalBootstrap,
+): NDKFilter<number> {
+  const requestPubkey = npubToPubkey(bootstrap.requestNpub);
+  const deviceAppKeyPubkey = npubToPubkey(bootstrap.deviceAppKeyNpub);
+  if (!requestPubkey || !deviceAppKeyPubkey || requestPubkey === deviceAppKeyPubkey) {
+    throw new Error('Invalid Drive device approval bootstrap keys');
+  }
+  return {
+    kinds: [KIND_NOSTR_IDENTITY_ROSTER_OP],
+    authors: [requestPubkey],
+    '#p': [deviceAppKeyPubkey],
+    '#type': [NOSTR_IDENTITY_DEVICE_APPROVAL_REQUEST_EVENT_TYPE],
+    limit: 20,
+  };
+}
+
 export function createDriveDeviceApprovalRelayClient(
-  request: NostrIdentityDeviceApprovalRequest,
 ): DriveDeviceApprovalRelayClient {
   const approvalNdk = new NDK({ explicitRelayUrls: [] });
   return {
     ndk: approvalNdk,
     relaySet: NDKRelaySet.fromRelayUrls(
-      driveDeviceApprovalRequestRelayUrls(request),
+      [DRIVE_DEVICE_APPROVAL_RELAY_URL],
       approvalNdk,
     ),
   };

@@ -1,9 +1,9 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import {
-    approveDriveDeviceApprovalRequest,
+    approveDriveDeviceApprovalBootstrap,
     getCurrentNostrIdentitySession,
-    parseDriveDeviceApprovalRequestInput,
+    parseDriveDeviceApprovalBootstrapInput,
     restoreSession,
   } from '../nostr';
   import { navigate } from '../utils/navigate';
@@ -22,8 +22,8 @@
   });
 
   async function approve(): Promise<void> {
-    const request = parseDriveDeviceApprovalRequestInput(approvalUrl);
-    if (!request) {
+    const bootstrap = parseDriveDeviceApprovalBootstrapInput(approvalUrl);
+    if (!bootstrap) {
       error = 'Invalid device approval request';
       return;
     }
@@ -35,7 +35,7 @@
         error = 'Sign in to approve this device';
         return;
       }
-      await approveDriveDeviceApprovalRequest(request);
+      await approveDriveDeviceApprovalBootstrap(bootstrap);
       status = 'Device approved';
       navigate('/settings/user');
     } catch (approvalError) {

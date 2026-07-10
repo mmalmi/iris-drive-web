@@ -4,10 +4,10 @@
   import type { UserSettingsKey } from '@iris/svelte-ui/userSettings';
   import {
     activatePendingDriveDeviceLinkIfApproved,
-    approveDriveDeviceApprovalRequest,
+    approveDriveDeviceApprovalBootstrap,
     getCurrentNostrIdentitySession,
     loadDriveDeviceLabels,
-    parseDriveDeviceApprovalRequestInput,
+    parseDriveDeviceApprovalBootstrapInput,
     removeDriveProfileAppKeyWithAdmin,
     restoreSession,
     setDriveProfileAppKeyAdmin,
@@ -139,15 +139,15 @@
 
   async function approveApprovalInput(input = approvalInput): Promise<void> {
     if (approvalBusy) return;
-    const request = parseDriveDeviceApprovalRequestInput(input);
-    if (!request) {
+    const bootstrap = parseDriveDeviceApprovalBootstrapInput(input);
+    if (!bootstrap) {
       error = 'Scan or paste a Drive device approval QR';
       return;
     }
     approvalBusy = true;
     error = '';
     try {
-      await approveDriveDeviceApprovalRequest(request);
+      await approveDriveDeviceApprovalBootstrap(bootstrap);
       approvalInput = '';
       refreshSession();
     } catch (approvalError) {

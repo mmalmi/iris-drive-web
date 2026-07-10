@@ -13,7 +13,7 @@ describe('device approval route', () => {
     expect(router).toContain("{ pattern: '/approve-device/:payload', component: DeviceApprovalRoute }");
     expect(router).toContain('<DeviceApprovalRoute payload={route.params.payload || \'\'} />');
     expect(route).toContain('https://drive.iris.to/approve-device/');
-    expect(route).toContain('approveDriveDeviceApprovalRequest');
+    expect(route).toContain('approveDriveDeviceApprovalBootstrap');
     expect(routerStore).toContain("pathname.startsWith('/approve-device/')");
   });
 
@@ -31,7 +31,7 @@ describe('device approval route', () => {
 
     expect(settings).toContain('data-testid="device-approval-section"');
     expect(settings).toContain('data-testid="device-approval-input"');
-    expect(settings).toContain('approveDriveDeviceApprovalRequest');
+    expect(settings).toContain('approveDriveDeviceApprovalBootstrap');
     expect(settings).toContain('showAddDeviceSection={false}');
     expect(settings).not.toContain('createDriveDeviceLinkInvite');
     expect(settings).not.toContain('subscribeDriveDeviceLinkRequests');

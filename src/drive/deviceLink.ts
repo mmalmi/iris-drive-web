@@ -1,8 +1,9 @@
 import { generateSecretKey, getPublicKey, nip19 } from 'nostr-tools';
 import {
   createNostrIdentityDeviceApprovalRequest,
-  encodeNostrIdentityDeviceApprovalRequest,
-  parseNostrIdentityDeviceApprovalRequest,
+  createDeviceApprovalBootstrap,
+  encodeDeviceApprovalBootstrap,
+  parseDeviceApprovalBootstrap,
   createNostrIdentityDeviceLinkInvite,
   encodeNostrIdentityDeviceLinkInvite,
   parseNostrIdentityDeviceLinkInvite,
@@ -11,6 +12,7 @@ import {
   pubkeyToNpub,
   npubToPubkey,
   type LocalNostrIdentityDeviceApprovalRequest,
+  type DeviceApprovalBootstrap,
   type NostrIdentityDeviceApprovalRequest,
   type NostrIdentityDeviceApprovalRequestedResource,
   type NostrIdentityDeviceLinkInvite,
@@ -43,6 +45,7 @@ export type DeviceLinkRequest = NostrIdentityDeviceLinkRequest;
 export type FullDriveDeviceApprovalRequest = NostrIdentityDeviceApprovalRequest;
 export type DriveDeviceApprovalRequest = FullDriveDeviceApprovalRequest;
 export type LocalDriveDeviceApprovalRequest = LocalNostrIdentityDeviceApprovalRequest;
+export type DriveDeviceApprovalBootstrap = DeviceApprovalBootstrap;
 
 export interface PendingDriveDeviceApproval {
   request: FullDriveDeviceApprovalRequest;
@@ -164,26 +167,24 @@ export function createDriveDeviceApprovalDraft(options: {
   return {
     appKeySecretKey,
     request,
-    url: encodeDriveDeviceApprovalRequest(request),
+    url: encodeDriveDeviceApprovalBootstrap(createDeviceApprovalBootstrap(request)),
     ...(options.label?.trim() ? { label: options.label.trim() } : {}),
   };
 }
 
-export function encodeDriveDeviceApprovalRequest(request: FullDriveDeviceApprovalRequest): string {
-  return encodeNostrIdentityDeviceApprovalRequest(request, { prefix: DEVICE_APPROVAL_REQUEST_PREFIX });
+export function encodeDriveDeviceApprovalBootstrap(bootstrap: DriveDeviceApprovalBootstrap): string {
+  return encodeDeviceApprovalBootstrap(bootstrap);
 }
 
-export function parseDriveDeviceApprovalRequest(input: string): DriveDeviceApprovalRequest | null {
+export function parseDriveDeviceApprovalBootstrap(input: string): DriveDeviceApprovalBootstrap | null {
   const value = input.trim().replace(/^nostr:/i, '');
-  return parseNostrIdentityDeviceApprovalRequest(value, {
-    prefixes: [DEVICE_APPROVAL_REQUEST_PREFIX],
-  });
+  return parseDeviceApprovalBootstrap(value);
 }
 
-export function isCompleteDriveDeviceApprovalRequestInput(input: string): boolean {
+export function isCompleteDriveDeviceApprovalBootstrapInput(input: string): boolean {
   const value = input.trim().replace(/^nostr:/i, '');
   if (!value || /\s/.test(value)) return false;
-  return parseDriveDeviceApprovalRequest(value) !== null;
+  return parseDriveDeviceApprovalBootstrap(value) !== null;
 }
 
 export function pendingDriveDeviceApprovalFromDraft(

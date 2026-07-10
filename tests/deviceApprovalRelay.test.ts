@@ -1,4 +1,9 @@
 import { finalizeEvent, generateSecretKey } from 'nostr-tools';
+import {
+  KIND_NOSTR_IDENTITY_ROSTER_OP,
+  NOSTR_IDENTITY_DEVICE_APPROVAL_REQUEST_EVENT_TYPE,
+  createDeviceApprovalBootstrap,
+} from '@iris/identity';
 import NDK, { NDKRelay, NDKRelaySet, type NostrEvent } from 'ndk';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -7,6 +12,7 @@ import {
 } from '../src/drive/deviceLink';
 import {
   createDriveDeviceApprovalRelayClient,
+  driveDeviceApprovalRequestFilter,
   driveDeviceApprovalRequestRelayUrls,
   publishDriveDeviceApprovalArtifacts,
   subscribeDriveDeviceApprovalRelay,
@@ -16,14 +22,14 @@ import {
 describe('Drive device approval request relay', () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it('signs and extracts the one scoped request relay', () => {
+  it('uses the fixed relay and indexes requests by both bootstrap keys', () => {
     const draft = createDriveDeviceApprovalDraft({ requestedAt: 1_700_000_000 });
     const relaySetFactory = vi.spyOn(NDKRelaySet, 'fromRelayUrls').mockImplementation(
       (relayUrls, approvalNdk) => new NDKRelaySet(new Set([
         new NDKRelay(relayUrls[0], undefined, approvalNdk),
       ]), approvalNdk),
     );
-    const client = createDriveDeviceApprovalRelayClient(draft.request);
+    const client = createDriveDeviceApprovalRelayClient();
 
     expect(driveDeviceApprovalRequestRelayUrls(draft.request)).toEqual([
       DRIVE_DEVICE_APPROVAL_RELAY_URL,
@@ -34,6 +40,15 @@ describe('Drive device approval request relay', () => {
       [DRIVE_DEVICE_APPROVAL_RELAY_URL],
       client.ndk,
     );
+    expect(driveDeviceApprovalRequestFilter(
+      createDeviceApprovalBootstrap(draft.request),
+    )).toEqual({
+      kinds: [KIND_NOSTR_IDENTITY_ROSTER_OP],
+      authors: [draft.request.requestPubkey],
+      '#p': [draft.request.deviceAppKeyPubkey],
+      '#type': [NOSTR_IDENTITY_DEVICE_APPROVAL_REQUEST_EVENT_TYPE],
+      limit: 20,
+    });
   });
 
   it('fails closed without exactly one signed request relay', () => {
