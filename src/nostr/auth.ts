@@ -23,8 +23,15 @@ import {
   type RemoveNostrAppKeyResult,
 } from '@iris/identity';
 import { APP_KEY_WRITER_CAPABILITIES } from 'nostr-social-graph';
-import type { NDKFilter, NDKKind } from 'ndk';
+import type { NDKFilter, NDKKind, NostrEvent } from 'ndk';
 import { ndk, NDKNip46Signer, NDKPrivateKeySigner, NDKNip07Signer, NDKEvent } from './ndk';
+import {
+  closeDriveDeviceApprovalRelayClient,
+  createDriveDeviceApprovalRelayClient,
+  publishDriveDeviceApprovalArtifacts,
+  subscribeDriveDeviceApprovalRelay,
+  type DriveDeviceApprovalRelayClient,
+} from './deviceApprovalRelay';
 import { nostrStore } from './store';
 import { initHashtreeBackend, getWorkerAdapter, updateFollowsSubscription, waitForWorkerAdapter } from '../lib/workerInit';
 import {
@@ -717,11 +724,17 @@ export async function approveDriveDeviceApprovalRequest(
     subjectPubkey: session.appKeyPubkey,
     rosterOpEvent: JSON.parse(signed.event_json) as NostrToolsEvent,
   });
+  const approvalRelayClient = createDriveDeviceApprovalRelayClient(request);
+  const approvalRosterOps = [...rosterOps, signed, dckRotationOp];
 
-  await publishCurrentDriveIdentityRosterOps({ ...session, rosterOps });
-  await publishSignedIdentityEventJson(signed.event_json);
-  await publishSignedIdentityEventJson(dckRotationOp.event_json);
-  await publishRawNostrEvent(receiptEvent as NostrToolsEvent);
+  try {
+    await publishDriveDeviceApprovalArtifacts(approvalRelayClient, [
+      ...approvalRosterOps.map((op) => JSON.parse(op.event_json) as NostrEvent),
+      receiptEvent as NostrEvent,
+    ]);
+  } finally {
+    closeDriveDeviceApprovalRelayClient(approvalRelayClient);
+  }
   const updated = appendCurrentNostrIdentitySessionRosterOps(session.profileId, [
     ...rosterOps,
     signed,
@@ -751,14 +764,28 @@ export async function activateDriveDeviceApprovalIfApproved(
     throw new Error('Pending Drive AppKey does not match approval request');
   }
   const requestSecretKey = driveDeviceApprovalRequestSecretKey(pendingApproval);
-  const receipt = await fetchDriveDeviceApprovalReceipt(
-    pendingApproval.request,
-    requestSecretKey,
-    options.timeoutMs,
-  );
+  const approvalRelayClient = createDriveDeviceApprovalRelayClient(pendingApproval.request);
+  let receipt: NostrIdentityDeviceApprovalReceipt | null = null;
+  let remoteOps: SignedNostrIdentityRosterOp[] = [];
+  try {
+    receipt = await fetchDriveDeviceApprovalReceipt(
+      pendingApproval.request,
+      requestSecretKey,
+      approvalRelayClient,
+      options.timeoutMs,
+    );
+    if (receipt) {
+      remoteOps = await fetchNostrIdentityRosterOps(
+        receipt.profileId,
+        options.timeoutMs ?? 5000,
+        approvalRelayClient,
+      );
+    }
+  } finally {
+    closeDriveDeviceApprovalRelayClient(approvalRelayClient);
+  }
   if (!receipt) return null;
   const receiptRosterOp = parseDeviceApprovalReceiptRosterOp(receipt);
-  const remoteOps = await fetchNostrIdentityRosterOps(receipt.profileId, options.timeoutMs ?? 5000);
   const rosterOps = mergeRosterOps([receiptRosterOp], remoteOps);
   const projection = projectNostrIdentityRoster(receipt.profileId, rosterOps);
   const facet = projection.active_facets[appKeyPubkey];
@@ -1796,9 +1823,9 @@ function validateDriveDeviceApprovalRequest(
 async function fetchDriveDeviceApprovalReceipt(
   request: DriveDeviceApprovalRequest,
   requestSecretKey: Uint8Array,
+  relayClient: DriveDeviceApprovalRelayClient,
   timeoutMs = 5000,
 ): Promise<NostrIdentityDeviceApprovalReceipt | null> {
-  await waitForWorkerAdapter(2000).catch(() => null);
   let receipt: NostrIdentityDeviceApprovalReceipt | null = null;
 
   await new Promise<void>((resolve) => {
@@ -1815,7 +1842,7 @@ async function fetchDriveDeviceApprovalReceipt(
       '#p': [request.requestPubkey],
       limit: 50,
     };
-    const sub = ndk.subscribe(filter, { closeOnEose: true });
+    const sub = subscribeDriveDeviceApprovalRelay(relayClient, filter);
     const timer = setTimeout(finish, timeoutMs);
 
     sub.on('event', (event) => {
@@ -1833,6 +1860,7 @@ async function fetchDriveDeviceApprovalReceipt(
       }
     });
     sub.on('eose', finish);
+    sub.start();
   });
 
   return receipt;
@@ -1895,8 +1923,11 @@ async function createRecoverySigner(recovery: DriveRecoveryRequest): Promise<Nos
 async function fetchNostrIdentityRosterOps(
   profileId: NostrIdentityId,
   timeoutMs = 5000,
+  relayClient?: DriveDeviceApprovalRelayClient,
 ): Promise<SignedNostrIdentityRosterOp[]> {
-  await waitForWorkerAdapter(2000).catch(() => null);
+  if (!relayClient) {
+    await waitForWorkerAdapter(2000).catch(() => null);
+  }
   const byId = new Map<string, SignedNostrIdentityRosterOp>();
 
   await new Promise<void>((resolve) => {
@@ -1913,7 +1944,9 @@ async function fetchNostrIdentityRosterOps(
       '#i': [profileId],
       limit: 500,
     };
-    const sub = ndk.subscribe(filter, { closeOnEose: true });
+    const sub = relayClient
+      ? subscribeDriveDeviceApprovalRelay(relayClient, filter)
+      : ndk.subscribe(filter, { closeOnEose: true }, false);
     const timer = setTimeout(finish, timeoutMs);
 
     sub.on('event', (event) => {
@@ -1932,6 +1965,7 @@ async function fetchNostrIdentityRosterOps(
       }
     });
     sub.on('eose', finish);
+    sub.start();
   });
 
   return Array.from(byId.values())

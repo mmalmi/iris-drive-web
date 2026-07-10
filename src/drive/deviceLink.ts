@@ -7,6 +7,7 @@ import {
   encodeNostrIdentityDeviceLinkInvite,
   parseNostrIdentityDeviceLinkInvite,
   isCompleteNostrIdentityDeviceLinkInviteInput,
+  nostrIdentityDeviceApprovalRelayResource,
   pubkeyToNpub,
   npubToPubkey,
   type LocalNostrIdentityDeviceApprovalRequest,
@@ -21,6 +22,7 @@ export const DEVICE_LINK_INVITE_PREFIX = 'https://drive.iris.to/invite/';
 export const DEVICE_APPROVAL_REQUEST_PREFIX = 'https://drive.iris.to/approve-device/';
 export const DEVICE_LINK_INVITE_VERSION = 1;
 export const DEVICE_APPROVAL_REQUEST_TYPE = 'device_link';
+export const DRIVE_DEVICE_APPROVAL_RELAY_URL = 'wss://temp.iris.to';
 
 export const DRIVE_DEVICE_APPROVAL_RESOURCES: readonly NostrIdentityDeviceApprovalRequestedResource[] = [
   {
@@ -33,6 +35,7 @@ export const DRIVE_DEVICE_APPROVAL_RESOURCES: readonly NostrIdentityDeviceApprov
       'decrypt_secret_epochs',
     ],
   },
+  nostrIdentityDeviceApprovalRelayResource(DRIVE_DEVICE_APPROVAL_RELAY_URL),
 ];
 
 export type DeviceLinkInvite = NostrIdentityDeviceLinkInvite;
