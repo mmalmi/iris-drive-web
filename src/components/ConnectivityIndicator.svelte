@@ -8,6 +8,16 @@
   import { appStore } from '../store';
   import { nostrStore } from '../nostr';
   import { getNativeDaemonRelayUrl } from '../nostr/ndk';
+  import {
+    HEADER_CONNECTIVITY_WARNING_STARTUP_GRACE_MS,
+    shouldShowHeaderConnectivityIndicator,
+  } from '../lib/headerConnectivity';
+
+  interface Props {
+    showAlways?: boolean;
+  }
+
+  let { showAlways = false }: Props = $props();
 
   let peerCount = $derived($appStore.peerCount);
   let peersList = $derived($appStore.peers);
@@ -29,8 +39,12 @@
 
   // Track browser online/offline status
   let isOnline = $state(typeof navigator !== 'undefined' ? navigator.onLine : true);
+  let startupGraceElapsed = $state(false);
 
   $effect(() => {
+    const timer = window.setTimeout(() => {
+      startupGraceElapsed = true;
+    }, HEADER_CONNECTIVITY_WARNING_STARTUP_GRACE_MS);
     const handleOnline = () => { isOnline = true; };
     const handleOffline = () => { isOnline = false; };
 
@@ -38,6 +52,7 @@
     window.addEventListener('offline', handleOffline);
 
     return () => {
+      window.clearTimeout(timer);
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
@@ -53,7 +68,9 @@
   });
 
   let title = $derived.by(() => {
-    const connectedTransportRelays = transportRelays.filter((relay) => relay.status === 'connected');
+    const connectedTransportRelays = transportRelays.filter(
+      (relay: { status: string; url: string }) => relay.status === 'connected'
+    );
     const primaryTransport = connectedTransportRelays[0]?.url ?? transportRelays[0]?.url ?? null;
     const isDaemonTransport = primaryTransport === nativeDaemonRelayUrl;
 
@@ -81,23 +98,39 @@
 
   // Total connections = relays + peers (show configured relays while connecting)
   let totalConnections = $derived(displayRelays + peerCount);
+  let showIndicator = $derived(shouldShowHeaderConnectivityIndicator({
+    showConnectivityInHeader: showAlways,
+    connectedRelays,
+    connectedPeers: peerCount,
+    startupGraceElapsed,
+  }));
 </script>
 
-<a
-  href="#/settings"
-  class="flex flex-col items-center px-2 py-1 text-sm no-underline"
-  data-testid="connectivity-indicator"
-  {title}
->
-  <div class="flex flex-col items-center">
-    <span
-      data-testid="peer-indicator-dot"
-      class="i-lucide-wifi"
-      style="color: {color}"
-    ></span>
-    <span data-testid="peer-count" class="text-xs -mt-1" style="color: {color}">{totalConnections}</span>
-  </div>
-  {#if !isOnline}
-    <span class="text-[10px] text-danger -mt-0.5">offline</span>
-  {/if}
-</a>
+{#if showIndicator}
+  <a
+    href="#/settings/network"
+    class="flex min-h-9 items-center justify-center rounded-full px-2 text-sm no-underline hover:bg-surface-2"
+    data-testid="connectivity-indicator"
+    aria-label={showAlways ? title : 'Offline'}
+    {title}
+  >
+    {#if showAlways}
+      <span class="flex flex-col items-center">
+        <span
+          data-testid="peer-indicator-dot"
+          class="i-lucide-wifi"
+          style="color: {color}"
+        ></span>
+        <span data-testid="peer-count" class="text-xs -mt-1" style="color: {color}">{totalConnections}</span>
+      </span>
+      {#if !isOnline}
+        <span class="ml-1 text-xs text-danger">offline</span>
+      {/if}
+    {:else}
+      <span class="flex items-center gap-1.5 text-xs font-medium text-danger">
+        <span class="i-lucide-wifi-off text-base"></span>
+        <span>Offline</span>
+      </span>
+    {/if}
+  </a>
+{/if}

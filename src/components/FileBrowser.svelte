@@ -23,6 +23,12 @@
   import { getFileIcon } from '@iris/hashtree-app/fileIcon';
   import { BREAKPOINTS } from '@iris/hashtree-app/breakpoints';
 
+  interface Props {
+    compact?: boolean;
+  }
+
+  let { compact = false }: Props = $props();
+
   function currentSnapshotForHref() {
     return isSnapshotPermalink ? permalinkSnapshot.snapshot : null;
   }
@@ -303,7 +309,14 @@
     return () => window.removeEventListener('resize', checkLayout);
   });
 
-  let specialItemCount = $derived((hasParent ? 1 : 0) + 1);
+  let showDirectoryNavigationRows = $derived(compact || isFileBrowserOnly);
+  let parentRowIndex = $derived(showDirectoryNavigationRows && hasParent ? 0 : -1);
+  let currentDirectoryRowIndex = $derived(
+    showDirectoryNavigationRows ? (hasParent ? 1 : 0) : -1
+  );
+  let specialItemCount = $derived(
+    showDirectoryNavigationRows ? (hasParent ? 2 : 1) : 0
+  );
   let navItemCount = $derived(specialItemCount + entries.length);
 
   $effect(() => {
@@ -332,10 +345,10 @@
 
     if (key === 'enter' && focusedIndex >= 0) {
       e.preventDefault();
-      if (hasParent && focusedIndex === 0) {
+      if (focusedIndex === parentRowIndex) {
         window.location.hash = currentPath.length > 0 ? buildDirHref(currentPath.slice(0, -1)).slice(1) : buildRootHref().slice(1);
         focusedIndex = -1;
-      } else if (focusedIndex === (hasParent ? 1 : 0)) {
+      } else if (focusedIndex === currentDirectoryRowIndex) {
         window.location.hash = buildDirHref(currentPath).slice(1);
         focusedIndex = -1;
       } else {
@@ -369,9 +382,9 @@
       newIndex = currentIndex > 0 ? currentIndex - 1 : navItemCount - 1;
     }
 
-    if (hasParent && newIndex === 0) {
+    if (newIndex === parentRowIndex) {
       focusedIndex = newIndex;
-    } else if (newIndex === (hasParent ? 1 : 0)) {
+    } else if (newIndex === currentDirectoryRowIndex) {
       focusedIndex = newIndex;
     } else {
       const entryIndex = newIndex - specialItemCount;
@@ -456,6 +469,15 @@
         {/if}
       </div>
     {/if}
+    {#if !compact && (currentDirCid || canEdit)}
+      <div class="hidden lg:flex min-h-16 shrink-0 px-5 py-3 border-b border-surface-2 items-center gap-4 bg-surface-0">
+        <div class="min-w-0 flex items-center gap-2 mr-auto">
+          <span class="i-lucide-folder-open text-xl text-warning shrink-0"></span>
+          <h1 class="text-xl font-medium text-text-1 truncate">{currentDirName || currentTreeName}</h1>
+        </div>
+        <FolderActions dirCid={currentDirCid} dirName={currentDirName} {canEdit} />
+      </div>
+    {/if}
     <div class="lg:hidden shrink-0 px-3 py-2 border-b border-surface-2 flex items-center gap-2 bg-surface-0">
       {#if hasParent}
         <a href={currentPath.length > 0 ? buildDirHref(currentPath.slice(0, -1)) : buildRootHref()} class="btn-ghost p-1 no-underline" title="Back">
@@ -503,7 +525,7 @@
       {#if resolvingPath}
         <div class="p-4"></div>
       {:else}
-        {#if hasParent}
+        {#if showDirectoryNavigationRows && hasParent}
           <a
             href={currentPath.length > 0 ? buildDirHref(currentPath.slice(0, -1)) : buildRootHref()}
             class="p-3 border-b border-surface-2 flex items-center gap-3 no-underline text-text-1 hover:bg-surface-2/50 {focusedIndex === 0 ? 'ring-2 ring-inset ring-accent' : ''} {dropTargetDir === '..' ? 'bg-accent/20' : ''}"
@@ -516,27 +538,29 @@
           </a>
         {/if}
 
-        <a
-          href={buildDirHref(currentPath)}
-          class="p-3 border-b border-surface-2 flex items-center gap-3 no-underline text-text-1 hover:bg-surface-2/50 {!selectedEntry && focusedIndex < 0 ? 'bg-surface-2' : ''} {focusedIndex === (hasParent ? 1 : 0) ? 'ring-2 ring-inset ring-accent' : ''}"
-        >
-          <span class="shrink-0 i-lucide-folder-open text-warning"></span>
-          <span class="truncate flex-1">{currentDirName}</span>
-          {#if currentPath.length === 0}
-            {#if route.isPermalink}
-              {#if rootCid?.key}
-                <span class="relative inline-block shrink-0 text-text-2" title="Encrypted (has key)">
-                  <span class="i-lucide-link"></span>
-                  <span class="i-lucide-lock absolute -bottom-0.5 -right-1.5 text-[0.6em]"></span>
-                </span>
+        {#if showDirectoryNavigationRows}
+          <a
+            href={buildDirHref(currentPath)}
+            class="p-3 border-b border-surface-2 flex items-center gap-3 no-underline text-text-1 hover:bg-surface-2/50 {!selectedEntry && focusedIndex < 0 ? 'bg-surface-2' : ''} {focusedIndex === currentDirectoryRowIndex ? 'ring-2 ring-inset ring-accent' : ''}"
+          >
+            <span class="shrink-0 i-lucide-folder-open text-warning"></span>
+            <span class="truncate flex-1">{currentDirName}</span>
+            {#if currentPath.length === 0}
+              {#if route.isPermalink}
+                {#if rootCid?.key}
+                  <span class="relative inline-block shrink-0 text-text-2" title="Encrypted (has key)">
+                    <span class="i-lucide-link"></span>
+                    <span class="i-lucide-lock absolute -bottom-0.5 -right-1.5 text-[0.6em]"></span>
+                  </span>
+                {:else}
+                  <span class="i-lucide-globe text-text-2" title="Public"></span>
+                {/if}
               {:else}
-                <span class="i-lucide-globe text-text-2" title="Public"></span>
+                <VisibilityIcon visibility={currentTreeVisibility} class="text-text-2" />
               {/if}
-            {:else}
-              <VisibilityIcon visibility={currentTreeVisibility} class="text-text-2" />
             {/if}
-          {/if}
-        </a>
+          </a>
+        {/if}
 
         {#if isProtectedTreeWithoutAccess}
           <ProtectedTreeNotice visibility={effectiveTree?.visibility} {linkKey} />

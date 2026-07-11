@@ -234,7 +234,7 @@
 </script>
 
 <div bind:this={containerRef} class="relative w-full {!fullWidth ? 'max-w-lg' : ''}">
-  <div class="flex items-center gap-2 px-4 py-2 rounded-full bg-surface-0 b-1 b-solid b-surface-3 transition-colors {focused ? 'b-accent' : ''}">
+  <div class="flex items-center gap-3 px-4 py-2.5 rounded-full bg-surface-0 ring-1 transition-all {focused ? 'ring-accent shadow-sm' : 'ring-surface-2'}">
     <span class="i-lucide-search text-sm text-muted shrink-0"></span>
     <input
       bind:this={inputRef}

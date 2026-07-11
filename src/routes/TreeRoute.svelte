@@ -199,14 +199,14 @@
 {#if !isFullscreen}
   <div class={hasFileSelected
       ? 'hidden lg:flex lg:w-80 shrink-0 flex-col min-h-0'
-      : 'flex flex-1 lg:flex-none lg:w-80 shrink-0 flex-col min-h-0'}>
-    <FileBrowser />
+      : 'flex flex-1 shrink-0 flex-col min-h-0'}>
+    <FileBrowser compact={showViewerPane} />
   </div>
 {/if}
 <!-- Right panel (Viewer or StreamView) - shown on mobile when file/stream selected -->
 <div class={showViewerPane
   ? 'flex flex-1 flex-col min-w-0 min-h-0'
-  : 'hidden lg:flex flex-1 flex-col min-w-0 min-h-0'}>
+  : 'hidden'}>
   {#if showStreamView}
     <StreamView />
   {:else}

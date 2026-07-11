@@ -247,12 +247,12 @@
     <div class="bg-surface-2 rounded divide-y divide-surface-3 mt-3">
       <label class="p-3 flex items-center justify-between cursor-pointer">
         <div>
-          <span class="text-sm text-text-1">Show connectivity</span>
-          <p class="text-xs text-text-3">Display connection status in header</p>
+          <span class="text-sm text-text-1">Always show connectivity</span>
+          <p class="text-xs text-text-3">Otherwise the header only warns when Drive is offline</p>
         </div>
         <input
           type="checkbox"
-          checked={poolSettings.showConnectivity ?? true}
+          checked={poolSettings.showConnectivity ?? false}
           onchange={(e) => settingsStore.setPoolSettings({ showConnectivity: e.currentTarget.checked })}
           class="w-4 h-4 accent-accent"
         />

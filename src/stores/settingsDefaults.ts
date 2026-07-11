@@ -101,7 +101,7 @@ export const DEFAULT_POOL_SETTINGS: PoolSettings = {
   followsSatisfied: 10,
   otherMax: isTestMode ? 0 : 16,
   otherSatisfied: isTestMode ? 0 : 8,
-  showConnectivity: true,
+  showConnectivity: false,
   showBandwidth: false,
   uploadRateLimitEnabled: true,
   uploadRateLimitMode: 'auto',

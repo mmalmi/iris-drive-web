@@ -28,7 +28,7 @@
 </script>
 
 <header
-  class={`h-14 shrink-0 flex items-center px-4 md:px-6 gap-3 z-20 bg-surface-0 ${sticky ? 'sticky top-0' : ''}`}
+  class={`h-16 shrink-0 flex items-center px-4 md:px-5 gap-3 z-20 bg-surface-1 ${sticky ? 'sticky top-0' : ''}`}
   style:background-color={scrollTint ? `rgb(var(--surface-0) / ${opacity})` : undefined}
   style:backdrop-filter={scrollTint ? `blur(${opacity * 12}px)` : undefined}
 >

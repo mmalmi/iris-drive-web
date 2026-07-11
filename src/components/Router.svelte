@@ -19,6 +19,8 @@
   import HomeRoute from '../routes/HomeRoute.svelte';
   import ShareDialogRoute from '../routes/ShareDialogRoute.svelte';
   import ShareInviteRoute from '../routes/ShareInviteRoute.svelte';
+  import RecentRoute from '../routes/RecentRoute.svelte';
+  import SharedWithMeRoute from '../routes/SharedWithMeRoute.svelte';
   import TreeRoute from '../routes/TreeRoute.svelte';
   import UserRoute from '../routes/UserRoute.svelte';
 
@@ -29,6 +31,8 @@
     { pattern: '/approve-device/:payload', component: DeviceApprovalRoute },
     { pattern: '/share', component: ShareDialogRoute },
     { pattern: '/share-invite/:payload', component: ShareInviteRoute },
+    { pattern: '/recent', component: RecentRoute },
+    { pattern: '/shared-with-me', component: SharedWithMeRoute },
     { pattern: '/settings', component: SettingsLayout },
     { pattern: '/settings/*', component: SettingsLayout },
     { pattern: '/wallet', component: WalletPage },
@@ -77,6 +81,10 @@
     <ShareDialogRoute />
   {:else if route.component === ShareInviteRoute}
     <ShareInviteRoute payload={route.params.payload || ''} />
+  {:else if route.component === RecentRoute}
+    <RecentRoute />
+  {:else if route.component === SharedWithMeRoute}
+    <SharedWithMeRoute />
   {:else if route.component === SettingsLayout}
     <SettingsLayout />
   {:else if route.component === WalletPage}

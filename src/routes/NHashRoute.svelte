@@ -41,14 +41,14 @@
   {#if !isFullscreen}
     <div class={showViewer
         ? 'hidden lg:flex lg:w-80 shrink-0 flex-col min-h-0'
-        : 'flex flex-1 lg:flex-none lg:w-80 shrink-0 flex-col min-h-0'}>
-      <FileBrowser />
+        : 'flex flex-1 shrink-0 flex-col min-h-0'}>
+      <FileBrowser compact={showViewer} />
     </div>
   {/if}
   <!-- Viewer - shown in single-column when viewing a file -->
   <div class={showViewer || isFullscreen
     ? 'flex flex-1 flex-col min-w-0 min-h-0 bg-surface-1/30'
-    : 'hidden lg:flex flex-1 flex-col min-w-0 min-h-0 bg-surface-1/30'}>
+    : 'hidden'}>
     <Viewer />
   </div>
 {:else}

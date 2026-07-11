@@ -7,7 +7,7 @@
   import BandwidthIndicator from './components/BandwidthIndicator.svelte';
   import SearchInput from './components/SearchInput.svelte';
   import MobileSearch from './components/MobileSearch.svelte';
-  import WalletLink from './components/WalletLink.svelte';
+  import DriveSidebar from './components/DriveSidebar.svelte';
   import Toast from './components/Toast.svelte';
   import Router from './components/Router.svelte';
   import { currentPath, initRouter } from './lib/router.svelte';
@@ -27,10 +27,22 @@
   import BlossomPushModal from './components/Modals/BlossomPushModal.svelte';
 
   // Header display settings (default to true/false if not yet loaded)
-  let showConnectivity = $derived($settingsStore.pools.showConnectivity ?? true);
+  let showConnectivity = $derived($settingsStore.pools.showConnectivity ?? false);
   let showBandwidth = $derived($settingsStore.pools.showBandwidth ?? false);
   let homePath = $derived(activeDriveRootPath($nostrStore));
   let homeHref = $derived(`#${homePath}`);
+  let showDriveSidebar = $derived.by(() => {
+    if (!$nostrStore.isLoggedIn) return false;
+    const path = $currentPath;
+    return ![
+      '/approve-device',
+      '/settings',
+      '/share',
+      '/share-invite',
+      '/users',
+      '/wallet',
+    ].some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
+  });
 
   onMount(() => {
     initRouter();
@@ -46,7 +58,7 @@
   }
 </script>
 
-<div class="h-full flex flex-col bg-surface-0">
+<div class="h-full flex flex-col bg-surface-1">
   <Header>
     <div class="flex items-center shrink-0">
       <a href={homeHref} onclick={handleLogoClick} class="no-underline" data-testid="home-link">
@@ -62,17 +74,19 @@
       {#if showBandwidth}
         <BandwidthIndicator />
       {/if}
-      {#if showConnectivity}
-        <ConnectivityIndicator />
-      {/if}
-      <WalletLink />
+      <ConnectivityIndicator showAlways={showConnectivity} />
       <NostrLogin />
     </div>
   </Header>
 
   <!-- Main area -->
-  <div class="flex-1 flex flex-col">
-    <Router currentPath={$currentPath} />
+  <div class="flex-1 flex min-h-0">
+    {#if showDriveSidebar}
+      <DriveSidebar currentPath={$currentPath} {homeHref} />
+    {/if}
+    <div class="flex-1 flex flex-col min-w-0 min-h-0 bg-surface-0 md:mr-2 md:mb-2 md:rounded-2xl md:overflow-hidden">
+      <Router currentPath={$currentPath} />
+    </div>
   </div>
 
   <!-- Modals -->

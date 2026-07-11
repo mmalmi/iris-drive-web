@@ -17,6 +17,12 @@
   } from '../drive/shareLibrary';
   import { toast } from '../stores/toast';
 
+  interface Props {
+    standalone?: boolean;
+  }
+
+  let { standalone = false }: Props = $props();
+
   type SharedWithMeRow = NativeSharedFolderView | SharedFolderView;
 
   let nativeActionEndpoint = $derived(nativeShareActionEndpoint());
@@ -80,13 +86,18 @@
   }
 </script>
 
-{#if shares.length > 0}
-  <section class="mx-3 mt-3 rounded border border-surface-2 bg-surface-1/70" data-testid="shared-with-me-panel">
-    <div class="h-9 px-3 flex items-center gap-2 border-b border-surface-2">
+{#if shares.length > 0 || standalone}
+  <section class={standalone ? 'rounded-xl border border-surface-2 overflow-hidden' : 'mx-3 mt-3 rounded border border-surface-2 bg-surface-1/70'} data-testid="shared-with-me-panel">
+    <div class="h-11 px-4 flex items-center gap-2 border-b border-surface-2 bg-surface-1/70">
       <span class="i-lucide-folder-key text-accent"></span>
       <span class="text-sm font-medium text-text-2">Shared with me</span>
     </div>
-    <div class="divide-y divide-surface-2">
+    <div class="divide-y divide-surface-2 bg-surface-0">
+      {#if shares.length === 0}
+        <div class="px-4 py-10 text-center text-sm text-text-3">
+          Folders shared with you will appear here.
+        </div>
+      {/if}
       {#each shares as share (share.share_id)}
         <div class="px-3 py-2 flex items-center gap-3" data-testid="shared-with-me-row">
           <span class="i-lucide-folder text-warning shrink-0"></span>
