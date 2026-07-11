@@ -76,6 +76,9 @@ test.describe('Drive setup', () => {
     await expect(page).toHaveURL(/#\/settings$/);
     await homeLink.click();
     await expectDriveRoute(page, profileId);
+
+    await page.evaluate(() => { window.location.hash = '#/'; });
+    await expectDriveRoute(page, profileId);
   });
 
   test('recovers with secret key through the shared add-user flow', async ({ page, relayUrl }) => {
