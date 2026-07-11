@@ -4,6 +4,7 @@
    * Receives currentPath as a prop to ensure proper reactivity
    */
   import { matchRoute } from '../lib/router.svelte';
+  import { matchDirectContentRoute } from '../lib/directContentRoute';
 
   // Page components
   import SettingsLayout from './settings/SettingsLayout.svelte';
@@ -59,6 +60,11 @@
 
   // Find matching route
   function findRoute(path: string) {
+    const directContentRoute = matchDirectContentRoute(path);
+    if (directContentRoute) {
+      return { component: UserRoute, params: directContentRoute };
+    }
+
     for (const route of routePatterns) {
       const match = matchRoute(route.pattern, path);
       if (match.matched) {
