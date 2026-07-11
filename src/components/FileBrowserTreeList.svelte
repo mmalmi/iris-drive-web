@@ -8,6 +8,7 @@
   import type { TreeEntry } from '../stores';
   import { buildTreeHref } from './fileBrowserHrefs';
   import { isNostrIdentityId } from '../utils/route';
+  import IdentityName from './User/IdentityName.svelte';
 
   interface Props {
     viewedNpub: string | null;
@@ -19,6 +20,7 @@
     targetNpub: string | null | undefined;
     currentTreeName: string | null;
     treeFocusedIndex: number;
+    viewedIdentityAppKeyPubkey: string;
     onKeyDown: (event: KeyboardEvent) => void;
     fileListRef?: HTMLDivElement;
   }
@@ -33,6 +35,7 @@
     targetNpub,
     currentTreeName,
     treeFocusedIndex,
+    viewedIdentityAppKeyPubkey,
     onKeyDown,
     fileListRef = $bindable(),
   }: Props = $props();
@@ -43,9 +46,9 @@
 <div class="h-14 shrink-0 px-4 md:px-5 border-b border-surface-2 flex items-center gap-2 bg-surface-0">
   {#if viewedNpub}
     {#if viewedNostrIdentityId}
-      <div class="min-w-0 flex items-center gap-2 text-sm text-text-2" data-testid="drive-profile-root-scope" title={viewedNostrIdentityId}>
+      <div class="min-w-0 flex items-center gap-2 text-sm text-text-2" data-testid="drive-profile-root-scope">
         <span class="i-lucide-folder-root shrink-0 text-text-3"></span>
-        <span class="truncate">{viewedNostrIdentityId}</span>
+        <IdentityName profileId={viewedNostrIdentityId} appKeyPubkey={viewedIdentityAppKeyPubkey} />
       </div>
     {:else}
       <a href="#/{viewedNpub}/profile" class="no-underline min-w-0">

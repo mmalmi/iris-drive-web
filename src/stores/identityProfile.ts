@@ -73,7 +73,7 @@ async function identityProjectionForAccount(
   appKeyPubkey: string,
 ): Promise<NonNullable<ReturnType<typeof projectNostrIdentityRoster>> | null> {
   const session = getStoredNostrIdentitySessionForAccount(appKeyPubkey);
-  if (session) {
+  if (session && (!profileId || session.profileId === profileId)) {
     return projectNostrIdentityRoster(session.profileId, session.rosterOps);
   }
   if (!profileId) return null;

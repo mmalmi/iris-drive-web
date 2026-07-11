@@ -1,3 +1,4 @@
+import { fallbackIdentityName } from '@iris/svelte-ui/profile';
 import type {
   NostrIdentityId,
   NostrIdentityRosterProjection,
@@ -176,7 +177,7 @@ export function shareMemberViews(
       role_label: shareRoleLabel(member.role),
       status: member.status,
       status_label: shareMemberStatusLabel(member.status),
-      display_name: member.display_name || member.representative_npub_hint || member.profile_id,
+      display_name: member.display_name || member.representative_npub_hint || fallbackIdentityName(member.profile_id),
       representative_npub_hint: member.representative_npub_hint,
       app_key_count: counts[member.profile_id] ?? 0,
       can_revoke: currentAppKeyCanAdmin && member.status !== 'revoked' && currentProfileId !== member.profile_id,

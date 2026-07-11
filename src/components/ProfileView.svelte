@@ -12,6 +12,8 @@
   import CopyText from '@iris/svelte-ui/CopyText.svelte';
   import ProxyImg from './ProxyImg.svelte';
   import { getFollowsMe, getFollowers, fetchUserFollows, fetchUserFollowers, socialGraphStore } from '../utils/socialGraph';
+  import { isNostrIdentityId } from '../utils/route';
+  import IdentityName from './User/IdentityName.svelte';
 
   interface Props {
     npub?: string;
@@ -24,6 +26,7 @@
 
   // Use provided npub or derive from logged-in user
   let npub = $derived(npubProp || (myPubkey ? nip19.npubEncode(myPubkey) : ''));
+  let viewedNostrIdentityId = $derived(isNostrIdentityId(npub) ? npub : null);
 
   // Decode npub to hex pubkey
   let pubkeyHex = $derived.by(() => {
@@ -150,14 +153,24 @@
   <div class="px-4 pb-4 -mt-12 relative">
     <!-- Avatar -->
     <div class="mb-3">
-      <Avatar pubkey={pubkeyHex} size={80} class="border-4 border-surface-0" />
+      {#if viewedNostrIdentityId}
+        <div class="w-20 h-20 rounded-full border-4 border-surface-0 bg-surface-2 flex items-center justify-center">
+          <span class="i-lucide-folder-root text-3xl text-text-3"></span>
+        </div>
+      {:else}
+        <Avatar pubkey={pubkeyHex} size={80} class="border-4 border-surface-0" />
+      {/if}
     </div>
 
     <!-- Name and action buttons -->
     <div class="flex items-center justify-between gap-2">
       <div class="flex items-center gap-2 min-w-0">
         <h1 class="text-xl font-bold text-text-1 m-0 truncate">
-          <Name pubkey={pubkeyHex} />
+          {#if viewedNostrIdentityId}
+            <IdentityName profileId={viewedNostrIdentityId} appKeyPubkey={myPubkey} />
+          {:else}
+            <Name pubkey={pubkeyHex} />
+          {/if}
         </h1>
         {#if isOwnProfile}
           <span class="shrink-0 text-xs text-blue-500 flex items-center gap-1">
@@ -190,7 +203,7 @@
             Edit Profile
           </button>
         {/if}
-        {#if isLoggedIn && !isOwnProfile}
+        {#if isLoggedIn && !isOwnProfile && pubkeyHex}
           <button
             onclick={handleFollow}
             disabled={followLoading}
@@ -203,13 +216,15 @@
       </div>
     </div>
 
-    <!-- npub with copy -->
-    <CopyText
-      text={npub}
-      displayText={npub.slice(0, 8) + '...' + npub.slice(-4)}
-      class="text-sm mt-1"
-      testId="copy-npub"
-    />
+    {#if !viewedNostrIdentityId}
+      <!-- npub with copy -->
+      <CopyText
+        text={npub}
+        displayText={npub.slice(0, 8) + '...' + npub.slice(-4)}
+        class="text-sm mt-1"
+        testId="copy-npub"
+      />
+    {/if}
 
     {#if profile?.nip05}
       <div class="text-sm text-accent mt-1">{profile.nip05}</div>
@@ -228,20 +243,22 @@
     {/if}
 
     <!-- Stats -->
-    <div class="flex gap-4 mt-4 text-sm">
-      <a
-        href="#/{npub}/follows"
-        class="text-text-3 hover:text-text-1 no-underline"
-      >
-        <span class="font-bold text-text-1">{profileFollows.length}</span> Following
-      </a>
-      <a
-        href="#/{npub}/followers"
-        class="text-text-3 hover:text-text-1 no-underline"
-      >
-        <span class="font-bold text-text-1">{knownFollowers.size}</span> Known Followers
-      </a>
-    </div>
+    {#if !viewedNostrIdentityId}
+      <div class="flex gap-4 mt-4 text-sm">
+        <a
+          href="#/{npub}/follows"
+          class="text-text-3 hover:text-text-1 no-underline"
+        >
+          <span class="font-bold text-text-1">{profileFollows.length}</span> Following
+        </a>
+        <a
+          href="#/{npub}/followers"
+          class="text-text-3 hover:text-text-1 no-underline"
+        >
+          <span class="font-bold text-text-1">{knownFollowers.size}</span> Known Followers
+        </a>
+      </div>
+    {/if}
 
     <!-- Website -->
     {#if profile?.website}

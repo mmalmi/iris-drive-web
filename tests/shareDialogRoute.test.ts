@@ -71,7 +71,8 @@ describe('share dialog route', () => {
     expect(route).toContain('shareRoleLabel(createdShare)');
     expect(route).toContain('shareKeyStatusLabel(createdShare)');
     expect(route).toContain('shareMemberDetail(member)');
-    expect(route).toContain('member.representative_npub_hint || member.profile_id');
+    expect(route).not.toContain('member.representative_npub_hint || member.profile_id');
+    expect(route).not.toContain('${member.profile_id}');
     expect(route).not.toContain('createdShare.missing_key_wrap_pubkeys.join');
     expect(actions).toContain('dispatchNativeShareAction');
     expect(actions).toContain("type: 'create_share'");

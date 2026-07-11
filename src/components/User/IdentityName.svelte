@@ -3,11 +3,11 @@
 
   interface Props {
     profileId?: string;
-    appKeyPubkey: string;
+    appKeyPubkey?: string;
     class?: string;
   }
 
-  let { profileId = undefined, appKeyPubkey, class: className = '' }: Props = $props();
+  let { profileId = undefined, appKeyPubkey = '', class: className = '' }: Props = $props();
 
   let nameStore = $derived(createIdentityProfileNameStore(profileId, appKeyPubkey));
   let nameState = $derived($nameStore);

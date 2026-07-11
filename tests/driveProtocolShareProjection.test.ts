@@ -135,6 +135,14 @@ describe('iris-drive protocol shared folders', () => {
       can_change_role: true,
     });
 
+    const unnamedFolder: SharedFolder = structuredClone(folder);
+    delete unnamedFolder.members![aliceProfile]!.display_name;
+    delete unnamedFolder.members![aliceProfile]!.representative_npub_hint;
+    const unnamedMember = projectSharedFolderView(unnamedFolder, [], ownerPubkey).members
+      .find((member) => member.profile_id === aliceProfile);
+    expect(unnamedMember?.display_name).toBeTruthy();
+    expect(unnamedMember?.display_name).not.toBe(aliceProfile);
+
     const rosterOwnedFolder: SharedFolder = structuredClone(folder);
     rosterOwnedFolder.participant_profiles = {};
     const rosterOwnedView = projectSharedFolderView(rosterOwnedFolder, [], alicePubkey);

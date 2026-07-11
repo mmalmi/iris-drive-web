@@ -207,8 +207,8 @@
   function shareMemberDetail(member: NativeShareMemberView) {
     const role = member.role_label || statusText(member.role);
     const status = member.status_label || statusText(member.status);
-    const identity = member.representative_npub_hint || member.profile_id;
-    return `${role} · ${status} · ${identity}`;
+    const identity = member.representative_npub_hint;
+    return identity ? `${role} · ${status} · ${identity}` : `${role} · ${status}`;
   }
 
   function pendingInviteDetail(invite: NonNullable<NativeSharedFolderView['pending_invites']>[number]) {

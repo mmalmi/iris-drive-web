@@ -19,6 +19,7 @@
   } from './fileBrowserHrefs';
   import { isActiveNostrIdentityRouteScope } from '../drive/profileRoute';
   import { isNostrIdentityId } from '../utils/route';
+  import IdentityName from './User/IdentityName.svelte';
 
   import { getFileIcon } from '@iris/hashtree-app/fileIcon';
   import { BREAKPOINTS } from '@iris/hashtree-app/breakpoints';
@@ -76,6 +77,7 @@
   let inTreeView = $derived(!!currentTreeName || !!rootHash);
   let viewedNpub = $derived(currentNpub);
   let viewedNostrIdentityId = $derived(viewedNpub && isNostrIdentityId(viewedNpub) ? viewedNpub : null);
+  let viewedIdentityAppKeyPubkey = $derived(npubToPubkey(userNpub || '') || '');
   let isOwnDriveProfile = $derived(isActiveNostrIdentityRouteScope(viewedNpub, $nostrStore));
   let isOwnTrees = $derived(!viewedNpub || viewedNpub === userNpub || isOwnDriveProfile);
   let canEdit = $derived(isOwnTrees || !isLoggedIn);
@@ -447,6 +449,7 @@
       {targetNpub}
       {currentTreeName}
       {treeFocusedIndex}
+      {viewedIdentityAppKeyPubkey}
       onKeyDown={handleTreeListKeyDown}
     />
   {:else if !rootCid && currentTreeName && !isOwnTrees && !isProtectedTreeWithoutAccess}
@@ -458,9 +461,9 @@
     {#if viewedNpub}
       <div class="hidden lg:flex h-10 shrink-0 px-3 border-b border-surface-2 items-center gap-2 bg-surface-0">
         {#if viewedNostrIdentityId}
-          <div class="min-w-0 flex items-center gap-2 text-sm text-text-2" data-testid="drive-profile-root-scope" title={viewedNostrIdentityId}>
+          <div class="min-w-0 flex items-center gap-2 text-sm text-text-2" data-testid="drive-profile-root-scope">
             <span class="i-lucide-folder-root shrink-0 text-text-3"></span>
-            <span class="truncate">{viewedNostrIdentityId}</span>
+            <IdentityName profileId={viewedNostrIdentityId} appKeyPubkey={viewedIdentityAppKeyPubkey} />
           </div>
         {:else}
           <a href="#/{viewedNpub}/profile" class="no-underline min-w-0">
