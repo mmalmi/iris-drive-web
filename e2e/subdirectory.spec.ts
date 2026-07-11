@@ -38,7 +38,7 @@ test.describe('Subdirectory Creation', () => {
 
   test('subdirectory in public tree should show as folder with folder icon', async ({ page }) => {
     // Go to tree list
-    await page.locator('header a[href="#/"]').click();
+    await page.getByTestId('home-link').click();
 
     // Wait for tree list to load with New Folder button
     await expect(page.getByRole('button', { name: 'New Folder' })).toBeVisible({ timeout: 10000 });
@@ -74,7 +74,7 @@ test.describe('Subdirectory Creation', () => {
 
   test('clicking subdirectory in public tree should navigate into it', async ({ page }) => {
     // Go to tree list
-    await page.locator('header a[href="#/"]').click();
+    await page.getByTestId('home-link').click();
 
     // Wait for tree list to load with New Folder button
     await expect(page.getByRole('button', { name: 'New Folder' })).toBeVisible({ timeout: 10000 });
@@ -110,7 +110,7 @@ test.describe('Subdirectory Creation', () => {
 
   test('nested subdirectories in public tree should all show as folders', async ({ page }) => {
     // Go to tree list
-    await page.locator('header a[href="#/"]').click();
+    await page.getByTestId('home-link').click();
 
     // Wait for tree list to load with New Folder button
     await expect(page.getByRole('button', { name: 'New Folder' })).toBeVisible({ timeout: 10000 });
@@ -168,7 +168,7 @@ test.describe('Subdirectory Creation', () => {
 
   test('File/Folder buttons visible inside subdirectory of public tree', async ({ page }) => {
     // Go to tree list
-    await page.locator('header a[href="#/"]').click();
+    await page.getByTestId('home-link').click();
 
     // Wait for tree list to load with New Folder button
     await expect(page.getByRole('button', { name: 'New Folder' })).toBeVisible({ timeout: 10000 });
@@ -197,7 +197,7 @@ test.describe('Subdirectory Creation', () => {
 
   test('subdirectory in link-visible tree should show as folder', async ({ page }) => {
     // Go to tree list
-    await page.locator('header a[href="#/"]').click();
+    await page.getByTestId('home-link').click();
 
     // Wait for tree list to load with New Folder button
     await expect(page.getByRole('button', { name: 'New Folder' })).toBeVisible({ timeout: 10000 });
@@ -238,7 +238,7 @@ test.describe('Subdirectory Creation', () => {
 
   test('subdirectory in private tree should show as folder', async ({ page }) => {
     // Go to tree list
-    await page.locator('header a[href="#/"]').click();
+    await page.getByTestId('home-link').click();
 
     // Wait for tree list to load with New Folder button
     await expect(page.getByRole('button', { name: 'New Folder' })).toBeVisible({ timeout: 10000 });

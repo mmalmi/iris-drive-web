@@ -45,7 +45,7 @@ test.describe('HTML file viewing', () => {
 </body>
 </html>`);
 
-      await page.locator('header a[href="#/"]').click();
+      await page.getByTestId('home-link').click();
       await page.waitForTimeout(300);
       await page.getByRole('button', { name: 'New Folder' }).click();
 

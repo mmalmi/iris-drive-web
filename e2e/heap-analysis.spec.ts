@@ -280,7 +280,7 @@ test.describe('Heap Analysis', () => {
     }
 
     // Go back home
-    await page.locator('header a[href="#/"]').click();
+    await page.getByTestId('home-link').click();
     await page.waitForTimeout(1000);
 
     console.log('\n📊 Taking heap snapshot after navigation...');

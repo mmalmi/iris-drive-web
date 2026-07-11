@@ -2,7 +2,6 @@ import { generateSecretKey } from 'nostr-tools';
 import { expect, test, type Page } from './fixtures';
 import {
   clearAllStorage,
-  evaluateWithRetry,
   presetLocalRelayInDB,
   setupPageErrorHandler,
   useLocalRelay,
@@ -65,10 +64,18 @@ test.describe('Drive setup', () => {
         ? stored.profileId
         : null;
     }, undefined, { timeout: 30000 });
-    await expectDriveRoute(page, await profileIdHandle.jsonValue());
+    const profileId = await profileIdHandle.jsonValue();
+    await expectDriveRoute(page, profileId);
     await expect(
       page.getByRole('region', { name: 'Directory content' }).getByTitle('Add files'),
     ).toBeVisible({ timeout: 30000 });
+
+    const homeLink = page.getByTestId('home-link');
+    await expect(homeLink).toHaveAttribute('href', `#/${profileId}/main`);
+    await page.evaluate(() => { window.location.hash = '#/settings'; });
+    await expect(page).toHaveURL(/#\/settings$/);
+    await homeLink.click();
+    await expectDriveRoute(page, profileId);
   });
 
   test('recovers with secret key through the shared add-user flow', async ({ page, relayUrl }) => {

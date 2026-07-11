@@ -136,7 +136,7 @@ test.describe('Hashtree Explorer', () => {
     await expect(page.locator('pre')).toContainText('Updated content', { timeout: 15000 });
 
     // Navigate to homepage
-    await page.locator('header a[href="#/"]').click();
+    await page.getByTestId('home-link').click();
 
     // Navigate back to the tree
     await goToTreeList(page);

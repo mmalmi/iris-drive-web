@@ -1,5 +1,5 @@
 import { expect } from '../fixtures';
-import { evaluateWithRetry, safeGoto, waitForAppReady, waitForTestHelpers } from './core';
+import { evaluateWithRetry, safeGoto, waitForAppReady } from './core';
 import { waitForRelayConnected } from './network';
 
 /**
@@ -78,7 +78,7 @@ export async function navigateToPublicFolder(
   let npub = await resolveLoggedInNpub();
 
   if (!await publicLink.isVisible().catch(() => false)) {
-    const logoLink = page.locator('header a[href="#/"]').first();
+    const logoLink = page.getByTestId('home-link');
     if (await logoLink.isVisible().catch(() => false)) {
       await logoLink.click();
     }
@@ -150,20 +150,24 @@ export async function navigateToPublicFolder(
 }
 
 /**
- * Navigate to user's tree list (home/root).
- * Clicks the logo in the header which links to home.
+ * Navigate to the user's home directory.
+ * Clicks the logo in the header and follows its active-account root link.
  */
 export async function goToTreeList(page: any) {
-  // Click the hashtree logo to go home
-  const logoLink = page.locator('header a[href="#/"]').first();
+  const logoLink = page.getByTestId('home-link');
   await expect(logoLink).toBeVisible({ timeout: 30000 });
+  const homeHref = await logoLink.getAttribute('href');
+  if (!homeHref?.startsWith('#/')) {
+    throw new Error(`Invalid home link: ${homeHref ?? 'missing'}`);
+  }
   await logoLink.click();
   await page.waitForFunction(
-    () => window.location.hash === '' || window.location.hash === '#/' || window.location.hash === '#',
-    { timeout: 15000 }
+    (expectedHash) => window.location.hash === expectedHash,
+    homeHref,
+    { timeout: 15000 },
   );
 
-  // Wait for tree list to be visible (list view uses the same file list container)
+  // The home directory uses the same file list container as other directories.
   await expect(page.locator('[data-testid="file-list"]').first()).toBeVisible({ timeout: 30000 });
 }
 

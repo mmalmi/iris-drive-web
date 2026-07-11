@@ -97,7 +97,7 @@ test.describe('nhash directory navigation', () => {
     console.log('[test] Created content at:', currentUrl);
 
     // Navigate away to home
-    await page.locator('header a[href="#/"]').click();
+    await page.getByTestId('home-link').click();
     await page.waitForTimeout(500);
 
     // Direct navigate back using the full npub/treeName/path URL
@@ -169,7 +169,7 @@ test.describe('nhash directory navigation', () => {
     console.log('[test] Directory nhash:', nhash);
 
     // Navigate to home first
-    await page.locator('header a[href="#/"]').click();
+    await page.getByTestId('home-link').click();
     await page.waitForFunction(
       () => window.location.hash === '' || window.location.hash === '#/' || window.location.hash === '#',
       { timeout: 15000 }
@@ -319,7 +319,7 @@ test.describe('nhash directory navigation', () => {
     console.log('[test] Got nhash:', nhash);
 
     // Go to home first
-    await page.locator('header a[href="#/"]').click();
+    await page.getByTestId('home-link').click();
     await page.waitForFunction(
       () => window.location.hash === '' || window.location.hash === '#/' || window.location.hash === '#',
       { timeout: 15000 }

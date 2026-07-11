@@ -10,8 +10,10 @@
   import WalletLink from './components/WalletLink.svelte';
   import Toast from './components/Toast.svelte';
   import Router from './components/Router.svelte';
-  import { currentPath, initRouter, getQueryParams } from './lib/router.svelte';
+  import { currentPath, initRouter } from './lib/router.svelte';
   import { settingsStore } from './stores/settings';
+  import { nostrStore } from './nostr';
+  import { activeDriveRootPath } from './drive/profileRoute';
 
   // Modal components
   import CreateModal from './components/Modals/CreateModal.svelte';
@@ -24,37 +26,20 @@
   import UnsavedChangesModal from './components/Modals/UnsavedChangesModal.svelte';
   import BlossomPushModal from './components/Modals/BlossomPushModal.svelte';
 
-  // Handle fullscreen mode from URL
-  function isFullscreen(): boolean {
-    const params = getQueryParams();
-    return params.get('fullscreen') === '1';
-  }
-
-  function clearFullscreen() {
-    const hash = window.location.hash.split('?')[0];
-    const params = getQueryParams();
-    params.delete('fullscreen');
-    const queryString = params.toString();
-    window.location.hash = queryString ? `${hash}?${queryString}` : hash;
-  }
-
-  // Fullscreen state - check on each path change
-  let fullscreen = $derived(isFullscreen());
-
   // Header display settings (default to true/false if not yet loaded)
   let showConnectivity = $derived($settingsStore.pools.showConnectivity ?? true);
   let showBandwidth = $derived($settingsStore.pools.showBandwidth ?? false);
+  let homePath = $derived(activeDriveRootPath($nostrStore));
+  let homeHref = $derived(`#${homePath}`);
 
   onMount(() => {
     initRouter();
   });
 
   function handleLogoClick(e: MouseEvent) {
-    if (fullscreen) {
-      e.preventDefault();
-      clearFullscreen();
-    } else if (window.location.hash === '#/' || window.location.hash === '' || window.location.hash === '#') {
-      // If already on home page, scroll to top instead of navigating
+    const isEmptyHomeHash = homePath === '/'
+      && (window.location.hash === '' || window.location.hash === '#');
+    if (window.location.hash === homeHref || isEmptyHomeHash) {
       e.preventDefault();
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
@@ -64,7 +49,7 @@
 <div class="h-full flex flex-col bg-surface-0">
   <Header>
     <div class="flex items-center shrink-0">
-      <a href="#/" onclick={handleLogoClick} class="no-underline">
+      <a href={homeHref} onclick={handleLogoClick} class="no-underline" data-testid="home-link">
         <Logo />
       </a>
     </div>

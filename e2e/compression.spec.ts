@@ -83,7 +83,7 @@ test.describe('Compression features', () => {
     await navigateToPublicFolder(page, { timeoutMs: 60000, requireRelay: false });
 
     // Create a top-level folder first
-    await page.locator('header a[href="#/"]').click();
+    await page.getByTestId('home-link').click();
     const newFolderButton = page.getByRole('button', { name: 'New Folder' }).first();
     await expect(newFolderButton).toBeVisible({ timeout: 5000 });
     await newFolderButton.click();
@@ -118,7 +118,7 @@ test.describe('Compression features', () => {
     await expect(page).toHaveURL(/my-forked-folder/, { timeout: 10000 });
 
     // Navigate back to tree list and verify the forked folder exists as top-level
-    await page.locator('header a[href="#/"]').click();
+    await page.getByTestId('home-link').click();
     await expect(page.getByRole('button', { name: 'New Folder' }).first()).toBeVisible({ timeout: 5000 });
 
     // my-forked-folder should appear in the tree list
@@ -129,7 +129,7 @@ test.describe('Compression features', () => {
     await navigateToPublicFolder(page, { timeoutMs: 60000, requireRelay: false });
 
     // Create a top-level folder first
-    await page.locator('header a[href="#/"]').click();
+    await page.getByTestId('home-link').click();
     const newFolderButton = page.getByRole('button', { name: 'New Folder' }).first();
     await expect(newFolderButton).toBeVisible({ timeout: 5000 });
     await newFolderButton.click();
@@ -181,7 +181,7 @@ test.describe('Compression features', () => {
     await navigateToPublicFolder(page, { timeoutMs: 60000, requireRelay: false });
 
     // Create first top-level folder
-    await page.locator('header a[href="#/"]').click();
+    await page.getByTestId('home-link').click();
     const newFolderButton = page.getByRole('button', { name: 'New Folder' }).first();
     await expect(newFolderButton).toBeVisible({ timeout: 5000 });
     await newFolderButton.click();
@@ -234,7 +234,7 @@ test.describe('Compression features', () => {
     await navigateToPublicFolder(page, { timeoutMs: 60000, requireRelay: false });
 
     // Create a folder with a file to ZIP
-    await page.locator('header a[href="#/"]').click();
+    await page.getByTestId('home-link').click();
     const newFolderButton = page.getByRole('button', { name: 'New Folder' }).first();
     await expect(newFolderButton).toBeVisible({ timeout: 5000 });
     await newFolderButton.click();

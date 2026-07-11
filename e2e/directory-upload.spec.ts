@@ -13,7 +13,7 @@ test.describe('Directory upload features', () => {
     await navigateToPublicFolder(page, { timeoutMs: 60000, requireRelay: false });
 
     // Navigate to tree list and create a folder
-    await page.locator('header a[href="#/"]').click();
+    await page.getByTestId('home-link').click();
     const newFolderButton = page.getByRole('button', { name: 'New Folder' }).first();
     await expect(newFolderButton).toBeVisible({ timeout: 5000 });
     await newFolderButton.click();
@@ -49,7 +49,7 @@ test.describe('Directory upload features', () => {
     await navigateToPublicFolder(page, { timeoutMs: 60000, requireRelay: false });
 
     // Navigate to tree list and create a folder
-    await page.locator('header a[href="#/"]').click();
+    await page.getByTestId('home-link').click();
     const newFolderButton = page.getByRole('button', { name: 'New Folder' }).first();
     await expect(newFolderButton).toBeVisible({ timeout: 5000 });
     await newFolderButton.click();
@@ -77,7 +77,7 @@ test.describe('Directory upload features', () => {
     await navigateToPublicFolder(page, { timeoutMs: 60000, requireRelay: false });
 
     // Navigate to tree list and create a folder
-    await page.locator('header a[href="#/"]').click();
+    await page.getByTestId('home-link').click();
     const newFolderButton = page.getByRole('button', { name: 'New Folder' }).first();
     await expect(newFolderButton).toBeVisible({ timeout: 5000 });
     await newFolderButton.click();
@@ -116,7 +116,7 @@ test.describe('Directory upload features', () => {
     await navigateToPublicFolder(page, { timeoutMs: 60000, requireRelay: false });
 
     // Navigate to tree list and create a folder
-    await page.locator('header a[href="#/"]').click();
+    await page.getByTestId('home-link').click();
     const newFolderButton = page.getByRole('button', { name: 'New Folder' }).first();
     await expect(newFolderButton).toBeVisible({ timeout: 5000 });
     await newFolderButton.click();
