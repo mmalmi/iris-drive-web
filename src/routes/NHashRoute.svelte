@@ -6,6 +6,7 @@
   import { isViewingFileStore, currentHash } from '../stores';
   import { nhashDecode } from '@hashtree/core';
   import { getQueryParamsFromHash } from '../lib/router.svelte';
+  import { shouldShowNhashFileBrowser } from '../lib/nhashRouteLayout';
 
   interface Props {
     nhash: string;
@@ -23,6 +24,10 @@
   let isFullscreen = $derived.by(() => {
     return getQueryParamsFromHash(hash).get('fullscreen') === '1';
   });
+  let showFileBrowser = $derived(shouldShowNhashFileBrowser({
+    isFullscreen,
+    isViewingFile,
+  }));
 
   onMount(() => {
     nostrStore.setSelectedTree(null);
@@ -37,12 +42,10 @@
 </script>
 
 {#if isValid}
-  <!-- Desktop file sidebar -->
-  {#if !isFullscreen}
-    <div class={showViewer
-        ? 'hidden lg:flex lg:w-80 shrink-0 flex-col min-h-0'
-        : 'flex flex-1 shrink-0 flex-col min-h-0'}>
-      <FileBrowser compact={showViewer} />
+  <!-- Direct root files have no parent directory to browse. -->
+  {#if showFileBrowser}
+    <div class="flex flex-1 shrink-0 flex-col min-h-0">
+      <FileBrowser />
     </div>
   {/if}
   <!-- Viewer - shown in single-column when viewing a file -->
