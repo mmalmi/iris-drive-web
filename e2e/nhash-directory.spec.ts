@@ -7,7 +7,7 @@
  * This test helps debug issues where nhash navigation shows empty directories.
  */
 import { test, expect, type Page } from './fixtures';
-import { setupPageErrorHandler, navigateToPublicFolder, disableOthersPool, useLocalRelay, waitForAppReady, followUser, waitForFollowInWorker, getCurrentDirNhash } from './test-utils.js';
+import { setupPageErrorHandler, navigateToPublicFolder, disableOthersPool, useLocalRelay, waitForAppReady, followUser, getCurrentDirNhash } from './test-utils.js';
 
 async function initUser(page: Page): Promise<{ npub: string; pubkeyHex: string }> {
   setupPageErrorHandler(page);
@@ -244,13 +244,9 @@ test.describe('nhash directory navigation', () => {
     const page2 = await context2.newPage();
     const user2 = await initUser(page2);
 
-    // Follow each other to enable WebRTC via follows pool
+    // Follow each other for the sharing behavior under test.
     await followUser(page1, user2.npub);
-    await waitForFollowInWorker(page1, user2.pubkeyHex);
     await followUser(page2, user1.npub);
-    await waitForFollowInWorker(page2, user1.pubkeyHex);
-    await page1.evaluate(() => (window as any).__workerAdapter?.sendHello?.());
-    await page2.evaluate(() => (window as any).__workerAdapter?.sendHello?.());
     await waitForPeerConnection(page1, user2.pubkeyHex, 45000);
     await waitForPeerConnection(page2, user1.pubkeyHex, 45000);
 
@@ -261,9 +257,6 @@ test.describe('nhash directory navigation', () => {
     await disableOthersPool(page2);
     await waitForAppReady(page2);
 
-    await waitForFollowInWorker(page2, user1.pubkeyHex);
-    await page1.evaluate(() => (window as any).__workerAdapter?.sendHello?.());
-    await page2.evaluate(() => (window as any).__workerAdapter?.sendHello?.());
     await waitForPeerConnection(page1, user2.pubkeyHex, 45000);
     await waitForPeerConnection(page2, user1.pubkeyHex, 45000);
 

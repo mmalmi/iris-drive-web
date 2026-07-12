@@ -11,18 +11,16 @@ import { HashTree, LinkType, type WorkerBlossomBandwidthStats } from '@hashtree/
 import { getWorkerStore } from './stores/workerStore';
 import { closeWorkerAdapter } from './workerAdapter';
 import { getWorkerAdapter } from './lib/workerInit';
-import { nostrStore } from './nostr';
 import { transportUsageStore, type RelayBandwidthState } from './stores/transportUsage';
 import {
   advanceMeshBandwidthHistory,
   calculateMeshTotals,
-  fetchDaemonMeshStats,
   mergeMeshPeers,
-  normalizeWorkerPeerStats,
   type MeshBandwidthHistoryPoint,
   type MeshHistoryCursor,
   type MeshPeerInfo,
 } from './lib/meshStats';
+import { getDriveFipsRuntime } from './lib/driveFipsRuntime';
 
 // Re-export LinkType for e2e tests that can't import 'hashtree' directly
 export { LinkType };
@@ -126,27 +124,6 @@ export interface StorageStats {
 
 // Peer info for connectivity indicator / settings UI
 export type PeerInfo = MeshPeerInfo;
-
-// Detailed peer stats for getStats()
-export interface DetailedPeerStats {
-  id: string;
-  peerId: string;
-  pubkey: string;
-  connected: boolean;
-  pool: 'follows' | 'other';
-  requestsSent: number;
-  requestsReceived: number;
-  responsesSent: number;
-  responsesReceived: number;
-  bytesSent: number;
-  bytesReceived: number;
-  forwardedRequests: number;
-  forwardedResolved: number;
-  forwardedSuppressed: number;
-  transport: string;
-  source: 'worker' | 'daemon';
-  signalPaths: string[];
-}
 
 export type BlossomBandwidthState = WorkerBlossomBandwidthStats;
 
@@ -298,230 +275,29 @@ export function decodeAsText(data: Uint8Array): string | null {
   return null;
 }
 
-// Stub functions for compatibility - WebRTC is now in worker
-// These are called from nostr.ts on login/logout
-
-export function initWebRTC(): void {
-  // WebRTC is handled by worker - nothing to do here
-  console.log('[Store] WebRTC initialization delegated to worker');
-}
-
 export function stopWebRTC(): void {
-  // Close worker (clears identity, stops WebRTC, Nostr)
   closeWorkerAdapter();
 }
 
-// Legacy exports for compatibility - WebRTC is now in worker
-// Create a proxy object that forwards to worker for test compatibility
-const webrtcStoreProxy = {
-  getPeers: () => get(appStore).peers.map(p => ({
-    ...p,
-    isConnected: p.state === 'connected',
-  })),
-  getConnectedCount: () => get(appStore).peers.filter(p => p.state === 'connected').length,
-  get: async (hash: string) => {
-    const adapter = getWorkerAdapter();
-    if (!adapter) return null;
-    return adapter.get(hash as unknown as Uint8Array);
-  },
-  setPoolConfig: (_config: unknown) => {
-    // Pool config is managed by worker, no-op for now
-  },
-  setRelays: (_relays: string[]) => {
-    // Relays are managed by worker, no-op for now
-  },
-  sendHello: () => {
-    const adapter = getWorkerAdapter();
-    adapter?.sendHello();
-  },
-  isFollowing: async (pubkey: string): Promise<boolean> => {
-    const adapter = getWorkerAdapter();
-    if (!adapter) return false;
-    // Get current user's pubkey
-    const myPubkey = nostrStore.getState().pubkey;
-    if (!myPubkey) return false;
-    try {
-      return await adapter.isFollowing(myPubkey, pubkey);
-    } catch {
-      return false;
-    }
-  },
-  getStats: async () => {
-    const adapter = getWorkerAdapter();
-    if (!adapter) {
-      const daemonPeers = get(appStore).peers.filter((peer) => peer.source === 'daemon');
-      const aggregate = {
-        requestsSent: 0,
-        requestsReceived: 0,
-        responsesSent: 0,
-        responsesReceived: 0,
-        bytesSent: daemonPeers.reduce((sum, peer) => sum + peer.bytesSent, 0),
-        bytesReceived: daemonPeers.reduce((sum, peer) => sum + peer.bytesReceived, 0),
-        forwardedRequests: 0,
-        forwardedResolved: 0,
-        forwardedSuppressed: 0,
-      };
-      const perPeer = new Map<string, DetailedPeerStats>(
-        daemonPeers.map((peer) => [peer.id, {
-          id: peer.id,
-          peerId: peer.peerId,
-          pubkey: peer.pubkey,
-          connected: peer.state === 'connected',
-          pool: peer.pool === 'follows' ? 'follows' : 'other',
-          requestsSent: 0,
-          requestsReceived: 0,
-          responsesSent: 0,
-          responsesReceived: 0,
-          bytesSent: peer.bytesSent,
-          bytesReceived: peer.bytesReceived,
-          forwardedRequests: 0,
-          forwardedResolved: 0,
-          forwardedSuppressed: 0,
-          transport: peer.transport,
-          source: peer.source,
-          signalPaths: peer.signalPaths,
-        }]),
-      );
-      return {
-        aggregate,
-        perPeer,
-      };
-    }
-
-    const peerStats = await adapter.getPeerStats();
-
-    // Aggregate stats from all peers
-    const aggregate = {
-      requestsSent: 0,
-      requestsReceived: 0,
-      responsesSent: 0,
-      responsesReceived: 0,
-      bytesSent: 0,
-      bytesReceived: 0,
-      forwardedRequests: 0,
-      forwardedResolved: 0,
-      forwardedSuppressed: 0,
-    };
-
-    const perPeer = new Map<string, DetailedPeerStats>();
-
-    for (const p of peerStats) {
-      aggregate.requestsSent += p.requestsSent;
-      aggregate.requestsReceived += p.requestsReceived;
-      aggregate.responsesSent += p.responsesSent;
-      aggregate.responsesReceived += p.responsesReceived;
-      aggregate.bytesSent += p.bytesSent;
-      aggregate.bytesReceived += p.bytesReceived;
-      aggregate.forwardedRequests += p.forwardedRequests;
-      aggregate.forwardedResolved += p.forwardedResolved;
-      aggregate.forwardedSuppressed += p.forwardedSuppressed;
-
-      const workerPeerId = `worker:webrtc:${p.peerId}`;
-      perPeer.set(workerPeerId, {
-        id: workerPeerId,
-        peerId: p.peerId,
-        pubkey: p.pubkey,
-        connected: p.connected,
-        pool: (p as { pool?: string }).pool === 'follows' ? 'follows' : 'other',
-        requestsSent: p.requestsSent,
-        requestsReceived: p.requestsReceived,
-        responsesSent: p.responsesSent,
-        responsesReceived: p.responsesReceived,
-        bytesSent: p.bytesSent,
-        bytesReceived: p.bytesReceived,
-        forwardedRequests: p.forwardedRequests,
-        forwardedResolved: p.forwardedResolved,
-        forwardedSuppressed: p.forwardedSuppressed,
-        transport: 'webrtc',
-        source: 'worker',
-        signalPaths: ['relay'],
-      });
-    }
-
-    const daemonPeers = get(appStore).peers.filter((peer) => peer.source === 'daemon');
-    for (const peer of daemonPeers) {
-      aggregate.bytesSent += peer.bytesSent;
-      aggregate.bytesReceived += peer.bytesReceived;
-      perPeer.set(peer.id, {
-        id: peer.id,
-        peerId: peer.peerId,
-        pubkey: peer.pubkey,
-        connected: peer.state === 'connected',
-        pool: peer.pool === 'follows' ? 'follows' : 'other',
-        requestsSent: 0,
-        requestsReceived: 0,
-        responsesSent: 0,
-        responsesReceived: 0,
-        bytesSent: peer.bytesSent,
-        bytesReceived: peer.bytesReceived,
-        forwardedRequests: 0,
-        forwardedResolved: 0,
-        forwardedSuppressed: 0,
-        transport: peer.transport,
-        source: peer.source,
-        signalPaths: peer.signalPaths,
-      });
-    }
-
-    return { aggregate, perPeer };
-  },
-};
-export const webrtcStore = webrtcStoreProxy;
-export function getWebRTCStore() { return webrtcStoreProxy; }
-
-export async function blockPeer(pubkey: string): Promise<void> {
-  // Import dynamically to avoid circular dependency
-  const { settingsStore } = await import('./stores/settings');
-  settingsStore.blockPeer(pubkey);
-  // Disconnect the peer via worker
-  const adapter = getWorkerAdapter();
-  if (adapter) {
-    try {
-      await adapter.blockPeer(pubkey);
-    } catch {
-      // Worker may not support blocking yet
-    }
-  }
+function fipsPeers(): PeerInfo[] {
+  const stats = getDriveFipsRuntime()?.getStats();
+  if (!stats) return [];
+  return stats.peers.map((peer) => ({
+    id: `fips:webrtc:${peer.peerId}`,
+    peerId: peer.peerId,
+    pubkey: peer.xOnlyPubkey,
+    state: peer.connected ? 'connected' : 'disconnected',
+    pool: 'others',
+    bytesSent: 0,
+    bytesReceived: 0,
+    transport: 'fips-webrtc',
+    source: 'worker',
+    signalPaths: ['nostr'],
+  }));
 }
 
-export async function unblockPeer(pubkey: string): Promise<void> {
-  // Import dynamically to avoid circular dependency
-  const { settingsStore } = await import('./stores/settings');
-  settingsStore.unblockPeer(pubkey);
-}
-
-// Expose webrtcStore on window for test compatibility
-// Use defineProperty to allow testHelpers to override if needed
-if (typeof window !== 'undefined' && !('webrtcStore' in window)) {
-  Object.defineProperty(window, 'webrtcStore', {
-    value: webrtcStoreProxy,
-    writable: true,
-    configurable: true,
-  });
-}
-
-// Refresh WebRTC stats from worker
-export async function refreshWebRTCStats(): Promise<void> {
-  const adapter = getWorkerAdapter();
-  const workerPromise = adapter
-    ? adapter.getPeerStats()
-      .then((stats) => normalizeWorkerPeerStats(stats))
-      .catch((): PeerInfo[] => [])
-    : Promise.resolve<PeerInfo[]>([]);
-  const daemonPromise = fetchDaemonMeshStats()
-    .catch(() => null);
-
-  const [workerPeers, daemonStats] = await Promise.all([workerPromise, daemonPromise]);
-  if (daemonStats) {
-    setRelayBandwidth({
-      totalBytesSent: daemonStats.relayBytesSent,
-      totalBytesReceived: daemonStats.relayBytesReceived,
-      updatedAt: Date.now(),
-      relays: [],
-    });
-  }
-  const daemonPeers = daemonStats?.peers ?? [];
-  appStore.setPeerSources({ workerPeers, daemonPeers });
+export async function refreshFipsStats(): Promise<void> {
+  appStore.setPeerSources({ workerPeers: fipsPeers(), daemonPeers: [] });
 }
 
 export function setBlossomBandwidth(stats: BlossomBandwidthState): void {

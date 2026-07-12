@@ -87,9 +87,9 @@ export async function waitForRelayConnected(page: any, timeoutMs: number = 15000
 }
 
 /**
- * Disable the "others pool" for WebRTC connections.
- * This prevents the app from connecting to random peers from other parallel tests.
- * Use this for single-user tests that don't need WebRTC connections but might be
+ * Disable FIPS peer networking for isolated single-page tests.
+ * This prevents the app from connecting to peers from other parallel tests.
+ * Use this for tests that don't need cross-device connections but might be
  * affected by incoming data from parallel test instances.
  *
  * IMPORTANT: Call this BEFORE any navigation or state changes in the test.
@@ -97,29 +97,16 @@ export async function waitForRelayConnected(page: any, timeoutMs: number = 15000
 export async function disableOthersPool(page: any) {
   await waitForAppShell(page);
   await waitForOptionalWorkerAdapter(page);
-  await page.waitForFunction(() => {
-    const win = window as any;
-    return !!win.__setPoolSettings || !!win.__settingsStore;
-  }, { timeout: 10000 }).catch(() => {});
   await evaluateWithRetry(page, async () => {
     const win = window as any;
-    const setPoolSettings = win.__setPoolSettings || win.__settingsStore?.setPoolSettings;
-    if (setPoolSettings) {
-      setPoolSettings({ otherMax: 0, otherSatisfied: 0 });
-    } else {
-      const { settingsStore } = await import('/src/stores/settings.ts');
-      settingsStore.setPoolSettings({ otherMax: 0, otherSatisfied: 0 });
-    }
-
     let adapter = win.__getWorkerAdapter?.();
     if (!adapter) {
       const { getWorkerAdapter } = await import('/src/workerAdapter.ts');
       adapter = getWorkerAdapter();
     }
-    adapter?.setWebRTCPools({
-      follows: { max: 20, satisfied: 10 },
-      other: { max: 0, satisfied: 0 },
-    });
+    const { stopDriveFipsRuntime } = await import('/src/lib/driveFipsRuntime.ts');
+    await stopDriveFipsRuntime();
+    adapter?.setP2PProvider?.(null);
   }, undefined);
 }
 
@@ -137,117 +124,18 @@ export async function flushPendingPublishes(page: any): Promise<void> {
 }
 
 /**
- * Enable the "others pool" for WebRTC connections.
- * Use this for tests that need same-user cross-device sync (same account on two browsers).
- * In test mode, the others pool is disabled by default to prevent interference.
+ * Confirm FIPS peer networking is active for cross-device tests.
  *
  * @param page - Playwright page
- * @param max - Maximum number of peers (default: 10)
- *
- * IMPORTANT: Call this AFTER login but BEFORE operations that need WebRTC.
+ * IMPORTANT: Call this after login but before operations that need FIPS.
  */
-export async function enableOthersPool(page: any, max: number = 10) {
+export async function enableOthersPool(page: any, _max: number = 10) {
   await waitForTestHelpers(page);
   await waitForWorkerAdapter(page);
-  await page.waitForFunction(() => {
-    const win = window as any;
-    return !!win.__setPoolSettings || !!win.__settingsStore;
-  }, { timeout: 10000 }).catch(() => {});
-  await evaluateWithRetry(page, async (maxPeers: number) => {
-    const win = window as any;
-    const setPoolSettings = win.__setPoolSettings || win.__settingsStore?.setPoolSettings;
-    if (setPoolSettings) {
-      setPoolSettings({ otherMax: maxPeers, otherSatisfied: Math.floor(maxPeers / 5), followsMax: 20, followsSatisfied: 10 });
-    } else {
-      const { settingsStore } = await import('/src/stores/settings.ts');
-      settingsStore.setPoolSettings({ otherMax: maxPeers, otherSatisfied: Math.floor(maxPeers / 5), followsMax: 20, followsSatisfied: 10 });
-    }
-
-    // Update the worker's WebRTC pool config - use the exposed global to avoid module duplication issues
-    let adapter = win.__getWorkerAdapter?.();
-    if (!adapter) {
-      const { getWorkerAdapter } = await import('/src/workerAdapter.ts');
-      adapter = getWorkerAdapter();
-    }
-    if (adapter) {
-      await adapter.setWebRTCPools({
-        follows: { max: 20, satisfied: 10 },
-        other: { max: maxPeers, satisfied: Math.floor(maxPeers / 5) },
-      });
-      console.log('[Test] Pool config updated via adapter, otherMax:', maxPeers);
-    } else {
-      console.error('[Test] No worker adapter available for pool config!');
-    }
-  }, max);
-}
-
-/**
- * Pre-set pool settings in IndexedDB before page load/reload.
- * This ensures WebRTC initializes with correct pool limits since it starts
- * before enableOthersPool can be called.
- *
- * IMPORTANT: Call this BEFORE reload when you need others pool enabled on init.
- */
-export async function presetOthersPoolInDB(page: any) {
-  await page.evaluate(async () => {
-    // Open without version to use current version (Dexie manages versioning)
-    const request = indexedDB.open('hashtree-settings');
-    await new Promise<void>((resolve, reject) => {
-      request.onerror = () => reject(request.error);
-      request.onsuccess = () => {
-        const db = request.result;
-        // Check if the 'settings' object store exists
-        if (!db.objectStoreNames.contains('settings')) {
-          db.close();
-          // Need to create the object store with version upgrade
-          const upgradeRequest = indexedDB.open('hashtree-settings', db.version + 1);
-          upgradeRequest.onupgradeneeded = () => {
-            const upgradeDb = upgradeRequest.result;
-            if (!upgradeDb.objectStoreNames.contains('settings')) {
-              upgradeDb.createObjectStore('settings', { keyPath: 'key' });
-            }
-          };
-          upgradeRequest.onsuccess = () => {
-            const newDb = upgradeRequest.result;
-            const tx = newDb.transaction('settings', 'readwrite');
-            const store = tx.objectStore('settings');
-            store.put({
-              key: 'pools',
-              value: {
-                followsMax: 20,
-                followsSatisfied: 10,
-                otherMax: 10,
-                otherSatisfied: 2
-              }
-            });
-            tx.oncomplete = () => {
-              newDb.close();
-              resolve();
-            };
-            tx.onerror = () => reject(tx.error);
-          };
-          upgradeRequest.onerror = () => reject(upgradeRequest.error);
-        } else {
-          const tx = db.transaction('settings', 'readwrite');
-          const store = tx.objectStore('settings');
-          store.put({
-            key: 'pools',
-            value: {
-              followsMax: 20,
-              followsSatisfied: 10,
-              otherMax: 10,
-              otherSatisfied: 2
-            }
-          });
-          tx.oncomplete = () => {
-            db.close();
-            resolve();
-          };
-          tx.onerror = () => reject(tx.error);
-        }
-      };
-    });
-  });
+  await page.waitForFunction(async () => {
+    const { getDriveFipsRuntime } = await import('/src/lib/driveFipsRuntime.ts');
+    return getDriveFipsRuntime()?.getStats().active === true;
+  }, undefined, { timeout: 30_000 });
 }
 
 /**
@@ -416,13 +304,6 @@ export async function useLocalRelay(page: any, relayOverride?: string) {
       relays: [relay],
     });
 
-    // Also update the running WebRTC store if it exists
-    // Use window global which is always in sync with the app
-    const store = (window as unknown as { webrtcStore?: { setRelays?: (relays: string[]) => void } }).webrtcStore;
-    if (store && typeof store.setRelays === 'function') {
-      store.setRelays([relay]);
-    }
-
     // Directly update worker's NDK relays via worker adapter
     const getWorkerAdapter = (window as any).__getWorkerAdapter;
     if (getWorkerAdapter) {
@@ -463,7 +344,7 @@ export async function configureBlossomServers(page: any, blossomUrl: string = ge
 /**
  * Helper to follow a user by their npub.
  * Navigates to target's profile and clicks Follow, waiting for completion.
- * Use this to establish reliable WebRTC connections via the "follows pool".
+ * Use this when the sharing behavior under test requires a follow relationship.
  */
 export async function followUser(page: any, targetNpub: string) {
   // Navigate to the user's profile page
@@ -500,48 +381,21 @@ export async function followUser(page: any, targetNpub: string) {
 }
 
 /**
- * Wait for a pubkey to be in the worker's follows set.
- * This is essential before sending WebRTC hellos - ensures the peer will be
- * classified in the "follows" pool rather than "other" pool.
+ * Wait for the Nostr-discovered FIPS WebRTC transport to have a connected
+ * device peer. The legacy target argument is intentionally ignored: a Nostr
+ * user pubkey is not a FIPS device identity.
  */
-export async function waitForFollowInWorker(page: any, pubkeyHex: string, timeoutMs: number = 15000): Promise<boolean> {
+export async function waitForFipsConnection(page: any, timeoutMs: number = 15000): Promise<boolean> {
   return page.waitForFunction(
-    (pk: string) => {
-      const store = (window as any).webrtcStore;
-      if (!store) return false;
-      // Check via internal API that exposes followsSet
-      const isFollowing = store.isFollowing?.(pk);
-      if (isFollowing) return true;
-      // Fallback: check directly if available
-      const followsSet = store.getFollowsSet?.();
-      return followsSet?.has?.(pk) ?? false;
-    },
-    pubkeyHex,
-    { timeout: timeoutMs }
-  ).then(() => true).catch(() => false);
-}
-
-/**
- * Wait for WebRTC connection to be established.
- * Polls until at least one peer is connected with data channel open.
- * If targetPubkey is provided, waits for that specific peer to connect.
- * Use this after users follow each other to ensure WebRTC is ready.
- */
-export async function waitForWebRTCConnection(page: any, timeoutMs: number = 15000, targetPubkey?: string): Promise<boolean> {
-  return page.waitForFunction(
-    async (target: string | null) => {
-      const adapter = (window as unknown as { __workerAdapter?: { getPeerStats: () => Promise<Array<{ connected?: boolean; pubkey?: string }>> } }).__workerAdapter;
-      if (!adapter) return false;
+    async () => {
       try {
-        const stats = await adapter.getPeerStats();
-        const connected = stats.filter((p: { connected?: boolean }) => p.connected);
-        if (!target) return connected.length > 0;
-        return connected.some((p: { pubkey?: string }) => p.pubkey === target);
+        const { getDriveFipsRuntime } = await import('/src/lib/driveFipsRuntime.ts');
+        return (getDriveFipsRuntime()?.getStats().connectedPeerIds.length ?? 0) > 0;
       } catch {
         return false;
       }
     },
-    targetPubkey ?? null,
+    undefined,
     { timeout: timeoutMs, polling: 500 }
   ).then(() => true).catch(() => false);
 }

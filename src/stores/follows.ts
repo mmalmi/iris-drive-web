@@ -199,13 +199,6 @@ async function publishFollowList(pk: string, follows: string[]): Promise<boolean
     followsCache.set(pk, newFollows);
     followsEmitter.notify(pk, newFollows);
 
-    // Sync to worker for WebRTC peer classification
-    const { getWorkerAdapter } = await import('../workerAdapter');
-    const adapter = getWorkerAdapter();
-    if (adapter) {
-      await adapter.setFollows(follows);
-    }
-
     return true;
   } catch (e) {
     console.error('[follows] publish error', e);

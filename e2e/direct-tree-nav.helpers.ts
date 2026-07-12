@@ -1,15 +1,15 @@
 /**
  * E2E test for direct navigation to tree URLs with cross-context data transfer
  *
- * IMPORTANT: Cross-context data transfer requires WebRTC connections between peers.
+ * IMPORTANT: Cross-context data transfer requires FIPS connections between devices.
  *
  * These tests verify that:
  * - Tree root is received via Nostr relay
- * - WebRTC signaling works (peer discovery)
+ * - Nostr-discovered FIPS WebRTC connects the device peers
  * - Data can be fetched when connections are established
  */
 import { expect, type Page } from './fixtures';
-import { setupPageErrorHandler, navigateToPublicFolder, disableOthersPool, enableOthersPool, useLocalRelay, waitForAppReady, waitForFollowInWorker, presetLocalRelayInDB, presetOthersPoolInDB, safeReload, flushPendingPublishes, waitForRelayConnected, safeGoto, getTestRelayUrl } from './test-utils.js';
+import { setupPageErrorHandler, navigateToPublicFolder, disableOthersPool, enableOthersPool, useLocalRelay, waitForAppReady, presetLocalRelayInDB, safeReload, flushPendingPublishes, waitForRelayConnected, safeGoto, getTestRelayUrl } from './test-utils.js';
 
 export function withRelayNamespace(baseUrl: string, namespace: string): string {
   try {
@@ -32,9 +32,6 @@ export async function initUser(
 ): Promise<{ npub: string; pubkeyHex: string }> {
   setupPageErrorHandler(page);
   await safeGoto(page, 'http://localhost:5173/', { retries: 4, delayMs: 1500 });
-  if (options?.enableOthersPool) {
-    await presetOthersPoolInDB(page);
-  }
   await presetLocalRelayInDB(page, relayUrl);
   await safeReload(page, { waitUntil: 'domcontentloaded', timeoutMs: 60000 });
   if (options?.enableOthersPool) {
@@ -57,16 +54,13 @@ export async function initUser(
   return { npub: npubMatch[0], pubkeyHex };
 }
 
-export async function waitForPeerConnection(page: Page, pubkeyHex: string, timeoutMs: number = 60000): Promise<void> {
+export async function waitForPeerConnection(page: Page, _pubkeyHex: string, timeoutMs: number = 60000): Promise<void> {
   await page.waitForFunction(
-    async (pk: string) => {
-      const adapter = (window as any).__workerAdapter;
-      if (!adapter) return false;
-      adapter.sendHello?.();
-      const stats = await adapter.getPeerStats();
-      return stats.some((peer: { connected?: boolean; pubkey?: string }) => peer.connected && peer.pubkey === pk);
+    async () => {
+      const { getDriveFipsRuntime } = await import('/src/lib/driveFipsRuntime.ts');
+      return (getDriveFipsRuntime()?.getStats().connectedPeerIds.length ?? 0) > 0;
     },
-    pubkeyHex,
+    undefined,
     { timeout: timeoutMs, polling: 500 }
   );
 }
@@ -228,7 +222,6 @@ export async function prefetchByHash(page: Page, hashHex: string, timeoutMs: num
       };
       const adapter = (window as any).__getWorkerAdapter?.() ?? (window as any).__workerAdapter;
       if (!adapter?.get) return 0;
-      await adapter.sendHello?.();
       const data = await adapter.get(fromHex(hash)).catch(() => null);
       return data ? data.length : 0;
     }, hashHex);
@@ -263,7 +256,6 @@ export async function prefetchTreePath(
         if (!rootCid) return false;
         const tree = getTree();
         const adapter = (window as any).__getWorkerAdapter?.() ?? (window as any).__workerAdapter;
-        await adapter?.sendHello?.();
         const entry = await tree.resolvePath(rootCid, path);
         return !!entry?.cid;
       }, { targetNpub: npub, targetTree: treeName, path: filePath });
@@ -290,7 +282,6 @@ export async function readFileTextViaWorker(
       const root = getTreeRootSync(targetNpub, targetTree);
       if (!root) return null;
       const adapter = (window as any).__getWorkerAdapter?.() ?? (window as any).__workerAdapter;
-      await adapter?.sendHello?.();
       if (typeof adapter?.get === 'function') {
         rawBlock = await adapter.get(root.hash).catch(() => null);
       }
@@ -322,4 +313,4 @@ export async function readFileTextViaWorker(
   }, { targetNpub: npub, targetTree: treeName, path: filePath, timeout: timeoutMs });
 }
 
-export { enableOthersPool, flushPendingPublishes, getTestRelayUrl, safeGoto, useLocalRelay, waitForAppReady, waitForFollowInWorker } from './test-utils.js';
+export { enableOthersPool, flushPendingPublishes, getTestRelayUrl, safeGoto, useLocalRelay, waitForAppReady } from './test-utils.js';

@@ -1,21 +1,9 @@
 import { DEFAULT_PUBLIC_RELAYS } from '@iris/hashtree-app/defaultRelays';
 import { canUseInjectedHtreeServerUrl } from '../lib/nativeHtree';
 
-export type WebRTCUploadRateLimitMode = 'auto' | 'custom';
-
 export interface PoolSettings {
-  followsMax: number;
-  followsSatisfied: number;
-  otherMax: number;
-  otherSatisfied: number;
   showConnectivity: boolean;
   showBandwidth: boolean;
-  uploadRateLimitEnabled: boolean;
-  uploadRateLimitMode: WebRTCUploadRateLimitMode;
-  uploadRateLimitBytesPerSecond: number;
-  forwardRateLimitEnabled: boolean;
-  forwardRateLimitMaxForwardsPerPeerWindow: number;
-  forwardRateLimitWindowMs: number;
 }
 
 export type GitignoreBehavior = 'ask' | 'always' | 'never';
@@ -31,84 +19,9 @@ const testRelayOverride = typeof window !== 'undefined'
   : undefined;
 const effectiveTestRelay = testRelayOverride ?? testRelay;
 
-export const WEBRTC_RATE_LIMIT_MOBILE_MEDIA = '(max-width: 860px)';
-export const DEFAULT_MOBILE_WEBRTC_UPLOAD_LIMIT_BYTES_PER_SECOND = 100 * 1024;
-export const DEFAULT_DESKTOP_WEBRTC_UPLOAD_LIMIT_BYTES_PER_SECOND = 1024 * 1024;
-export const DEFAULT_WEBRTC_FORWARD_RATE_LIMIT_MAX_FORWARDS_PER_PEER_WINDOW = 64;
-export const DEFAULT_WEBRTC_FORWARD_RATE_LIMIT_WINDOW_MS = 1000;
-
-export type WebRTCForwardRateLimit = {
-  maxForwardsPerPeerWindow: number;
-  windowMs: number;
-};
-
-export function normalizePositiveInteger(value: unknown, fallback: number): number {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    return fallback;
-  }
-  return Math.floor(parsed);
-}
-
-export function resolveAutoWebRTCUploadLimitBytesPerSecond(): number {
-  if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
-    if (window.matchMedia(WEBRTC_RATE_LIMIT_MOBILE_MEDIA).matches) {
-      return DEFAULT_MOBILE_WEBRTC_UPLOAD_LIMIT_BYTES_PER_SECOND;
-    }
-  }
-
-  return DEFAULT_DESKTOP_WEBRTC_UPLOAD_LIMIT_BYTES_PER_SECOND;
-}
-
-export function resolveConfiguredWebRTCUploadLimitBytesPerSecond(
-  pools: PoolSettings,
-): number | null {
-  if (!pools.uploadRateLimitEnabled) {
-    return null;
-  }
-
-  if (pools.uploadRateLimitMode === 'custom') {
-    return normalizePositiveInteger(
-      pools.uploadRateLimitBytesPerSecond,
-      DEFAULT_DESKTOP_WEBRTC_UPLOAD_LIMIT_BYTES_PER_SECOND,
-    );
-  }
-
-  return resolveAutoWebRTCUploadLimitBytesPerSecond();
-}
-
-export function resolveConfiguredWebRTCForwardRateLimit(
-  pools: PoolSettings,
-): WebRTCForwardRateLimit | undefined {
-  if (!pools.forwardRateLimitEnabled) {
-    return undefined;
-  }
-
-  return {
-    maxForwardsPerPeerWindow: normalizePositiveInteger(
-      pools.forwardRateLimitMaxForwardsPerPeerWindow,
-      DEFAULT_WEBRTC_FORWARD_RATE_LIMIT_MAX_FORWARDS_PER_PEER_WINDOW,
-    ),
-    windowMs: normalizePositiveInteger(
-      pools.forwardRateLimitWindowMs,
-      DEFAULT_WEBRTC_FORWARD_RATE_LIMIT_WINDOW_MS,
-    ),
-  };
-}
-
 export const DEFAULT_POOL_SETTINGS: PoolSettings = {
-  followsMax: 20,
-  followsSatisfied: 10,
-  otherMax: isTestMode ? 0 : 16,
-  otherSatisfied: isTestMode ? 0 : 8,
   showConnectivity: false,
   showBandwidth: false,
-  uploadRateLimitEnabled: true,
-  uploadRateLimitMode: 'auto',
-  uploadRateLimitBytesPerSecond: DEFAULT_DESKTOP_WEBRTC_UPLOAD_LIMIT_BYTES_PER_SECOND,
-  forwardRateLimitEnabled: true,
-  forwardRateLimitMaxForwardsPerPeerWindow: DEFAULT_WEBRTC_FORWARD_RATE_LIMIT_MAX_FORWARDS_PER_PEER_WINDOW,
-  forwardRateLimitWindowMs: DEFAULT_WEBRTC_FORWARD_RATE_LIMIT_WINDOW_MS,
 };
 
 export const DEFAULT_UPLOAD_SETTINGS: UploadSettings = {

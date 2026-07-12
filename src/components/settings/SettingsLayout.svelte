@@ -58,8 +58,8 @@
     },
     {
       id: 'p2p',
-      label: 'P2P',
-      description: 'Connection pools and mesh peers.',
+      label: 'FIPS',
+      description: 'Nostr-discovered FIPS device peers.',
     },
   ] as const satisfies ReadonlyArray<{
     id: string;

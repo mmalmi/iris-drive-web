@@ -56,7 +56,6 @@ test.describe('Social graph features', () => {
     try {
       await expect.poll(async () => {
         await closeModals(page);
-        await page.evaluate(() => (window as any).__workerAdapter?.sendHello?.());
         await heading.scrollIntoViewIfNeeded().catch(() => {});
         if (await heading.isVisible().catch(() => false)) return true;
         if (!ownNpub && await avatarButton.isVisible({ timeout: 300 }).catch(() => false)) {

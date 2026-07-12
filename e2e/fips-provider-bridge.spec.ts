@@ -4,10 +4,14 @@ import { evaluateWithRetry, waitForAppReady, waitForWorkerAdapter } from './test
 test('worker reads a missing block through the external P2P provider', async ({ page }) => {
   await page.goto('/');
   await waitForAppReady(page);
-  await waitForWorkerAdapter(page);
+  await waitForWorkerAdapter(page, 30_000);
+  await page.waitForFunction(async () => {
+    const { isFipsProviderReady } = await import('/src/lib/workerInit.ts');
+    return isFipsProviderReady();
+  }, undefined, { timeout: 30_000 });
 
   const result = await evaluateWithRetry(page, async () => {
-    const adapter = (window as typeof window & {
+    const win = window as typeof window & {
       __getWorkerAdapter?: () => {
         get(hash: Uint8Array): Promise<Uint8Array | null>;
         setP2PProvider(provider: {
@@ -24,7 +28,8 @@ test('worker reads a missing block through the external P2P provider', async ({ 
         } | null): void;
         webrtcProxy?: unknown;
       };
-    }).__getWorkerAdapter?.();
+    };
+    const adapter = win.__workerAdapter ?? win.__getWorkerAdapter?.();
     if (!adapter) throw new Error('worker adapter is not ready');
 
     const expected = new TextEncoder().encode(`fips-provider-${crypto.randomUUID()}`);
@@ -40,6 +45,7 @@ test('worker reads a missing block through the external P2P provider', async ({ 
     });
 
     const loaded = await adapter.get(digest);
+    if (requests.length === 0) throw new Error('FIPS provider bridge is not ready');
     return {
       loaded: loaded ? new TextDecoder().decode(loaded) : null,
       expected: new TextDecoder().decode(expected),
@@ -48,7 +54,7 @@ test('worker reads a missing block through the external P2P provider', async ({ 
     };
   }, undefined, 5);
 
-  expect(result.loaded).toBe(result.expected);
   expect(result.requests).toEqual([{ hashHex: expect.stringMatching(/^[0-9a-f]{64}$/) }]);
+  expect(result.loaded).toBe(result.expected);
   expect(result.legacyProxyActive).toBe(false);
 });

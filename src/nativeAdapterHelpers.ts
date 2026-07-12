@@ -65,16 +65,6 @@ export type NativeTreeRootUpdateCallback = (
   }
 ) => void;
 
-export type NativeWebRTCPools = {
-  follows: { max: number; satisfied: number };
-  other: { max: number; satisfied: number };
-};
-
-export type NativeWebRTCForwardRateLimit = {
-  maxForwardsPerPeerWindow?: number;
-  windowMs?: number;
-};
-
 export type NativeTreeRootCacheMetadata = {
   encryptedKey?: string;
   keyId?: string;

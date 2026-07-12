@@ -5,11 +5,11 @@ settings:
   excludeLinksFromLockfile: false
 
 overrides:
-  '@fips/core': file:vendor/fips/fips-core-0.0.16.tgz
-  '@fips/transport-webrtc': file:vendor/fips/fips-transport-webrtc-0.0.23.tgz
+  '@fips/browser': file:vendor/fips/fips-browser-0.0.4.tgz
+  '@fips/core': file:vendor/fips/fips-core-0.0.21.tgz
+  '@fips/transport-webrtc': file:vendor/fips/fips-transport-webrtc-0.0.30.tgz
   '@hashtree/core': link:../hashtree/ts/packages/hashtree
   '@hashtree/fips-transport': link:../hashtree/ts/packages/hashtree-fips-transport
-  '@hashtree/mesh': link:../hashtree/ts/packages/hashtree-mesh
   '@hashtree/collection': link:../hashtree/ts/packages/hashtree-collection
   '@hashtree/dexie': link:../hashtree/ts/packages/hashtree-dexie
   '@hashtree/git': link:../hashtree/ts/packages/hashtree-git
@@ -23,12 +23,15 @@ importers:
 
   .:
     dependencies:
+      '@fips/browser':
+        specifier: file:vendor/fips/fips-browser-0.0.4.tgz
+        version: file:vendor/fips/fips-browser-0.0.4.tgz(typescript@5.9.3)
       '@fips/core':
-        specifier: file:vendor/fips/fips-core-0.0.16.tgz
-        version: file:vendor/fips/fips-core-0.0.16.tgz
+        specifier: file:vendor/fips/fips-core-0.0.21.tgz
+        version: file:vendor/fips/fips-core-0.0.21.tgz
       '@fips/transport-webrtc':
-        specifier: file:vendor/fips/fips-transport-webrtc-0.0.23.tgz
-        version: file:vendor/fips/fips-transport-webrtc-0.0.23.tgz(typescript@5.9.3)
+        specifier: file:vendor/fips/fips-transport-webrtc-0.0.30.tgz
+        version: file:vendor/fips/fips-transport-webrtc-0.0.30.tgz(typescript@5.9.3)
       '@hashtree/core':
         specifier: link:../hashtree/ts/packages/hashtree
         version: link:../hashtree/ts/packages/hashtree
@@ -60,8 +63,8 @@ importers:
         specifier: file:../iris-kit/packages/release-tools
         version: file:../iris-kit/packages/release-tools
       '@iris/svelte-ui':
-        specifier: file:../iris-kit/packages/svelte-ui
-        version: file:../iris-kit/packages/svelte-ui(svelte@5.56.3(@typescript-eslint/types@8.61.0))
+        specifier: link:../iris-kit/packages/svelte-ui
+        version: link:../iris-kit/packages/svelte-ui
       '@msgpack/msgpack':
         specifier: ^3.1.2
         version: 3.1.3
@@ -964,13 +967,17 @@ packages:
     resolution: {integrity: sha512-43/qtrDUokr7LJqoF2c3+RInu/t4zfrpYdoSDfYyhg52rwLV6TnOvdG4fXm7IkSB3wErkcmJS9iEhjVtOSEjjA==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
 
-  '@fips/core@file:vendor/fips/fips-core-0.0.16.tgz':
-    resolution: {integrity: sha512-DXaOsmV48C5YxzMjMAKgUrE9Y1ajw/OavLyk0OQCGmVjD99ZgKsz8MhrVyEVRTcikMZw8wQo8Z0zzlB/OB7ErQ==, tarball: file:vendor/fips/fips-core-0.0.16.tgz}
-    version: 0.0.16
+  '@fips/browser@file:vendor/fips/fips-browser-0.0.4.tgz':
+    resolution: {integrity: sha512-9bhPY8EmZej7ZdgfmQpkrfUzPvUiwYFQWAPez3QDz7SF2nj391Z01PqY6mMHXAxUntKoc+9CM/iU0t/Q+K4LHA==, tarball: file:vendor/fips/fips-browser-0.0.4.tgz}
+    version: 0.0.4
 
-  '@fips/transport-webrtc@file:vendor/fips/fips-transport-webrtc-0.0.23.tgz':
-    resolution: {integrity: sha512-v1CUfjHalLuBwCfQ3eJZ3bUOMla9WWHoJO2zHGcgS+7QhB4C5h+1aKZe4Z6tP0xSzhlufZURZdZ8Zz3CJ3Fk7g==, tarball: file:vendor/fips/fips-transport-webrtc-0.0.23.tgz}
-    version: 0.0.23
+  '@fips/core@file:vendor/fips/fips-core-0.0.21.tgz':
+    resolution: {integrity: sha512-vATACaOwheisqkbaIT2ujgw1eKlKCCMb+lGDFt8ojRUvElkQJxA7RnMFEX7cXjlOiA2vmedLsQkxT8hhjosK+g==, tarball: file:vendor/fips/fips-core-0.0.21.tgz}
+    version: 0.0.21
+
+  '@fips/transport-webrtc@file:vendor/fips/fips-transport-webrtc-0.0.30.tgz':
+    resolution: {integrity: sha512-E8S+B4HxCBQf0E1sSsRF74gcq4cz9lDuCP4pqRlxdUZ2W0TMX+qoaYA8NnN2rqRWaiDsgVCZmbulBDs3r10sNg==, tarball: file:vendor/fips/fips-transport-webrtc-0.0.30.tgz}
+    version: 0.0.30
 
   '@humanfs/core@0.19.2':
     resolution: {integrity: sha512-UhXNm+CFMWcbChXywFwkmhqjs3PRCmcSa/hfBgLIb7oQ5HNb1wS0icWsGtSAUNgefHeI+eBrA8I1fxmbHsGdvA==}
@@ -1009,11 +1016,6 @@ packages:
 
   '@iris/release-tools@file:../iris-kit/packages/release-tools':
     resolution: {directory: ../iris-kit/packages/release-tools, type: directory}
-
-  '@iris/svelte-ui@file:../iris-kit/packages/svelte-ui':
-    resolution: {directory: ../iris-kit/packages/svelte-ui, type: directory}
-    peerDependencies:
-      svelte: ^5.0.0
 
   '@isaacs/cliui@9.0.0':
     resolution: {integrity: sha512-AokJm4tuBHillT+FpMtxQ60n8ObyXBatq7jD2/JA9dxbDDokKQm8KMht5ibGzLVU9IJDIKK4TPKgMHEYMn3lMg==}
@@ -4546,16 +4548,23 @@ snapshots:
       '@eslint/core': 0.17.0
       levn: 0.4.1
 
-  '@fips/core@file:vendor/fips/fips-core-0.0.16.tgz':
+  '@fips/browser@file:vendor/fips/fips-browser-0.0.4.tgz(typescript@5.9.3)':
+    dependencies:
+      '@fips/core': file:vendor/fips/fips-core-0.0.21.tgz
+      '@fips/transport-webrtc': file:vendor/fips/fips-transport-webrtc-0.0.30.tgz(typescript@5.9.3)
+    transitivePeerDependencies:
+      - typescript
+
+  '@fips/core@file:vendor/fips/fips-core-0.0.21.tgz':
     dependencies:
       '@noble/ciphers': 1.3.0
       '@noble/curves': 1.9.7
       '@noble/hashes': 1.8.0
       '@scure/base': 2.2.0
 
-  '@fips/transport-webrtc@file:vendor/fips/fips-transport-webrtc-0.0.23.tgz(typescript@5.9.3)':
+  '@fips/transport-webrtc@file:vendor/fips/fips-transport-webrtc-0.0.30.tgz(typescript@5.9.3)':
     dependencies:
-      '@fips/core': file:vendor/fips/fips-core-0.0.16.tgz
+      '@fips/core': file:vendor/fips/fips-core-0.0.21.tgz
       '@noble/ciphers': 1.3.0
       '@noble/curves': 1.9.7
       '@noble/hashes': 1.8.0
@@ -4597,11 +4606,6 @@ snapshots:
       svelte: 5.56.3(@typescript-eslint/types@8.61.0)
 
   '@iris/release-tools@file:../iris-kit/packages/release-tools': {}
-
-  '@iris/svelte-ui@file:../iris-kit/packages/svelte-ui(svelte@5.56.3(@typescript-eslint/types@8.61.0))':
-    dependencies:
-      minidenticons: 4.2.1
-      svelte: 5.56.3(@typescript-eslint/types@8.61.0)
 
   '@isaacs/cliui@9.0.0': {}
 

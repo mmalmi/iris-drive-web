@@ -25,7 +25,7 @@ import {
 import type { NDKFilter } from 'ndk';
 import { ndk, NDKNip46Signer, NDKPrivateKeySigner, NDKNip07Signer, NDKEvent } from './ndk';
 import { nostrStore } from './store';
-import { initHashtreeBackend, getWorkerAdapter, updateFollowsSubscription, waitForWorkerAdapter } from '../lib/workerInit';
+import { initHashtreeBackend, getWorkerAdapter, waitForWorkerAdapter } from '../lib/workerInit';
 import {
   accountsStore,
   initAccountsStore,
@@ -196,13 +196,11 @@ async function initOrUpdateBackendIdentity(pubkey: string, nsecHex?: string): Pr
   const adapter = getWorkerAdapter();
   if (adapter) {
     await adapter.setIdentity(pubkey, nsecHex);
-    updateFollowsSubscription(pubkey);
   } else {
     await initHashtreeBackend({ pubkey, nsec: nsecHex });
     const readyAdapter = getWorkerAdapter();
     if (readyAdapter) {
       await readyAdapter.setIdentity(pubkey, nsecHex);
-      updateFollowsSubscription(pubkey);
     }
   }
 }

@@ -3,7 +3,7 @@ import { setupPageErrorHandler, navigateToPublicFolder, disableOthersPool } from
 
 test.describe('Add Folder Navigation', () => {
   test.describe.configure({ timeout: 90000 });
-  // Disable "others pool" to prevent WebRTC cross-talk from parallel tests
+  // Disable FIPS networking to isolate this single-page navigation test.
   test.beforeEach(async ({ page }) => {
     setupPageErrorHandler(page);
     await page.goto('/');

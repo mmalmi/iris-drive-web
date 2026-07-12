@@ -30,6 +30,7 @@ async function createFolderAndOpen(page: any, folderName: string): Promise<void>
     await page.waitForTimeout(500);
   }
 
+  await expect(page).toHaveURL(new RegExp(encodeURIComponent(folderName)), { timeout: 10000 });
   await expect(page.getByText(/Drop or click to add|Empty directory/).first()).toBeVisible({ timeout: 10000 });
 }
 
@@ -82,21 +83,7 @@ test.describe('Compression features', () => {
   test('should fork a folder as a new top-level tree', async ({ page }) => {
     await navigateToPublicFolder(page, { timeoutMs: 60000, requireRelay: false });
 
-    // Create a top-level folder first
-    await page.getByTestId('home-link').click();
-    const newFolderButton = page.getByRole('button', { name: 'New Folder' }).first();
-    await expect(newFolderButton).toBeVisible({ timeout: 5000 });
-    await newFolderButton.click();
-
-    const input = page.locator('input[placeholder="Folder name..."]');
-    await input.waitFor({ timeout: 5000 });
-    await input.fill('fork-source');
-    await page.click('button:has-text("Create")');
-
-    // Wait for modal to close and navigate to the new folder
-    await expect(page.locator('.fixed.inset-0.bg-black')).not.toBeVisible({ timeout: 10000 });
-    // Wait for URL to contain fork-source
-    await expect(page).toHaveURL(/fork-source/, { timeout: 10000 });
+    await createFolderAndOpen(page, 'fork-source');
 
     // Click the Fork button (the one in folder actions)
     await page.getByRole('button', { name: 'Fork' }).click();
@@ -117,31 +104,17 @@ test.describe('Compression features', () => {
     // Should be navigated to the new forked folder
     await expect(page).toHaveURL(/my-forked-folder/, { timeout: 10000 });
 
-    // Navigate back to tree list and verify the forked folder exists as top-level
-    await page.getByTestId('home-link').click();
-    await expect(page.getByRole('button', { name: 'New Folder' }).first()).toBeVisible({ timeout: 5000 });
-
-    // my-forked-folder should appear in the tree list
-    await expect(page.getByTestId('file-list').locator('a:has-text("my-forked-folder")')).toBeVisible({ timeout: 5000 });
+    // A fork is a separate tree, not an entry inside the main tree. Reload its
+    // route to prove that the new top-level root was persisted.
+    await page.reload();
+    await expect(page).toHaveURL(/my-forked-folder/, { timeout: 10000 });
+    await expect(page.getByRole('heading', { name: 'my-forked-folder' })).toBeVisible({ timeout: 10000 });
   });
 
   test('should fork a folder with visibility selection', async ({ page }) => {
     await navigateToPublicFolder(page, { timeoutMs: 60000, requireRelay: false });
 
-    // Create a top-level folder first
-    await page.getByTestId('home-link').click();
-    const newFolderButton = page.getByRole('button', { name: 'New Folder' }).first();
-    await expect(newFolderButton).toBeVisible({ timeout: 5000 });
-    await newFolderButton.click();
-
-    const input = page.locator('input[placeholder="Folder name..."]');
-    await input.waitFor({ timeout: 5000 });
-    await input.fill('fork-visibility-source');
-    await page.click('button:has-text("Create")');
-
-    // Wait for modal to close and navigate to the new folder
-    await expect(page.locator('.fixed.inset-0.bg-black')).not.toBeVisible({ timeout: 10000 });
-    await expect(page).toHaveURL(/fork-visibility-source/, { timeout: 10000 });
+    await createFolderAndOpen(page, 'fork-visibility-source');
 
     // Click the Fork button
     await page.getByRole('button', { name: 'Fork' }).click();
@@ -180,42 +153,17 @@ test.describe('Compression features', () => {
   test('should suggest unique name when forking folder with existing name', async ({ page }) => {
     await navigateToPublicFolder(page, { timeoutMs: 60000, requireRelay: false });
 
-    // Create first top-level folder
-    await page.getByTestId('home-link').click();
-    const newFolderButton = page.getByRole('button', { name: 'New Folder' }).first();
-    await expect(newFolderButton).toBeVisible({ timeout: 5000 });
-    await newFolderButton.click();
+    // Create a separate top-level tree named existing-tree. A folder inside
+    // main may have the same name, but forking it must avoid the tree-name
+    // collision.
+    await page.evaluate(async () => {
+      const { createTree } = await import('/src/actions/tree.ts');
+      const result = await createTree('existing-tree', 'public', true);
+      if (!result.success) throw new Error('failed to create collision tree');
+    });
+    await createFolderAndOpen(page, 'existing-tree');
 
-    let input = page.locator('input[placeholder="Folder name..."]');
-    await input.waitFor({ timeout: 5000 });
-    await input.fill('existing-tree');
-    await page.click('button:has-text("Create")');
-
-    // Wait for modal to close and navigate to folder
-    await expect(page.locator('.fixed.inset-0.bg-black')).not.toBeVisible({ timeout: 10000 });
-    await expect(page).toHaveURL(/existing-tree/, { timeout: 10000 });
-
-    // Now create a subfolder named the same
-    await page.getByRole('button', { name: 'New Folder' }).click();
-    input = page.locator('input[placeholder="Folder name..."]');
-    await input.waitFor({ timeout: 5000 });
-    await input.fill('existing-tree');
-    await page.click('button:has-text("Create")');
-
-    // Wait for modal to close
-    await expect(page.locator('.fixed.inset-0.bg-black')).not.toBeVisible({ timeout: 10000 });
-
-    // Wait for the subfolder to appear in sidebar navigation
-    // It shows as a sibling link in the breadcrumb after its parent
-    const subfolderLink = page.locator('a[href*="existing-tree/existing-tree"]');
-    await expect(subfolderLink).toBeVisible({ timeout: 5000 });
-
-    // Click on the subfolder to navigate into it
-    await subfolderLink.click();
-    // URL should now have existing-tree/existing-tree
-    await expect(page).toHaveURL(/existing-tree\/existing-tree/, { timeout: 10000 });
-
-    // Click Fork on the subfolder
+    // Fork the directory whose base name collides with the existing tree.
     await page.getByRole('button', { name: 'Fork' }).click();
 
     // The suggested name should be "existing-tree-2" since "existing-tree" already exists as top-level
@@ -233,20 +181,7 @@ test.describe('Compression features', () => {
   test('should show progress when creating ZIP', async ({ page }) => {
     await navigateToPublicFolder(page, { timeoutMs: 60000, requireRelay: false });
 
-    // Create a folder with a file to ZIP
-    await page.getByTestId('home-link').click();
-    const newFolderButton = page.getByRole('button', { name: 'New Folder' }).first();
-    await expect(newFolderButton).toBeVisible({ timeout: 5000 });
-    await newFolderButton.click();
-
-    const input = page.locator('input[placeholder="Folder name..."]');
-    await input.waitFor({ timeout: 5000 });
-    await input.fill('zip-progress-test');
-    await page.click('button:has-text("Create")');
-
-    // Wait for modal to close and navigate to folder
-    await expect(page.locator('.fixed.inset-0.bg-black')).not.toBeVisible({ timeout: 10000 });
-    await expect(page).toHaveURL(/zip-progress-test/, { timeout: 10000 });
+    await createFolderAndOpen(page, 'zip-progress-test');
     const folderUrl = page.url();
 
     // Create a file in the folder

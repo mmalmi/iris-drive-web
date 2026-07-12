@@ -43,10 +43,9 @@ test.describe('Hashtree Explorer', () => {
     await expect(page.getByRole('heading', { name: 'Relays' })).toBeVisible({ timeout: 5000 });
     await expect(page.getByRole('heading', { name: /File Servers/ })).toBeVisible({ timeout: 5000 });
     await page.getByTestId('settings-network-p2p').click();
-    await expect(page.getByRole('heading', { name: 'Connection Pools' })).toBeVisible({ timeout: 5000 });
-    await expect(page.getByText('Follows')).toBeVisible({ timeout: 5000 });
-    await expect(page.getByText('Others')).toBeVisible({ timeout: 5000 });
-    await expect(page.getByText(/Mesh Peers/)).toBeVisible({ timeout: 5000 });
+    await expect(page.getByTestId('settings-fips-peers')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText(/Device peers discovered over Nostr/)).toBeVisible({ timeout: 5000 });
+    await expect(page.getByTestId('settings-fips-peers')).not.toContainText('Follows');
 
     await page.getByTestId('settings-nav-storage').click();
     await expect(page.getByText('Local Storage')).toBeVisible({ timeout: 5000 });

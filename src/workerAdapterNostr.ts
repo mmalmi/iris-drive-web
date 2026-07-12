@@ -12,7 +12,6 @@ import type {
   EoseCallback,
   ExtendedWorkerRequest,
   SubscriptionCallback,
-  WebRTCForwardRateLimitConfig,
 } from './workerAdapterCore';
 
 export class WorkerAdapterNostr extends WorkerAdapterStorage {
@@ -97,58 +96,6 @@ export class WorkerAdapterNostr extends WorkerAdapterStorage {
       type: 'blockPeer',
       id,
       pubkey,
-    } as ExtendedWorkerRequest);
-  }
-
-  /**
-   * Set WebRTC pool configuration
-   */
-  async setWebRTCPools(pools: { follows: { max: number; satisfied: number }; other: { max: number; satisfied: number } }): Promise<void> {
-    const id = generateRequestId();
-    await this.request<{ error?: string }>({
-      type: 'setWebRTCPools',
-      id,
-      pools,
-    } as ExtendedWorkerRequest);
-  }
-
-  async setWebRTCUploadLimit(maxUploadBytesPerSecond?: number | null): Promise<void> {
-    this.config.maxWebRTCUploadBytesPerSecond = maxUploadBytesPerSecond ?? null;
-    this.webrtcProxy?.setUploadLimitBytesPerSecond(maxUploadBytesPerSecond ?? null);
-  }
-
-  async setWebRTCForwardRateLimit(forwardRateLimit?: WebRTCForwardRateLimitConfig): Promise<void> {
-    this.config.forwardRateLimit = forwardRateLimit;
-    const id = generateRequestId();
-    await this.request<{ error?: string }>({
-      type: 'setWebRTCForwardRateLimit',
-      id,
-      forwardRateLimit,
-    } as ExtendedWorkerRequest);
-  }
-
-  /**
-   * Trigger a WebRTC hello broadcast for peer discovery.
-   * Used after follow relationships change to force peer discovery.
-   */
-  async sendHello(): Promise<void> {
-    const id = generateRequestId();
-    await this.request<{ error?: string }>({
-      type: 'sendWebRTCHello',
-      id,
-    } as ExtendedWorkerRequest);
-  }
-
-  /**
-   * Update the follows list in the worker.
-   * Used for WebRTC peer classification (follows pool vs others pool).
-   */
-  async setFollows(follows: string[]): Promise<void> {
-    const id = generateRequestId();
-    await this.request<{ error?: string }>({
-      type: 'setFollows',
-      id,
-      follows,
     } as ExtendedWorkerRequest);
   }
 

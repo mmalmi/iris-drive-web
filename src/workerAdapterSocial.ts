@@ -216,11 +216,6 @@ export class WorkerAdapterSocial extends WorkerAdapterNostr {
   close(): void {
     this.stopHeartbeat();
 
-    if (this.webrtcProxy) {
-      this.webrtcProxy.close();
-      this.webrtcProxy = null;
-    }
-
     if (this.worker) {
       this.postMessage({ type: 'close', id: generateRequestId() });
       this.worker.terminate();

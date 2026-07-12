@@ -42,8 +42,6 @@ import {
   type FollowsSubscription,
   type NativeTreeRootCacheMetadata,
   type NativeTreeRootUpdateCallback,
-  type NativeWebRTCForwardRateLimit,
-  type NativeWebRTCPools,
   type RelayConfig,
   type ResolveRootResponse,
   type SubscriptionRecord,
@@ -429,16 +427,6 @@ export class NativeBackendAdapter implements BackendAdapter {
   }
 
   async blockPeer(_pubkey: string): Promise<void> {}
-
-  async setWebRTCPools(_pools: NativeWebRTCPools): Promise<void> {}
-
-  async setWebRTCUploadLimit(_maxUploadBytesPerSecond?: number | null): Promise<void> {}
-
-  async setWebRTCForwardRateLimit(_forwardRateLimit?: NativeWebRTCForwardRateLimit): Promise<void> {}
-
-  async sendHello(): Promise<void> {}
-
-  async setFollows(_follows: string[]): Promise<void> {}
 
   async setBlossomServers(servers: WorkerBlossomServerConfig[]): Promise<void> {
     this.blossomServers = [...servers];

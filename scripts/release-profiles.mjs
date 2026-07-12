@@ -14,9 +14,10 @@ export const releaseProfiles = {
     pagesProjectEnv: 'CF_PAGES_PROJECT_DRIVE',
     buildCommand: ['pnpm', 'run', 'build'],
     testCommands: [
-      ['pnpm', 'exec', 'vitest', 'run', 'tests/filesPortableBuildConfig.test.ts', 'tests/shareUrls.test.ts', 'tests/driveHtreeRouteCompatibility.test.ts'],
+      ['pnpm', 'run', 'lint'],
+      ['pnpm', 'run', 'test:unit'],
       ['node', './scripts/smoke-files-iris-portable.mjs'],
-      ['pnpm', 'exec', 'playwright', 'test', 'e2e/viewer-actions.spec.ts', '--project=chromium'],
+      ['pnpm', 'run', 'test:e2e:release'],
     ],
   },
   files: {
@@ -30,9 +31,10 @@ export const releaseProfiles = {
     pagesProjectEnv: 'CF_PAGES_PROJECT_FILES',
     buildCommand: ['pnpm', 'run', 'build'],
     testCommands: [
-      ['pnpm', 'exec', 'vitest', 'run', 'tests/filesPortableBuildConfig.test.ts', 'tests/shareUrls.test.ts', 'tests/driveHtreeRouteCompatibility.test.ts'],
+      ['pnpm', 'run', 'lint'],
+      ['pnpm', 'run', 'test:unit'],
       ['node', './scripts/smoke-files-iris-portable.mjs'],
-      ['pnpm', 'exec', 'playwright', 'test', 'e2e/viewer-actions.spec.ts', '--project=chromium'],
+      ['pnpm', 'run', 'test:e2e:release'],
     ],
   },
 };

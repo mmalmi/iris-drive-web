@@ -10,7 +10,7 @@ import {
   useLocalRelay,
   waitForAppReady,
   waitForCurrentDirectoryEntries,
-  waitForWebRTCConnection,
+  waitForFipsConnection,
   waitForRelayConnected,
 } from './test-utils.js';
 
@@ -521,8 +521,8 @@ async function expectLinkedBrowsersCanExchangeEdits(owner: Page, linked: Page, r
   await enableOthersPool(linked, 6);
   const ownerKey = await appKeyPubkey(owner);
   const linkedKey = await appKeyPubkey(linked);
-  await waitForWebRTCConnection(owner, 30000, linkedKey);
-  await waitForWebRTCConnection(linked, 30000, ownerKey);
+  await waitForFipsConnection(owner, 30000);
+  await waitForFipsConnection(linked, 30000);
 
   await writeMainFileAndPublish(linked, relayUrl, 'linked-browser-edit.txt', 'from linked browser');
   await gotoMain(owner);
@@ -540,8 +540,8 @@ async function expectMainDirectoryTestFileSyncs(owner: Page, linked: Page, profi
   await enableOthersPool(linked, 6);
   const ownerKey = await appKeyPubkey(owner);
   const linkedKey = await appKeyPubkey(linked);
-  await waitForWebRTCConnection(owner, 30000, linkedKey);
-  await waitForWebRTCConnection(linked, 30000, ownerKey);
+  await waitForFipsConnection(owner, 30000);
+  await waitForFipsConnection(linked, 30000);
   await gotoMain(owner);
   await gotoMain(linked);
 

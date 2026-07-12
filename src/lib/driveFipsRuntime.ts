@@ -1,4 +1,3 @@
-import { fromHex } from '@hashtree/core';
 import { DexieStore } from '@hashtree/dexie';
 import {
   DEFAULT_FIPS_DISCOVERY_APP,
@@ -8,7 +7,6 @@ import {
   type BrowserHashtreeFipsProvider,
 } from '@hashtree/fips-transport/browser';
 import {
-  identityFromSecretKey,
   npubFromHex,
   toHex,
   type FipsIdentity,
@@ -16,8 +14,10 @@ import {
   type PeerEvent,
   type SessionEvent,
 } from '@fips/core';
+import { IndexedDbIdentityStore } from '@fips/browser';
 
 export const IRIS_DRIVE_FIPS_DISCOVERY_SCOPE = DEFAULT_FIPS_DISCOVERY_APP;
+export const IRIS_DRIVE_FIPS_IDENTITY_STORE = 'iris-fips-device';
 
 const DEFAULT_STUN_SERVERS = [
   'stun:stun.l.google.com:19302',
@@ -31,10 +31,9 @@ const DEFAULT_REQUEST_RETRY_INTERVAL_MS = 750;
 const DEFAULT_REQUEST_MAX_ATTEMPTS = 4;
 
 export interface DriveFipsRuntimeOptions {
-  deviceSecretKey: Uint8Array | string;
-  ownerPubkeyHex?: string;
   relays: readonly string[];
   storeName?: string;
+  identityStoreName?: string;
   stunServers?: readonly string[];
   maxConnections?: number;
   connectTimeoutMs?: number;
@@ -71,8 +70,9 @@ export interface DriveFipsRuntimeStats {
 type MutablePeerStats = DriveFipsPeerStats;
 
 let activeRuntime: DriveFipsRuntime | null = null;
+let runtimeGeneration = 0;
 
-export function irisDriveFipsDiscoveryScope(_ownerPubkeyHex?: string): string {
+export function irisDriveFipsDiscoveryScope(): string {
   return IRIS_DRIVE_FIPS_DISCOVERY_SCOPE;
 }
 
@@ -96,14 +96,22 @@ export function supportsDriveFipsRuntime(): boolean {
 }
 
 export async function startDriveFipsRuntime(options: DriveFipsRuntimeOptions): Promise<DriveFipsRuntime> {
-  await stopDriveFipsRuntime();
+  const generation = ++runtimeGeneration;
+  const previous = activeRuntime;
+  activeRuntime = null;
+  await previous?.stop();
   const runtime = new DriveFipsRuntime(options);
   await runtime.start();
+  if (generation !== runtimeGeneration) {
+    await runtime.stop();
+    throw new Error('drive FIPS runtime start superseded');
+  }
   activeRuntime = runtime;
   return runtime;
 }
 
 export async function stopDriveFipsRuntime(): Promise<void> {
+  runtimeGeneration += 1;
   const runtime = activeRuntime;
   activeRuntime = null;
   await runtime?.stop();
@@ -125,7 +133,7 @@ export class DriveFipsRuntime {
 
   constructor(options: DriveFipsRuntimeOptions) {
     this.options = options;
-    this.discoveryScope = irisDriveFipsDiscoveryScope(options.ownerPubkeyHex);
+    this.discoveryScope = irisDriveFipsDiscoveryScope();
     this.relays = normalizeRelayUrls(options.relays);
     if (this.relays.length === 0) {
       throw new Error('drive FIPS runtime needs at least one relay');
@@ -138,7 +146,9 @@ export class DriveFipsRuntime {
       throw new Error('browser FIPS runtime is not supported in this environment');
     }
 
-    const identity = await identityFromSecretKey(readSecretKey(this.options.deviceSecretKey));
+    const identity = await new IndexedDbIdentityStore(
+      this.options.identityStoreName ?? IRIS_DRIVE_FIPS_IDENTITY_STORE,
+    ).getOrCreateIdentity();
     const storeName = this.options.storeName ?? 'hashtree-worker';
     const localStore = new DexieStore(storeName);
     let provider: BrowserHashtreeFipsProvider;
@@ -267,14 +277,6 @@ export class DriveFipsRuntime {
     }
     return stats;
   }
-}
-
-function readSecretKey(secret: Uint8Array | string): Uint8Array {
-  const bytes = typeof secret === 'string' ? fromHex(secret) : new Uint8Array(secret);
-  if (bytes.length !== 32) {
-    throw new Error(`drive FIPS device secret must be 32 bytes, got ${bytes.length}`);
-  }
-  return bytes;
 }
 
 function normalizeRelayUrls(relays: readonly string[]): string[] {

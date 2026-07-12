@@ -467,7 +467,7 @@
       {:else if isMarkdown && fileContent !== null}
         {#key cidKey}
           <div class="flex-1 overflow-auto">
-            <MarkdownViewer content={fileContent} />
+            <MarkdownViewer content={fileContent} dirPath={routePath.slice(0, -1)} />
           </div>
         {/key}
       {:else}

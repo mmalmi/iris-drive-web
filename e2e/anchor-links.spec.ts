@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test';
 import { test, expect } from './fixtures';
-import { setupPageErrorHandler, navigateToPublicFolder, goToTreeList } from './test-utils.js';
+import { navigateToPublicFolder, goToTreeList, setupFreshUser } from './test-utils.js';
 
 async function createAndEnterTree(page: Page, name: string) {
   await goToTreeList(page);
@@ -8,6 +8,11 @@ async function createAndEnterTree(page: Page, name: string) {
   await page.getByRole('button', { name: 'New Folder' }).click();
   await page.locator('input[placeholder="Folder name..."]').fill(name);
   await page.getByRole('button', { name: 'Create' }).click();
+  const folderLink = page.locator('a').filter({ hasText: name }).first();
+  await expect(folderLink).toBeVisible({ timeout: 10000 });
+  await folderLink.click();
+  await expect(page).toHaveURL(new RegExp(`/${name}(?:[?#]|$)`), { timeout: 30000 });
+  await expect(page.getByRole('button', { name: 'New File' })).toBeVisible({ timeout: 30000 });
   await expect(page.getByText('Empty directory')).toBeVisible({ timeout: 10000 });
 }
 
@@ -16,9 +21,11 @@ async function createFile(page: Page, name: string, content: string = '') {
   await page.locator('input[placeholder="File name..."]').fill(name);
   await page.getByRole('button', { name: 'Create' }).click();
   const doneButton = page.getByRole('button', { name: 'Done' });
+  const editorTextarea = page.locator('textarea').last();
   await expect(doneButton).toBeVisible({ timeout: 5000 });
+  await expect(editorTextarea).toBeVisible({ timeout: 5000 });
   if (content) {
-    await page.locator('textarea').fill(content);
+    await editorTextarea.fill(content);
     const saveButton = page.getByRole('button', { name: /Save|Saved|Saving/ }).first();
     if (await saveButton.isEnabled().catch(() => false)) {
       await saveButton.click();
@@ -26,7 +33,8 @@ async function createFile(page: Page, name: string, content: string = '') {
     await expect(saveButton).toBeDisabled({ timeout: 10000 });
   }
   await doneButton.click();
-  await expect(page.locator('textarea')).not.toBeVisible({ timeout: 10000 });
+  await expect(doneButton).not.toBeVisible({ timeout: 10000 });
+  await expect(editorTextarea).not.toBeVisible({ timeout: 10000 });
 }
 
 async function openCodeFileAndWaitForLine(
@@ -39,21 +47,20 @@ async function openCodeFileAndWaitForLine(
   await expect(page.locator(`[data-line="${lineNumber}"]`)).toBeVisible({ timeout: timeoutMs });
 }
 
+async function reopenTreeReadme(page: Page, treeName: string): Promise<void> {
+  await goToTreeList(page);
+  await page.locator('a').filter({ hasText: treeName }).first().click();
+  const readmeLink = page.getByRole('link', { name: /^README\.md/ }).first();
+  await expect(readmeLink).toBeVisible({ timeout: 30000 });
+  await readmeLink.click();
+  await expect(page.locator('.markdown-content')).toBeVisible({ timeout: 30000 });
+}
+
 test.describe('Anchor Links', () => {
   test.setTimeout(120000);
 
   test.beforeEach(async ({ page }) => {
-    setupPageErrorHandler(page);
-    await page.goto('/');
-    await page.evaluate(async () => {
-      const dbs = await indexedDB.databases();
-      for (const db of dbs) {
-        if (db.name) indexedDB.deleteDatabase(db.name);
-      }
-      localStorage.clear();
-      sessionStorage.clear();
-    });
-    await page.reload();
+    await setupFreshUser(page);
     await navigateToPublicFolder(page);
   });
 
@@ -62,9 +69,7 @@ test.describe('Anchor Links', () => {
       await createAndEnterTree(page, 'anchor-md-test');
       await createFile(page, 'README.md', '# First Heading\n\nSome text.\n\n## Second Heading\n\nMore text.\n\n### Third-Level Heading\n\nEven more.');
 
-      await goToTreeList(page);
-      await page.locator('a:has-text("anchor-md-test")').first().click();
-      await expect(page.locator('.i-lucide-book-open')).toBeVisible({ timeout: 30000 });
+      await reopenTreeReadme(page, 'anchor-md-test');
 
       // Headings should have slugified id attributes
       await expect(page.locator('#first-heading')).toBeVisible();
@@ -76,9 +81,7 @@ test.describe('Anchor Links', () => {
       await createAndEnterTree(page, 'anchor-link-test');
       await createFile(page, 'README.md', '# Test Heading\n\nContent here.');
 
-      await goToTreeList(page);
-      await page.locator('a:has-text("anchor-link-test")').first().click();
-      await expect(page.locator('.i-lucide-book-open')).toBeVisible({ timeout: 30000 });
+      await reopenTreeReadme(page, 'anchor-link-test');
 
       // Heading should have an anchor link
       const heading = page.locator('#test-heading');
@@ -91,8 +94,7 @@ test.describe('Anchor Links', () => {
       await createAndEnterTree(page, 'anchor-url-test');
       await createFile(page, 'README.md', '# My Section\n\nText.');
 
-      await goToTreeList(page);
-      await page.locator('a:has-text("anchor-url-test")').first().click();
+      await reopenTreeReadme(page, 'anchor-url-test');
       await expect(page.locator('#my-section')).toBeVisible({ timeout: 30000 });
 
       // Hover to reveal anchor, then click

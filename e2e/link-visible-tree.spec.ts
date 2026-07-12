@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures';
-import { setupPageErrorHandler, navigateToPublicFolder, disableOthersPool, configureBlossomServers, waitForAppReady, goToTreeList, createFolder, clearAllStorage, ensureLoggedIn, waitForWebRTCConnection, waitForFollowInWorker, waitForRelayConnected } from './test-utils.js';
+import { setupPageErrorHandler, navigateToPublicFolder, disableOthersPool, configureBlossomServers, waitForAppReady, goToTreeList, createFolder, clearAllStorage, ensureLoggedIn, waitForFipsConnection, waitForRelayConnected } from './test-utils.js';
 import {
   createFileWithContent,
   createTreeWithVisibility,
@@ -212,17 +212,13 @@ test.describe('Link-visible Tree Visibility', () => {
     }
     expect(page2Pubkey).not.toBe(pagePubkey);
 
-    // Page1 follows page2 for reliable WebRTC connection in follows pool
+    // Establish the sharing relationship independently of the FIPS device link.
     await ensureFollowState(page, page2Npub);
 
     // Page2 follows page1 (owner of the link-visible tree)
     await ensureFollowState(page2, npub);
-    await waitForFollowInWorker(page, page2Pubkey, 30000);
-    await waitForFollowInWorker(page2, pagePubkey, 30000);
-    await page.evaluate(() => (window as any).__workerAdapter?.sendHello?.());
-    await page2.evaluate(() => (window as any).__workerAdapter?.sendHello?.());
-    await waitForWebRTCConnection(page, 30000, page2Pubkey);
-    await waitForWebRTCConnection(page2, 30000, pagePubkey);
+    await waitForFipsConnection(page, 30000);
+    await waitForFipsConnection(page2, 30000);
 
     const fullUrlWithKey = `http://localhost:5173/#/${npub}/${treeName}?k=${kParam}`;
     const fileUrl = `http://localhost:5173/#/${npub}/${treeName}/shared.txt?k=${kParam}`;
@@ -254,7 +250,6 @@ test.describe('Link-visible Tree Visibility', () => {
     }
 
     await expect.poll(async () => {
-      await page2.evaluate(() => (window as any).__workerAdapter?.sendHello?.());
       if (await contentLocator.isVisible().catch(() => false)) return true;
       if (await fileLink.isVisible().catch(() => false)) return true;
       const fileText = await page2.evaluate(async ({ targetNpub, targetTree }) => {
@@ -265,7 +260,6 @@ test.describe('Link-visible Tree Visibility', () => {
           if (!root) return null;
           const adapter = (window as any).__getWorkerAdapter?.() ?? (window as any).__workerAdapter;
           if (!adapter?.readFile) return null;
-          await adapter.sendHello?.();
           if (typeof adapter.get === 'function') {
             await adapter.get(root.hash).catch(() => {});
           }

@@ -15,12 +15,9 @@ import { initNativeBackend } from '../nativeAdapter';
 import {
   settingsStore,
   waitForSettingsLoaded,
-  resolveConfiguredWebRTCForwardRateLimit,
-  resolveConfiguredWebRTCUploadLimitBytesPerSecond,
 } from '../stores/settings';
-import { refreshWebRTCStats, setBlossomBandwidth } from '../store';
+import { refreshFipsStats, setBlossomBandwidth } from '../store';
 import { get } from 'svelte/store';
-import { createFollowsStore, getFollowsSync } from '../stores/follows';
 import { setupVersionCallback } from '../utils/socialGraph';
 import { configureNdkRelays, ndk } from '../nostr/ndk';
 import { initRelayTracking } from '../nostr/relays';
@@ -60,74 +57,51 @@ export async function waitForWorkerAdapter(maxWaitMs = 5000): Promise<BackendAda
 
 let initialized = false;
 let initPromise: Promise<void> | null = null;
-let lastPoolConfigHash = '';
-let lastFollowsHash = '';
 let lastBlossomServersHash = '';
 let lastRelaysHash = '';
-let lastWebRTCUploadLimitHash = '';
-let lastWebRTCForwardRateLimitHash = '';
-let followsUnsubscribe: (() => void) | null = null;
+let fipsStoreName: string | null = null;
+let fipsProviderReadyFor: BackendAdapter | null = null;
+let fipsDesiredKey = '';
+let fipsActiveKey = '';
+let fipsSyncVersion = 0;
+let fipsSyncTail: Promise<void> = Promise.resolve();
 const workerSubscriptionIds = new WeakMap<object, string>();
 
-/**
- * Sync pool settings from settings store to worker.
- * Uses a hash to avoid duplicate updates.
- */
-function syncPoolSettings(): void {
-  const adapter = getWorkerAdapter();
-  if (!adapter) return;
+function startFipsForAdapter(adapter: BackendAdapter, relays: string[], storeName: string): Promise<void> {
+  const desiredKey = JSON.stringify({ relays, storeName });
+  if (desiredKey === fipsDesiredKey) return fipsSyncTail;
+  fipsDesiredKey = desiredKey;
+  const version = ++fipsSyncVersion;
+  const sync = fipsSyncTail.catch(() => undefined).then(async () => {
+    if (version !== fipsSyncVersion || getWorkerAdapter() !== adapter) return;
+    if (desiredKey === fipsActiveKey && fipsProviderReadyFor === adapter) return;
 
-  const settings = get(settingsStore);
-  const poolConfig = {
-    follows: { max: settings.pools.followsMax, satisfied: settings.pools.followsSatisfied },
-    other: { max: settings.pools.otherMax, satisfied: settings.pools.otherSatisfied },
-  };
+    fipsProviderReadyFor = null;
+    adapter.setP2PProvider?.(null);
+    await stopDriveFipsRuntime();
+    if (version !== fipsSyncVersion || getWorkerAdapter() !== adapter) return;
 
-  // Hash to avoid duplicate updates
-  const configHash = JSON.stringify(poolConfig);
-  if (configHash === lastPoolConfigHash) return;
-  lastPoolConfigHash = configHash;
-
-  console.log('[WorkerInit] Syncing pool settings to worker:', poolConfig);
-  adapter.setWebRTCPools(poolConfig);
-}
-
-function syncWebRTCUploadLimit(): void {
-  const adapter = getWorkerAdapter();
-  if (!adapter) return;
-
-  const settings = get(settingsStore);
-  const maxUploadBytesPerSecond = resolveConfiguredWebRTCUploadLimitBytesPerSecond(settings.pools);
-
-  const limitHash = String(maxUploadBytesPerSecond ?? 'off');
-  if (limitHash === lastWebRTCUploadLimitHash) return;
-  lastWebRTCUploadLimitHash = limitHash;
-
-  console.log(
-    '[WorkerInit] Syncing WebRTC upload cap:',
-    maxUploadBytesPerSecond ? Math.round(maxUploadBytesPerSecond / 1024) + ' KB/s' : 'unlimited',
-  );
-  adapter.setWebRTCUploadLimit(maxUploadBytesPerSecond);
-}
-
-function syncWebRTCForwardRateLimit(): void {
-  const adapter = getWorkerAdapter();
-  if (!adapter) return;
-
-  const settings = get(settingsStore);
-  const forwardRateLimit = resolveConfiguredWebRTCForwardRateLimit(settings.pools);
-
-  const limitHash = JSON.stringify(forwardRateLimit ?? null);
-  if (limitHash === lastWebRTCForwardRateLimitHash) return;
-  lastWebRTCForwardRateLimitHash = limitHash;
-
-  console.log(
-    '[WorkerInit] Syncing WebRTC forward limit:',
-    forwardRateLimit
-      ? `${forwardRateLimit.maxForwardsPerPeerWindow} requests / ${forwardRateLimit.windowMs}ms`
-      : 'disabled',
-  );
-  adapter.setWebRTCForwardRateLimit(forwardRateLimit);
+    try {
+      const runtime = await startDriveFipsRuntime({
+        relays,
+        storeName,
+        log: isTestMode,
+      });
+      if (version !== fipsSyncVersion || getWorkerAdapter() !== adapter) {
+        await runtime.stop();
+        return;
+      }
+      adapter.setP2PProvider?.(runtime.getP2PProvider());
+      fipsActiveKey = desiredKey;
+      fipsProviderReadyFor = adapter;
+      console.log('[WorkerInit] FIPS P2P provider ready');
+    } catch (error) {
+      if (version === fipsSyncVersion) fipsDesiredKey = '';
+      console.warn('[WorkerInit] FIPS P2P provider failed to start:', error);
+    }
+  });
+  fipsSyncTail = sync;
+  return sync;
 }
 
 /**
@@ -173,6 +147,9 @@ function syncRelays(): void {
   void configureNdkRelays(relays, isTestMode ? 5000 : 3000).catch((error) => {
     console.warn('[WorkerInit] Failed to sync relays to main NDK:', error);
   });
+  if (fipsStoreName) {
+    void startFipsForAdapter(adapter, relays, fipsStoreName);
+  }
 }
 
 let lastStorageMaxBytesHash = '';
@@ -195,60 +172,6 @@ function syncStorageSettings(): void {
 
   console.log('[WorkerInit] Syncing storage limit to worker:', Math.round(maxBytes / 1024 / 1024), 'MB');
   adapter.setStorageMaxBytes(maxBytes);
-}
-
-/**
- * Sync follows list to worker for WebRTC peer classification.
- */
-async function syncFollows(follows: string[]): Promise<void> {
-  const adapter = getWorkerAdapter();
-  if (!adapter) return;
-
-  // Hash to avoid duplicate updates
-  const followsHash = follows.join(',');
-  if (followsHash === lastFollowsHash) return;
-  lastFollowsHash = followsHash;
-
-  console.log('[WorkerInit] Syncing follows to worker:', follows.length, 'pubkeys');
-  await adapter.setFollows(follows);
-}
-
-// Track follows store for cleanup
-let followsStoreDestroy: (() => void) | null = null;
-
-/**
- * Set up follows subscription for the current user.
- */
-function setupFollowsSubscription(pubkey: string): void {
-  // Clean up previous subscription
-  if (followsUnsubscribe) {
-    followsUnsubscribe();
-    followsUnsubscribe = null;
-  }
-  if (followsStoreDestroy) {
-    followsStoreDestroy();
-    followsStoreDestroy = null;
-  }
-
-  // Sync current follows if available
-  const currentFollows = getFollowsSync(pubkey);
-  if (currentFollows) {
-    syncFollows(currentFollows.follows);
-  }
-
-  // Create follows store and subscribe to changes
-  const followsStore = createFollowsStore(pubkey);
-  followsStoreDestroy = followsStore.destroy;
-  followsUnsubscribe = followsStore.subscribe((follows) => {
-    if (follows) {
-      syncFollows(follows.follows);
-    }
-  });
-}
-
-export function updateFollowsSubscription(pubkey: string): void {
-  if (!initialized) return;
-  setupFollowsSubscription(pubkey);
 }
 
 export interface WorkerInitIdentity {
@@ -344,8 +267,6 @@ export async function initHashtreeBackend(identity: WorkerInitIdentity): Promise
         blossomServers: runtimeEndpoints.blossomServers,
         pubkey: identity.pubkey,
         nsec: identity.nsec,
-        maxWebRTCUploadBytesPerSecond: resolveConfiguredWebRTCUploadLimitBytesPerSecond(settings.pools),
-        forwardRateLimit: resolveConfiguredWebRTCForwardRateLimit(settings.pools),
         ...(backendMode === 'worker' ? { p2pMode: 'external' as const } : {}),
       };
 
@@ -374,24 +295,8 @@ export async function initHashtreeBackend(identity: WorkerInitIdentity): Promise
         });
 
         if (backendMode === 'worker') {
-          if (identity.nsec) {
-            void startDriveFipsRuntime({
-              deviceSecretKey: identity.nsec,
-              ownerPubkeyHex: identity.pubkey,
-              relays: runtimeEndpoints.nostrRelays,
-              storeName: config.storeName,
-            }).then((runtime) => {
-              if (getWorkerAdapter() !== adapter) {
-                return runtime.stop();
-              }
-              adapter.setP2PProvider?.(runtime.getP2PProvider());
-              console.log('[WorkerInit] FIPS P2P provider ready');
-            }).catch((error) => {
-              console.warn('[WorkerInit] FIPS P2P provider failed to start:', error);
-            });
-          } else {
-            console.warn('[WorkerInit] FIPS P2P unavailable without a device secret');
-          }
+          fipsStoreName = config.storeName;
+          startFipsForAdapter(adapter, runtimeEndpoints.nostrRelays, config.storeName);
 
           // Set up event dispatch from worker to NDK subscriptions
           adapter.onEvent((event: WorkerSignedEvent) => {
@@ -453,8 +358,8 @@ export async function initHashtreeBackend(identity: WorkerInitIdentity): Promise
         });
 
         // Start connectivity polling ASAP after worker is ready.
-        refreshWebRTCStats();
-        setInterval(refreshWebRTCStats, 2000);
+        refreshFipsStats();
+        setInterval(refreshFipsStats, 2000);
         initRelayTracking();
       }
 
@@ -464,9 +369,6 @@ export async function initHashtreeBackend(identity: WorkerInitIdentity): Promise
       // Subscribe to settings changes to keep worker in sync
       settingsStore.subscribe(() => {
         if (initialized) {
-          syncPoolSettings();
-          syncWebRTCUploadLimit();
-          syncWebRTCForwardRateLimit();
           syncBlossomServers();
           syncRelays();
           syncStorageSettings();
@@ -474,15 +376,9 @@ export async function initHashtreeBackend(identity: WorkerInitIdentity): Promise
       });
 
       // Initial sync of all settings to worker
-      syncPoolSettings();
-      syncWebRTCUploadLimit();
-      syncWebRTCForwardRateLimit();
       syncBlossomServers();
       syncRelays();
       syncStorageSettings();
-
-      // Set up follows subscription for WebRTC peer classification
-      setupFollowsSubscription(identity.pubkey);
 
       // Set up tree root registry bridge to sync cache to worker
       setupTreeRootRegistryBridge(getWorkerAdapter);
@@ -511,6 +407,11 @@ export async function initHashtreeBackend(identity: WorkerInitIdentity): Promise
  */
 export function isWorkerReady(): boolean {
   return initialized && getWorkerAdapter() !== null;
+}
+
+export function isFipsProviderReady(): boolean {
+  const adapter = getWorkerAdapter();
+  return adapter !== null && fipsProviderReadyFor === adapter;
 }
 
 /**
@@ -545,6 +446,11 @@ export async function initHashtreeWorker(identity: WorkerInitIdentity): Promise<
 }
 
 export async function stopHashtreeBrowserP2P(): Promise<void> {
+  fipsSyncVersion += 1;
+  fipsStoreName = null;
+  fipsDesiredKey = '';
+  fipsActiveKey = '';
+  fipsProviderReadyFor = null;
   getWorkerAdapter()?.setP2PProvider?.(null);
   await stopDriveFipsRuntime();
 }

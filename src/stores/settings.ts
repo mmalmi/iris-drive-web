@@ -12,7 +12,6 @@ import {
   DEFAULT_UPLOAD_SETTINGS,
   applyProductionNetworkFallback,
   isTestMode,
-  normalizePositiveInteger,
 } from './settingsDefaults';
 import type {
   BlossomServerConfig,
@@ -114,25 +113,7 @@ function createSettingsStore() {
 
     setPoolSettings: (pools: Partial<PoolSettings>) => {
       update(state => {
-        const updated: PoolSettings = {
-          ...state.pools,
-          ...pools,
-          uploadRateLimitMode: pools.uploadRateLimitMode === 'custom'
-            ? 'custom'
-            : (pools.uploadRateLimitMode === 'auto' ? 'auto' : state.pools.uploadRateLimitMode),
-          uploadRateLimitBytesPerSecond: normalizePositiveInteger(
-            pools.uploadRateLimitBytesPerSecond ?? state.pools.uploadRateLimitBytesPerSecond,
-            DEFAULT_POOL_SETTINGS.uploadRateLimitBytesPerSecond,
-          ),
-          forwardRateLimitMaxForwardsPerPeerWindow: normalizePositiveInteger(
-            pools.forwardRateLimitMaxForwardsPerPeerWindow ?? state.pools.forwardRateLimitMaxForwardsPerPeerWindow,
-            DEFAULT_POOL_SETTINGS.forwardRateLimitMaxForwardsPerPeerWindow,
-          ),
-          forwardRateLimitWindowMs: normalizePositiveInteger(
-            pools.forwardRateLimitWindowMs ?? state.pools.forwardRateLimitWindowMs,
-            DEFAULT_POOL_SETTINGS.forwardRateLimitWindowMs,
-          ),
-        };
+        const updated: PoolSettings = { ...state.pools, ...pools };
         // Persist to Dexie
         db.settings.put({ key: 'pools', value: updated }).catch(console.error);
         return { ...state, pools: updated };
@@ -261,27 +242,8 @@ async function loadSettings() {
     if (poolsRow?.value) {
       const pools = poolsRow.value as PoolSettings;
       updates.pools = {
-        followsMax: pools.followsMax ?? DEFAULT_POOL_SETTINGS.followsMax,
-        followsSatisfied: pools.followsSatisfied ?? DEFAULT_POOL_SETTINGS.followsSatisfied,
-        otherMax: pools.otherMax ?? DEFAULT_POOL_SETTINGS.otherMax,
-        otherSatisfied: pools.otherSatisfied ?? DEFAULT_POOL_SETTINGS.otherSatisfied,
         showConnectivity: pools.showConnectivity ?? DEFAULT_POOL_SETTINGS.showConnectivity,
         showBandwidth: pools.showBandwidth ?? DEFAULT_POOL_SETTINGS.showBandwidth,
-        uploadRateLimitEnabled: pools.uploadRateLimitEnabled ?? DEFAULT_POOL_SETTINGS.uploadRateLimitEnabled,
-        uploadRateLimitMode: pools.uploadRateLimitMode === 'custom' ? 'custom' : DEFAULT_POOL_SETTINGS.uploadRateLimitMode,
-        uploadRateLimitBytesPerSecond: normalizePositiveInteger(
-          pools.uploadRateLimitBytesPerSecond,
-          DEFAULT_POOL_SETTINGS.uploadRateLimitBytesPerSecond,
-        ),
-        forwardRateLimitEnabled: pools.forwardRateLimitEnabled ?? DEFAULT_POOL_SETTINGS.forwardRateLimitEnabled,
-        forwardRateLimitMaxForwardsPerPeerWindow: normalizePositiveInteger(
-          pools.forwardRateLimitMaxForwardsPerPeerWindow,
-          DEFAULT_POOL_SETTINGS.forwardRateLimitMaxForwardsPerPeerWindow,
-        ),
-        forwardRateLimitWindowMs: normalizePositiveInteger(
-          pools.forwardRateLimitWindowMs,
-          DEFAULT_POOL_SETTINGS.forwardRateLimitWindowMs,
-        ),
       };
     }
 

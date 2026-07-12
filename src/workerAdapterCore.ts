@@ -14,10 +14,8 @@ import type {
   WorkerUnsignedEvent as UnsignedEvent,
   WorkerBlossomBandwidthStats as BlossomBandwidthStats,
   WorkerBlossomUploadProgress as BlossomUploadProgress,
-  WebRTCCommand,
 } from '@hashtree/core';
 import { generateRequestId } from '@hashtree/core';
-import { WebRTCProxy } from './webrtcProxy';
 import { getErrorMessage } from './utils/errorMessage';
 
 type PendingRequest = {
@@ -28,14 +26,8 @@ type PendingRequest = {
 
 export type SubscriptionCallback = (event: SignedEvent) => void;
 export type EoseCallback = () => void;
-export type WebRTCForwardRateLimitConfig = {
-  maxForwardsPerPeerWindow?: number;
-  windowMs?: number;
-};
 export type ExtendedWorkerConfig = WorkerConfig & {
-  maxWebRTCUploadBytesPerSecond?: number | null;
-  forwardRateLimit?: WebRTCForwardRateLimitConfig;
-  p2pMode?: 'legacy-webrtc' | 'external' | 'off';
+  p2pMode?: 'external' | 'off';
 };
 export type ExtendedWorkerRequest = WorkerRequest | (Record<string, unknown> & {
   type: string;
@@ -94,8 +86,7 @@ export class WorkerAdapterCore {
   // Message queue for messages sent before worker is ready
   protected messageQueue: ExtendedWorkerRequest[] = [];
 
-  // WebRTC proxy (main thread owns RTCPeerConnection, worker controls logic)
-  protected webrtcProxy: WebRTCProxy | null = null;
+  // FIPS-backed P2P provider owned by the main thread.
   protected p2pProvider: WorkerP2PProvider | null = null;
 
   /**
@@ -160,7 +151,6 @@ export class WorkerAdapterCore {
           this.ready = true;
           this.restartAttempts = 0;
           this.flushMessageQueue();
-          this.initWebRTCProxy();
           this.startHeartbeat();
           this.readyResolve?.();
           console.log('[WorkerAdapter] Worker ready');
@@ -267,18 +257,6 @@ export class WorkerAdapterCore {
           this.resolvePending(msg.id, msg);
           break;
 
-        // WebRTC commands from worker - execute via proxy
-        case 'rtc:createPeer':
-        case 'rtc:closePeer':
-        case 'rtc:createOffer':
-        case 'rtc:createAnswer':
-        case 'rtc:setLocalDescription':
-        case 'rtc:setRemoteDescription':
-        case 'rtc:addIceCandidate':
-        case 'rtc:sendData':
-          this.webrtcProxy?.handleCommand(msg as WebRTCCommand);
-          break;
-
         case 'p2pFetch':
           void this.handleP2PFetch(msg.requestId, msg.hashHex, msg.peerId);
           break;
@@ -343,12 +321,6 @@ export class WorkerAdapterCore {
     this.worker?.terminate();
     this.worker = null;
 
-    // Close WebRTC proxy - will be recreated on restart
-    if (this.webrtcProxy) {
-      this.webrtcProxy.close();
-      this.webrtcProxy = null;
-    }
-
     // Reject all pending requests
     for (const pending of this.pendingRequests.values()) {
       pending.reject(new Error('Worker crashed'));
@@ -378,30 +350,6 @@ export class WorkerAdapterCore {
       const msg = this.messageQueue.shift()!;
       this.worker?.postMessage(msg);
     }
-  }
-
-  protected initWebRTCProxy() {
-    if ((this.config.p2pMode ?? 'legacy-webrtc') !== 'legacy-webrtc') {
-      return;
-    }
-    if (this.webrtcProxy) {
-      this.webrtcProxy.close();
-    }
-
-    // Create proxy that forwards events to worker
-    this.webrtcProxy = new WebRTCProxy((event) => {
-      // Forward all WebRTC events to worker
-      // Use transferable for data messages to avoid memory copy
-      if (event.type === 'rtc:dataChannelMessage' && event.data?.buffer) {
-        this.worker?.postMessage(event, [event.data.buffer]);
-      } else {
-        this.worker?.postMessage(event);
-      }
-    }, {
-      maxUploadBytesPerSecond: this.config.maxWebRTCUploadBytesPerSecond,
-    });
-
-    console.log('[WorkerAdapter] WebRTC proxy initialized');
   }
 
   setP2PProvider(provider: WorkerP2PProvider | null): void {

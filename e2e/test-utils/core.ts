@@ -67,7 +67,8 @@ export async function waitForWorkerAdapter(page: any, timeoutMs: number = 60000)
   await page.waitForFunction(
     () => {
       const win = window as any;
-      return typeof win.__getWorkerAdapter === 'function' && !!win.__getWorkerAdapter();
+      return !!win.__workerAdapter
+        || (typeof win.__getWorkerAdapter === 'function' && !!win.__getWorkerAdapter());
     },
     undefined,
     { timeout: timeoutMs }
@@ -112,11 +113,16 @@ export async function evaluateWithRetry<T, R>(
     } catch (err) {
       lastError = err;
       const message = err instanceof Error ? err.message : String(err);
-      if (!message.includes('Execution context was destroyed')) {
+      const transientAppReadiness = message.includes('worker adapter is not ready')
+        || message.includes('FIPS provider bridge is not ready');
+      if (!message.includes('Execution context was destroyed') && !transientAppReadiness) {
         throw err;
       }
       await page.waitForLoadState('domcontentloaded');
       await page.waitForFunction(() => document.readyState === 'complete', { timeout: 5000 }).catch(() => {});
+      if (transientAppReadiness) {
+        await waitForWorkerAdapter(page, 10_000).catch(() => {});
+      }
     }
   }
   throw lastError ?? new Error('Failed to evaluate after retries');

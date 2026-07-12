@@ -14,7 +14,6 @@ import {
   tryPrefetch,
   useLocalRelay,
   waitForAppReady,
-  waitForFollowInWorker,
   waitForPeerConnection,
   withRelayNamespace,
 } from './direct-tree-nav.helpers';
@@ -54,7 +53,7 @@ test.describe.serial('Direct Tree Navigation', () => {
       const tree = getTree();
       let rootCid = getCurrentRootCid();
       if (!rootCid) return;
-      const content = new TextEncoder().encode('Hello from WebRTC test!');
+      const content = new TextEncoder().encode('Hello from FIPS test!');
       const { cid, size } = await tree.putFile(content);
       rootCid = await tree.setEntry(rootCid, route.path, 'test.txt', cid, size, LinkType.Blob);
       autosaveIfOwn(rootCid);
@@ -88,10 +87,6 @@ test.describe.serial('Direct Tree Navigation', () => {
     await page2.waitForFunction(() => (window as any).__testHelpers?.followPubkey);
     await page1.evaluate((pk: string) => (window as any).__testHelpers?.followPubkey?.(pk), user2.pubkeyHex);
     await page2.evaluate((pk: string) => (window as any).__testHelpers?.followPubkey?.(pk), user1.pubkeyHex);
-    await waitForFollowInWorker(page1, user2.pubkeyHex);
-    await waitForFollowInWorker(page2, user1.pubkeyHex);
-    await page1.evaluate(() => (window as any).__workerAdapter?.sendHello?.());
-    await page2.evaluate(() => (window as any).__workerAdapter?.sendHello?.());
     await waitForPeerConnection(page1, user2.pubkeyHex, 90000);
     await waitForPeerConnection(page2, user1.pubkeyHex, 90000);
     await page2.evaluate(() => window.dispatchEvent(new HashChangeEvent('hashchange')));
@@ -113,7 +108,6 @@ test.describe.serial('Direct Tree Navigation', () => {
         await fileLink.click().catch(() => {});
         await page2.waitForURL(/test\.txt/, { timeout: 15000 }).catch(() => {});
       }
-      await page2.evaluate(() => (window as any).__workerAdapter?.sendHello?.());
     }
 
     await safeGoto(page2, fileUrl, { retries: 4, delayMs: 1500 });
@@ -128,9 +122,6 @@ test.describe.serial('Direct Tree Navigation', () => {
       }
     }, fileHash);
 
-    await waitForFollowInWorker(page2, user1.pubkeyHex);
-    await page1.evaluate(() => (window as any).__workerAdapter?.sendHello?.());
-    await page2.evaluate(() => (window as any).__workerAdapter?.sendHello?.());
     await waitForPeerConnection(page1, user2.pubkeyHex, 90000);
     await waitForPeerConnection(page2, user1.pubkeyHex, 90000);
     await page2.evaluate(() => window.dispatchEvent(new HashChangeEvent('hashchange')));
@@ -161,7 +152,7 @@ test.describe.serial('Direct Tree Navigation', () => {
     });
     console.log('[test] file route state:', JSON.stringify(fileRouteState));
 
-    const contentLocator = page2.locator('pre').filter({ hasText: 'Hello from WebRTC test!' });
+    const contentLocator = page2.locator('pre').filter({ hasText: 'Hello from FIPS test!' });
     const fileLink = page2.locator('[data-testid="file-list"] a').filter({ hasText: 'test.txt' }).first();
     const filePath = 'webrtc-nav-test/test.txt';
     await tryPrefetch('root', () => prefetchByHash(page2, rootHashAfterPublish, 120000));
@@ -181,10 +172,9 @@ test.describe.serial('Direct Tree Navigation', () => {
     const waitForContentReady = async (timeoutMs: number): Promise<boolean> => {
       try {
         await expect.poll(async () => {
-          await page2.evaluate(() => (window as any).__workerAdapter?.sendHello?.());
           if (await contentLocator.isVisible().catch(() => false)) return true;
           const fileText = await readFileTextViaWorker(page2, user1.npub, 'public', filePath);
-          if (fileText === '__fetched__' || fileText?.includes('Hello from WebRTC test!')) {
+          if (fileText === '__fetched__' || fileText?.includes('Hello from FIPS test!')) {
             if (await fileLink.isVisible().catch(() => false)) {
               await fileLink.click().catch(() => {});
               await page2.waitForURL(/test\.txt/, { timeout: 15000 }).catch(() => {});
@@ -201,7 +191,7 @@ test.describe.serial('Direct Tree Navigation', () => {
 
     let contentReady = await waitForContentReady(120000);
     if (!contentReady) {
-      console.warn('[direct-tree-nav] WebRTC content delayed; priming tree root and retrying once');
+      console.warn('[direct-tree-nav] FIPS content delayed; priming tree root and retrying once');
       await seedTreeRoot(page2, user1.npub, 'public', rootInfo);
       await safeGoto(page2, fileUrl, { retries: 3, delayMs: 1500 });
       await waitForAppReady(page2);
@@ -210,16 +200,15 @@ test.describe.serial('Direct Tree Navigation', () => {
           window.location.hash = hash;
           window.dispatchEvent(new HashChangeEvent('hashchange'));
         }
-        (window as any).__workerAdapter?.sendHello?.();
       }, fileHash);
       contentReady = await waitForContentReady(60000);
     }
 
     if (!contentReady) {
-      console.warn('[direct-tree-nav] WebRTC content not available in time');
+      console.warn('[direct-tree-nav] FIPS content not available in time');
       await context2.close();
       await context1.close();
-      throw new Error('WebRTC content not available in time');
+      throw new Error('FIPS content not available in time');
     }
 
     await context2.close();
@@ -285,10 +274,6 @@ test.describe.serial('Direct Tree Navigation', () => {
     await page2.waitForFunction(() => (window as any).__testHelpers?.followPubkey);
     await page1.evaluate((pk: string) => (window as any).__testHelpers?.followPubkey?.(pk), user2.pubkeyHex);
     await page2.evaluate((pk: string) => (window as any).__testHelpers?.followPubkey?.(pk), user1.pubkeyHex);
-    await waitForFollowInWorker(page1, user2.pubkeyHex);
-    await waitForFollowInWorker(page2, user1.pubkeyHex);
-    await page1.evaluate(() => (window as any).__workerAdapter?.sendHello?.());
-    await page2.evaluate(() => (window as any).__workerAdapter?.sendHello?.());
     await waitForPeerConnection(page1, user2.pubkeyHex, 90000);
     await waitForPeerConnection(page2, user1.pubkeyHex, 90000);
 
@@ -298,9 +283,6 @@ test.describe.serial('Direct Tree Navigation', () => {
     await enableOthersPool(page2, 6);
     await useLocalRelay(page2, relayUrl);
 
-    await waitForFollowInWorker(page2, user1.pubkeyHex);
-    await page1.evaluate(() => (window as any).__workerAdapter?.sendHello?.());
-    await page2.evaluate(() => (window as any).__workerAdapter?.sendHello?.());
     await waitForPeerConnection(page1, user2.pubkeyHex, 90000);
     await waitForPeerConnection(page2, user1.pubkeyHex, 90000);
 

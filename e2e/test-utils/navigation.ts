@@ -1,5 +1,5 @@
 import { expect } from '../fixtures';
-import { evaluateWithRetry, safeGoto, waitForAppReady } from './core';
+import { evaluateWithRetry, safeGoto, setupPageErrorHandler, waitForAppReady } from './core';
 import { waitForRelayConnected } from './network';
 
 /**

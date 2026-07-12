@@ -1,6 +1,6 @@
 import { test, expect } from './fixtures';
 import type { Page } from '@playwright/test';
-import { setupPageErrorHandler, navigateToPublicFolder, goToTreeList, waitForCurrentDirectoryEntries } from './test-utils.js';
+import { navigateToPublicFolder, goToTreeList, setupFreshUser, waitForCurrentDirectoryEntries } from './test-utils.js';
 
 test.use({
   permissions: ['clipboard-read', 'clipboard-write'],
@@ -13,6 +13,11 @@ async function createAndEnterTree(page: Page, name: string) {
   await page.getByRole('button', { name: 'New Folder' }).click();
   await page.locator('input[placeholder="Folder name..."]').fill(name);
   await page.getByRole('button', { name: 'Create' }).click();
+  const folderLink = page.locator('a').filter({ hasText: name }).first();
+  await expect(folderLink).toBeVisible({ timeout: 10000 });
+  await folderLink.click();
+  await expect(page).toHaveURL(new RegExp(`/${name}(?:[?#]|$)`), { timeout: 30000 });
+  await expect(page.getByRole('button', { name: 'New File' })).toBeVisible({ timeout: 30000 });
   await expect(page.getByText('Empty directory')).toBeVisible({ timeout: 10000 });
 }
 
@@ -38,40 +43,29 @@ async function createFile(page: Page, name: string, content: string = '') {
   await expect(editorTextarea).not.toBeVisible({ timeout: 10000 });
 }
 
-test.describe('README Panel', () => {
+async function openReadmeFile(page: Page, treeName: string) {
+  await goToTreeList(page);
+  await page.locator('a').filter({ hasText: treeName }).first().click();
+  const readmeLink = page.getByRole('link', { name: /^README\.md/ }).first();
+  await expect(readmeLink).toBeVisible({ timeout: 30000 });
+  await readmeLink.click();
+  await expect(page.locator('.markdown-content')).toBeVisible({ timeout: 30000 });
+}
+
+test.describe('README Viewer', () => {
   test.setTimeout(120000);
 
   test.beforeEach(async ({ page }) => {
-    setupPageErrorHandler(page);
-    await page.goto('/');
-
-    // Clear storage for fresh state
-    await page.evaluate(async () => {
-      const dbs = await indexedDB.databases();
-      for (const db of dbs) {
-        if (db.name) indexedDB.deleteDatabase(db.name);
-      }
-      localStorage.clear();
-      sessionStorage.clear();
-    });
-
-    await page.reload();
-    // Page ready - navigateToPublicFolder handles waiting
+    await setupFreshUser(page);
     await navigateToPublicFolder(page);
   });
 
-  test('should display README.md content in directory view', async ({ page }) => {
+  test('should display README.md content when opened', async ({ page }) => {
     // Create tree with README
     await createAndEnterTree(page, 'readme-test');
     await createFile(page, 'README.md', '# Hello World\n\nThis is a test readme.');
 
-    // Navigate back to tree to see the readme panel
-    await goToTreeList(page);
-    await page.locator('a:has-text("readme-test")').first().click();
-
-    // Check that README panel is visible with rendered content
-    // The panel has a header with book-open icon and "README.md" text
-    await expect(page.locator('.i-lucide-book-open')).toBeVisible({ timeout: 30000 });
+    await openReadmeFile(page, 'readme-test');
     await expect(page.locator('text=Hello World')).toBeVisible();
     await expect(page.locator('text=This is a test readme')).toBeVisible();
   });
@@ -81,13 +75,7 @@ test.describe('README Panel', () => {
     await createAndEnterTree(page, 'readme-edit-test');
     await createFile(page, 'README.md', '# Editable');
 
-    // Navigate back to tree
-    await goToTreeList(page);
-    await page.locator('a:has-text("readme-edit-test")').first().click();
-
-    // Check edit button exists in README panel
-    await expect(page.locator('.i-lucide-book-open')).toBeVisible({ timeout: 30000 });
-    // Edit button should be in the README panel header
+    await openReadmeFile(page, 'readme-edit-test');
     await expect(page.getByRole('button', { name: 'Edit' })).toBeVisible();
   });
 
@@ -114,10 +102,7 @@ test.describe('README Panel', () => {
     // Create root README with relative link
     await createFile(page, 'README.md', '# Main\n\nSee [subdir docs](subdir/README.md) for more.');
 
-    // Navigate back to tree root to see the readme panel
-    await goToTreeList(page);
-    await page.locator('a:has-text("link-test")').first().click();
-    await expect(page.locator('.i-lucide-book-open')).toBeVisible({ timeout: 30000 });
+    await openReadmeFile(page, 'link-test');
 
     // Click the relative link in the README
     await page.locator('.prose a:has-text("subdir docs")').click();
@@ -137,10 +122,7 @@ test.describe('README Panel', () => {
 `
     );
 
-    await goToTreeList(page);
-    await page.locator('a:has-text("readme-wrap-test")').first().click();
-
-    await expect(page.locator('.i-lucide-book-open')).toBeVisible({ timeout: 30000 });
+    await openReadmeFile(page, 'readme-wrap-test');
     await expect(page.locator('text=Wrap Test')).toBeVisible();
 
     const wrapState = await page.locator('.markdown-content').first().evaluate((node) => {
@@ -185,10 +167,23 @@ test.describe('README Panel', () => {
     });
 
     await waitForCurrentDirectoryEntries(page, ['wide-preview.svg', 'README.md'], 15000);
+    await expect.poll(() => page.evaluate(async () => {
+      const { getCurrentRootCid } = await import('/src/actions/route.ts');
+      const { getWorkerAdapter } = await import('/src/workerAdapter.ts');
+      const { getRouteSync } = await import('/src/stores/index.ts');
+      const toHex = (value: Uint8Array) => Array.from(
+        value,
+        (byte) => byte.toString(16).padStart(2, '0'),
+      ).join('');
+      const route = getRouteSync();
+      const mainRoot = getCurrentRootCid();
+      const workerRoot = route.npub && route.treeName
+        ? await getWorkerAdapter()?.getTreeRootInfo?.(route.npub, route.treeName)
+        : null;
+      return !!mainRoot && !!workerRoot && toHex(mainRoot.hash) === toHex(workerRoot.hash);
+    }), { timeout: 15000 }).toBe(true);
 
-    await goToTreeList(page);
-    await page.locator('a:has-text("readme-image-size-test")').first().click();
-    await expect(page.locator('.i-lucide-book-open')).toBeVisible({ timeout: 30000 });
+    await openReadmeFile(page, 'readme-image-size-test');
 
     const image = page.locator('.markdown-content img[alt="wide preview"]').first();
     await expect(image).toBeVisible({ timeout: 30000 });
@@ -250,10 +245,7 @@ echo hello
 `
     );
 
-    await goToTreeList(page);
-    await page.locator('a:has-text("readme-style-test")').first().click();
-
-    await expect(page.locator('.i-lucide-book-open')).toBeVisible({ timeout: 30000 });
+    await openReadmeFile(page, 'readme-style-test');
     await expect(page.locator('text=Style Test')).toBeVisible();
 
     const styleState = await page.locator('.markdown-content').first().evaluate((node) => {
@@ -313,10 +305,7 @@ ${installCommand}
 `
     );
 
-    await goToTreeList(page);
-    await page.locator('a:has-text("readme-copy-test")').first().click();
-
-    await expect(page.locator('.i-lucide-book-open')).toBeVisible({ timeout: 30000 });
+    await openReadmeFile(page, 'readme-copy-test');
     const copyButton = page.locator('.markdown-content').first().getByRole('button', { name: 'Copy code' });
     await expect(copyButton).toBeVisible();
 

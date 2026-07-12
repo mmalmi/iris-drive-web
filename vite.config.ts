@@ -142,7 +142,6 @@ export default defineConfig({
     ],
     exclude: [
       '@hashtree/worker',
-      '@hashtree/worker/p2p',
       '@hashtree/worker/relay-entry',
       '@iris/svelte-ui',
     ], // Keep linked workspace packages out of optimizeDeps so local updates are not cached stale.

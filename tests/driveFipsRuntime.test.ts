@@ -3,6 +3,7 @@ import { identityFromSecretKey, toHex } from '@fips/core';
 import { nip19 } from 'nostr-tools';
 import {
   IRIS_DRIVE_FIPS_DISCOVERY_SCOPE,
+  IRIS_DRIVE_FIPS_IDENTITY_STORE,
   compressedPubkeyHexToNpub,
   compressedPubkeyHexToXOnly,
   irisDriveFipsDiscoveryScope,
@@ -11,7 +12,7 @@ import {
 describe('drive FIPS runtime helpers', () => {
   test('uses the shared hashtree FIPS overlay topic', () => {
     expect(IRIS_DRIVE_FIPS_DISCOVERY_SCOPE).toBe('fips-overlay-v1');
-    expect(irisDriveFipsDiscoveryScope('A'.repeat(64))).toBe('fips-overlay-v1');
+    expect(IRIS_DRIVE_FIPS_IDENTITY_STORE).toBe('iris-fips-device');
     expect(irisDriveFipsDiscoveryScope()).toBe('fips-overlay-v1');
   });
 
