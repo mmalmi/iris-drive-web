@@ -171,13 +171,13 @@ test.describe('Iris Drive VM interop', () => {
         running: true,
         enabled: true,
         webrtcEnabled: true,
-        discoveryScope: 'hashtree-v1',
+        discoveryScope: 'fips-overlay-v1',
         authorized: true,
       });
 
       const initialStats = await startBrowserDriveFips(page, session, webDevice);
       expect(initialStats.localXOnlyPubkey).toBe(webDevice.pubkey);
-      expect(initialStats.discoveryScope).toBe('hashtree-v1');
+      expect(initialStats.discoveryScope).toBe('fips-overlay-v1');
 
       await expect.poll(async () => {
         const stats = await ensureBrowserDriveFipsStats(page, session, webDevice);

@@ -10,9 +10,9 @@ import {
 
 describe('drive FIPS runtime helpers', () => {
   test('uses the shared hashtree FIPS overlay topic', () => {
-    expect(IRIS_DRIVE_FIPS_DISCOVERY_SCOPE).toBe('hashtree-v1');
-    expect(irisDriveFipsDiscoveryScope('A'.repeat(64))).toBe('hashtree-v1');
-    expect(irisDriveFipsDiscoveryScope()).toBe('hashtree-v1');
+    expect(IRIS_DRIVE_FIPS_DISCOVERY_SCOPE).toBe('fips-overlay-v1');
+    expect(irisDriveFipsDiscoveryScope('A'.repeat(64))).toBe('fips-overlay-v1');
+    expect(irisDriveFipsDiscoveryScope()).toBe('fips-overlay-v1');
   });
 
   test('maps compressed FIPS peer ids to native npubs', async () => {

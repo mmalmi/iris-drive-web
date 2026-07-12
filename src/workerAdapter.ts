@@ -13,7 +13,9 @@ import type { ExtendedWorkerConfig, WorkerConstructor } from './workerAdapterCor
 
 export class WorkerAdapter extends WorkerAdapterSocial {}
 
-export type BackendAdapter = Pick<WorkerAdapter, keyof WorkerAdapter>;
+export type BackendAdapter = Omit<WorkerAdapter, 'setP2PProvider'> & {
+  setP2PProvider?: WorkerAdapter['setP2PProvider'];
+};
 
 let instance: BackendAdapter | null = null;
 
@@ -57,9 +59,11 @@ export async function initWorkerAdapter(
 
 export function closeWorkerAdapter(): void {
   if (instance) {
+    instance.setP2PProvider?.(null);
     instance.close();
     instance = null;
   }
+  void import('./lib/driveFipsRuntime').then(({ stopDriveFipsRuntime }) => stopDriveFipsRuntime());
 }
 
 // Re-export types for consumers

@@ -35,11 +35,16 @@ export type WebRTCForwardRateLimitConfig = {
 export type ExtendedWorkerConfig = WorkerConfig & {
   maxWebRTCUploadBytesPerSecond?: number | null;
   forwardRateLimit?: WebRTCForwardRateLimitConfig;
+  p2pMode?: 'legacy-webrtc' | 'external' | 'off';
 };
 export type ExtendedWorkerRequest = WorkerRequest | (Record<string, unknown> & {
   type: string;
   id?: string;
 });
+export interface WorkerP2PProvider {
+  fetch(hashHex: string, peerId?: string): Promise<Uint8Array | null>;
+  listPeerIds(): string[] | Promise<string[]>;
+}
 
 // Worker constructor type - can be a URL object, URL string, or a Worker constructor from Vite
 export type WorkerConstructor = URL | string | (new () => Worker);
@@ -91,6 +96,7 @@ export class WorkerAdapterCore {
 
   // WebRTC proxy (main thread owns RTCPeerConnection, worker controls logic)
   protected webrtcProxy: WebRTCProxy | null = null;
+  protected p2pProvider: WorkerP2PProvider | null = null;
 
   /**
    * Create a WorkerAdapter
@@ -273,6 +279,13 @@ export class WorkerAdapterCore {
           this.webrtcProxy?.handleCommand(msg as WebRTCCommand);
           break;
 
+        case 'p2pFetch':
+          void this.handleP2PFetch(msg.requestId, msg.hashHex, msg.peerId);
+          break;
+        case 'p2pPeerList':
+          void this.handleP2PPeerList(msg.requestId);
+          break;
+
         default:
           console.warn('[WorkerAdapter] Unknown message type:', (msg as { type: string }).type);
       }
@@ -368,6 +381,9 @@ export class WorkerAdapterCore {
   }
 
   protected initWebRTCProxy() {
+    if ((this.config.p2pMode ?? 'legacy-webrtc') !== 'legacy-webrtc') {
+      return;
+    }
     if (this.webrtcProxy) {
       this.webrtcProxy.close();
     }
@@ -386,6 +402,57 @@ export class WorkerAdapterCore {
     });
 
     console.log('[WorkerAdapter] WebRTC proxy initialized');
+  }
+
+  setP2PProvider(provider: WorkerP2PProvider | null): void {
+    this.p2pProvider = provider;
+  }
+
+  private async handleP2PFetch(
+    requestId: string,
+    hashHex: string,
+    peerId?: string,
+  ): Promise<void> {
+    try {
+      const data = await this.p2pProvider?.fetch(hashHex, peerId) ?? null;
+      const message = {
+        type: 'p2pFetchResult',
+        id: generateRequestId(),
+        requestId,
+        data: data ?? undefined,
+      } as ExtendedWorkerRequest;
+      if (data) {
+        this.worker?.postMessage(message, [data.buffer]);
+      } else {
+        this.worker?.postMessage(message);
+      }
+    } catch (error) {
+      this.worker?.postMessage({
+        type: 'p2pFetchResult',
+        id: generateRequestId(),
+        requestId,
+        error: getErrorMessage(error),
+      } as ExtendedWorkerRequest);
+    }
+  }
+
+  private async handleP2PPeerList(requestId: string): Promise<void> {
+    try {
+      const peerIds = await Promise.resolve(this.p2pProvider?.listPeerIds() ?? []);
+      this.worker?.postMessage({
+        type: 'p2pPeerListResult',
+        id: generateRequestId(),
+        requestId,
+        peerIds,
+      } as ExtendedWorkerRequest);
+    } catch (error) {
+      this.worker?.postMessage({
+        type: 'p2pPeerListResult',
+        id: generateRequestId(),
+        requestId,
+        error: getErrorMessage(error),
+      } as ExtendedWorkerRequest);
+    }
   }
 
   protected postMessage(msg: ExtendedWorkerRequest, transfer?: Transferable[]) {

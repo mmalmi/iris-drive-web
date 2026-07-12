@@ -469,7 +469,9 @@ export async function startBrowserDriveFips(
       requestTimeoutMs: 8_000,
       log: true,
     });
-    (window as BrowserTestWindow).__irisDriveFips = runtime;
+    const win = window as BrowserTestWindow;
+    win.__irisDriveFips = runtime;
+    win.__workerAdapter?.setP2PProvider?.(runtime.getP2PProvider());
     return runtime.getStats();
   }, {
     relayUrl: session.relayUrl,
@@ -480,6 +482,7 @@ export async function startBrowserDriveFips(
 export async function stopBrowserDriveFips(page: Page): Promise<void> {
   await page.evaluate(async () => {
     const win = window as BrowserTestWindow;
+    win.__workerAdapter?.setP2PProvider?.(null);
     await win.__irisDriveFips?.stop();
     delete win.__irisDriveFips;
   }).catch(() => undefined);

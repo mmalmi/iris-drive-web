@@ -233,5 +233,6 @@ export class WorkerAdapterSocial extends WorkerAdapterNostr {
     this.messageQueue = [];
     this.socialGraphVersionCallback = null;
     this.treeRootUpdateCallbacks.clear();
+    this.p2pProvider = null;
   }
 }

@@ -31,7 +31,15 @@ export default [
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
       '@typescript-eslint/no-explicit-any': 'warn',
       'prefer-const': 'error',
+      'max-lines': ['error', { max: 800, skipBlankLines: true, skipComments: true }],
       'no-console': 'off',
+    },
+  },
+  {
+    files: ['src/nostr/auth.ts'],
+    rules: {
+      // Existing authentication orchestration is scheduled for a module split.
+      'max-lines': ['error', { max: 2000, skipBlankLines: true, skipComments: true }],
     },
   },
   // Svelte files - use recommended flat config
@@ -64,6 +72,7 @@ export default [
       'no-console': 'off',
       // Disable prefer-const for Svelte files - runes require let
       'prefer-const': 'off',
+      'max-lines': ['error', { max: 700, skipBlankLines: true, skipComments: true }],
       // Svelte specific
       'svelte/no-unused-svelte-ignore': 'warn',
       'svelte/valid-compile': ['error', { ignoreWarnings: true }],

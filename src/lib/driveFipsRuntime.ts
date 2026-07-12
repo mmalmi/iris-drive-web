@@ -1,14 +1,13 @@
-import { fromHex, type Hash } from '@hashtree/core';
+import { fromHex } from '@hashtree/core';
 import { DexieStore } from '@hashtree/dexie';
 import {
   DEFAULT_FIPS_DISCOVERY_APP,
-  HashtreeFipsTransport,
-  createFipsNodeEndpoint,
-  type FipsEndpoint,
-  type FipsNodeLike,
 } from '@hashtree/fips-transport';
 import {
-  FipsNode,
+  createBrowserHashtreeFipsProvider,
+  type BrowserHashtreeFipsProvider,
+} from '@hashtree/fips-transport/browser';
+import {
   identityFromSecretKey,
   npubFromHex,
   toHex,
@@ -17,9 +16,6 @@ import {
   type PeerEvent,
   type SessionEvent,
 } from '@fips/core';
-import {
-  WebRtcTransport,
-} from '@fips/transport-webrtc';
 
 export const IRIS_DRIVE_FIPS_DISCOVERY_SCOPE = DEFAULT_FIPS_DISCOVERY_APP;
 
@@ -29,7 +25,7 @@ const DEFAULT_STUN_SERVERS = [
 ];
 const DEFAULT_CONNECT_TIMEOUT_MS = 30_000;
 const DEFAULT_RELAY_CONNECT_TIMEOUT_MS = 8_000;
-const DEFAULT_ICE_GATHER_TIMEOUT_MS = 10_000;
+const DEFAULT_ICE_GATHER_TIMEOUT_MS = 2_000;
 const DEFAULT_REQUEST_TIMEOUT_MS = 8_000;
 const DEFAULT_REQUEST_RETRY_INTERVAL_MS = 750;
 const DEFAULT_REQUEST_MAX_ATTEMPTS = 4;
@@ -121,9 +117,7 @@ export class DriveFipsRuntime {
   private readonly options: DriveFipsRuntimeOptions;
   private readonly discoveryScope: string;
   private readonly relays: string[];
-  private node: FipsNode | null = null;
-  private endpoint: FipsEndpoint | null = null;
-  private transport: HashtreeFipsTransport | null = null;
+  private provider: BrowserHashtreeFipsProvider | null = null;
   private localStore: DexieStore | null = null;
   private localIdentity: FipsIdentity | null = null;
   private readonly peerStats = new Map<string, MutablePeerStats>();
@@ -139,94 +133,88 @@ export class DriveFipsRuntime {
   }
 
   async start(): Promise<void> {
-    if (this.node) return;
+    if (this.provider) return;
     if (!supportsDriveFipsRuntime()) {
       throw new Error('browser FIPS runtime is not supported in this environment');
     }
 
     const identity = await identityFromSecretKey(readSecretKey(this.options.deviceSecretKey));
-    const node = new FipsNode({
-      identity,
-      forwarding: true,
-      logger: createLogger(this.options.log === true, 'drive-fips:node'),
-      transports: [
-        new WebRtcTransport({
-          relays: this.relays,
-          stunServers: [...(this.options.stunServers ?? DEFAULT_STUN_SERVERS)],
-          advertiseOnNostr: true,
-          acceptConnections: true,
-          autoConnect: true,
-          discoveryApp: this.discoveryScope,
-          maxConnections: this.options.maxConnections ?? 8,
-          connectTimeoutMs: this.options.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS,
-          relayConnectTimeoutMs: this.options.relayConnectTimeoutMs ?? DEFAULT_RELAY_CONNECT_TIMEOUT_MS,
-          iceGatherTimeoutMs: this.options.iceGatherTimeoutMs ?? DEFAULT_ICE_GATHER_TIMEOUT_MS,
-          logger: createLogger(this.options.log === true, 'drive-fips:webrtc'),
-        }),
-      ],
-    });
-
-    const storeName = this.options.storeName ?? `iris-drive-fips:${this.discoveryScope}:${toHex(identity.xOnlyPubkey)}`;
+    const storeName = this.options.storeName ?? 'hashtree-worker';
     const localStore = new DexieStore(storeName);
-    const endpoint = createFipsNodeEndpoint(node as unknown as FipsNodeLike);
-    const transport = new HashtreeFipsTransport({
-      endpoint,
-      localStore,
-      peers: () => endpoint.listPeerIds?.() ?? [],
-      requestTimeoutMs: this.options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS,
-      requestRetryIntervalMs: this.options.requestRetryIntervalMs ?? DEFAULT_REQUEST_RETRY_INTERVAL_MS,
-      requestMaxAttempts: this.options.requestMaxAttempts ?? DEFAULT_REQUEST_MAX_ATTEMPTS,
-    });
+    let provider: BrowserHashtreeFipsProvider;
+    try {
+      provider = await createBrowserHashtreeFipsProvider({
+        identity,
+        localStore,
+        discoveryApp: this.discoveryScope,
+        forwarding: true,
+        logger: createLogger(this.options.log === true, 'drive-fips:node'),
+        relays: this.relays,
+        stunServers: [...(this.options.stunServers ?? DEFAULT_STUN_SERVERS)],
+        maxConnections: this.options.maxConnections ?? 8,
+        connectTimeoutMs: this.options.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS,
+        relayConnectTimeoutMs: this.options.relayConnectTimeoutMs ?? DEFAULT_RELAY_CONNECT_TIMEOUT_MS,
+        iceGatherTimeoutMs: this.options.iceGatherTimeoutMs ?? DEFAULT_ICE_GATHER_TIMEOUT_MS,
+        requestTimeoutMs: this.options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS,
+        requestRetryIntervalMs: this.options.requestRetryIntervalMs ?? DEFAULT_REQUEST_RETRY_INTERVAL_MS,
+        requestMaxAttempts: this.options.requestMaxAttempts ?? DEFAULT_REQUEST_MAX_ATTEMPTS,
+      });
+    } catch (error) {
+      localStore.close();
+      throw error;
+    }
 
     this.localIdentity = identity;
-    this.node = node;
+    this.provider = provider;
     this.localStore = localStore;
-    this.endpoint = endpoint;
-    this.transport = transport;
     this.unsubs.push(
-      node.on('peer', (event) => this.handlePeerEvent(event as PeerEvent)),
-      node.on('session', (event) => this.handleSessionEvent(event as SessionEvent)),
-      node.on('error', (event) => {
+      provider.node.on('peer', (event) => this.handlePeerEvent(event as PeerEvent)),
+      provider.node.on('session', (event) => this.handleSessionEvent(event as SessionEvent)),
+      provider.node.on('error', (event) => {
         if (this.options.log === true) {
           console.warn('[drive-fips] node error', event);
         }
       }),
     );
-
-    try {
-      await node.start();
-    } catch (error) {
-      await this.stop();
-      throw error;
-    }
   }
 
   async stop(): Promise<void> {
-    const node = this.node;
-    this.node = null;
+    const provider = this.provider;
+    this.provider = null;
     for (const unsub of this.unsubs.splice(0)) {
       unsub();
     }
-    this.transport?.close();
-    this.transport = null;
-    this.endpoint = null;
+    if (provider) {
+      await provider.stop().catch(() => undefined);
+    }
     this.localStore?.close();
     this.localStore = null;
     this.peerStats.clear();
     this.localIdentity = null;
-    if (node) {
-      await node.stop().catch(() => undefined);
-    }
     if (activeRuntime === this) {
       activeRuntime = null;
     }
   }
 
   async fetchBlock(hashHex: string, peerIds?: readonly string[]): Promise<Uint8Array | null> {
-    if (!this.transport) {
+    if (!this.provider) {
       throw new Error('drive FIPS runtime is not active');
     }
-    return this.transport.get(fromHex(hashHex) as Hash, peerIds);
+    if (!peerIds || peerIds.length === 0) {
+      return this.provider.fetch(hashHex);
+    }
+    for (const peerId of peerIds) {
+      const data = await this.provider.fetch(hashHex, peerId);
+      if (data) return data;
+    }
+    return null;
+  }
+
+  getP2PProvider(): BrowserHashtreeFipsProvider {
+    if (!this.provider) {
+      throw new Error('drive FIPS runtime is not active');
+    }
+    return this.provider;
   }
 
   getStats(): DriveFipsRuntimeStats {
@@ -236,7 +224,7 @@ export class DriveFipsRuntime {
     const peers = Array.from(this.peerStats.values())
       .sort((left, right) => left.peerId.localeCompare(right.peerId));
     return {
-      active: this.node !== null,
+      active: this.provider !== null,
       discoveryScope: this.discoveryScope,
       relays: [...this.relays],
       localPeerId,

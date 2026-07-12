@@ -1,0 +1,54 @@
+import { expect, test } from './fixtures';
+import { evaluateWithRetry, waitForAppReady, waitForWorkerAdapter } from './test-utils';
+
+test('worker reads a missing block through the external P2P provider', async ({ page }) => {
+  await page.goto('/');
+  await waitForAppReady(page);
+  await waitForWorkerAdapter(page);
+
+  const result = await evaluateWithRetry(page, async () => {
+    const adapter = (window as typeof window & {
+      __getWorkerAdapter?: () => {
+        get(hash: Uint8Array): Promise<Uint8Array | null>;
+        setP2PProvider(provider: {
+          fetch(hashHex: string, peerId?: string): Promise<Uint8Array | null>;
+          listPeerIds(): string[];
+        } | null): void;
+        webrtcProxy?: unknown;
+      } | null;
+      __workerAdapter?: {
+        get(hash: Uint8Array): Promise<Uint8Array | null>;
+        setP2PProvider(provider: {
+          fetch(hashHex: string, peerId?: string): Promise<Uint8Array | null>;
+          listPeerIds(): string[];
+        } | null): void;
+        webrtcProxy?: unknown;
+      };
+    }).__getWorkerAdapter?.();
+    if (!adapter) throw new Error('worker adapter is not ready');
+
+    const expected = new TextEncoder().encode(`fips-provider-${crypto.randomUUID()}`);
+    const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', expected));
+    const hashHex = Array.from(digest, (byte) => byte.toString(16).padStart(2, '0')).join('');
+    const requests: Array<{ hashHex: string; peerId?: string }> = [];
+    adapter.setP2PProvider({
+      fetch: async (requestedHashHex, peerId) => {
+        requests.push({ hashHex: requestedHashHex, peerId });
+        return requestedHashHex === hashHex ? expected.slice() : null;
+      },
+      listPeerIds: () => ['fips-test-peer'],
+    });
+
+    const loaded = await adapter.get(digest);
+    return {
+      loaded: loaded ? new TextDecoder().decode(loaded) : null,
+      expected: new TextDecoder().decode(expected),
+      requests,
+      legacyProxyActive: adapter.webrtcProxy != null,
+    };
+  }, undefined, 5);
+
+  expect(result.loaded).toBe(result.expected);
+  expect(result.requests).toEqual([{ hashHex: expect.stringMatching(/^[0-9a-f]{64}$/) }]);
+  expect(result.legacyProxyActive).toBe(false);
+});

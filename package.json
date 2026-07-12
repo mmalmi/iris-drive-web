@@ -13,7 +13,7 @@
   "packageManager": "pnpm@10.23.0",
   "scripts": {
     "dev": "vite",
-    "build:deps": "pnpm --dir ../iris-kit --filter ndk build && pnpm --dir ../iris-kit --filter ndk-cache build",
+    "build:deps": "pnpm --dir ../hashtree/ts --filter @hashtree/worker --filter @hashtree/fips-transport build && pnpm --dir ../iris-kit --filter ndk build && pnpm --dir ../iris-kit --filter ndk-cache build",
     "build": "pnpm run build:deps && vite build",
     "smoke:drive:iris": "node ./scripts/smoke-files-iris-portable.mjs",
     "smoke:files:iris": "node ./scripts/smoke-files-iris-portable.mjs",
@@ -40,8 +40,8 @@
     "lint:fix": "eslint src --fix"
   },
   "dependencies": {
-    "@fips/core": "github:mmalmi/fips-ts#602fed03486d2646c79abccf38550fc3ced9481d&path:/packages/core",
-    "@fips/transport-webrtc": "github:mmalmi/fips-ts#602fed03486d2646c79abccf38550fc3ced9481d&path:/packages/transport-webrtc",
+    "@fips/core": "file:vendor/fips/fips-core-0.0.16.tgz",
+    "@fips/transport-webrtc": "file:vendor/fips/fips-transport-webrtc-0.0.23.tgz",
     "@hashtree/core": "link:../hashtree/ts/packages/hashtree",
     "@hashtree/dexie": "link:../hashtree/ts/packages/hashtree-dexie",
     "@hashtree/fips-transport": "link:../hashtree/ts/packages/hashtree-fips-transport",
@@ -121,8 +121,8 @@
       "esbuild"
     ],
     "overrides": {
-      "@fips/core": "github:mmalmi/fips-ts#602fed03486d2646c79abccf38550fc3ced9481d&path:/packages/core",
-      "@fips/transport-webrtc": "github:mmalmi/fips-ts#602fed03486d2646c79abccf38550fc3ced9481d&path:/packages/transport-webrtc",
+      "@fips/core": "file:vendor/fips/fips-core-0.0.16.tgz",
+      "@fips/transport-webrtc": "file:vendor/fips/fips-transport-webrtc-0.0.23.tgz",
       "@hashtree/core": "link:../hashtree/ts/packages/hashtree",
       "@hashtree/fips-transport": "link:../hashtree/ts/packages/hashtree-fips-transport",
       "@hashtree/mesh": "link:../hashtree/ts/packages/hashtree-mesh",

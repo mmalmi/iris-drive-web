@@ -5,8 +5,8 @@ settings:
   excludeLinksFromLockfile: false
 
 overrides:
-  '@fips/core': github:mmalmi/fips-ts#602fed03486d2646c79abccf38550fc3ced9481d&path:/packages/core
-  '@fips/transport-webrtc': github:mmalmi/fips-ts#602fed03486d2646c79abccf38550fc3ced9481d&path:/packages/transport-webrtc
+  '@fips/core': file:vendor/fips/fips-core-0.0.16.tgz
+  '@fips/transport-webrtc': file:vendor/fips/fips-transport-webrtc-0.0.23.tgz
   '@hashtree/core': link:../hashtree/ts/packages/hashtree
   '@hashtree/fips-transport': link:../hashtree/ts/packages/hashtree-fips-transport
   '@hashtree/mesh': link:../hashtree/ts/packages/hashtree-mesh
@@ -24,11 +24,11 @@ importers:
   .:
     dependencies:
       '@fips/core':
-        specifier: github:mmalmi/fips-ts#602fed03486d2646c79abccf38550fc3ced9481d&path:/packages/core
-        version: https://codeload.github.com/mmalmi/fips-ts/tar.gz/602fed03486d2646c79abccf38550fc3ced9481d#path:/packages/core
+        specifier: file:vendor/fips/fips-core-0.0.16.tgz
+        version: file:vendor/fips/fips-core-0.0.16.tgz
       '@fips/transport-webrtc':
-        specifier: github:mmalmi/fips-ts#602fed03486d2646c79abccf38550fc3ced9481d&path:/packages/transport-webrtc
-        version: https://codeload.github.com/mmalmi/fips-ts/tar.gz/602fed03486d2646c79abccf38550fc3ced9481d#path:/packages/transport-webrtc(typescript@5.9.3)
+        specifier: file:vendor/fips/fips-transport-webrtc-0.0.23.tgz
+        version: file:vendor/fips/fips-transport-webrtc-0.0.23.tgz(typescript@5.9.3)
       '@hashtree/core':
         specifier: link:../hashtree/ts/packages/hashtree
         version: link:../hashtree/ts/packages/hashtree
@@ -759,6 +759,7 @@ packages:
   '@cashu/cashu-ts@2.8.1':
     resolution: {integrity: sha512-4HO3LC3VqiMs0K7ccQdfSs3l1wJNL0VuE8ZQ6zAfMsoeKRwswA1eC5BaGFrEDv7PcPqjliE/RBRw3+1Hz/SmsA==}
     engines: {node: '>=22.4.0'}
+    deprecated: 'Deprecated: this version is no longer supported and may be incompatible with the current Cashu spec. Please upgrade to v4, or use @cashu/cashu-ts@v3-lts if you require the current security-fixes-only LTS.'
 
   '@emnapi/core@1.10.0':
     resolution: {integrity: sha512-yq6OkJ4p82CAfPl0u9mQebQHKPJkY7WrIuk205cTYnYe+k2Z8YBh11FrbRG/H6ihirqcacOgl2BIO8oyMQLeXw==}
@@ -963,13 +964,13 @@ packages:
     resolution: {integrity: sha512-43/qtrDUokr7LJqoF2c3+RInu/t4zfrpYdoSDfYyhg52rwLV6TnOvdG4fXm7IkSB3wErkcmJS9iEhjVtOSEjjA==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
 
-  '@fips/core@https://codeload.github.com/mmalmi/fips-ts/tar.gz/602fed03486d2646c79abccf38550fc3ced9481d#path:/packages/core':
-    resolution: {path: /packages/core, tarball: https://codeload.github.com/mmalmi/fips-ts/tar.gz/602fed03486d2646c79abccf38550fc3ced9481d}
-    version: 0.0.1
+  '@fips/core@file:vendor/fips/fips-core-0.0.16.tgz':
+    resolution: {integrity: sha512-DXaOsmV48C5YxzMjMAKgUrE9Y1ajw/OavLyk0OQCGmVjD99ZgKsz8MhrVyEVRTcikMZw8wQo8Z0zzlB/OB7ErQ==, tarball: file:vendor/fips/fips-core-0.0.16.tgz}
+    version: 0.0.16
 
-  '@fips/transport-webrtc@https://codeload.github.com/mmalmi/fips-ts/tar.gz/602fed03486d2646c79abccf38550fc3ced9481d#path:/packages/transport-webrtc':
-    resolution: {path: /packages/transport-webrtc, tarball: https://codeload.github.com/mmalmi/fips-ts/tar.gz/602fed03486d2646c79abccf38550fc3ced9481d}
-    version: 0.0.1
+  '@fips/transport-webrtc@file:vendor/fips/fips-transport-webrtc-0.0.23.tgz':
+    resolution: {integrity: sha512-v1CUfjHalLuBwCfQ3eJZ3bUOMla9WWHoJO2zHGcgS+7QhB4C5h+1aKZe4Z6tP0xSzhlufZURZdZ8Zz3CJ3Fk7g==, tarball: file:vendor/fips/fips-transport-webrtc-0.0.23.tgz}
+    version: 0.0.23
 
   '@humanfs/core@0.19.2':
     resolution: {integrity: sha512-UhXNm+CFMWcbChXywFwkmhqjs3PRCmcSa/hfBgLIb7oQ5HNb1wS0icWsGtSAUNgefHeI+eBrA8I1fxmbHsGdvA==}
@@ -4545,16 +4546,16 @@ snapshots:
       '@eslint/core': 0.17.0
       levn: 0.4.1
 
-  '@fips/core@https://codeload.github.com/mmalmi/fips-ts/tar.gz/602fed03486d2646c79abccf38550fc3ced9481d#path:/packages/core':
+  '@fips/core@file:vendor/fips/fips-core-0.0.16.tgz':
     dependencies:
       '@noble/ciphers': 1.3.0
       '@noble/curves': 1.9.7
       '@noble/hashes': 1.8.0
       '@scure/base': 2.2.0
 
-  '@fips/transport-webrtc@https://codeload.github.com/mmalmi/fips-ts/tar.gz/602fed03486d2646c79abccf38550fc3ced9481d#path:/packages/transport-webrtc(typescript@5.9.3)':
+  '@fips/transport-webrtc@file:vendor/fips/fips-transport-webrtc-0.0.23.tgz(typescript@5.9.3)':
     dependencies:
-      '@fips/core': https://codeload.github.com/mmalmi/fips-ts/tar.gz/602fed03486d2646c79abccf38550fc3ced9481d#path:/packages/core
+      '@fips/core': file:vendor/fips/fips-core-0.0.16.tgz
       '@noble/ciphers': 1.3.0
       '@noble/curves': 1.9.7
       '@noble/hashes': 1.8.0

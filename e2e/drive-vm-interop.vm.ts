@@ -64,6 +64,7 @@ export type BrowserNostrStore = {
 export type BrowserWorkerAdapter = {
   pushToBlossom?: (hash: Uint8Array, key: Uint8Array | undefined, treeName: string) => Promise<{ failed: number }>;
   publish?: (event: Event) => Promise<void>;
+  setP2PProvider?: (provider: unknown) => void;
 };
 
 export type BrowserDriveFipsStats = {
@@ -78,6 +79,7 @@ export type BrowserDriveFipsStats = {
 
 export type BrowserDriveFipsRuntime = {
   getStats: () => BrowserDriveFipsStats;
+  getP2PProvider: () => unknown;
   stop: () => Promise<void>;
 };
 

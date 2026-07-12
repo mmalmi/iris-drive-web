@@ -33,6 +33,7 @@ import { initializePublishFn } from '../treeRootCache';
 import { setupMediaStreaming } from './mediaStreamingSetup';
 import type { NDKFilter, NDKSubscription } from 'ndk';
 import type { WorkerNostrFilter, WorkerSignedEvent } from '@hashtree/core';
+import { startDriveFipsRuntime, stopDriveFipsRuntime } from './driveFipsRuntime';
 
 const isTestMode = !!import.meta.env.VITE_TEST_MODE;
 
@@ -345,6 +346,7 @@ export async function initHashtreeBackend(identity: WorkerInitIdentity): Promise
         nsec: identity.nsec,
         maxWebRTCUploadBytesPerSecond: resolveConfiguredWebRTCUploadLimitBytesPerSecond(settings.pools),
         forwardRateLimit: resolveConfiguredWebRTCForwardRateLimit(settings.pools),
+        ...(backendMode === 'worker' ? { p2pMode: 'external' as const } : {}),
       };
 
       let adapter: BackendAdapter | null = null;
@@ -372,6 +374,25 @@ export async function initHashtreeBackend(identity: WorkerInitIdentity): Promise
         });
 
         if (backendMode === 'worker') {
+          if (identity.nsec) {
+            void startDriveFipsRuntime({
+              deviceSecretKey: identity.nsec,
+              ownerPubkeyHex: identity.pubkey,
+              relays: runtimeEndpoints.nostrRelays,
+              storeName: config.storeName,
+            }).then((runtime) => {
+              if (getWorkerAdapter() !== adapter) {
+                return runtime.stop();
+              }
+              adapter.setP2PProvider?.(runtime.getP2PProvider());
+              console.log('[WorkerInit] FIPS P2P provider ready');
+            }).catch((error) => {
+              console.warn('[WorkerInit] FIPS P2P provider failed to start:', error);
+            });
+          } else {
+            console.warn('[WorkerInit] FIPS P2P unavailable without a device secret');
+          }
+
           // Set up event dispatch from worker to NDK subscriptions
           adapter.onEvent((event: WorkerSignedEvent) => {
             ndk.subManager.dispatchEvent(event as Parameters<typeof ndk.subManager.dispatchEvent>[0], undefined, false);
@@ -521,4 +542,9 @@ export async function waitForRelayConnection(maxWait = 5000): Promise<boolean> {
 
 export async function initHashtreeWorker(identity: WorkerInitIdentity): Promise<void> {
   return initHashtreeBackend(identity);
+}
+
+export async function stopHashtreeBrowserP2P(): Promise<void> {
+  getWorkerAdapter()?.setP2PProvider?.(null);
+  await stopDriveFipsRuntime();
 }
