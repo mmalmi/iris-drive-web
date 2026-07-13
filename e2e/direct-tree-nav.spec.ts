@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures';
+import { waitForRelayConnected } from './test-utils.js';
 import {
   enableOthersPool,
   ensureTreeRootHash,

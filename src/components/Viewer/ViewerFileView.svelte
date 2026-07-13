@@ -441,10 +441,8 @@
         {#key cidKey}
           {@const imageUrl = getNhashFileUrl(entry.cid, urlFileName || 'image')}
           <div class="flex-1 flex items-center justify-center overflow-auto bg-surface-0 p-4">
-            {#if isFullscreen && !keepFileChromeInFullscreen}
+            {#if isFullscreen}
               <img src={imageUrl} alt={urlFileName} class="max-w-full max-h-full object-contain" data-testid="image-viewer" />
-            {:else if keepFileChromeInFullscreen}
-              <img src={imageUrl} alt={urlFileName} class="max-w-full object-contain" style="max-height: calc(100vh - 200px);" data-testid="image-viewer" />
             {:else}
               <button onclick={toggleFullscreen} class="cursor-zoom-in bg-transparent border-none p-0" title="Click to view full size">
                 <img src={imageUrl} alt={urlFileName} class="max-w-full object-contain" style="max-height: calc(100vh - 200px);" data-testid="image-viewer" />
