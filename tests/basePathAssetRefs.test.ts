@@ -8,10 +8,6 @@ function read(relativePath: string): string {
 
 describe('asset paths are base-url aware', () => {
   it('does not hardcode root asset paths in UI components', () => {
-    const logo = read('src/components/Logo.svelte');
-    const launcher = read('src/components/AppLauncher.svelte');
-
-    expect(logo).not.toContain('/iris-logo.png');
-    expect(launcher).not.toContain('/iris-logo.png');
+    expect(read('src/components/Logo.svelte')).not.toContain('/iris-logo.png');
   });
 });

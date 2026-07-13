@@ -1,10 +1,8 @@
 import { test, expect } from './fixtures';
 import { waitForAppReady } from './test-utils.js';
 
-/**
- * Test for FollowsTreesView - shows trees from followed users
- */
-test.describe('FollowsTreesView', () => {
+/** Tests the following section shown in the Drive sidebar. */
+test.describe('Following sidebar', () => {
   test.setTimeout(60000);
 
   test('should show "Not following anyone" for new user', async ({ page }) => {

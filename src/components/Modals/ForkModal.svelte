@@ -27,7 +27,6 @@
 </script>
 
 <script lang="ts">
-  import type { TreeVisibility } from '@hashtree/core';
   import { forkTree } from '../../actions/tree';
   import VisibilityPicker from '@iris/hashtree-app/VisibilityPicker.svelte';
 
@@ -52,13 +51,8 @@
   });
 
   async function handleFork() {
-    if (!forkTarget || !modalInput.trim()) return;
-
     const name = modalInput.trim();
-    if (!name) {
-      error = 'Name is required';
-      return;
-    }
+    if (!forkTarget || !name) return;
 
     isForking = true;
     error = '';

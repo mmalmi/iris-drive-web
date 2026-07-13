@@ -1,7 +1,7 @@
 <script lang="ts">
   /**
    * TreeRow - reusable row component for displaying trees/folders
-   * Used in FileBrowser, RecentsView, FollowsTreesView
+   * Used in FileBrowser and RecentsView.
    */
   import type { TreeVisibility } from '@hashtree/core';
   import { Avatar } from '../User';
