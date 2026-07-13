@@ -3,7 +3,8 @@
  * Parses URL hash to extract route info without needing React Router context
  */
 import { getQueryParamsFromHash } from '../lib/router.svelte';
-import { nhashDecode, type CID } from '@hashtree/core';
+import { isNHash, isNPath, nhashDecode, npathDecode, type CID } from '@hashtree/core';
+import { nip19 } from 'nostr-tools';
 
 /** Decoded CID for permalink routing */
 export type RouteCid = CID;
@@ -23,6 +24,8 @@ export interface RouteInfo {
 }
 
 const NOSTR_IDENTITY_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const NON_TREE_ROUTES = new Set(['settings', 'wallet', 'users']);
+const USER_ROUTES = new Set(['profile', 'follows', 'followers', 'edit']);
 
 export function isNostrIdentityId(value: string | undefined): value is string {
   return !!value && NOSTR_IDENTITY_ID_RE.test(value);
@@ -41,21 +44,19 @@ function safeDecodeURIComponent(value: string): string {
 }
 
 /**
- * Parse route info from window.location.hash
+ * Parse route info from a URL hash.
  * Handles:
  * - #/npub/treeName/path/to/file
  * - #/nhash1.../path/to/file
  * - #/npub (user view)
  * - #/npub/profile
  */
-export function parseRoute(): RouteInfo {
-  // Get hash path and query params
-  const fullHash = window.location.hash.slice(2); // Remove #/
-  const [hashPath] = fullHash.split('?');
-  const parts = hashPath.split('/').filter(Boolean).map(safeDecodeURIComponent);
-
-  // Parse query params
-  const params = getQueryParamsFromHash(window.location.hash);
+export function parseRouteFromHash(hash: string): RouteInfo {
+  const hashPath = hash.replace(/^#\/?/, '');
+  const queryIndex = hashPath.indexOf('?');
+  const path = queryIndex === -1 ? hashPath : hashPath.slice(0, queryIndex);
+  const parts = path.split('/').filter(Boolean).map(safeDecodeURIComponent);
+  const params = getQueryParamsFromHash(hash);
   let compareBranches: { base: string; head: string } | null = null;
   const compare = params.get('compare');
   const mergeBase = params.get('base');
@@ -70,9 +71,8 @@ export function parseRoute(): RouteInfo {
 
   const emptyParams = new URLSearchParams();
 
-  // nhash route: #/nhash1.../path...
-  if (parts[0]?.startsWith('nhash1')) {
-    // Decode nhash to extract CID (hash and optional key as Uint8Array)
+  // nhash route: /nhash1.../path...
+  if (parts[0] && isNHash(parts[0])) {
     try {
       const cid = nhashDecode(parts[0]);
       return {
@@ -85,12 +85,30 @@ export function parseRoute(): RouteInfo {
         compareBranches,
       };
     } catch {
-      // Fall through if decode fails
+      // Invalid nhash, fall through.
+    }
+  }
+
+  // npath route: /npath1...
+  if (parts[0] && isNPath(parts[0])) {
+    try {
+      const decoded = npathDecode(parts[0]);
+      return {
+        npub: nip19.npubEncode(decoded.pubkey),
+        treeName: decoded.treeName,
+        cid: null,
+        path: decoded.path || [],
+        isPermalink: false,
+        params,
+        compareBranches,
+      };
+    } catch {
+      // Invalid npath, fall through.
     }
   }
 
   // Special routes (no tree context)
-  if (['settings', 'wallet'].includes(parts[0])) {
+  if (NON_TREE_ROUTES.has(parts[0])) {
     return { npub: null, treeName: null, cid: null, path: [], isPermalink: false, params: emptyParams, compareBranches: null };
   }
 
@@ -99,12 +117,12 @@ export function parseRoute(): RouteInfo {
     const npub = parts[0];
 
     // Special user routes (profile, follows, followers, edit)
-    if (['profile', 'follows', 'followers', 'edit'].includes(parts[1])) {
+    if (USER_ROUTES.has(parts[1])) {
       return { npub, treeName: null, cid: null, path: [], isPermalink: false, params: emptyParams, compareBranches: null };
     }
 
     // Tree route: #/npub/treeName/path...
-    if (parts[1] && !['profile', 'follows', 'followers', 'edit'].includes(parts[1])) {
+    if (parts[1]) {
       return {
         npub,
         treeName: parts[1],
@@ -122,4 +140,9 @@ export function parseRoute(): RouteInfo {
 
   // Home route
   return { npub: null, treeName: null, cid: null, path: [], isPermalink: false, params: emptyParams, compareBranches: null };
+}
+
+/** Parse route info from the browser's current hash. */
+export function parseRoute(): RouteInfo {
+  return parseRouteFromHash(window.location.hash);
 }

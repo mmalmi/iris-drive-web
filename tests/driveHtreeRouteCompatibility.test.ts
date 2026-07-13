@@ -64,4 +64,13 @@ describe('drive htree route compatibility', () => {
       isPermalink: false,
     });
   });
+
+  it('does not mistake the followers page for a tree', () => {
+    expect(parseRouteFromHash(`#/${OWNER_NPUB}/followers`)).toMatchObject({
+      npub: OWNER_NPUB,
+      treeName: null,
+      path: [],
+      isPermalink: false,
+    });
+  });
 });
