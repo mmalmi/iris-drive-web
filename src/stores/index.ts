@@ -4,7 +4,7 @@ export { uploadProgress, setUploadProgress, getUploadProgress, cancelUpload, upl
 export { treeRootStore, getTreeRoot, getTreeRootSync, waitForTreeRoot, invalidateTreeRoot, updateSubscriptionCache, subscribeToTreeRoot, signalWorkerReady } from './treeRoot';
 export { routeStore, currentHash, parseRouteFromHash, getRouteSync, currentPathStore } from './route';
 export { createTreesStore, trees, storeLinkKey, getLinkKey, type TreeEntry } from './trees';
-export { createDirectoryEntriesStore, directoryEntries, directoryEntriesStore, type DirectoryEntriesState } from './directoryEntries';
+export { directoryEntriesStore, type DirectoryEntriesState } from './directoryEntries';
 export { currentDirCidStore, currentDirHashStore, useCurrentDirCid, currentDirHash, isViewingFileStore, resolvingPathStore } from './currentDirHash';
 export { permalinkSnapshotStore, getPermalinkSnapshotSync, isSnapshotPermalinkSync, type PermalinkSnapshotState } from './permalinkSnapshot';
 export { recentsStore, addRecent, updateRecentVisibility, removeRecentByTreeName, clearRecents, clearRecentsByPrefix, getRecentsSync, type RecentItem } from './recents';

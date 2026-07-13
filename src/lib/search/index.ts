@@ -10,24 +10,14 @@ import { userProvider } from './userProvider';
 import { appsProvider, getAppSuggestions } from './appsProvider';
 
 export type { SearchProvider, SearchResult, SearchOptions } from './types';
-export { recordHistoryVisit, getRecentHistory } from './historyProvider';
+export { recordHistoryVisit } from './historyProvider';
 
 // Provider registry
 const providers = new Map<string, SearchProvider>();
 
 /** Register a search provider */
-export function registerProvider(provider: SearchProvider): void {
+function registerProvider(provider: SearchProvider): void {
   providers.set(provider.id, provider);
-}
-
-/** Unregister a search provider */
-export function unregisterProvider(id: string): void {
-  providers.delete(id);
-}
-
-/** Get all registered providers */
-export function getProviders(): SearchProvider[] {
-  return Array.from(providers.values());
 }
 
 // Register default providers
@@ -89,30 +79,6 @@ export async function search(
     });
 
   return filtered.slice(0, limit);
-}
-
-/** Search with grouping by type */
-export async function searchGrouped(
-  query: string,
-  options: SearchOptions = {}
-): Promise<Map<string, SearchResult[]>> {
-  const results = await search(query, { ...options, limit: (options.limit ?? 20) * 2 });
-
-  const grouped = new Map<string, SearchResult[]>();
-
-  for (const result of results) {
-    const group = grouped.get(result.type) ?? [];
-    group.push(result);
-    grouped.set(result.type, group);
-  }
-
-  // Apply per-group limits
-  const perGroupLimit = Math.ceil((options.limit ?? 20) / grouped.size);
-  for (const [type, group] of grouped) {
-    grouped.set(type, group.slice(0, perGroupLimit));
-  }
-
-  return grouped;
 }
 
 /** Get suggestions for empty query (recent history + apps) */

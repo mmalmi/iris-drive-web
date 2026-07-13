@@ -221,9 +221,6 @@ function createSettingsStore() {
 
 export const settingsStore = createSettingsStore();
 
-// Legacy compatibility alias
-export const useSettingsStore = settingsStore;
-
 // Load settings from Dexie on startup
 async function loadSettings() {
   try {

@@ -83,7 +83,6 @@ function createSocialGraphStore() {
 }
 
 export const socialGraphStore = createSocialGraphStore();
-export const useSocialGraphStore = socialGraphStore;
 
 // ============================================================================
 // Version callback setup (called after worker ready)

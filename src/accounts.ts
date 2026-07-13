@@ -127,9 +127,6 @@ function createAccountsStore() {
 
 export const accountsStore = createAccountsStore();
 
-// Legacy compatibility alias (matches Zustand API)
-export const useAccountsStore = accountsStore;
-
 export function getAccountIdentityKey(account: Pick<Account, 'nostrIdentityId' | 'pubkey' | 'type'>): string {
   return account.nostrIdentityId ? `iris-profile:${account.nostrIdentityId}` : `${account.type}:${account.pubkey}`;
 }
@@ -182,7 +179,7 @@ function saveAccountsToStorage(accounts: Account[]) {
 /**
  * Load accounts from localStorage
  */
-export function loadAccountsFromStorage(): Account[] {
+function loadAccountsFromStorage(): Account[] {
   try {
     const data = localStorage.getItem(STORAGE_KEY_ACCOUNTS);
     if (!data) return [];
@@ -195,7 +192,7 @@ export function loadAccountsFromStorage(): Account[] {
 /**
  * Get active account pubkey from localStorage
  */
-export function getActiveAccountFromStorage(): string | null {
+function getActiveAccountFromStorage(): string | null {
   return localStorage.getItem(STORAGE_KEY_ACTIVE_ACCOUNT);
 }
 
@@ -246,14 +243,6 @@ export function createExtensionAccount(pubkey: string): Account {
     type: 'extension',
     addedAt: Date.now(),
   };
-}
-
-/**
- * Check if extension account already exists
- */
-export function hasExtensionAccount(): boolean {
-  const state = accountsStore.getState();
-  return state.accounts.some(a => a.type === 'extension');
 }
 
 /**

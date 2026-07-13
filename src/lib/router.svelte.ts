@@ -41,7 +41,6 @@ function safeDecodeURIComponent(value: string): string {
 // Create writable stores
 const pathStore = writable<string>(getHashPath());
 const fullHashStore = writable<string>(getFullHash());
-const refreshKeyStore = writable<number>(0);
 
 // Export the stores for subscription
 export const currentPath = {
@@ -52,16 +51,6 @@ export const currentPath = {
 export const currentFullHash = {
   subscribe: fullHashStore.subscribe
 };
-
-// Refresh key - increment to force re-render of current route
-export const refreshKey = {
-  subscribe: refreshKeyStore.subscribe
-};
-
-// Trigger a refresh of the current route
-export function refresh() {
-  refreshKeyStore.update(k => k + 1);
-}
 
 // Initialize hashchange listener (call once from App.svelte onMount)
 // Store the flag on a global to persist across HMR module reloads
@@ -107,12 +96,6 @@ export function navigate(path: string) {
 
 // Alias for navigate
 export const push = navigate;
-
-export function replace(path: string) {
-  const normalizedPath = path.startsWith('/') ? path : '/' + path;
-  window.location.replace('#' + normalizedPath);
-  pathStore.set(normalizedPath);
-}
 
 // Parse route parameters
 export interface RouteParams {
@@ -180,8 +163,4 @@ export function getQueryParamsFromHash(hash: string): URLSearchParams {
   const queryIndex = hashValue.indexOf('?');
   if (queryIndex === -1) return new URLSearchParams();
   return new URLSearchParams(hashValue.slice(queryIndex + 1));
-}
-
-export function getQueryParams(): URLSearchParams {
-  return getQueryParamsFromHash(window.location.hash);
 }

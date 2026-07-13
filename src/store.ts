@@ -226,9 +226,6 @@ function createAppStore() {
 
 export const appStore = createAppStore();
 
-// Legacy compatibility alias
-export const useAppStore = appStore;
-
 // Expose for debugging in tests
 if (typeof window !== 'undefined') {
   const win = window as Window & { __appStore?: typeof appStore; __localStore?: typeof localStore };
