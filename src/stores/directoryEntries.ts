@@ -1,0 +1,200 @@
+/**
+ * Hook to fetch directory entries from tree
+ * Simple - just reads from tree, no caching or global state
+ * Supports both encrypted and public directories via CID
+ * Svelte version using stores
+ */
+import { writable, get } from 'svelte/store';
+import { type CID, type TreeEntry, toHex, LinkType } from '@hashtree/core';
+import { getTree } from '../store';
+import { markFilesChanged } from './recentlyChanged';
+
+// Sort entries: directories first, then alphabetically
+function sortEntries(entries: TreeEntry[]): TreeEntry[] {
+  return [...entries].sort((a, b) => {
+    const aIsDir = a.type === LinkType.Dir;
+    const bIsDir = b.type === LinkType.Dir;
+    if (aIsDir !== bIsDir) return aIsDir ? -1 : 1;
+    return a.name.localeCompare(b.name);
+  });
+}
+
+export interface DirectoryEntriesState {
+  entries: TreeEntry[];
+  loading: boolean;
+  isDirectory: boolean;
+  /**
+   * Hex hash key of the location whose entries are currently held in `entries`.
+   * Lets consumers tell stale state apart from a genuinely empty directory
+   * while a new location is still being fetched.
+   */
+  loadedHashKey: string | null;
+}
+
+// Import currentDirCidStore for global entries store
+import { currentDirCidStore } from './currentDirHash';
+import { routeStore } from './route';
+import { nostrStore } from '../nostr';
+
+/**
+ * Create the global directory entries store with test helper
+ */
+function createGlobalDirectoryEntriesStore() {
+  const state = writable<DirectoryEntriesState>({
+    entries: [],
+    loading: false,
+    isDirectory: true,
+    loadedHashKey: null,
+  });
+
+  let prevHashKey: string | null = null;
+  let prevEncKey: string | null = null;
+  let prevEntryCids: Map<string, string> = new Map();
+  let retryTimer: ReturnType<typeof setTimeout> | null = null;
+  let retryAttempts = 0;
+  let forceRetry = false;
+  let lastLocation: CID | null = null;
+  let lastIsPermalink = false;
+  let lastIsRemote = false;
+  const ENTRY_RETRY_DELAY_MS = 1500;
+  // Snapshot permalinks can arrive before the signed root event and directory
+  // contents are fully hydrated locally, especially under parallel e2e load.
+  const PERMALINK_MAX_RETRIES = 24;
+  const REMOTE_MAX_RETRIES = 24;
+
+  async function loadEntries(location: CID | null) {
+    const route = get(routeStore);
+    lastIsPermalink = route.isPermalink;
+    const userNpub = nostrStore.getState().npub;
+    lastIsRemote = !!route.npub && route.npub !== userNpub;
+    lastLocation = location;
+    const hashKey = location?.hash ? toHex(location.hash) : null;
+    const encKey = location?.key ? toHex(location.key) : null;
+
+    const hasChanged = hashKey !== prevHashKey || encKey !== prevEncKey;
+    if (hasChanged) {
+      retryAttempts = 0;
+      if (retryTimer) {
+        clearTimeout(retryTimer);
+        retryTimer = null;
+      }
+    }
+
+    const shouldForce = forceRetry;
+    forceRetry = false;
+
+    if (!shouldForce && !hasChanged) return;
+    prevHashKey = hashKey;
+    prevEncKey = encKey;
+
+    if (!location || !hashKey) {
+      state.set({ entries: [], loading: false, isDirectory: true, loadedHashKey: null });
+      prevEntryCids.clear();
+      return;
+    }
+
+    state.update(s => ({ ...s, loading: true }));
+    const tree = getTree();
+
+    try {
+      let newEntries: TreeEntry[] = [];
+
+      if (location.key) {
+        newEntries = await tree.listDirectory(location);
+      } else {
+        const isDir = await tree.isDirectory(location);
+        if (isDir) {
+          newEntries = await tree.listDirectory(location);
+        } else {
+          state.set({ entries: [], loading: false, isDirectory: false, loadedHashKey: hashKey });
+          prevEntryCids.clear();
+          scheduleEntryRetry();
+          return;
+        }
+      }
+
+      // Detect changed files
+      if (prevEntryCids.size > 0) {
+        const changedFiles = new Set<string>();
+        for (const entry of newEntries) {
+          const prevCid = prevEntryCids.get(entry.name);
+          const newCid = entry.cid?.hash ? toHex(entry.cid.hash) : null;
+          if (prevCid && newCid && prevCid !== newCid) {
+            changedFiles.add(entry.name);
+          }
+        }
+        if (changedFiles.size > 0) {
+          markFilesChanged(changedFiles);
+        }
+      }
+
+      const newEntryCids = new Map<string, string>();
+      for (const entry of newEntries) {
+        if (entry.cid?.hash) {
+          newEntryCids.set(entry.name, toHex(entry.cid.hash));
+        }
+      }
+
+      const entriesChanged = newEntryCids.size !== prevEntryCids.size ||
+        [...newEntryCids].some(([name, cid]) => prevEntryCids.get(name) !== cid);
+
+      prevEntryCids = newEntryCids;
+
+      if (entriesChanged) {
+        state.set({ entries: sortEntries(newEntries), loading: false, isDirectory: true, loadedHashKey: hashKey });
+      } else {
+        state.update(s => ({ ...s, loading: false, loadedHashKey: hashKey }));
+      }
+
+      if ((lastIsPermalink || lastIsRemote) && newEntries.length === 0 && prevEntryCids.size === 0) {
+        scheduleEntryRetry();
+      }
+    } catch {
+      state.set({ entries: [], loading: false, isDirectory: false, loadedHashKey: null });
+      prevEntryCids.clear();
+      scheduleEntryRetry();
+    }
+  }
+
+  function scheduleEntryRetry(): void {
+    const maxRetries = lastIsPermalink ? PERMALINK_MAX_RETRIES : lastIsRemote ? REMOTE_MAX_RETRIES : 0;
+    if (maxRetries === 0 || retryTimer || retryAttempts >= maxRetries) return;
+    retryAttempts += 1;
+    retryTimer = setTimeout(() => {
+      retryTimer = null;
+      forceRetry = true;
+      if (lastLocation) {
+        void loadEntries(lastLocation);
+      }
+    }, ENTRY_RETRY_DELAY_MS);
+  }
+
+  // Subscribe to location changes
+  currentDirCidStore.subscribe((location) => {
+    void loadEntries(location);
+  });
+
+  return {
+    subscribe: state.subscribe,
+    // Expose setter for testing only
+    __testSet: (value: DirectoryEntriesState) => state.set(value),
+  };
+}
+
+/**
+ * Global directory entries store based on current directory CID
+ * trackChanges=true to detect when files change (for LIVE indicator)
+ */
+export const directoryEntriesStore = createGlobalDirectoryEntriesStore();
+
+// Expose test helper on window for E2E tests
+if (typeof window !== 'undefined') {
+  window.__testSetDirectoryEntries = (entries: TreeEntry[]) => {
+    (directoryEntriesStore as { __testSet: (value: DirectoryEntriesState) => void }).__testSet({
+      entries: sortEntries(entries),
+      loading: false,
+      isDirectory: true,
+      loadedHashKey: 'test',
+    });
+  };
+}

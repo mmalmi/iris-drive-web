@@ -1,0 +1,20 @@
+FROM mcr.microsoft.com/playwright:v1.58.2-noble
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    ca-certificates \
+    curl \
+    git \
+    pkg-config \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN corepack enable
+RUN corepack prepare pnpm@10.28.2 --activate
+RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain stable
+
+ENV PATH=/root/.cargo/bin:${PATH}
+
+WORKDIR /workspace

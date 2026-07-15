@@ -1,0 +1,230 @@
+diff --git a/dist/relay/mediaHandler.js b/dist/relay/mediaHandler.js
+index 109315787b67817878c2969e5e5904f59a477f0e..a2f90f3ace67bc5355a824eed1eeb277f76a610f 100644
+--- a/dist/relay/mediaHandler.js
++++ b/dist/relay/mediaHandler.js
+@@ -470,6 +470,20 @@ async function handleSwFileRequest(req) {
+             : mimeType;
+         const totalSize = knownSize ?? await getFileSize(resolvedEntry.cid);
+         if (totalSize === null) {
++            const canStreamUnknownSizeDownload = !!download
++                && !rangeHeader
++                && start === 0
++                && end === undefined
++                && (typeof tree.readFileStream === 'function' || typeof tree.readFileRange === 'function');
++            if (canStreamUnknownSizeDownload) {
++                await streamUnknownSizeSwResponse(requestId, resolvedEntry.cid, {
++                    npub,
++                    path: effectivePath,
++                    mimeType: effectiveMimeType,
++                    download,
++                });
++                return;
++            }
+             const canBufferWholeFile = !rangeHeader && start === 0 && end === undefined;
+             if (!canBufferWholeFile || typeof tree.readFile !== 'function') {
+                 sendSwError(requestId, 404, 'File data not found');
+@@ -1190,6 +1204,58 @@ async function streamSwResponse(requestId, cid, totalSize, options) {
+     // Signal done
+     mediaPort.postMessage({ type: 'done', requestId });
+ }
++async function streamUnknownSizeSwResponse(requestId, cid, options) {
++    if (!tree || !mediaPort)
++        return;
++    const { npub, path, mimeType = 'application/octet-stream', download } = options;
++    const isNpubRequest = !!npub;
++    const isImage = mimeType.startsWith('image/');
++    let cacheControl;
++    if (!isNpubRequest) {
++        cacheControl = 'public, max-age=31536000, immutable';
++    }
++    else if (isImage) {
++        cacheControl = 'public, max-age=60, stale-while-revalidate=86400';
++    }
++    else {
++        cacheControl = 'no-cache, no-store, must-revalidate';
++    }
++    const headers = {
++        'Content-Type': mimeType,
++        'Accept-Ranges': 'bytes',
++        'Cache-Control': cacheControl,
++    };
++    if (download) {
++        headers['Content-Disposition'] = `attachment; filename="${path || 'file'}"`;
++    }
++    mediaPort.postMessage({
++        type: 'headers',
++        requestId,
++        status: 200,
++        headers,
++        totalSize: 0,
++    });
++    if (typeof tree.readFileStream === 'function') {
++        for await (const chunk of tree.readFileStream(cid)) {
++            if (!chunk || chunk.byteLength === 0)
++                continue;
++            mediaPort.postMessage({ type: 'chunk', requestId, data: chunk }, [chunk.buffer]);
++        }
++    }
++    else {
++        let offset = 0;
++        while (true) {
++            const chunk = await tree.readFileRange(cid, offset, offset + MEDIA_CHUNK_SIZE);
++            if (!chunk || chunk.byteLength === 0)
++                break;
++            mediaPort.postMessage({ type: 'chunk', requestId, data: chunk }, [chunk.buffer]);
++            offset += chunk.byteLength;
++            if (chunk.byteLength < MEDIA_CHUNK_SIZE)
++                break;
++        }
++    }
++    mediaPort.postMessage({ type: 'done', requestId });
++}
+ function sendBufferedSwResponse(requestId, data, options) {
+     if (!mediaPort)
+         return;
+diff --git a/dist/worker.js b/dist/worker.js
+index 938203479c2908ccc4a0a6c170633ef0af829c41..aa9e9f622886012beb2da6431db0e5523baedea8 100644
+--- a/dist/worker.js
++++ b/dist/worker.js
+@@ -711,7 +711,8 @@ async function handleMediaFileRequest(port, request) {
+             totalSize: 0,
+             headers: responseHeaders,
+         };
+-        const sendHeadersBeforeStartupChunk = shouldSendMediaHeadersBeforeFirstChunk(request.mimeType);
++        const sendHeadersBeforeStartupChunk = request.download === true
++            || shouldSendMediaHeadersBeforeFirstChunk(request.mimeType);
+         if (sendHeadersBeforeStartupChunk) {
+             port.postMessage(headersMessage);
+             emitDiagnostic('debug', 'media', 'headers-sent', 'Sent media response headers', {
+@@ -868,7 +869,7 @@ async function handleMediaFileRequest(port, request) {
+         headers: responseHeaders,
+     };
+     const sendHeadersBeforeFirstChunk = !request.head
+-        && shouldSendMediaHeadersBeforeFirstChunk(request.mimeType);
++        && (request.download === true || shouldSendMediaHeadersBeforeFirstChunk(request.mimeType));
+     const shouldBufferStartupRange = !request.head
+         && parsedRange.kind === 'range'
+         && isOpenEndedHttpByteRange(request.rangeHeader)
+diff --git a/src/relay/mediaHandler.ts b/src/relay/mediaHandler.ts
+index 89498829a32ea62854ea5371ed462df7c0dab28a..f7d53d210f34ba275e4ad8f049079abd5a746268 100644
+--- a/src/relay/mediaHandler.ts
++++ b/src/relay/mediaHandler.ts
+@@ -597,6 +597,21 @@ async function handleSwFileRequest(req: SwFileRequest): Promise<void> {
+ 
+     const totalSize = knownSize ?? await getFileSize(resolvedEntry.cid);
+     if (totalSize === null) {
++      const canStreamUnknownSizeDownload = !!download
++        && !rangeHeader
++        && start === 0
++        && end === undefined
++        && (typeof tree.readFileStream === 'function' || typeof tree.readFileRange === 'function');
++      if (canStreamUnknownSizeDownload) {
++        await streamUnknownSizeSwResponse(requestId, resolvedEntry.cid, {
++          npub,
++          path: effectivePath,
++          mimeType: effectiveMimeType,
++          download,
++        });
++        return;
++      }
++
+       const canBufferWholeFile = !rangeHeader && start === 0 && end === undefined;
+       if (!canBufferWholeFile || typeof tree.readFile !== 'function') {
+         sendSwError(requestId, 404, 'File data not found');
+@@ -1507,6 +1522,73 @@ async function streamSwResponse(
+   mediaPort.postMessage({ type: 'done', requestId } as SwFileResponse);
+ }
+ 
++async function streamUnknownSizeSwResponse(
++  requestId: string,
++  cid: CID,
++  options: {
++    npub?: string;
++    path?: string;
++    mimeType?: string;
++    download?: boolean;
++  },
++): Promise<void> {
++  if (!tree || !mediaPort) return;
++
++  const { npub, path, mimeType = 'application/octet-stream', download } = options;
++  const isNpubRequest = !!npub;
++  const isImage = mimeType.startsWith('image/');
++  let cacheControl: string;
++  if (!isNpubRequest) {
++    cacheControl = 'public, max-age=31536000, immutable';
++  } else if (isImage) {
++    cacheControl = 'public, max-age=60, stale-while-revalidate=86400';
++  } else {
++    cacheControl = 'no-cache, no-store, must-revalidate';
++  }
++
++  const headers: Record<string, string> = {
++    'Content-Type': mimeType,
++    'Accept-Ranges': 'bytes',
++    'Cache-Control': cacheControl,
++  };
++
++  if (download) {
++    headers['Content-Disposition'] = `attachment; filename="${path || 'file'}"`;
++  }
++
++  mediaPort.postMessage({
++    type: 'headers',
++    requestId,
++    status: 200,
++    headers,
++    totalSize: 0,
++  } as SwFileResponse);
++
++  if (typeof tree.readFileStream === 'function') {
++    for await (const chunk of tree.readFileStream(cid)) {
++      if (!chunk || chunk.byteLength === 0) continue;
++      mediaPort.postMessage(
++        { type: 'chunk', requestId, data: chunk } as SwFileResponse,
++        [chunk.buffer],
++      );
++    }
++  } else {
++    let offset = 0;
++    while (true) {
++      const chunk = await tree.readFileRange(cid, offset, offset + MEDIA_CHUNK_SIZE);
++      if (!chunk || chunk.byteLength === 0) break;
++      mediaPort.postMessage(
++        { type: 'chunk', requestId, data: chunk } as SwFileResponse,
++        [chunk.buffer],
++      );
++      offset += chunk.byteLength;
++      if (chunk.byteLength < MEDIA_CHUNK_SIZE) break;
++    }
++  }
++
++  mediaPort.postMessage({ type: 'done', requestId } as SwFileResponse);
++}
++
+ function sendBufferedSwResponse(
+   requestId: string,
+   data: Uint8Array,
+diff --git a/src/worker.ts b/src/worker.ts
+index fb9bbfd21f25a674c4c2be2c6d3c12f67abd7dad..5181384dce936abda9f0ffb6421835248bdef54b 100644
+--- a/src/worker.ts
++++ b/src/worker.ts
+@@ -900,7 +900,8 @@ async function handleMediaFileRequest(port: MessagePort, request: MediaFileReque
+       totalSize: 0,
+       headers: responseHeaders,
+     };
+-    const sendHeadersBeforeStartupChunk = shouldSendMediaHeadersBeforeFirstChunk(request.mimeType);
++    const sendHeadersBeforeStartupChunk = request.download === true
++      || shouldSendMediaHeadersBeforeFirstChunk(request.mimeType);
+     if (sendHeadersBeforeStartupChunk) {
+       port.postMessage(headersMessage);
+       emitDiagnostic('debug', 'media', 'headers-sent', 'Sent media response headers', {
+@@ -1074,7 +1075,7 @@ async function handleMediaFileRequest(port: MessagePort, request: MediaFileReque
+     headers: responseHeaders,
+   };
+   const sendHeadersBeforeFirstChunk = !request.head
+-    && shouldSendMediaHeadersBeforeFirstChunk(request.mimeType);
++    && (request.download === true || shouldSendMediaHeadersBeforeFirstChunk(request.mimeType));
+ 
+   const shouldBufferStartupRange = !request.head
+     && parsedRange.kind === 'range'
