@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures';
+import { nip19 } from 'nostr-tools';
 import { setupPageErrorHandler, disableOthersPool, waitForAppReady, ensureLoggedIn, clearAllStorage, safeReload } from './test-utils.js';
 
 // Helper to navigate to accounts page
@@ -29,7 +30,7 @@ async function navigateToAccountsPage(page: any) {
 // Generate a test nsec for adding accounts
 function generateTestNsec(): string {
   // This is a deterministic nsec for testing purposes only
-  return 'nsec1vl029mgpspedva04g90vltkh6fvh240zqtv9k0t9af8935ke9laqsnlfe5';
+  return nip19.nsecEncode(new Uint8Array(32).fill(0x42));
 }
 
 test.describe('Multi-Account Management', () => {

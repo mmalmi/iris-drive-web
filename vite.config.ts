@@ -82,6 +82,7 @@ export default defineConfig({
   ],
   root: resolve(__dirname),
   resolve: {
+    dedupe: ['nostr-social-graph'],
     alias: {
       '$lib': resolve(__dirname, 'src/lib'),
       '@iris/svelte-ui': resolve(__dirname, '../iris-kit/packages/svelte-ui/src'),
@@ -144,6 +145,7 @@ export default defineConfig({
       '@hashtree/worker',
       '@hashtree/worker/relay-entry',
       '@iris/svelte-ui',
+      'nostr-social-graph',
     ], // Keep linked workspace packages out of optimizeDeps so local updates are not cached stale.
   },
   assetsInclude: ['**/*.wasm'], // Treat wasm files as assets

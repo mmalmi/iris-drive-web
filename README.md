@@ -8,7 +8,7 @@ Live: <https://drive.iris.to/>
 ## Features
 
 - Content-addressed file sync with SHA256 merkle trees
-- P2P file sync over Nostr-discovered FIPS WebRTC (`fips-overlay-v1`)
+- Reliable TCP/FIPS file streams over Nostr-discovered FIPS WebRTC (`fips-overlay-v1`)
 - Mutable `npub/path` addresses via Nostr events
 - Collaborative editing with Yjs CRDT
 - Cashu wallet integration

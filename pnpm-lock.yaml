@@ -9,7 +9,7 @@ overrides:
   '@fips/core': file:vendor/fips/fips-core-0.0.21.tgz
   '@fips/transport-webrtc': file:vendor/fips/fips-transport-webrtc-0.0.30.tgz
   '@hashtree/core': link:../hashtree/ts/packages/hashtree
-  '@hashtree/fips-transport': link:../hashtree/ts/packages/hashtree-fips-transport
+  '@hashtree/fips-transport': github:mmalmi/hashtree#87429031a8c343e878d958686d8069bddef536ec&path:ts/packages/hashtree-fips-transport
   '@hashtree/collection': link:../hashtree/ts/packages/hashtree-collection
   '@hashtree/dexie': link:../hashtree/ts/packages/hashtree-dexie
   '@hashtree/git': link:../hashtree/ts/packages/hashtree-git
@@ -29,6 +29,9 @@ importers:
       '@fips/core':
         specifier: file:vendor/fips/fips-core-0.0.21.tgz
         version: file:vendor/fips/fips-core-0.0.21.tgz
+      '@fips/tcp':
+        specifier: github:mmalmi/fips-tcp#353cd0b9b723edd07b6cdc82c7e826d43b9a0d6e&path:ts
+        version: https://codeload.github.com/mmalmi/fips-tcp/tar.gz/353cd0b9b723edd07b6cdc82c7e826d43b9a0d6e#path:ts
       '@fips/transport-webrtc':
         specifier: file:vendor/fips/fips-transport-webrtc-0.0.30.tgz
         version: file:vendor/fips/fips-transport-webrtc-0.0.30.tgz(typescript@5.9.3)
@@ -39,8 +42,8 @@ importers:
         specifier: link:../hashtree/ts/packages/hashtree-dexie
         version: link:../hashtree/ts/packages/hashtree-dexie
       '@hashtree/fips-transport':
-        specifier: link:../hashtree/ts/packages/hashtree-fips-transport
-        version: link:../hashtree/ts/packages/hashtree-fips-transport
+        specifier: github:mmalmi/hashtree#87429031a8c343e878d958686d8069bddef536ec&path:ts/packages/hashtree-fips-transport
+        version: https://codeload.github.com/mmalmi/hashtree/tar.gz/87429031a8c343e878d958686d8069bddef536ec#path:ts/packages/hashtree-fips-transport(@fips/core@file:vendor/fips/fips-core-0.0.21.tgz)(@fips/transport-webrtc@file:vendor/fips/fips-transport-webrtc-0.0.30.tgz(typescript@5.9.3))
       '@hashtree/index':
         specifier: link:../hashtree/ts/packages/hashtree-index
         version: link:../hashtree/ts/packages/hashtree-index
@@ -954,9 +957,23 @@ packages:
     resolution: {integrity: sha512-vATACaOwheisqkbaIT2ujgw1eKlKCCMb+lGDFt8ojRUvElkQJxA7RnMFEX7cXjlOiA2vmedLsQkxT8hhjosK+g==, tarball: file:vendor/fips/fips-core-0.0.21.tgz}
     version: 0.0.21
 
+  '@fips/tcp@https://codeload.github.com/mmalmi/fips-tcp/tar.gz/353cd0b9b723edd07b6cdc82c7e826d43b9a0d6e#path:ts':
+    resolution: {path: ts, tarball: https://codeload.github.com/mmalmi/fips-tcp/tar.gz/353cd0b9b723edd07b6cdc82c7e826d43b9a0d6e}
+    version: 0.1.0
+
   '@fips/transport-webrtc@file:vendor/fips/fips-transport-webrtc-0.0.30.tgz':
     resolution: {integrity: sha512-E8S+B4HxCBQf0E1sSsRF74gcq4cz9lDuCP4pqRlxdUZ2W0TMX+qoaYA8NnN2rqRWaiDsgVCZmbulBDs3r10sNg==, tarball: file:vendor/fips/fips-transport-webrtc-0.0.30.tgz}
     version: 0.0.30
+
+  '@hashtree/fips-transport@https://codeload.github.com/mmalmi/hashtree/tar.gz/87429031a8c343e878d958686d8069bddef536ec#path:ts/packages/hashtree-fips-transport':
+    resolution: {path: ts/packages/hashtree-fips-transport, tarball: https://codeload.github.com/mmalmi/hashtree/tar.gz/87429031a8c343e878d958686d8069bddef536ec}
+    version: 0.2.0
+    peerDependencies:
+      '@fips/core': '>=0.0.21'
+      '@fips/transport-webrtc': '>=0.0.30'
+
+  '@hashtree/mesh@0.1.3':
+    resolution: {integrity: sha512-ArvnFB5HnkU6J32nkix1WV4J40mdbqmC0IDY0+OOVnA/XBEuTXwRwYvOO/Na32ZqByWfACTnSHL5U509yon13Q==}
 
   '@humanfs/core@0.19.2':
     resolution: {integrity: sha512-UhXNm+CFMWcbChXywFwkmhqjs3PRCmcSa/hfBgLIb7oQ5HNb1wS0icWsGtSAUNgefHeI+eBrA8I1fxmbHsGdvA==}
@@ -4517,6 +4534,8 @@ snapshots:
       '@noble/hashes': 1.8.0
       '@scure/base': 2.2.0
 
+  '@fips/tcp@https://codeload.github.com/mmalmi/fips-tcp/tar.gz/353cd0b9b723edd07b6cdc82c7e826d43b9a0d6e#path:ts': {}
+
   '@fips/transport-webrtc@file:vendor/fips/fips-transport-webrtc-0.0.30.tgz(typescript@5.9.3)':
     dependencies:
       '@fips/core': file:vendor/fips/fips-core-0.0.21.tgz
@@ -4526,6 +4545,19 @@ snapshots:
       nostr-tools: 2.23.3(typescript@5.9.3)
     transitivePeerDependencies:
       - typescript
+
+  '@hashtree/fips-transport@https://codeload.github.com/mmalmi/hashtree/tar.gz/87429031a8c343e878d958686d8069bddef536ec#path:ts/packages/hashtree-fips-transport(@fips/core@file:vendor/fips/fips-core-0.0.21.tgz)(@fips/transport-webrtc@file:vendor/fips/fips-transport-webrtc-0.0.30.tgz(typescript@5.9.3))':
+    dependencies:
+      '@fips/core': file:vendor/fips/fips-core-0.0.21.tgz
+      '@fips/tcp': https://codeload.github.com/mmalmi/fips-tcp/tar.gz/353cd0b9b723edd07b6cdc82c7e826d43b9a0d6e#path:ts
+      '@fips/transport-webrtc': file:vendor/fips/fips-transport-webrtc-0.0.30.tgz(typescript@5.9.3)
+      '@hashtree/core': link:../hashtree/ts/packages/hashtree
+      '@hashtree/mesh': 0.1.3
+
+  '@hashtree/mesh@0.1.3':
+    dependencies:
+      '@hashtree/core': link:../hashtree/ts/packages/hashtree
+      '@msgpack/msgpack': 3.1.3
 
   '@humanfs/core@0.19.2':
     dependencies:

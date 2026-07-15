@@ -27,8 +27,6 @@ const DEFAULT_CONNECT_TIMEOUT_MS = 30_000;
 const DEFAULT_RELAY_CONNECT_TIMEOUT_MS = 8_000;
 const DEFAULT_ICE_GATHER_TIMEOUT_MS = 2_000;
 const DEFAULT_REQUEST_TIMEOUT_MS = 8_000;
-const DEFAULT_REQUEST_RETRY_INTERVAL_MS = 750;
-const DEFAULT_REQUEST_MAX_ATTEMPTS = 4;
 
 export interface DriveFipsRuntimeOptions {
   relays: readonly string[];
@@ -40,8 +38,6 @@ export interface DriveFipsRuntimeOptions {
   relayConnectTimeoutMs?: number;
   iceGatherTimeoutMs?: number;
   requestTimeoutMs?: number;
-  requestRetryIntervalMs?: number;
-  requestMaxAttempts?: number;
   log?: boolean;
 }
 
@@ -166,8 +162,6 @@ export class DriveFipsRuntime {
         relayConnectTimeoutMs: this.options.relayConnectTimeoutMs ?? DEFAULT_RELAY_CONNECT_TIMEOUT_MS,
         iceGatherTimeoutMs: this.options.iceGatherTimeoutMs ?? DEFAULT_ICE_GATHER_TIMEOUT_MS,
         requestTimeoutMs: this.options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS,
-        requestRetryIntervalMs: this.options.requestRetryIntervalMs ?? DEFAULT_REQUEST_RETRY_INTERVAL_MS,
-        requestMaxAttempts: this.options.requestMaxAttempts ?? DEFAULT_REQUEST_MAX_ATTEMPTS,
       });
     } catch (error) {
       localStore.close();
