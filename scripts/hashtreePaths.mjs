@@ -76,25 +76,5 @@ export function resolveScreensDir() {
 }
 
 export function resolveHtreeCommand(...args) {
-  if (process.env.HTREE_BIN) {
-    return [process.env.HTREE_BIN, ...args];
-  }
-
-  const rustDir = resolveHashtreeRustDir();
-  if (rustDir) {
-    return [
-      'cargo',
-      'run',
-      '--manifest-path',
-      path.join(rustDir, 'Cargo.toml'),
-      '-p',
-      'hashtree-cli',
-      '--bin',
-      'htree',
-      '--',
-      ...args,
-    ];
-  }
-
-  return ['htree', ...args];
+  return [process.env.HTREE_BIN || 'htree', ...args];
 }

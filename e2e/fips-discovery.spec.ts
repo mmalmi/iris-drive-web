@@ -152,15 +152,14 @@ test('Drive keeps its FIPS device identity across Nostr accounts and explicitly 
   });
   expect(source.legacyProxyActive).toBe(false);
 
-  await expect.poll(() => evaluateWithRetry(secondPage, async ({ hashHex, peerId }) => {
+  const received = await evaluateWithRetry(secondPage, async ({ hashHex, peerId }) => {
     const { getDriveFipsRuntime } = await import('/src/lib/driveFipsRuntime.ts');
     const runtime = getDriveFipsRuntime();
     if (!runtime) throw new Error('FIPS provider bridge is not ready');
     const data = await runtime.getP2PProvider().fetch(hashHex, peerId, 10);
     return data ? new TextDecoder().decode(data) : null;
-  }, { hashHex: source.hashHex, peerId: firstFipsPeerId }, 5), {
-    timeout: 30_000,
-  }).toBe(source.text);
+  }, { hashHex: source.hashHex, peerId: firstFipsPeerId }, 5);
+  expect(received).toBe(source.text);
 
   await secondContext.close();
 });

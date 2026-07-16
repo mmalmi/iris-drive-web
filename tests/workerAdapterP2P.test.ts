@@ -81,6 +81,32 @@ describe('WorkerAdapter external P2P bridge', () => {
     }
   });
 
+  test('queues provider state while a replacement worker is starting', async () => {
+    vi.useFakeTimers();
+    try {
+      const { adapter, worker } = await initializedAdapter();
+      worker.onerror?.({} as ErrorEvent);
+      await vi.advanceTimersByTimeAsync(1_000);
+
+      const replacement = FakeWorker.latest;
+      expect(replacement).not.toBe(worker);
+      expect(replacement?.posted[0]?.message).toMatchObject({
+        type: 'init',
+        p2pProviderEnabled: false,
+      });
+
+      adapter.setP2PProvider({ fetch: async () => null, listPeerIds: () => [] });
+      replacement?.emit({ type: 'ready' });
+      expect(replacement?.posted.at(-1)?.message).toMatchObject({
+        type: 'setP2PProviderState',
+        enabled: true,
+      });
+      adapter.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   test('retries an idempotent identity update after worker replacement', async () => {
     vi.useFakeTimers();
     try {

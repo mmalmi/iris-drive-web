@@ -7,12 +7,17 @@ import {
   type Request,
   type Route,
 } from '@playwright/test';
+import { randomUUID } from 'node:crypto';
 import { attachRenderLoopGuardToContext, formatRenderLoopFailures } from './renderLoopGuard';
 
 type Fixtures = {
   relayUrl: string;
   renderLoopErrors: Set<string>;
   renderLoopGuard: void;
+};
+
+type WorkerFixtures = {
+  relayState: { current: string };
 };
 
 async function initializeContext(context: BrowserContext, relayUrl: string, renderLoopErrors: Set<string>) {
@@ -22,17 +27,20 @@ async function initializeContext(context: BrowserContext, relayUrl: string, rend
   attachRenderLoopGuardToContext(context, renderLoopErrors);
 }
 
-const test = base.extend<Fixtures>({
-  relayUrl: [async ({}, use, workerInfo) => {
-    const namespace = `${process.pid}-w${workerInfo.workerIndex}`;
-    const relayUrl = `ws://localhost:4736/${namespace}`;
+const test = base.extend<Fixtures, WorkerFixtures>({
+  relayState: [async ({}, use, workerInfo) => {
+    await use({ current: `ws://localhost:4736/${randomUUID()}-w${workerInfo.workerIndex}` });
+  }, { scope: 'worker' }],
+  relayUrl: async ({ relayState }, use) => {
+    const relayUrl = `ws://localhost:4736/${randomUUID()}`;
+    relayState.current = relayUrl;
     process.env.PW_TEST_RELAY_URL = relayUrl;
     await use(relayUrl);
-  }, { scope: 'worker' }],
+  },
   renderLoopErrors: [async ({}, use) => {
     await use(new Set<string>());
   }, { scope: 'worker' }],
-  renderLoopGuard: [async ({ renderLoopErrors }, use) => {
+  renderLoopGuard: [async ({ relayUrl: _relayUrl, renderLoopErrors }, use) => {
     const before = new Set(renderLoopErrors);
     await use();
     const failures = new Set(
@@ -46,14 +54,14 @@ const test = base.extend<Fixtures>({
     await initializeContext(context, relayUrl, renderLoopErrors);
     await use(context);
   },
-  browser: async ({ browser, relayUrl, renderLoopErrors }, use) => {
+  browser: async ({ browser, relayState, renderLoopErrors }, use) => {
     const originalNewContext = browser.newContext.bind(browser);
     const wrappedBrowser = new Proxy(browser, {
       get(target, prop, receiver) {
         if (prop === 'newContext') {
           return async (options?: Parameters<Browser['newContext']>[0]) => {
             const context = await originalNewContext(options);
-            await initializeContext(context, relayUrl, renderLoopErrors);
+            await initializeContext(context, relayState.current, renderLoopErrors);
             return context;
           };
         }

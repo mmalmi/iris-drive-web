@@ -56,7 +56,7 @@ test('worker reads a missing block through the external P2P provider', async ({ 
 
   expect(result.requests).toEqual([{
     hashHex: expect.stringMatching(/^[0-9a-f]{64}$/),
-    peerId: undefined,
+    peerId: 'fips-test-peer',
     htl: 10,
   }]);
   expect(result.loaded).toBe(result.expected);

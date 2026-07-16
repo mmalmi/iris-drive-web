@@ -91,7 +91,6 @@ function startFipsForAdapter(
     if (desiredKey === fipsActiveKey && fipsRuntimeReadyFor === adapter) return;
 
     fipsRuntimeReadyFor = null;
-    adapter.setP2PProvider?.(null);
     await stopDriveFipsRuntime();
     if (version !== fipsSyncVersion || getWorkerAdapter() !== adapter) return;
 
@@ -476,5 +475,6 @@ export async function stopHashtreeBrowserP2P(): Promise<void> {
   fipsActiveKey = '';
   fipsRuntimeReadyFor = null;
   getWorkerAdapter()?.setP2PProvider?.(null);
+  await fipsSyncTail.catch(() => undefined);
   await stopDriveFipsRuntime();
 }
