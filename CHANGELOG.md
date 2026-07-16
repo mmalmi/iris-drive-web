@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.4 - 2026-07-16
+
+- Move every Iris Kit dependency to its immutable patched release: runtime
+  0.2.1 for identity, Hashtree app helpers, and Svelte UI, and runtime 0.2.2
+  for release tools, NDK, and NDK cache.
+- Preserve the 0.1.3 FIPS, FIPS TCP, Hashtree, and blob-route behavior without
+  a wire or routing change.
+
 ## 0.1.3 - 2026-07-16
 
 - Pin the browser app to immutable FIPS, FIPS TCP, Hashtree, Iris Kit, and
