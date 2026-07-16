@@ -4,6 +4,8 @@
 
 - Pin the shared Hashtree worker to immutable runtime 0.4.4, keeping media
   routes limited to exact configured provider identities with HTL 10.
+- Resolve Iris UI from the immutable package instead of a sibling checkout, so
+  clean-room builds no longer depend on a mutable local workspace.
 
 ## 0.1.5 - 2026-07-16
 

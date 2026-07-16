@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import fs from 'node:fs';
+import path from 'node:path';
 import { filesManualChunks, filesPortableBuild, getFilesBase, sanitizePortableHtml } from '../portableViteConfig';
 
 describe('files portable build config', () => {
@@ -11,6 +13,13 @@ describe('files portable build config', () => {
     expect(filesManualChunks('/workspace/node_modules/emulators/dist/index.js')).toBeUndefined();
     expect(filesManualChunks('/workspace/node_modules/js-dos/index.js')).toBeUndefined();
     expect(filesManualChunks('/workspace/node_modules/marked/lib/marked.js')).toBe('markdown');
+  });
+
+  it('loads shared runtimes from installed packages without sibling workspaces', () => {
+    const source = fs.readFileSync(path.join(process.cwd(), 'vite.config.ts'), 'utf8');
+
+    expect(source).not.toContain("resolve(__dirname, '../iris-kit')");
+    expect(source).not.toContain("resolve(__dirname, '../hashtree')");
   });
 
   it('strips module preload and crossorigin hints for htree webviews', () => {
