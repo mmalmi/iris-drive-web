@@ -16,7 +16,8 @@ import {
   navigateToPublicFolder,
   goToTreeList,
   createFolder,
-  disableOthersPool,
+  configureExplicitFipsPair,
+  enableOthersPool,
   followUser,
 } from './test-utils.js';
 
@@ -33,8 +34,8 @@ async function uploadTempFile(page: Page, name: string, content: string | Buffer
 async function initUser(page: Page): Promise<{ npub: string; pubkeyHex: string }> {
   setupPageErrorHandler(page);
   await page.goto('http://localhost:5173');
-  await disableOthersPool(page);
   await waitForAppReady(page);
+  await enableOthersPool(page);
   await navigateToPublicFolder(page);
 
   await page.waitForFunction(() => (window as any).__getMyPubkey?.(), { timeout: 15000 });
@@ -68,19 +69,6 @@ async function createTextFile(page: Page, fileName: string, content: string): Pr
   await expect(editor).not.toBeVisible({ timeout: 30000 });
 }
 
-async function waitForPeerConnection(page: Page, pubkeyHex: string, timeoutMs: number = 30000): Promise<void> {
-  await page.waitForFunction(
-    async (pk: string) => {
-      const adapter = (window as any).__workerAdapter;
-      if (!adapter) return false;
-      const stats = await adapter.getPeerStats();
-      return stats.some((peer: { connected?: boolean; pubkey?: string }) => peer.connected && peer.pubkey === pk);
-    },
-    pubkeyHex,
-    { timeout: timeoutMs, polling: 500 }
-  );
-}
-
 test.describe('nhash file permalinks', () => {
   // Increase timeout for cross-device FIPS content transfer tests.
   test.setTimeout(60000);
@@ -101,8 +89,7 @@ test.describe('nhash file permalinks', () => {
     // Follow each other for the sharing behavior under test.
     await followUser(page1, user2.npub);
     await followUser(page2, user1.npub);
-    await waitForPeerConnection(page1, user2.pubkeyHex, 45000);
-    await waitForPeerConnection(page2, user1.pubkeyHex, 45000);
+    await configureExplicitFipsPair(page1, page2, 45_000);
 
     // Create a new tree for testing (more reliable than using public folder)
     await goToTreeList(page1);
@@ -128,11 +115,9 @@ test.describe('nhash file permalinks', () => {
 
     // Navigate directly to the permalink URL
     await page2.goto(permalinkUrl);
-    await disableOthersPool(page2);
     await waitForAppReady(page2);
-
-    await waitForPeerConnection(page1, user2.pubkeyHex, 45000);
-    await waitForPeerConnection(page2, user1.pubkeyHex, 45000);
+    await enableOthersPool(page2);
+    await configureExplicitFipsPair(page1, page2, 45_000);
 
     // Wait for content to load (browser 1 should be seeding via WebRTC)
     await expect(page2.getByRole('button', { name: 'Download' })).toBeVisible({ timeout: 30000 });
@@ -160,8 +145,7 @@ test.describe('nhash file permalinks', () => {
     // Follow each other for the sharing behavior under test.
     await followUser(page1, user2.npub);
     await followUser(page2, user1.npub);
-    await waitForPeerConnection(page1, user2.pubkeyHex, 45000);
-    await waitForPeerConnection(page2, user1.pubkeyHex, 45000);
+    await configureExplicitFipsPair(page1, page2, 45_000);
 
     // Create a new tree for testing
     await goToTreeList(page1);
@@ -194,11 +178,9 @@ test.describe('nhash file permalinks', () => {
 
     // Browser 2: Navigate directly to the directory permalink
     await page2.goto(dirPermalinkUrl);
-    await disableOthersPool(page2);
     await waitForAppReady(page2);
-
-    await waitForPeerConnection(page1, user2.pubkeyHex, 45000);
-    await waitForPeerConnection(page2, user1.pubkeyHex, 45000);
+    await enableOthersPool(page2);
+    await configureExplicitFipsPair(page1, page2, 45_000);
 
     // Wait for directory listing to appear
     const fileList2 = page2.getByTestId('file-list');

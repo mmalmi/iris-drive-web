@@ -6,8 +6,8 @@ test('worker reads a missing block through the external P2P provider', async ({ 
   await waitForAppReady(page);
   await waitForWorkerAdapter(page, 30_000);
   await page.waitForFunction(async () => {
-    const { isFipsProviderReady } = await import('/src/lib/workerInit.ts');
-    return isFipsProviderReady();
+    const { isFipsRuntimeReady } = await import('/src/lib/workerInit.ts');
+    return isFipsRuntimeReady();
   }, undefined, { timeout: 30_000 });
 
   const result = await evaluateWithRetry(page, async () => {
@@ -15,7 +15,7 @@ test('worker reads a missing block through the external P2P provider', async ({ 
       __getWorkerAdapter?: () => {
         get(hash: Uint8Array): Promise<Uint8Array | null>;
         setP2PProvider(provider: {
-          fetch(hashHex: string, peerId?: string): Promise<Uint8Array | null>;
+          fetch(hashHex: string, peerId?: string, htl?: number): Promise<Uint8Array | null>;
           listPeerIds(): string[];
         } | null): void;
         webrtcProxy?: unknown;
@@ -23,7 +23,7 @@ test('worker reads a missing block through the external P2P provider', async ({ 
       __workerAdapter?: {
         get(hash: Uint8Array): Promise<Uint8Array | null>;
         setP2PProvider(provider: {
-          fetch(hashHex: string, peerId?: string): Promise<Uint8Array | null>;
+          fetch(hashHex: string, peerId?: string, htl?: number): Promise<Uint8Array | null>;
           listPeerIds(): string[];
         } | null): void;
         webrtcProxy?: unknown;
@@ -35,10 +35,10 @@ test('worker reads a missing block through the external P2P provider', async ({ 
     const expected = new TextEncoder().encode(`fips-provider-${crypto.randomUUID()}`);
     const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', expected));
     const hashHex = Array.from(digest, (byte) => byte.toString(16).padStart(2, '0')).join('');
-    const requests: Array<{ hashHex: string; peerId?: string }> = [];
+    const requests: Array<{ hashHex: string; peerId?: string; htl?: number }> = [];
     adapter.setP2PProvider({
-      fetch: async (requestedHashHex, peerId) => {
-        requests.push({ hashHex: requestedHashHex, peerId });
+      fetch: async (requestedHashHex, peerId, htl) => {
+        requests.push({ hashHex: requestedHashHex, peerId, htl });
         return requestedHashHex === hashHex ? expected.slice() : null;
       },
       listPeerIds: () => ['fips-test-peer'],
@@ -54,7 +54,11 @@ test('worker reads a missing block through the external P2P provider', async ({ 
     };
   }, undefined, 5);
 
-  expect(result.requests).toEqual([{ hashHex: expect.stringMatching(/^[0-9a-f]{64}$/) }]);
+  expect(result.requests).toEqual([{
+    hashHex: expect.stringMatching(/^[0-9a-f]{64}$/),
+    peerId: undefined,
+    htl: 10,
+  }]);
   expect(result.loaded).toBe(result.expected);
   expect(result.legacyProxyActive).toBe(false);
 });

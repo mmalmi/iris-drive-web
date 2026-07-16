@@ -7,14 +7,24 @@
  * This test helps debug issues where nhash navigation shows empty directories.
  */
 import { test, expect, type Page } from './fixtures';
-import { setupPageErrorHandler, navigateToPublicFolder, disableOthersPool, useLocalRelay, waitForAppReady, followUser, getCurrentDirNhash } from './test-utils.js';
+import {
+  configureExplicitFipsPair,
+  disableOthersPool,
+  enableOthersPool,
+  followUser,
+  getCurrentDirNhash,
+  navigateToPublicFolder,
+  setupPageErrorHandler,
+  useLocalRelay,
+  waitForAppReady,
+} from './test-utils.js';
 
 async function initUser(page: Page): Promise<{ npub: string; pubkeyHex: string }> {
   setupPageErrorHandler(page);
   await page.goto('http://localhost:5173');
-  await disableOthersPool(page);
   await useLocalRelay(page);
   await waitForAppReady(page);
+  await enableOthersPool(page);
   await navigateToPublicFolder(page);
 
   await page.waitForFunction(() => (window as any).__getMyPubkey?.(), { timeout: 15000 });
@@ -25,19 +35,6 @@ async function initUser(page: Page): Promise<{ npub: string; pubkeyHex: string }
     throw new Error('Could not determine user identity');
   }
   return { npub: npubMatch[0], pubkeyHex };
-}
-
-async function waitForPeerConnection(page: Page, pubkeyHex: string, timeoutMs: number = 30000): Promise<void> {
-  await page.waitForFunction(
-    async (pk: string) => {
-      const adapter = (window as any).__workerAdapter;
-      if (!adapter) return false;
-      const stats = await adapter.getPeerStats();
-      return stats.some((peer: { connected?: boolean; pubkey?: string }) => peer.connected && peer.pubkey === pk);
-    },
-    pubkeyHex,
-    { timeout: timeoutMs, polling: 500 }
-  );
 }
 
 test.describe('nhash directory navigation', () => {
@@ -247,18 +244,15 @@ test.describe('nhash directory navigation', () => {
     // Follow each other for the sharing behavior under test.
     await followUser(page1, user2.npub);
     await followUser(page2, user1.npub);
-    await waitForPeerConnection(page1, user2.pubkeyHex, 45000);
-    await waitForPeerConnection(page2, user1.pubkeyHex, 45000);
+    await configureExplicitFipsPair(page1, page2, 45_000);
 
     // Navigate to nhash URL in the second context
     const nhashUrl = `http://localhost:5173/#/${nhash}`;
     console.log('[test] Navigating to nhash URL:', nhashUrl);
     await page2.goto(nhashUrl);
-    await disableOthersPool(page2);
     await waitForAppReady(page2);
-
-    await waitForPeerConnection(page1, user2.pubkeyHex, 45000);
-    await waitForPeerConnection(page2, user1.pubkeyHex, 45000);
+    await enableOthersPool(page2);
+    await configureExplicitFipsPair(page1, page2, 45_000);
 
     // Should show directory listing with both files
     await expect(page2.locator('[data-testid="file-list"] a').filter({ hasText: 'file1.txt' })).toBeVisible({ timeout: 30000 });

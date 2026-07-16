@@ -139,6 +139,57 @@ export async function enableOthersPool(page: any, _max: number = 10) {
 }
 
 /**
+ * Pair two browser FIPS runtimes with explicit remote Hashtree routes.
+ * Production never derives blob providers from connected WebRTC peers; tests
+ * name both device identities here so cross-context reads exercise that rule.
+ */
+export async function configureExplicitFipsPair(
+  firstPage: any,
+  secondPage: any,
+  timeoutMs = 60_000,
+): Promise<void> {
+  const readPeerId = (page: any): Promise<string> => page.evaluate(async () => {
+    const { getDriveFipsRuntime } = await import('/src/lib/driveFipsRuntime.ts');
+    return getDriveFipsRuntime()?.getStats().localPeerId ?? '';
+  });
+  await Promise.all([firstPage, secondPage].map((page) => page.waitForFunction(async () => {
+    const { getDriveFipsRuntime } = await import('/src/lib/driveFipsRuntime.ts');
+    return !!getDriveFipsRuntime()?.getStats().localPeerId;
+  }, undefined, { timeout: timeoutMs })));
+  const [firstPeerId, secondPeerId] = await Promise.all([
+    readPeerId(firstPage),
+    readPeerId(secondPage),
+  ]);
+
+  await Promise.all([
+    [firstPage, secondPeerId],
+    [secondPage, firstPeerId],
+  ].map(async ([page, remotePeerId]) => {
+    await (page as any).waitForFunction(async (peerId: string) => {
+      const { getDriveFipsRuntime } = await import('/src/lib/driveFipsRuntime.ts');
+      return getDriveFipsRuntime()?.getStats().connectedPeerIds.includes(peerId) === true;
+    }, remotePeerId, { timeout: timeoutMs, polling: 500 });
+    await (page as any).evaluate(async (peerId: string) => {
+      const { getDriveFipsRuntime } = await import('/src/lib/driveFipsRuntime.ts');
+      const runtime = getDriveFipsRuntime();
+      const adapter = (window as any).__getWorkerAdapter?.() ?? (window as any).__workerAdapter;
+      if (!runtime || !adapter) throw new Error('FIPS runtime or worker adapter is not ready');
+      const provider = runtime.getP2PProvider();
+      adapter.setP2PProvider({
+        listPeerIds: () => [peerId],
+        fetch: (hashHex: string, selectedPeerId?: string, htl = 10) => {
+          if (selectedPeerId && selectedPeerId !== peerId) {
+            throw new Error(`Unexpected explicit FIPS peer ${selectedPeerId}`);
+          }
+          return provider.fetch(hashHex, peerId, htl);
+        },
+      });
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    }, remotePeerId);
+  }));
+}
+
+/**
  * Pre-set network relay settings in IndexedDB before page load.
  * This ensures the worker initializes with the local relay in test runs.
  *

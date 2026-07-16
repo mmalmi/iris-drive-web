@@ -1,6 +1,7 @@
 import { test, expect } from './fixtures';
 import { waitForRelayConnected } from './test-utils.js';
 import {
+  configureExplicitFipsPair,
   enableOthersPool,
   ensureTreeRootHash,
   flushPendingPublishes,
@@ -15,7 +16,6 @@ import {
   tryPrefetch,
   useLocalRelay,
   waitForAppReady,
-  waitForPeerConnection,
   withRelayNamespace,
 } from './direct-tree-nav.helpers';
 
@@ -88,8 +88,7 @@ test.describe.serial('Direct Tree Navigation', () => {
     await page2.waitForFunction(() => (window as any).__testHelpers?.followPubkey);
     await page1.evaluate((pk: string) => (window as any).__testHelpers?.followPubkey?.(pk), user2.pubkeyHex);
     await page2.evaluate((pk: string) => (window as any).__testHelpers?.followPubkey?.(pk), user1.pubkeyHex);
-    await waitForPeerConnection(page1, user2.pubkeyHex, 90000);
-    await waitForPeerConnection(page2, user1.pubkeyHex, 90000);
+    await configureExplicitFipsPair(page1, page2, 90000);
     await page2.evaluate(() => window.dispatchEvent(new HashChangeEvent('hashchange')));
     await ensureTreeRootHash(page2, user1.npub, 'public', rootInfo, 60000);
 
@@ -123,8 +122,7 @@ test.describe.serial('Direct Tree Navigation', () => {
       }
     }, fileHash);
 
-    await waitForPeerConnection(page1, user2.pubkeyHex, 90000);
-    await waitForPeerConnection(page2, user1.pubkeyHex, 90000);
+    await configureExplicitFipsPair(page1, page2, 90000);
     await page2.evaluate(() => window.dispatchEvent(new HashChangeEvent('hashchange')));
     await ensureTreeRootHash(page2, user1.npub, 'public', rootInfo, 60000);
 
@@ -275,8 +273,7 @@ test.describe.serial('Direct Tree Navigation', () => {
     await page2.waitForFunction(() => (window as any).__testHelpers?.followPubkey);
     await page1.evaluate((pk: string) => (window as any).__testHelpers?.followPubkey?.(pk), user2.pubkeyHex);
     await page2.evaluate((pk: string) => (window as any).__testHelpers?.followPubkey?.(pk), user1.pubkeyHex);
-    await waitForPeerConnection(page1, user2.pubkeyHex, 90000);
-    await waitForPeerConnection(page2, user1.pubkeyHex, 90000);
+    await configureExplicitFipsPair(page1, page2, 90000);
 
     await safeGoto(page2, dirUrl, { retries: 4, delayMs: 1500 });
     await expect(page2).toHaveURL(/webrtc-dir-test/, { timeout: 15000 });
@@ -284,8 +281,7 @@ test.describe.serial('Direct Tree Navigation', () => {
     await enableOthersPool(page2, 6);
     await useLocalRelay(page2, relayUrl);
 
-    await waitForPeerConnection(page1, user2.pubkeyHex, 90000);
-    await waitForPeerConnection(page2, user1.pubkeyHex, 90000);
+    await configureExplicitFipsPair(page1, page2, 90000);
 
     const dirRouteState = await page2.evaluate(async () => {
       const { currentPath } = await import('/src/lib/router.svelte');

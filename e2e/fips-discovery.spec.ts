@@ -38,7 +38,7 @@ async function activateNostrLogin(
   }, nip19.nsecEncode(secret), 5);
 }
 
-test('Drive keeps its FIPS device identity across Nostr accounts and exchanges blocks', async ({
+test('Drive keeps its FIPS device identity across Nostr accounts and explicitly exchanges blocks', async ({
   browser,
   page,
 }) => {
@@ -143,7 +143,7 @@ test('Drive keeps its FIPS device identity across Nostr accounts and exchanges b
     const text = `drive-fips-block-${crypto.randomUUID()}`;
     const data = new TextEncoder().encode(text);
     const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', data));
-    await adapter.put(hash, data);
+    if (!await adapter.put(hash, data)) throw new Error('failed to store source block');
     return {
       hashHex: Array.from(hash, (byte) => byte.toString(16).padStart(2, '0')).join(''),
       text,
@@ -152,11 +152,15 @@ test('Drive keeps its FIPS device identity across Nostr accounts and exchanges b
   });
   expect(source.legacyProxyActive).toBe(false);
 
-  await expect.poll(() => secondPage.evaluate(async (hashHex) => {
+  await expect.poll(() => evaluateWithRetry(secondPage, async ({ hashHex, peerId }) => {
     const { getDriveFipsRuntime } = await import('/src/lib/driveFipsRuntime.ts');
-    const data = await getDriveFipsRuntime()?.fetchBlock(hashHex).catch(() => null);
+    const runtime = getDriveFipsRuntime();
+    if (!runtime) throw new Error('FIPS provider bridge is not ready');
+    const data = await runtime.getP2PProvider().fetch(hashHex, peerId, 10);
     return data ? new TextDecoder().decode(data) : null;
-  }, source.hashHex), { timeout: 30_000 }).toBe(source.text);
+  }, { hashHex: source.hashHex, peerId: firstFipsPeerId }, 5), {
+    timeout: 30_000,
+  }).toBe(source.text);
 
   await secondContext.close();
 });

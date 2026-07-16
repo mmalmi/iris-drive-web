@@ -12,7 +12,6 @@ import {
 } from './test-utils.js';
 import {
   isNavigationContextReset,
-  shellQuote,
   waitForDistinctRootTimestamp,
   type BrowserDriveFipsStats,
   type BrowserTestWindow,
@@ -471,7 +470,6 @@ export async function startBrowserDriveFips(
     });
     const win = window as BrowserTestWindow;
     win.__irisDriveFips = runtime;
-    win.__workerAdapter?.setP2PProvider?.(runtime.getP2PProvider());
     return runtime.getStats();
   }, {
     relayUrl: session.relayUrl,

@@ -9,7 +9,18 @@
  * - Data can be fetched when connections are established
  */
 import { expect, type Page } from './fixtures';
-import { setupPageErrorHandler, navigateToPublicFolder, disableOthersPool, enableOthersPool, useLocalRelay, waitForAppReady, presetLocalRelayInDB, safeReload, flushPendingPublishes, waitForRelayConnected, safeGoto, getTestRelayUrl } from './test-utils.js';
+import {
+  disableOthersPool,
+  enableOthersPool,
+  navigateToPublicFolder,
+  presetLocalRelayInDB,
+  safeGoto,
+  safeReload,
+  setupPageErrorHandler,
+  useLocalRelay,
+  waitForAppReady,
+  waitForRelayConnected,
+} from './test-utils.js';
 
 export function withRelayNamespace(baseUrl: string, namespace: string): string {
   try {
@@ -52,17 +63,6 @@ export async function initUser(
     throw new Error('Could not determine user identity');
   }
   return { npub: npubMatch[0], pubkeyHex };
-}
-
-export async function waitForPeerConnection(page: Page, _pubkeyHex: string, timeoutMs: number = 60000): Promise<void> {
-  await page.waitForFunction(
-    async () => {
-      const { getDriveFipsRuntime } = await import('/src/lib/driveFipsRuntime.ts');
-      return (getDriveFipsRuntime()?.getStats().connectedPeerIds.length ?? 0) > 0;
-    },
-    undefined,
-    { timeout: timeoutMs, polling: 500 }
-  );
 }
 
 export async function waitForTreeRoot(page: Page, npub: string, treeName: string, timeoutMs: number = 60000): Promise<void> {
@@ -255,7 +255,6 @@ export async function prefetchTreePath(
         const rootCid = getTreeRootSync(targetNpub, targetTree);
         if (!rootCid) return false;
         const tree = getTree();
-        const adapter = (window as any).__getWorkerAdapter?.() ?? (window as any).__workerAdapter;
         const entry = await tree.resolvePath(rootCid, path);
         return !!entry?.cid;
       }, { targetNpub: npub, targetTree: treeName, path: filePath });
@@ -313,4 +312,4 @@ export async function readFileTextViaWorker(
   }, { targetNpub: npub, targetTree: treeName, path: filePath, timeout: timeoutMs });
 }
 
-export { enableOthersPool, flushPendingPublishes, getTestRelayUrl, safeGoto, useLocalRelay, waitForAppReady } from './test-utils.js';
+export { configureExplicitFipsPair, enableOthersPool, flushPendingPublishes, getTestRelayUrl, safeGoto, useLocalRelay, waitForAppReady } from './test-utils.js';
