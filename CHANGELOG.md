@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.5 - 2026-07-16
+
+- Pin the Hashtree worker and FIPS transport to immutable runtime 0.4.3.
+- Preserve explicit blob routes during FIPS runtime resync and replay provider
+  state across worker replacement.
+- Give every browser test a fresh relay namespace so retained discovery events
+  cannot leak between release checks.
+
 ## 0.1.4 - 2026-07-16
 
 - Move every Iris Kit dependency to its immutable patched release: runtime

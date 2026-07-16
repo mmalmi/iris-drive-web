@@ -5,8 +5,8 @@ import { disableOthersPool, setupPageErrorHandler, waitForAppReady, ensureLogged
 import { BOOTSTRAP_SECKEY_HEX, FOLLOW_SECKEY_HEX, BOOTSTRAP_SECKEY, FOLLOW_SECKEY } from './nostr-test-keys';
 
 let relayUrl = '';
-test.beforeAll(({ relayUrl: workerRelayUrl }) => {
-  relayUrl = workerRelayUrl;
+test.beforeEach(({ relayUrl: testRelayUrl }) => {
+  relayUrl = testRelayUrl;
 });
 const BOOTSTRAP_PUBKEY = getPublicKey(BOOTSTRAP_SECKEY);
 const BOOTSTRAP_NPUB = nip19.npubEncode(BOOTSTRAP_PUBKEY);

@@ -353,13 +353,11 @@ export class WorkerAdapterCore {
 
   setP2PProvider(provider: WorkerP2PProvider | null): void {
     this.p2pProvider = provider;
-    if (this.ready && this.worker) {
-      this.worker.postMessage({
-        type: 'setP2PProviderState',
-        id: generateRequestId(),
-        enabled: provider !== null,
-      } as ExtendedWorkerRequest);
-    }
+    this.postMessage({
+      type: 'setP2PProviderState',
+      id: generateRequestId(),
+      enabled: provider !== null,
+    } as ExtendedWorkerRequest);
   }
 
   private async handleP2PFetch(
