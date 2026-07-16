@@ -1,6 +1,6 @@
 {
   "name": "iris-drive-web",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "license": "MIT",
   "private": true,
   "description": "Iris Drive - content-addressed file sync on Nostr",
@@ -40,10 +40,10 @@
     "lint:fix": "eslint src --fix"
   },
   "dependencies": {
-    "@fips/browser": "https://github.com/mmalmi/fips-ts/releases/download/runtime-v0.0.25/fips-browser-0.0.7.tgz",
-    "@fips/core": "https://github.com/mmalmi/fips-ts/releases/download/runtime-v0.0.25/fips-core-0.0.25.tgz",
+    "@fips/browser": "https://github.com/mmalmi/fips-ts/releases/download/runtime-v0.0.26/fips-browser-0.0.8.tgz",
+    "@fips/core": "https://github.com/mmalmi/fips-ts/releases/download/runtime-v0.0.26/fips-core-0.0.26.tgz",
     "@fips/tcp": "https://github.com/mmalmi/fips-tcp/releases/download/v0.2.0/fips-tcp-0.2.0.tgz",
-    "@fips/transport-webrtc": "https://github.com/mmalmi/fips-ts/releases/download/runtime-v0.0.25/fips-transport-webrtc-0.0.41.tgz",
+    "@fips/transport-webrtc": "https://github.com/mmalmi/fips-ts/releases/download/runtime-v0.0.26/fips-transport-webrtc-0.0.42.tgz",
     "@hashtree/core": "https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.4.2/hashtree-core-0.2.1.tgz",
     "@hashtree/dexie": "https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.4.2/hashtree-dexie-0.1.7.tgz",
     "@hashtree/fips-transport": "https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.4.3/hashtree-fips-transport-0.4.3.tgz",
@@ -116,10 +116,10 @@
       "esbuild"
     ],
     "overrides": {
-      "@fips/browser": "https://github.com/mmalmi/fips-ts/releases/download/runtime-v0.0.25/fips-browser-0.0.7.tgz",
-      "@fips/core": "https://github.com/mmalmi/fips-ts/releases/download/runtime-v0.0.25/fips-core-0.0.25.tgz",
+      "@fips/browser": "https://github.com/mmalmi/fips-ts/releases/download/runtime-v0.0.26/fips-browser-0.0.8.tgz",
+      "@fips/core": "https://github.com/mmalmi/fips-ts/releases/download/runtime-v0.0.26/fips-core-0.0.26.tgz",
       "@fips/tcp": "https://github.com/mmalmi/fips-tcp/releases/download/v0.2.0/fips-tcp-0.2.0.tgz",
-      "@fips/transport-webrtc": "https://github.com/mmalmi/fips-ts/releases/download/runtime-v0.0.25/fips-transport-webrtc-0.0.41.tgz",
+      "@fips/transport-webrtc": "https://github.com/mmalmi/fips-ts/releases/download/runtime-v0.0.26/fips-transport-webrtc-0.0.42.tgz",
       "@hashtree/core": "https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.4.2/hashtree-core-0.2.1.tgz",
       "@hashtree/dexie": "https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.4.2/hashtree-dexie-0.1.7.tgz",
       "@hashtree/fips-transport": "https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.4.3/hashtree-fips-transport-0.4.3.tgz",

@@ -60,22 +60,10 @@ describe('hashtree path resolution', () => {
     expect(resolveHashtreeRepoRoot()).toBe(expectedRepoRoot);
     expect(resolveHashtreeRustDir()).toBe(expectedRustDir);
     expect(resolveHashtreeCiDir()).toBe(expectedCiDir);
-    expect(resolveHtreeCommand('add', '.')).toEqual(expectedRustDir ? [
-      'cargo',
-      'run',
-      '--manifest-path',
-      path.join(expectedRustDir, 'Cargo.toml'),
-      '-p',
-      'hashtree-cli',
-      '--bin',
-      'htree',
-      '--',
-      'add',
-      '.',
-    ] : ['htree', 'add', '.']);
+    expect(resolveHtreeCommand('add', '.')).toEqual(['htree', 'add', '.']);
   });
 
-  it('still honors explicit rust workspace overrides', () => {
+  it('keeps source lookup separate from the public CLI release command', () => {
     const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'iris-files-hashtree-'));
     const rustDir = path.join(tempRoot, 'rust');
 
@@ -84,19 +72,7 @@ describe('hashtree path resolution', () => {
     process.env.HASHTREE_RUST_DIR = rustDir;
 
     expect(resolveHashtreeRustDir()).toBe(rustDir);
-    expect(resolveHtreeCommand('add', '.')).toEqual([
-      'cargo',
-      'run',
-      '--manifest-path',
-      path.join(rustDir, 'Cargo.toml'),
-      '-p',
-      'hashtree-cli',
-      '--bin',
-      'htree',
-      '--',
-      'add',
-      '.',
-    ]);
+    expect(resolveHtreeCommand('add', '.')).toEqual(['htree', 'add', '.']);
 
     fs.rmSync(tempRoot, { recursive: true, force: true });
   });

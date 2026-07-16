@@ -1,6 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.1.6 - 2026-07-16
+
+- Upgrade to immutable FIPS TypeScript runtime 0.0.26, preserving persisted
+  browser identity across reloads and rejecting stale handshake epochs.
+- Publish with the installed public Hashtree CLI instead of compiling a mutable
+  sibling Rust checkout during the release.
 
 - Pin the shared Hashtree worker to immutable runtime 0.4.4, keeping media
   routes limited to exact configured provider identities with HTL 10.
