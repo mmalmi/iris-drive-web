@@ -14,7 +14,7 @@ overrides:
   '@hashtree/fips-transport': https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.4.3/hashtree-fips-transport-0.4.3.tgz
   '@hashtree/index': https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.4.2/hashtree-index-0.1.11.tgz
   '@hashtree/nostr': https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.4.2/hashtree-nostr-0.1.17.tgz
-  '@hashtree/worker': https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.4.3/hashtree-worker-0.3.2.tgz
+  '@hashtree/worker': https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.4.4/hashtree-worker-0.3.3.tgz
   nostr-social-graph: https://github.com/mmalmi/nostr-social-graph/releases/download/v2.0.0/nostr-social-graph-2.0.0.tgz
 
 importers:
@@ -49,8 +49,8 @@ importers:
         specifier: https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.4.2/hashtree-nostr-0.1.17.tgz
         version: https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.4.2/hashtree-nostr-0.1.17.tgz(typescript@5.9.3)
       '@hashtree/worker':
-        specifier: https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.4.3/hashtree-worker-0.3.2.tgz
-        version: https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.4.3/hashtree-worker-0.3.2.tgz(ndk-cache@https://github.com/mmalmi/iris-kit/releases/download/runtime-v0.2.2/ndk-cache-0.2.1.tgz(typescript@5.9.3))(ndk@https://github.com/mmalmi/iris-kit/releases/download/runtime-v0.2.2/ndk-0.2.1.tgz(typescript@5.9.3))(nostr-social-graph@https://github.com/mmalmi/nostr-social-graph/releases/download/v2.0.0/nostr-social-graph-2.0.0.tgz(typescript@5.9.3))(typescript@5.9.3)
+        specifier: https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.4.4/hashtree-worker-0.3.3.tgz
+        version: https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.4.4/hashtree-worker-0.3.3.tgz(ndk-cache@https://github.com/mmalmi/iris-kit/releases/download/runtime-v0.2.2/ndk-cache-0.2.1.tgz(typescript@5.9.3))(ndk@https://github.com/mmalmi/iris-kit/releases/download/runtime-v0.2.2/ndk-0.2.1.tgz(typescript@5.9.3))(nostr-social-graph@https://github.com/mmalmi/nostr-social-graph/releases/download/v2.0.0/nostr-social-graph-2.0.0.tgz(typescript@5.9.3))(typescript@5.9.3)
       '@iris/hashtree-app':
         specifier: https://github.com/mmalmi/iris-kit/releases/download/runtime-v0.2.1/iris-hashtree-app-0.1.2.tgz
         version: https://github.com/mmalmi/iris-kit/releases/download/runtime-v0.2.1/iris-hashtree-app-0.1.2.tgz(@hashtree/core@https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.4.2/hashtree-core-0.2.1.tgz)(svelte@5.56.3(@typescript-eslint/types@8.61.0))
@@ -994,9 +994,9 @@ packages:
     resolution: {tarball: https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.4.2/hashtree-nostr-0.1.17.tgz}
     version: 0.1.17
 
-  '@hashtree/worker@https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.4.3/hashtree-worker-0.3.2.tgz':
-    resolution: {tarball: https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.4.3/hashtree-worker-0.3.2.tgz}
-    version: 0.3.2
+  '@hashtree/worker@https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.4.4/hashtree-worker-0.3.3.tgz':
+    resolution: {tarball: https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.4.4/hashtree-worker-0.3.3.tgz}
+    version: 0.3.3
     peerDependencies:
       ndk: '*'
       ndk-cache: '*'
@@ -4698,7 +4698,7 @@ snapshots:
     transitivePeerDependencies:
       - typescript
 
-  '@hashtree/worker@https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.4.3/hashtree-worker-0.3.2.tgz(ndk-cache@https://github.com/mmalmi/iris-kit/releases/download/runtime-v0.2.2/ndk-cache-0.2.1.tgz(typescript@5.9.3))(ndk@https://github.com/mmalmi/iris-kit/releases/download/runtime-v0.2.2/ndk-0.2.1.tgz(typescript@5.9.3))(nostr-social-graph@https://github.com/mmalmi/nostr-social-graph/releases/download/v2.0.0/nostr-social-graph-2.0.0.tgz(typescript@5.9.3))(typescript@5.9.3)':
+  '@hashtree/worker@https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.4.4/hashtree-worker-0.3.3.tgz(ndk-cache@https://github.com/mmalmi/iris-kit/releases/download/runtime-v0.2.2/ndk-cache-0.2.1.tgz(typescript@5.9.3))(ndk@https://github.com/mmalmi/iris-kit/releases/download/runtime-v0.2.2/ndk-0.2.1.tgz(typescript@5.9.3))(nostr-social-graph@https://github.com/mmalmi/nostr-social-graph/releases/download/v2.0.0/nostr-social-graph-2.0.0.tgz(typescript@5.9.3))(typescript@5.9.3)':
     dependencies:
       '@hashtree/core': https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.4.2/hashtree-core-0.2.1.tgz
       '@hashtree/dexie': https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.4.2/hashtree-dexie-0.1.7.tgz

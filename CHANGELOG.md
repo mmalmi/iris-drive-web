@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Pin the shared Hashtree worker to immutable runtime 0.4.4, keeping media
+  routes limited to exact configured provider identities with HTL 10.
+
 ## 0.1.5 - 2026-07-16
 
 - Pin the Hashtree worker and FIPS transport to immutable runtime 0.4.3.
