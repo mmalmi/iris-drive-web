@@ -1,20 +1,43 @@
 import type { CID } from '@hashtree/core';
+import type {
+  NostrIdentityId,
+  SignedNostrIdentityFacetAcceptance,
+  SignedNostrIdentityRosterOp,
+} from 'nostr-social-graph';
+
+export {
+  KIND_NOSTR_IDENTITY_FACET_ACCEPTANCE,
+  KIND_NOSTR_IDENTITY_ROSTER_OP,
+  NOSTR_IDENTITY_FACET_ACCEPTANCE_SCHEMA,
+  NOSTR_IDENTITY_ROSTER_SCHEMA,
+} from 'nostr-social-graph';
+export type {
+  BuildNostrIdentityFacetAcceptanceEventOptions,
+  BuildNostrIdentityRosterOpEventOptions,
+  NostrIdentityCapabilities,
+  NostrIdentityFacet,
+  NostrIdentityFacetAcceptanceContent,
+  NostrIdentityId,
+  NostrIdentityKeyPurpose,
+  NostrIdentityRosterOp,
+  NostrIdentityRosterOpContent,
+  NostrIdentityRosterProjection,
+  NostrIdentitySecretEpoch,
+  NostrIdentityTombstone,
+  SignedNostrIdentityFacetAcceptance,
+  SignedNostrIdentityRosterOp,
+} from 'nostr-social-graph';
 
 export const KIND_APP_KEYS = 30078;
 export const KIND_DRIVE_ROOT = 30078;
 export const KIND_LEGACY_DRIVE_ROOT = 30079;
 export const D_TAG_APP_KEYS = 'iris-drive/app-keys';
-export const KIND_NOSTR_IDENTITY_ROSTER_OP = 7368;
-export const KIND_NOSTR_IDENTITY_FACET_ACCEPTANCE = 7368;
 export const KIND_SHARE_MEMBER_ROSTER_OP = 30078;
 export const KIND_SHARE_ROSTER_CHECKPOINT = 30078;
 export const SHARE_INVITE_PREFIX = 'iris-drive://share-invite/';
-export const NOSTR_IDENTITY_ROSTER_SCHEMA = 1;
-export const NOSTR_IDENTITY_FACET_ACCEPTANCE_SCHEMA = 1;
 export const SHARE_MEMBER_ROSTER_SCHEMA = 1;
 export const SHARE_ROSTER_CHECKPOINT_SCHEMA = 1;
 
-export type NostrIdentityId = string;
 export type ShareRole = 'admin' | 'editor' | 'reader';
 export type ShareMemberStatus = 'pending' | 'active' | 'revoked';
 export type ShareRootWriteAuthorization =
@@ -27,95 +50,6 @@ export type ShareRootWriteAuthorization =
   | 'app_key_not_active'
   | 'not_an_app_key'
   | 'app_key_cannot_write_roots';
-export type NostrIdentityKeyPurpose =
-  | 'app_key'
-  | 'recovery_phrase'
-  | 'nip46_signer'
-  | 'social_profile';
-
-export interface NostrIdentityCapabilities {
-  can_write_roots?: boolean;
-  can_admin_profile?: boolean;
-  can_recover_app_keys?: boolean;
-  can_receive_secret_wraps?: boolean;
-  can_decrypt_secret_epochs?: boolean;
-}
-
-export interface NostrIdentityFacet {
-  pubkey: string;
-  profile_id?: NostrIdentityId;
-  purposes?: NostrIdentityKeyPurpose[];
-  capabilities?: NostrIdentityCapabilities;
-  added_at: number;
-  label?: string;
-}
-
-export interface NostrIdentitySecretEpoch {
-  epoch: number;
-  created_at: number;
-  signed_by_pubkey: string;
-  wrapped_secrets: Record<string, string>;
-}
-
-export interface NostrIdentityTombstone {
-  pubkey: string;
-  profile_id?: NostrIdentityId;
-  removed_by_pubkey: string;
-  removed_at: number;
-  reason?: string;
-}
-
-export type NostrIdentityRosterOp =
-  | { op: 'add_facet'; facet: NostrIdentityFacet }
-  | { op: 'tombstone_facet'; pubkey: string; reason?: string }
-  | { op: 'set_capabilities'; pubkey: string; capabilities: NostrIdentityCapabilities }
-  | { op: 'rotate_secret_epoch'; epoch: number; wrapped_secrets?: Record<string, string> }
-  | { op: 'repair_secret_wraps'; epoch: number; wrapped_secrets?: Record<string, string> };
-
-export interface NostrIdentityRosterOpContent {
-  schema: number;
-  profile_id: NostrIdentityId;
-  actor_pubkey: string;
-  actor_seq?: number;
-  parents?: string[];
-  client_nonce: string;
-  created_at: number;
-  op: NostrIdentityRosterOp;
-}
-
-export interface SignedNostrIdentityRosterOp {
-  op_id: string;
-  signer_pubkey: string;
-  content: NostrIdentityRosterOpContent;
-  event_json: string;
-}
-
-export interface NostrIdentityFacetAcceptanceContent {
-  schema: number;
-  profile_id: NostrIdentityId;
-  facet_pubkey: string;
-  purposes: NostrIdentityKeyPurpose[];
-  roster_op_id?: string;
-  client_nonce: string;
-  accepted_at: number;
-}
-
-export interface SignedNostrIdentityFacetAcceptance {
-  acceptance_id: string;
-  signer_pubkey: string;
-  content: NostrIdentityFacetAcceptanceContent;
-  event_json: string;
-}
-
-export interface NostrIdentityRosterProjection {
-  profile_id: NostrIdentityId;
-  active_facets: Record<string, NostrIdentityFacet>;
-  tombstones: Record<string, NostrIdentityTombstone>;
-  secret_epochs: Record<string, NostrIdentitySecretEpoch>;
-  accepted_op_ids: string[];
-  rejected_op_ids: string[];
-}
-
 export interface ShareMember {
   profile_id: NostrIdentityId;
   role: ShareRole;
@@ -367,26 +301,6 @@ export interface BuildDriveRootEventOptions {
   publishedAtMs?: number;
   parents?: RootParent[];
   observed?: Record<string, RootObservation>;
-}
-
-export interface BuildNostrIdentityRosterOpEventOptions {
-  signerSecretKey: Uint8Array;
-  profileId: NostrIdentityId;
-  op: NostrIdentityRosterOp;
-  parents?: string[];
-  actorSeq?: number;
-  createdAt?: number;
-  clientNonce?: string;
-  encryptedDeviceLabels?: string;
-}
-
-export interface BuildNostrIdentityFacetAcceptanceEventOptions {
-  signerSecretKey: Uint8Array;
-  profileId: NostrIdentityId;
-  purposes: NostrIdentityKeyPurpose[];
-  rosterOpId?: string;
-  acceptedAt?: number;
-  clientNonce?: string;
 }
 
 export interface BuildShareRosterCheckpointEventOptions {

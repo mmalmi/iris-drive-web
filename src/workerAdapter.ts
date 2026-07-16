@@ -9,7 +9,7 @@ import type {
   WorkerBlossomUploadProgress as BlossomUploadProgress,
 } from '@hashtree/core';
 import { WorkerAdapterSocial } from './workerAdapterSocial';
-import type { ExtendedWorkerConfig, WorkerConstructor } from './workerAdapterCore';
+import type { WorkerAdapterConfig, WorkerConstructor } from './workerAdapterCore';
 
 export class WorkerAdapter extends WorkerAdapterSocial {}
 
@@ -40,7 +40,7 @@ export function setWorkerAdapterInstance(adapter: BackendAdapter | null): void {
 
 export async function initWorkerAdapter(
   workerFactory: WorkerConstructor,
-  config: ExtendedWorkerConfig
+  config: WorkerAdapterConfig
 ): Promise<WorkerAdapter> {
   if (instance) {
     return instance as WorkerAdapter;

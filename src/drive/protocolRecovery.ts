@@ -1,7 +1,5 @@
-import {
-  buildNostrIdentityRosterOpEventDraft,
-  type NostrIdentityEventSigner,
-} from '@iris/identity';
+import type { NostrIdentityEventSigner } from '@iris/identity';
+import { buildNostrIdentityRosterOpEventDraft } from 'nostr-social-graph';
 import { parseNostrIdentityRosterOpEvent } from './protocolProfileEvents';
 import {
   nostrIdentityRosterParentIds,

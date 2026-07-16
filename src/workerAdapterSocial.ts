@@ -200,13 +200,18 @@ export class WorkerAdapterSocial extends WorkerAdapterNostr {
    * Update worker's user identity (for account switching)
    */
   async setIdentity(pubkey: string, nsec?: string): Promise<void> {
-    const id = generateRequestId();
-    await this.request<{ error?: string }>({
+    const update = () => this.request<{ error?: string }>({
       type: 'setIdentity',
-      id,
+      id: generateRequestId(),
       pubkey,
       nsec,
     } as ExtendedWorkerRequest);
+    try {
+      await update();
+    } catch (error) {
+      if (!(error instanceof Error) || error.message !== 'Worker crashed') throw error;
+      await update();
+    }
   }
 
   // ============================================================================

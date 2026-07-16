@@ -60,23 +60,37 @@ let initPromise: Promise<void> | null = null;
 let lastBlossomServersHash = '';
 let lastRelaysHash = '';
 let fipsStoreName: string | null = null;
-let fipsProviderReadyFor: BackendAdapter | null = null;
+let fipsRuntimeReadyFor: BackendAdapter | null = null;
 let fipsDesiredKey = '';
 let fipsActiveKey = '';
 let fipsSyncVersion = 0;
 let fipsSyncTail: Promise<void> = Promise.resolve();
+let fipsRetryTimer: ReturnType<typeof setTimeout> | null = null;
+let fipsRetryDelayMs = 1_000;
 const workerSubscriptionIds = new WeakMap<object, string>();
 
-function startFipsForAdapter(adapter: BackendAdapter, relays: string[], storeName: string): Promise<void> {
+function clearFipsRetry(): void {
+  if (fipsRetryTimer) clearTimeout(fipsRetryTimer);
+  fipsRetryTimer = null;
+}
+
+function startFipsForAdapter(
+  adapter: BackendAdapter,
+  relays: string[],
+  storeName: string,
+  retry = false,
+): Promise<void> {
   const desiredKey = JSON.stringify({ relays, storeName });
   if (desiredKey === fipsDesiredKey) return fipsSyncTail;
+  clearFipsRetry();
+  if (!retry) fipsRetryDelayMs = 1_000;
   fipsDesiredKey = desiredKey;
   const version = ++fipsSyncVersion;
   const sync = fipsSyncTail.catch(() => undefined).then(async () => {
     if (version !== fipsSyncVersion || getWorkerAdapter() !== adapter) return;
-    if (desiredKey === fipsActiveKey && fipsProviderReadyFor === adapter) return;
+    if (desiredKey === fipsActiveKey && fipsRuntimeReadyFor === adapter) return;
 
-    fipsProviderReadyFor = null;
+    fipsRuntimeReadyFor = null;
     adapter.setP2PProvider?.(null);
     await stopDriveFipsRuntime();
     if (version !== fipsSyncVersion || getWorkerAdapter() !== adapter) return;
@@ -91,13 +105,22 @@ function startFipsForAdapter(adapter: BackendAdapter, relays: string[], storeNam
         await runtime.stop();
         return;
       }
-      adapter.setP2PProvider?.(runtime.getP2PProvider());
       fipsActiveKey = desiredKey;
-      fipsProviderReadyFor = adapter;
-      console.log('[WorkerInit] FIPS P2P provider ready');
+      fipsRuntimeReadyFor = adapter;
+      fipsRetryDelayMs = 1_000;
+      console.log('[WorkerInit] FIPS runtime ready');
     } catch (error) {
-      if (version === fipsSyncVersion) fipsDesiredKey = '';
-      console.warn('[WorkerInit] FIPS P2P provider failed to start:', error);
+      if (version !== fipsSyncVersion) return;
+      fipsDesiredKey = '';
+      console.warn('[WorkerInit] FIPS runtime failed to start:', error);
+      const delay = fipsRetryDelayMs;
+      fipsRetryDelayMs = Math.min(delay * 2, 30_000);
+      fipsRetryTimer = setTimeout(() => {
+        fipsRetryTimer = null;
+        if (getWorkerAdapter() === adapter && fipsStoreName === storeName) {
+          void startFipsForAdapter(adapter, relays, storeName, true);
+        }
+      }, delay);
     }
   });
   fipsSyncTail = sync;
@@ -267,7 +290,6 @@ export async function initHashtreeBackend(identity: WorkerInitIdentity): Promise
         blossomServers: runtimeEndpoints.blossomServers,
         pubkey: identity.pubkey,
         nsec: identity.nsec,
-        ...(backendMode === 'worker' ? { p2pMode: 'external' as const } : {}),
       };
 
       let adapter: BackendAdapter | null = null;
@@ -409,9 +431,9 @@ export function isWorkerReady(): boolean {
   return initialized && getWorkerAdapter() !== null;
 }
 
-export function isFipsProviderReady(): boolean {
+export function isFipsRuntimeReady(): boolean {
   const adapter = getWorkerAdapter();
-  return adapter !== null && fipsProviderReadyFor === adapter;
+  return adapter !== null && fipsRuntimeReadyFor === adapter;
 }
 
 /**
@@ -447,10 +469,12 @@ export async function initHashtreeWorker(identity: WorkerInitIdentity): Promise<
 
 export async function stopHashtreeBrowserP2P(): Promise<void> {
   fipsSyncVersion += 1;
+  clearFipsRetry();
+  fipsRetryDelayMs = 1_000;
   fipsStoreName = null;
   fipsDesiredKey = '';
   fipsActiveKey = '';
-  fipsProviderReadyFor = null;
+  fipsRuntimeReadyFor = null;
   getWorkerAdapter()?.setP2PProvider?.(null);
   await stopDriveFipsRuntime();
 }

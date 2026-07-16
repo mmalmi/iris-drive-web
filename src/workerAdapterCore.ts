@@ -9,7 +9,7 @@
 import type {
   WorkerRequest,
   WorkerResponse,
-  WorkerConfig,
+  WorkerConfig as HashtreeWorkerConfig,
   WorkerSignedEvent as SignedEvent,
   WorkerUnsignedEvent as UnsignedEvent,
   WorkerBlossomBandwidthStats as BlossomBandwidthStats,
@@ -26,15 +26,13 @@ type PendingRequest = {
 
 export type SubscriptionCallback = (event: SignedEvent) => void;
 export type EoseCallback = () => void;
-export type ExtendedWorkerConfig = WorkerConfig & {
-  p2pMode?: 'external' | 'off';
-};
+export type WorkerAdapterConfig = HashtreeWorkerConfig;
 export type ExtendedWorkerRequest = WorkerRequest | (Record<string, unknown> & {
   type: string;
   id?: string;
 });
 export interface WorkerP2PProvider {
-  fetch(hashHex: string, peerId?: string): Promise<Uint8Array | null>;
+  fetch(hashHex: string, peerId?: string, htl?: number): Promise<Uint8Array | null>;
   listPeerIds(): string[] | Promise<string[]>;
 }
 
@@ -44,7 +42,7 @@ export type WorkerConstructor = URL | string | (new () => Worker);
 export class WorkerAdapterCore {
   protected worker: Worker | null = null;
   protected workerFactory: WorkerConstructor;
-  protected config: ExtendedWorkerConfig;
+  protected config: WorkerAdapterConfig;
   protected ready = false;
   protected readyPromise: Promise<void> | null = null;
   protected readyResolve: (() => void) | null = null;
@@ -94,7 +92,7 @@ export class WorkerAdapterCore {
    * @param workerFactory - Either a URL string or a Worker constructor from Vite's `?worker` import
    * @param config - Worker configuration
    */
-  constructor(workerFactory: WorkerConstructor, config: ExtendedWorkerConfig) {
+  constructor(workerFactory: WorkerConstructor, config: WorkerAdapterConfig) {
     this.workerFactory = workerFactory;
     this.config = config;
   }
@@ -134,6 +132,7 @@ export class WorkerAdapterCore {
       type: 'init',
       id: generateRequestId(),
       config: this.config,
+      p2pProviderEnabled: this.p2pProvider !== null,
     } as ExtendedWorkerRequest);
   }
 
@@ -258,7 +257,7 @@ export class WorkerAdapterCore {
           break;
 
         case 'p2pFetch':
-          void this.handleP2PFetch(msg.requestId, msg.hashHex, msg.peerId);
+          void this.handleP2PFetch(msg.requestId, msg.hashHex, msg.htl, msg.peerId);
           break;
         case 'p2pPeerList':
           void this.handleP2PPeerList(msg.requestId);
@@ -354,15 +353,24 @@ export class WorkerAdapterCore {
 
   setP2PProvider(provider: WorkerP2PProvider | null): void {
     this.p2pProvider = provider;
+    if (this.ready && this.worker) {
+      this.worker.postMessage({
+        type: 'setP2PProviderState',
+        id: generateRequestId(),
+        enabled: provider !== null,
+      } as ExtendedWorkerRequest);
+    }
   }
 
   private async handleP2PFetch(
     requestId: string,
     hashHex: string,
+    htl?: number,
     peerId?: string,
   ): Promise<void> {
     try {
-      const data = await this.p2pProvider?.fetch(hashHex, peerId) ?? null;
+      if (!this.p2pProvider) throw new Error('No P2P blob route configured');
+      const data = await this.p2pProvider.fetch(hashHex, peerId, htl);
       const message = {
         type: 'p2pFetchResult',
         id: generateRequestId(),

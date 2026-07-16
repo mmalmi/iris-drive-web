@@ -6,6 +6,20 @@ const FIRST_NOSTR_SECRET = new Uint8Array(32).fill(0x61);
 const SECOND_NOSTR_SECRET = new Uint8Array(32).fill(0x62);
 const SWITCHED_NOSTR_SECRET = new Uint8Array(32).fill(0x63);
 
+async function fipsLinkState(page: import('@playwright/test').Page): Promise<{
+  localPeerId: string;
+  connectedPeerIds: string[];
+}> {
+  return page.evaluate(async () => {
+    const { getDriveFipsRuntime } = await import('/src/lib/driveFipsRuntime.ts');
+    const stats = getDriveFipsRuntime()?.getStats();
+    return {
+      localPeerId: stats?.localPeerId ?? '',
+      connectedPeerIds: stats?.connectedPeerIds ?? [],
+    };
+  }).catch(() => ({ localPeerId: '', connectedPeerIds: [] }));
+}
+
 async function installNostrLogin(page: import('@playwright/test').Page, secret: Uint8Array): Promise<void> {
   const nsec = nip19.nsecEncode(secret);
   await page.addInitScript((value) => {
@@ -24,7 +38,7 @@ async function activateNostrLogin(
   }, nip19.nsecEncode(secret), 5);
 }
 
-test('Drive keeps its FIPS device identity across Nostr accounts and exchanges blocks', async ({
+test('Drive keeps its FIPS device identity across Nostr accounts and explicitly exchanges blocks', async ({
   browser,
   page,
 }) => {
@@ -49,12 +63,18 @@ test('Drive keeps its FIPS device identity across Nostr accounts and exchanges b
   await activateNostrLogin(secondPage, SECOND_NOSTR_SECRET);
   await waitForWorkerAdapter(secondPage);
 
-  await expect.poll(async () => (await Promise.all([page, secondPage].map(async (candidate) => (
-    candidate.evaluate(async () => {
-      const { getDriveFipsRuntime } = await import('/src/lib/driveFipsRuntime.ts');
-      return getDriveFipsRuntime()?.getStats().connectedPeerIds.length ?? 0;
-    }).catch(() => -1)
-  )))).every((count) => count > 0), { timeout: 60_000 }).toBe(true);
+  await expect.poll(async () => Promise.all(
+    [page, secondPage].map(async (candidate) => (await fipsLinkState(candidate)).localPeerId),
+  ), { timeout: 60_000 }).toEqual([
+    expect.stringMatching(/^(02|03)[0-9a-f]{64}$/),
+    expect.stringMatching(/^(02|03)[0-9a-f]{64}$/),
+  ]);
+  const [firstFipsPeerId, secondFipsPeerId] = await Promise.all(
+    [page, secondPage].map(async (candidate) => (await fipsLinkState(candidate)).localPeerId),
+  );
+  await expect.poll(async () => Promise.all(
+    [page, secondPage].map(async (candidate) => (await fipsLinkState(candidate)).connectedPeerIds),
+  ), { timeout: 60_000 }).toEqual([[secondFipsPeerId], [firstFipsPeerId]]);
 
   await page.evaluate(async () => {
     const { settingsStore } = await import('/src/stores/settings.ts');
@@ -108,12 +128,9 @@ test('Drive keeps its FIPS device identity across Nostr accounts and exchanges b
     fipsPeerId: initialIdentity.fipsPeerId,
     nostrPubkey: getPublicKey(SWITCHED_NOSTR_SECRET),
   });
-  await expect.poll(async () => (await Promise.all([page, secondPage].map(async (candidate) => (
-    candidate.evaluate(async () => {
-      const { getDriveFipsRuntime } = await import('/src/lib/driveFipsRuntime.ts');
-      return getDriveFipsRuntime()?.getStats().connectedPeerIds.length ?? 0;
-    }).catch(() => -1)
-  )))).every((count) => count > 0), { timeout: 60_000 }).toBe(true);
+  await expect.poll(async () => Promise.all(
+    [page, secondPage].map(async (candidate) => (await fipsLinkState(candidate)).connectedPeerIds),
+  ), { timeout: 60_000 }).toEqual([[secondFipsPeerId], [firstFipsPeerId]]);
 
   const source = await page.evaluate(async () => {
     const adapter = (window as typeof window & {
@@ -126,7 +143,7 @@ test('Drive keeps its FIPS device identity across Nostr accounts and exchanges b
     const text = `drive-fips-block-${crypto.randomUUID()}`;
     const data = new TextEncoder().encode(text);
     const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', data));
-    await adapter.put(hash, data);
+    if (!await adapter.put(hash, data)) throw new Error('failed to store source block');
     return {
       hashHex: Array.from(hash, (byte) => byte.toString(16).padStart(2, '0')).join(''),
       text,
@@ -135,11 +152,15 @@ test('Drive keeps its FIPS device identity across Nostr accounts and exchanges b
   });
   expect(source.legacyProxyActive).toBe(false);
 
-  await expect.poll(() => secondPage.evaluate(async (hashHex) => {
+  await expect.poll(() => evaluateWithRetry(secondPage, async ({ hashHex, peerId }) => {
     const { getDriveFipsRuntime } = await import('/src/lib/driveFipsRuntime.ts');
-    const data = await getDriveFipsRuntime()?.fetchBlock(hashHex).catch(() => null);
+    const runtime = getDriveFipsRuntime();
+    if (!runtime) throw new Error('FIPS provider bridge is not ready');
+    const data = await runtime.getP2PProvider().fetch(hashHex, peerId, 10);
     return data ? new TextDecoder().decode(data) : null;
-  }, source.hashHex), { timeout: 30_000 }).toBe(source.text);
+  }, { hashHex: source.hashHex, peerId: firstFipsPeerId }, 5), {
+    timeout: 30_000,
+  }).toBe(source.text);
 
   await secondContext.close();
 });

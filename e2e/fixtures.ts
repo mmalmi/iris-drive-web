@@ -24,7 +24,7 @@ async function initializeContext(context: BrowserContext, relayUrl: string, rend
 
 const test = base.extend<Fixtures>({
   relayUrl: [async ({}, use, workerInfo) => {
-    const namespace = `w${workerInfo.workerIndex}`;
+    const namespace = `${process.pid}-w${workerInfo.workerIndex}`;
     const relayUrl = `ws://localhost:4736/${namespace}`;
     process.env.PW_TEST_RELAY_URL = relayUrl;
     await use(relayUrl);

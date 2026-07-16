@@ -8,7 +8,10 @@
   import { parseDeviceApprovalBootstrap } from '@iris/identity';
   import AccountSwitcher from '@iris/svelte-ui/AccountSwitcher.svelte';
   import IdentityRecoveryPanel from '@iris/svelte-ui/IdentityRecoveryPanel.svelte';
-  import type { IdentityCreateRequest, IdentityRecoveryRequest } from '@iris/svelte-ui';
+  import type {
+    IdentityCreateRequest,
+    IdentityRecoveryRequest,
+  } from '@iris/svelte-ui/identityRecovery';
   import { coolName, fallbackIdentityName } from '@iris/svelte-ui/profile';
   import { navigate } from '../utils/navigate';
   import {

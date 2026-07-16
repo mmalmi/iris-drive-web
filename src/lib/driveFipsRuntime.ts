@@ -200,20 +200,6 @@ export class DriveFipsRuntime {
     }
   }
 
-  async fetchBlock(hashHex: string, peerIds?: readonly string[]): Promise<Uint8Array | null> {
-    if (!this.provider) {
-      throw new Error('drive FIPS runtime is not active');
-    }
-    if (!peerIds || peerIds.length === 0) {
-      return this.provider.fetch(hashHex);
-    }
-    for (const peerId of peerIds) {
-      const data = await this.provider.fetch(hashHex, peerId);
-      if (data) return data;
-    }
-    return null;
-  }
-
   getP2PProvider(): BrowserHashtreeFipsProvider {
     if (!this.provider) {
       throw new Error('drive FIPS runtime is not active');

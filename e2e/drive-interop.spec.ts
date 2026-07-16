@@ -18,7 +18,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseNostrIdentityRosterOpEvent } from '../src/drive/protocol';
+import { parseNostrIdentityRosterOpEvent } from '../src/drive/protocolProfileEvents';
 import { generateSecretKey, getPublicKey, nip19 } from 'nostr-tools';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -97,18 +97,19 @@ type BlossomPushDetails = {
 
 function readNativeNostrIdentitySession(configDir: string, label = 'native-e2e'): StoredNostrIdentitySessionForTest {
   const nsec = fs.readFileSync(path.join(configDir, 'key'), 'utf8').trim();
-  const configToml = fs.readFileSync(path.join(configDir, 'config.toml'), 'utf8');
-  const profileId = configToml.match(/\[profile\][\s\S]*?profile_id = "([^"]+)"/)?.[1];
+  const rosterStore = JSON.parse(
+    fs.readFileSync(path.join(configDir, 'profile-roster-events.json'), 'utf8'),
+  ) as { profile_id?: string; events?: string[] };
+  const profileId = rosterStore.profile_id;
   if (!profileId) {
-    throw new Error('Native config is missing profile_id');
+    throw new Error('Native profile roster store is missing profile_id');
   }
-  const rosterOps = Array.from(configToml.matchAll(/event_json = '([^']+)'/g)).map((match) => {
-    const eventJson = match[1];
+  const rosterOps = (rosterStore.events ?? []).map((eventJson) => {
     const event = JSON.parse(eventJson);
     return parseNostrIdentityRosterOpEvent(event);
   });
   if (rosterOps.length === 0) {
-    throw new Error('Native config is missing NostrIdentity roster ops');
+    throw new Error('Native profile roster store is missing NostrIdentity roster ops');
   }
 
   return {
@@ -598,8 +599,8 @@ test.describe('Iris Drive web interop', () => {
       expect(publish.published_files_root).toBe(true);
       expect(publish.drive_iris_to_url).toBe(`https://drive.iris.to/#/${init.profile_id}/main`);
 
-      const ownerNsec = fs.readFileSync(path.join(configDir, 'key'), 'utf8').trim();
-      await prepareFreshPage(page, relayUrl, ownerNsec);
+      const identitySession = readNativeNostrIdentitySession(configDir);
+      await prepareFreshPage(page, relayUrl, identitySession.appKeyNsec, identitySession);
       await expectTreeFile(page, init.profile_id, 'main', fileName, content);
     } finally {
       fs.rmSync(configDir, { recursive: true, force: true });
