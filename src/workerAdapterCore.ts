@@ -34,7 +34,7 @@ export type ExtendedWorkerRequest = WorkerRequest | (Record<string, unknown> & {
   id?: string;
 });
 export interface WorkerP2PProvider {
-  fetch(hashHex: string, peerId?: string): Promise<Uint8Array | null>;
+  fetch(hashHex: string, peerId?: string, htl?: number): Promise<Uint8Array | null>;
   listPeerIds(): string[] | Promise<string[]>;
 }
 
@@ -258,7 +258,7 @@ export class WorkerAdapterCore {
           break;
 
         case 'p2pFetch':
-          void this.handleP2PFetch(msg.requestId, msg.hashHex, msg.peerId);
+          void this.handleP2PFetch(msg.requestId, msg.hashHex, msg.htl, msg.peerId);
           break;
         case 'p2pPeerList':
           void this.handleP2PPeerList(msg.requestId);
@@ -359,10 +359,11 @@ export class WorkerAdapterCore {
   private async handleP2PFetch(
     requestId: string,
     hashHex: string,
+    htl?: number,
     peerId?: string,
   ): Promise<void> {
     try {
-      const data = await this.p2pProvider?.fetch(hashHex, peerId) ?? null;
+      const data = await this.p2pProvider?.fetch(hashHex, peerId, htl) ?? null;
       const message = {
         type: 'p2pFetchResult',
         id: generateRequestId(),

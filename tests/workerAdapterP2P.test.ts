@@ -51,6 +51,7 @@ describe('WorkerAdapter external P2P bridge', () => {
       type: 'p2pFetch',
       requestId: 'fetch-1',
       hashHex: 'ab'.repeat(32),
+      htl: 10,
       peerId: 'peer-a',
     });
     await vi.waitFor(() => {
@@ -59,7 +60,7 @@ describe('WorkerAdapter external P2P bridge', () => {
       ))).toBe(true);
     });
 
-    expect(fetch).toHaveBeenCalledWith('ab'.repeat(32), 'peer-a');
+    expect(fetch).toHaveBeenCalledWith('ab'.repeat(32), 'peer-a', 10);
     const response = worker.posted.find(({ message }) => message.type === 'p2pFetchResult');
     expect(Array.from(response?.message.data as Uint8Array)).toEqual([1, 2, 3]);
     expect(response?.transfer).toHaveLength(1);
