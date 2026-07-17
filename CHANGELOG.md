@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.8 - 2026-07-17
+
+- Upgrade to immutable Hashtree TypeScript runtime 0.5.1, including Nostr
+  adapter 0.2.0 and worker 0.4.1.
+- Remove the legacy mesh carrier from Drive while preserving the shared
+  adaptive `BlobRouter`, exact provider identity, HTL 10, central hash
+  verification, and Blossom-only behavior without an enabled provider bridge.
+- Delete the mutable sibling Rust build fallback from browser gates and pin
+  process tests and publication to the immutable Hashtree CLI 0.2.99 artifact.
+
 ## 0.1.7 - 2026-07-16
 
 - Upgrade to the immutable Hashtree TypeScript 0.5.0 runtime and shared

@@ -86,8 +86,13 @@ describe('release-site', () => {
       'test-2',
       'test-3',
       'test-4',
+      'test-5',
       'publish',
       'deploy',
+    ]);
+    expect(plan.steps.find((step) => step.id === 'test-1')?.command).toEqual([
+      'node',
+      './scripts/verify-htree-cli.mjs',
     ]);
     expect(plan.steps.at(-1)?.command).toEqual([
       'node',
