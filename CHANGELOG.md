@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.7 - 2026-07-16
+
+- Upgrade to the immutable Hashtree TypeScript 0.5.0 runtime and shared
+  adaptive `BlobRouter`. Drive writes remain application-selected while local,
+  authenticated P2P, and Blossom reads share one bounded route contract.
+- Preserve standalone outbound links, exact provider identities, HTL 10, and
+  central corruption checks without adding a Drive-local fallback.
+
 ## 0.1.6 - 2026-07-16
 
 - Upgrade to immutable FIPS TypeScript runtime 0.0.26, preserving persisted
