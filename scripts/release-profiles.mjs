@@ -14,6 +14,7 @@ export const releaseProfiles = {
     pagesProjectEnv: 'CF_PAGES_PROJECT_DRIVE',
     buildCommand: ['pnpm', 'run', 'build'],
     testCommands: [
+      ['node', './scripts/verify-htree-cli.mjs'],
       ['pnpm', 'run', 'lint'],
       ['pnpm', 'run', 'test:unit'],
       ['node', './scripts/smoke-files-iris-portable.mjs'],
@@ -31,6 +32,7 @@ export const releaseProfiles = {
     pagesProjectEnv: 'CF_PAGES_PROJECT_FILES',
     buildCommand: ['pnpm', 'run', 'build'],
     testCommands: [
+      ['node', './scripts/verify-htree-cli.mjs'],
       ['pnpm', 'run', 'lint'],
       ['pnpm', 'run', 'test:unit'],
       ['node', './scripts/smoke-files-iris-portable.mjs'],

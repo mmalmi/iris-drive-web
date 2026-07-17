@@ -33,6 +33,15 @@ afterEach(() => {
 });
 
 describe('hashtree path resolution', () => {
+  it('requires the immutable public CLI for browser process tests', () => {
+    const source = fs.readFileSync(path.join(repoRoot, 'e2e', 'htree-blossom.sh'), 'utf8');
+
+    expect(source).toContain('htree 0.2.99');
+    expect(source).not.toContain('cargo build');
+    expect(source).not.toContain('HASHTREE_RUST_DIR');
+    expect(source).not.toContain('resolve_rust_dir');
+  });
+
   it('auto-detects sibling hashtree checkouts when present', () => {
     delete process.env.HASHTREE_REPO_ROOT;
     delete process.env.HASHTREE_RUST_DIR;
@@ -70,9 +79,10 @@ describe('hashtree path resolution', () => {
     fs.mkdirSync(rustDir, { recursive: true });
     fs.writeFileSync(path.join(rustDir, 'Cargo.toml'), '[package]\nname = "hashtree-cli"\nversion = "0.0.0"\n');
     process.env.HASHTREE_RUST_DIR = rustDir;
+    process.env.HTREE_BIN = '/immutable/htree';
 
     expect(resolveHashtreeRustDir()).toBe(rustDir);
-    expect(resolveHtreeCommand('add', '.')).toEqual(['htree', 'add', '.']);
+    expect(resolveHtreeCommand('add', '.')).toEqual(['/immutable/htree', 'add', '.']);
 
     fs.rmSync(tempRoot, { recursive: true, force: true });
   });
