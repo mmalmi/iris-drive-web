@@ -39,11 +39,11 @@ EOF
 export HTREE_CONFIG_DIR="${CONFIG_DIR}"
 HTREE_COMMAND="${HTREE_BIN:-htree}"
 if ! command -v "${HTREE_COMMAND}" >/dev/null 2>&1; then
-  echo "Install htree 0.2.99 or set HTREE_BIN to its immutable public binary." >&2
+  echo "Install htree 0.2.114 or set HTREE_BIN to its immutable public binary." >&2
   exit 1
 fi
-if [[ "$("${HTREE_COMMAND}" --version)" != "htree 0.2.99" ]]; then
-  echo "Iris Drive process gates require public htree 0.2.99." >&2
+if [[ "$("${HTREE_COMMAND}" --version)" != "htree 0.2.114" ]]; then
+  echo "Iris Drive process gates require public htree 0.2.114." >&2
   exit 1
 fi
 exec "${HTREE_COMMAND}" start --addr "${ADDR}"
