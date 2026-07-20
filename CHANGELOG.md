@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.9 - 2026-07-20
+
+- Upgrade to FIPS TypeScript 0.0.29 and Hashtree FIPS transport 0.4.6 for
+  direct FSP negotiation with legacy FMP fallback.
+- Bootstrap WebRTC negotiation through authenticated FIPS WebSocket seeds.
+
 ## 0.1.8 - 2026-07-17
 
 - Upgrade to immutable Hashtree TypeScript runtime 0.5.1, including Nostr

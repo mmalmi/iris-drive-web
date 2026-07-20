@@ -1,6 +1,6 @@
 {
   "name": "iris-drive-web",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "license": "MIT",
   "private": true,
   "description": "Iris Drive - content-addressed file sync on Nostr",
@@ -40,13 +40,13 @@
     "lint:fix": "eslint src --fix"
   },
   "dependencies": {
-    "@fips/browser": "https://github.com/mmalmi/fips-ts/releases/download/runtime-v0.0.26/fips-browser-0.0.8.tgz",
-    "@fips/core": "https://github.com/mmalmi/fips-ts/releases/download/runtime-v0.0.26/fips-core-0.0.26.tgz",
+    "@fips/browser": "https://github.com/mmalmi/fips-ts/releases/download/runtime-v0.0.29/fips-browser-0.0.11.tgz",
+    "@fips/core": "https://github.com/mmalmi/fips-ts/releases/download/runtime-v0.0.29/fips-core-0.0.29.tgz",
     "@fips/tcp": "https://github.com/mmalmi/fips-tcp/releases/download/v0.2.0/fips-tcp-0.2.0.tgz",
-    "@fips/transport-webrtc": "https://github.com/mmalmi/fips-ts/releases/download/runtime-v0.0.26/fips-transport-webrtc-0.0.42.tgz",
+    "@fips/transport-webrtc": "https://github.com/mmalmi/fips-ts/releases/download/runtime-v0.0.29/fips-transport-webrtc-0.0.45.tgz",
     "@hashtree/core": "https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.1/hashtree-core-0.3.0.tgz",
     "@hashtree/dexie": "https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.1/hashtree-dexie-0.1.8.tgz",
-    "@hashtree/fips-transport": "https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.1/hashtree-fips-transport-0.4.4.tgz",
+    "@hashtree/fips-transport": "https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.5/hashtree-fips-transport-0.4.6.tgz",
     "@hashtree/index": "https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.1/hashtree-index-0.1.12.tgz",
     "@hashtree/nostr": "https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.1/hashtree-nostr-0.2.0.tgz",
     "@hashtree/worker": "https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.1/hashtree-worker-0.4.1.tgz",
@@ -116,13 +116,13 @@
       "esbuild"
     ],
     "overrides": {
-      "@fips/browser": "https://github.com/mmalmi/fips-ts/releases/download/runtime-v0.0.26/fips-browser-0.0.8.tgz",
-      "@fips/core": "https://github.com/mmalmi/fips-ts/releases/download/runtime-v0.0.26/fips-core-0.0.26.tgz",
+      "@fips/browser": "https://github.com/mmalmi/fips-ts/releases/download/runtime-v0.0.29/fips-browser-0.0.11.tgz",
+      "@fips/core": "https://github.com/mmalmi/fips-ts/releases/download/runtime-v0.0.29/fips-core-0.0.29.tgz",
       "@fips/tcp": "https://github.com/mmalmi/fips-tcp/releases/download/v0.2.0/fips-tcp-0.2.0.tgz",
-      "@fips/transport-webrtc": "https://github.com/mmalmi/fips-ts/releases/download/runtime-v0.0.26/fips-transport-webrtc-0.0.42.tgz",
+      "@fips/transport-webrtc": "https://github.com/mmalmi/fips-ts/releases/download/runtime-v0.0.29/fips-transport-webrtc-0.0.45.tgz",
       "@hashtree/core": "https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.1/hashtree-core-0.3.0.tgz",
       "@hashtree/dexie": "https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.1/hashtree-dexie-0.1.8.tgz",
-      "@hashtree/fips-transport": "https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.1/hashtree-fips-transport-0.4.4.tgz",
+      "@hashtree/fips-transport": "https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.5/hashtree-fips-transport-0.4.6.tgz",
       "@hashtree/index": "https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.1/hashtree-index-0.1.12.tgz",
       "@hashtree/nostr": "https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.1/hashtree-nostr-0.2.0.tgz",
       "@hashtree/worker": "https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.1/hashtree-worker-0.4.1.tgz",

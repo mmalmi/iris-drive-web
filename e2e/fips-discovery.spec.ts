@@ -73,8 +73,13 @@ test('Drive keeps its FIPS device identity across Nostr accounts and explicitly 
     [page, secondPage].map(async (candidate) => (await fipsLinkState(candidate)).localPeerId),
   );
   await expect.poll(async () => Promise.all(
-    [page, secondPage].map(async (candidate) => (await fipsLinkState(candidate)).connectedPeerIds),
-  ), { timeout: 60_000 }).toEqual([[secondFipsPeerId], [firstFipsPeerId]]);
+    [
+      [page, secondFipsPeerId],
+      [secondPage, firstFipsPeerId],
+    ].map(async ([candidate, peerId]) => (
+      await fipsLinkState(candidate as import('@playwright/test').Page)
+    ).connectedPeerIds.includes(peerId as string)),
+  ), { timeout: 60_000 }).toEqual([true, true]);
 
   await page.evaluate(async () => {
     const { settingsStore } = await import('/src/stores/settings.ts');
@@ -95,8 +100,9 @@ test('Drive keeps its FIPS device identity across Nostr accounts and explicitly 
   });
   await expect.poll(() => page.getByTestId('settings-fips-peer').count(), { timeout: 10_000 })
     .toBeGreaterThan(0);
-  await expect(page.getByTestId('settings-fips-peer')).toContainText('FIPS device identity');
-  await expect(page.getByTestId('settings-fips-peer')).not.toContainText('Follow');
+  const fipsPeerLabels = await page.getByTestId('settings-fips-peer').allTextContents();
+  expect(fipsPeerLabels.every((label) => label.includes('FIPS device identity'))).toBe(true);
+  expect(fipsPeerLabels.some((label) => label.includes('Follow'))).toBe(false);
 
   const initialIdentity = await page.evaluate(async () => {
     const { getDriveFipsRuntime } = await import('/src/lib/driveFipsRuntime.ts');
@@ -129,8 +135,13 @@ test('Drive keeps its FIPS device identity across Nostr accounts and explicitly 
     nostrPubkey: getPublicKey(SWITCHED_NOSTR_SECRET),
   });
   await expect.poll(async () => Promise.all(
-    [page, secondPage].map(async (candidate) => (await fipsLinkState(candidate)).connectedPeerIds),
-  ), { timeout: 60_000 }).toEqual([[secondFipsPeerId], [firstFipsPeerId]]);
+    [
+      [page, secondFipsPeerId],
+      [secondPage, firstFipsPeerId],
+    ].map(async ([candidate, peerId]) => (
+      await fipsLinkState(candidate as import('@playwright/test').Page)
+    ).connectedPeerIds.includes(peerId as string)),
+  ), { timeout: 60_000 }).toEqual([true, true]);
 
   const source = await page.evaluate(async () => {
     const adapter = (window as typeof window & {
