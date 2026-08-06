@@ -166,12 +166,36 @@ async function activateApprovedDevice(page: Page, profileId: string): Promise<vo
   await expectDeviceAdminBadges(page, 2, 1);
   await expectPrivateDeviceLabel(page.getByTestId('user-key-row').nth(0).locator('strong'));
   await expectLinkedDeviceLabel(page);
+  await expectAppliedApprovalAck(page);
 }
 
-async function appKeyPubkey(page: Page): Promise<string> {
-  return page.evaluate(() => {
-    const stored = JSON.parse(localStorage.getItem('iris:identity:session') ?? 'null');
-    return stored?.appKeyPubkey ?? '';
+async function expectAppliedApprovalAck(page: Page): Promise<void> {
+  await expect.poll(async () => page.evaluate(async () => {
+    const { getCurrentNostrIdentitySession, ndk } = await import('/src/nostr');
+    const {
+      KIND_NOSTR_IDENTITY_DEVICE_APPROVAL_APPLIED_ACK,
+      NOSTR_IDENTITY_DEVICE_APPROVAL_APPLIED_ACK_TYPE,
+    } = await import('/src/drive/deviceLink');
+    const session = getCurrentNostrIdentitySession();
+    if (!session) return null;
+    const events = Array.from(await ndk.fetchEvents({
+      authors: [session.appKeyPubkey],
+      kinds: [KIND_NOSTR_IDENTITY_DEVICE_APPROVAL_APPLIED_ACK],
+      '#type': [NOSTR_IDENTITY_DEVICE_APPROVAL_APPLIED_ACK_TYPE],
+      limit: 10,
+    }));
+    const event = events.find((candidate) => candidate.tags.some((tag) => (
+      tag[0] === 'type' && tag[1] === NOSTR_IDENTITY_DEVICE_APPROVAL_APPLIED_ACK_TYPE
+    )));
+    if (!event) return null;
+    const content = JSON.parse(event.content);
+    return {
+      signerMatchesDevice: event.pubkey === content.deviceAppKeyPubkey,
+      approvalEventId: content.approvalEventId,
+    };
+  }), { timeout: 10000, intervals: [100, 250, 500] }).toEqual({
+    signerMatchesDevice: true,
+    approvalEventId: expect.stringMatching(/^[0-9a-f]{64}$/),
   });
 }
 
@@ -374,23 +398,6 @@ async function gotoMain(page: Page): Promise<void> {
   }), { timeout: 30000, intervals: [500, 1000, 2000] }).toBe(true);
 }
 
-async function gotoUserSettingsViaHeaderAvatar(page: Page, profileId: string): Promise<void> {
-  const activeProfileId = await page.evaluate(async () => {
-    const { getCurrentNostrIdentitySession } = await import('/src/nostr');
-    const session = getCurrentNostrIdentitySession();
-    const stored = JSON.parse(localStorage.getItem('iris:identity:session') ?? 'null');
-    return session?.profileId ?? stored?.profileId ?? '';
-  });
-  expect(activeProfileId).toBe(profileId);
-  await expect(page.getByTestId('header-user-avatar')).toBeVisible({ timeout: 30000 });
-  await page.getByTestId('header-user-avatar').click();
-  await expect.poll(
-    () => page.evaluate(() => window.location.hash.split('?')[0].replace(/\/$/, '')),
-    { timeout: 30000, intervals: [500, 1000, 2000] },
-  ).toBe('#/settings/user');
-  await expect(page.getByTestId('user-settings-panel')).toBeVisible({ timeout: 30000 });
-}
-
 async function writeMainFileAndPublish(page: Page, relayUrl: string, filename: string, content: string): Promise<void> {
   const rootHash = await addFileViaTreeAPI(page, [], filename, content);
   expect(rootHash).toMatch(/^[a-f0-9]{64}$/);
@@ -519,8 +526,6 @@ async function expectLinkedBrowsersCanExchangeEdits(owner: Page, linked: Page, r
   await gotoMain(linked);
   await enableOthersPool(owner, 6);
   await enableOthersPool(linked, 6);
-  const ownerKey = await appKeyPubkey(owner);
-  const linkedKey = await appKeyPubkey(linked);
   await waitForFipsConnection(owner, 30000);
   await waitForFipsConnection(linked, 30000);
 
@@ -531,27 +536,6 @@ async function expectLinkedBrowsersCanExchangeEdits(owner: Page, linked: Page, r
   await writeMainFileAndPublish(owner, relayUrl, 'owner-browser-edit.txt', 'from owner browser');
   await gotoMain(linked);
   await expectMainFileContent(linked, relayUrl, 'owner-browser-edit.txt', 'from owner browser');
-}
-
-async function expectMainDirectoryTestFileSyncs(owner: Page, linked: Page, profileId: string, relayUrl: string): Promise<void> {
-  await gotoUserSettingsViaHeaderAvatar(owner, profileId);
-  await gotoUserSettingsViaHeaderAvatar(linked, profileId);
-  await enableOthersPool(owner, 6);
-  await enableOthersPool(linked, 6);
-  const ownerKey = await appKeyPubkey(owner);
-  const linkedKey = await appKeyPubkey(linked);
-  await waitForFipsConnection(owner, 30000);
-  await waitForFipsConnection(linked, 30000);
-  await gotoMain(owner);
-  await gotoMain(linked);
-
-  await writeMainFileAndPublish(owner, relayUrl, 'test.txt', 'created from owner browser');
-  await gotoMain(linked);
-  await expectMainFileContent(linked, relayUrl, 'test.txt', 'created from owner browser');
-
-  await writeMainFileAndPublish(linked, relayUrl, 'test.txt', 'edited from linked browser');
-  await gotoMain(owner);
-  await expectMainFileContent(owner, relayUrl, 'test.txt', 'edited from linked browser');
 }
 
 async function createLinkedDriveBrowsers(
@@ -583,16 +567,6 @@ test.describe('Drive user settings link device', () => {
     const { deviceContext, devicePage } = await createLinkedDriveBrowsers(page, browser as Browser, relayUrl);
     try {
       await expectLinkedBrowsersCanExchangeEdits(page, devicePage, relayUrl);
-    } finally {
-      await deviceContext.close();
-    }
-  });
-
-  test('syncs main test.txt creation and edits between linked browsers', async ({ page, browser, relayUrl }) => {
-    test.setTimeout(120000);
-    const { deviceContext, devicePage, profileId } = await createLinkedDriveBrowsers(page, browser as Browser, relayUrl);
-    try {
-      await expectMainDirectoryTestFileSyncs(page, devicePage, profileId, relayUrl);
     } finally {
       await deviceContext.close();
     }

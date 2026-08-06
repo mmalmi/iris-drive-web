@@ -104,10 +104,9 @@ export default defineConfig({
       timeout: 5000,
     },
     {
-      command: `pnpm exec vite --force --port ${appPort} --strictPort`,
+      command: `pnpm exec vite --port ${appPort} --strictPort`,
       url: appBaseUrl,
-      // Avoid silently reusing a non-test Vite instance (e.g. maps dev server).
-      // Fresh app server startup is slower but deterministic for E2E.
+      // Keep a fresh test server without needlessly rebuilding Vite's dependency cache.
       reuseExistingServer: false,
       timeout: 120000,
       env: {

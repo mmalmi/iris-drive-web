@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.10 - 2026-08-06
+
+- Keep device-approval receipt subscriptions open through relay EOSE and
+  publish immutable roster history in bounded parallel batches, so linking is
+  prompt even with a large roster.
+- Emit the shared applied-approval ACK only after the linked browser session is
+  durable, and keep roster mutation timestamps strictly ordered for immediate
+  post-creation linking.
+- Add browser/native device-link coverage in both directions, including
+  restart recovery, exact ACK replay and cleanup, and collapse redundant
+  viewer release tests into one production-like flow.
+
 ## 0.1.9 - 2026-07-20
 
 - Upgrade to FIPS TypeScript 0.0.29 and Hashtree FIPS transport 0.4.6 for

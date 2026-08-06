@@ -1,6 +1,6 @@
 {
   "name": "iris-drive-web",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "license": "MIT",
   "private": true,
   "description": "Iris Drive - content-addressed file sync on Nostr",
@@ -29,6 +29,7 @@
     "test:unit": "vitest run",
     "test:e2e": "playwright test",
     "test:e2e:release": "PW_WORKERS=${PW_WORKERS:-4} playwright test e2e/viewer-actions.spec.ts e2e/fips-provider-bridge.spec.ts e2e/fips-discovery.spec.ts --project=chromium",
+    "test:e2e:device-link": "PW_WORKERS=${PW_WORKERS:-2} playwright test e2e/user-settings-link-device.spec.ts e2e/web-native-device-link.spec.ts --project=chromium",
     "test:e2e:drive-interop": "playwright test e2e/drive-interop.spec.ts",
     "test:e2e:drive-vm-interop": "PW_WORKERS=${PW_WORKERS:-1} playwright test e2e/drive-vm-interop.spec.ts --project=chromium",
     "test:e2e:docker": "bash ./scripts/test-e2e-docker.sh",

@@ -12,58 +12,13 @@ import {
   waitForAppReady,
   waitForRelayConnected,
 } from './test-utils.js';
-import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { parseNostrIdentityRosterOpEvent } from '../src/drive/protocolProfileEvents';
 import { generateSecretKey, getPublicKey, nip19 } from 'nostr-tools';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const appDir = path.resolve(__dirname, '..');
-const defaultIrisDriveRepo = path.resolve(appDir, '../iris-drive');
-
-function repoRoot(): string {
-  return process.env.IRIS_DRIVE_REPO || defaultIrisDriveRepo;
-}
-
-function idriveBin(): string {
-  if (process.env.IRIS_DRIVE_BIN) {
-    return process.env.IRIS_DRIVE_BIN;
-  }
-
-  const repo = repoRoot();
-  const metadata = JSON.parse(execFileSync('cargo', ['metadata', '--no-deps', '--format-version', '1'], {
-    cwd: repo,
-    encoding: 'utf8',
-  }));
-  const targetDirRaw = process.env.CARGO_TARGET_DIR || metadata.target_directory || path.join(repo, 'target');
-  const targetDir = path.isAbsolute(targetDirRaw) ? targetDirRaw : path.resolve(repo, targetDirRaw);
-  const debugBin = path.join(targetDir, 'debug', process.platform === 'win32' ? 'idrive.exe' : 'idrive');
-  if (fs.existsSync(debugBin)) {
-    return debugBin;
-  }
-
-  execFileSync('cargo', ['build', '-p', 'idrive'], {
-    cwd: repo,
-    stdio: 'inherit',
-  });
-  if (!fs.existsSync(debugBin)) {
-    throw new Error(`idrive build finished but ${debugBin} was not found`);
-  }
-  return debugBin;
-}
-
-function runIdriveJson(configDir: string, args: string[]): any {
-  const stdout = execFileSync(idriveBin(), args, {
-    env: { ...process.env, IRIS_DRIVE_CONFIG_DIR: configDir },
-    encoding: 'utf8',
-  });
-  return JSON.parse(stdout);
-}
+import { irisDriveAvailable, runIdriveJson } from './native-idrive';
 
 function configureNativeBlossom(configDir: string): void {
   runIdriveJson(configDir, ['blossom-servers', 'remove', 'https://upload.iris.to']);
@@ -583,7 +538,7 @@ test.describe('Iris Drive web interop', () => {
   test.setTimeout(180000);
 
   test('native idrive publish is readable from drive web', async ({ page, relayUrl }) => {
-    test.skip(!fs.existsSync(repoRoot()), 'iris-drive repo not available');
+    test.skip(!irisDriveAvailable(), 'iris-drive repo not available');
 
     const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'iris-drive-native-web-'));
     const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'iris-drive-native-work-'));
@@ -630,7 +585,7 @@ test.describe('Iris Drive web interop', () => {
   });
 
   test('drive web publish is readable from native idrive', async ({ page, relayUrl }) => {
-    test.skip(!fs.existsSync(repoRoot()), 'iris-drive repo not available');
+    test.skip(!irisDriveAvailable(), 'iris-drive repo not available');
 
     const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'iris-drive-web-native-'));
     const fileName = 'web-native.txt';

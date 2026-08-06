@@ -38,6 +38,7 @@ import { needsMigrations, runMigrations } from '../migrations';
 import { initWallet, disposeWallet } from '../stores/wallet';
 import {
   createDriveDeviceApprovalDraft,
+  buildDriveDeviceApprovalAppliedAckEvent,
   driveDeviceApprovalRequestSecretKey,
   pendingDriveDeviceApprovalFromDraft,
   createNostrIdentityDckRotateAfterAddOp,
@@ -75,6 +76,7 @@ const STORAGE_KEY_LOGIN_TYPE = 'hashtree:loginType';
 const STORAGE_KEY_IRIS_IDENTITY = 'iris:identity:session';
 const STORAGE_KEY_IRIS_IDENTITY_SESSIONS = 'iris:identity:sessions';
 const DRIVE_ROOT_NAME = 'main';
+const DRIVE_ROSTER_PUBLISH_CONCURRENCY = 32;
 
 // Private key (only set for nsec login)
 let secretKey: Uint8Array | null = null;
@@ -604,7 +606,7 @@ export async function approveDriveDeviceApprovalBootstrap(
   if (!deviceAppKeyPubkey) throw new Error('Invalid Drive device approval stable key');
 
   const rosterOps = await currentDriveRosterOps(session);
-  const approvedAt = currentUnixSeconds();
+  const approvedAt = nextDriveRosterOpCreatedAt(session.profileId, rosterOps);
   const label = bootstrap.label?.trim();
   const deviceLabels = await collectDriveDeviceLabels(session, rosterOps);
   if (label) {
@@ -655,15 +657,9 @@ export async function approveDriveDeviceApprovalBootstrap(
     rosterOpEvent: JSON.parse(signed.event_json) as NostrToolsEvent,
   });
   const approvalRosterOps = [...rosterOps, signed, dckRotationOp];
-  for (const op of approvalRosterOps) {
-    await publishSignedIdentityEventJson(op.event_json);
-  }
+  await publishDriveIdentityRosterOps(approvalRosterOps);
   await publishRawNostrEvent(receiptEvent);
-  const updated = appendCurrentNostrIdentitySessionRosterOps(session.profileId, [
-    ...rosterOps,
-    signed,
-    dckRotationOp,
-  ]);
+  const updated = appendCurrentNostrIdentitySessionRosterOps(session.profileId, approvalRosterOps);
   if (!updated) throw new Error('Approved key removed the active Drive user');
   const updatedProjection = projectNostrIdentityRoster(updated.profileId, updated.rosterOps);
   if (!updatedProjection.active_facets[deviceAppKeyPubkey]) {
@@ -688,19 +684,17 @@ export async function activateDriveDeviceApprovalIfApproved(
     throw new Error('Pending Drive AppKey does not match approval request');
   }
   const requestSecretKey = driveDeviceApprovalRequestSecretKey(pendingApproval);
-  const receipt = await fetchDriveDeviceApprovalReceipt(
+  const approval = await fetchDriveDeviceApprovalReceipt(
     pendingApproval.bootstrap,
     requestSecretKey,
     options.timeoutMs,
   );
-  let remoteOps: SignedNostrIdentityRosterOp[] = [];
-  if (receipt) {
-    remoteOps = await fetchNostrIdentityRosterOps(
-      receipt.profileId,
-      options.timeoutMs ?? 5000,
-    );
-  }
-  if (!receipt) return null;
+  if (!approval) return null;
+  const { receipt } = approval;
+  const remoteOps = await fetchNostrIdentityRosterOps(
+    receipt.profileId,
+    options.timeoutMs ?? 5000,
+  );
   const receiptRosterOp = parseDeviceApprovalReceiptRosterOp(receipt);
   const rosterOps = mergeRosterOps([receiptRosterOp], remoteOps);
   const projection = projectNostrIdentityRoster(receipt.profileId, rosterOps);
@@ -732,6 +726,13 @@ export async function activateDriveDeviceApprovalIfApproved(
   }));
   saveStoredDeviceLabels(session.profileId, labels);
   saveNostrIdentitySession(session);
+  const ack = buildDriveDeviceApprovalAppliedAckEvent({
+    appKeySecretKey,
+    receipt,
+    approvalEventId: approval.event.id,
+    appliedAt: currentUnixSeconds(),
+  });
+  await publishRawNostrEvent(ack);
   return {
     nsec: appKeyNsec,
     npub: session.appKeyNpub,
@@ -765,7 +766,7 @@ export async function setDriveProfileAppKeyAdmin(
     signerSecretKey: secretKey,
     profileId: session.profileId,
     parents: projection.accepted_op_ids,
-    createdAt: currentUnixSeconds(),
+    createdAt: nextDriveRosterOpCreatedAt(session.profileId, rosterOps),
     clientNonce: randomClientNonce(),
     op: {
       op: 'set_capabilities',
@@ -774,7 +775,7 @@ export async function setDriveProfileAppKeyAdmin(
     },
   });
 
-  await publishCurrentDriveIdentityRosterOps({ ...session, rosterOps });
+  await publishDriveIdentityRosterOps(rosterOps);
   await publishSignedIdentityEventJson(signed.event_json);
   const updated = appendCurrentNostrIdentitySessionRosterOps(session.profileId, [...rosterOps, signed]);
   if (!updated) throw new Error('Drive user session is no longer active');
@@ -798,7 +799,7 @@ export async function removeDriveProfileAppKeyWithAdmin(
     signerSecretKey: secretKey,
     profileId: session.profileId,
     parents: projection.accepted_op_ids,
-    createdAt: currentUnixSeconds(),
+    createdAt: nextDriveRosterOpCreatedAt(session.profileId, rosterOps),
     clientNonce: randomClientNonce(),
     op: {
       op: 'tombstone_facet',
@@ -807,7 +808,7 @@ export async function removeDriveProfileAppKeyWithAdmin(
     },
   });
 
-  await publishCurrentDriveIdentityRosterOps({ ...session, rosterOps });
+  await publishDriveIdentityRosterOps(rosterOps);
   await publishSignedIdentityEventJson(signed.event_json);
   return appendCurrentNostrIdentitySessionRosterOps(session.profileId, [...rosterOps, signed], target);
 }
@@ -827,7 +828,7 @@ export async function recoverDriveProfileWithAppKey(
     throw new Error('No Drive user found for that recovery key');
   }
 
-  const createdAt = currentUnixSeconds();
+  const createdAt = nextDriveRosterOpCreatedAt(profileId, rosterOps);
   const localLabel = options.label?.trim() || currentBrowserDeviceLabel();
   const appKeySecretKey = generateSecretKey();
   const appKeyPubkey = getPublicKey(appKeySecretKey);
@@ -1402,9 +1403,10 @@ function mergeRosterOps(
     .sort((left, right) => left.content.created_at - right.content.created_at || left.op_id.localeCompare(right.op_id));
 }
 
-async function publishCurrentDriveIdentityRosterOps(session: NostrIdentitySession): Promise<void> {
-  for (const op of session.rosterOps) {
-    await publishSignedIdentityEventJson(op.event_json);
+async function publishDriveIdentityRosterOps(rosterOps: SignedNostrIdentityRosterOp[]): Promise<void> {
+  for (let offset = 0; offset < rosterOps.length; offset += DRIVE_ROSTER_PUBLISH_CONCURRENCY) {
+    await Promise.all(rosterOps.slice(offset, offset + DRIVE_ROSTER_PUBLISH_CONCURRENCY)
+      .map((op) => publishSignedIdentityEventJson(op.event_json)));
   }
 }
 
@@ -1412,8 +1414,8 @@ async function fetchDriveDeviceApprovalReceipt(
   bootstrap: DriveDeviceApprovalBootstrap,
   requestSecretKey: Uint8Array,
   timeoutMs = 5000,
-): Promise<NostrIdentityDeviceApprovalReceipt | null> {
-  let receipt: NostrIdentityDeviceApprovalReceipt | null = null;
+): Promise<{ receipt: NostrIdentityDeviceApprovalReceipt; event: NostrToolsEvent } | null> {
+  let approval: { receipt: NostrIdentityDeviceApprovalReceipt; event: NostrToolsEvent } | null = null;
   const requestPubkey = npubToPubkey(bootstrap.requestNpub);
   if (!requestPubkey) throw new Error('Invalid Drive device approval request key');
   await waitForWorkerAdapter(2000).catch(() => null);
@@ -1432,7 +1434,7 @@ async function fetchDriveDeviceApprovalReceipt(
       '#p': [requestPubkey],
       limit: 50,
     };
-    const sub = ndk.subscribe(filter, { closeOnEose: true }, false);
+    const sub = ndk.subscribe(filter, { closeOnEose: false }, false);
     const timer = setTimeout(finish, timeoutMs);
 
     sub.on('event', (event) => {
@@ -1443,17 +1445,16 @@ async function fetchDriveDeviceApprovalReceipt(
           requestSecretKey,
           bootstrap,
         });
-        receipt = parsed;
+        approval = { receipt: parsed, event: raw };
         finish();
       } catch {
         // Other fact events can share the request pubkey tag; ignore them.
       }
     });
-    sub.on('eose', finish);
     sub.start();
   });
 
-  return receipt;
+  return approval;
 }
 
 
@@ -1689,6 +1690,16 @@ function normalizeProfileId(profileId: NostrIdentityId): NostrIdentityId {
 
 function currentUnixSeconds(): number {
   return Math.floor(Date.now() / 1000);
+}
+
+function nextDriveRosterOpCreatedAt(
+  profileId: NostrIdentityId,
+  rosterOps: SignedNostrIdentityRosterOp[],
+): number {
+  const accepted = new Set(projectNostrIdentityRoster(profileId, rosterOps).accepted_op_ids);
+  return rosterOps.reduce((next, op) => (
+    accepted.has(op.op_id) ? Math.max(next, op.content.created_at + 1) : next
+  ), currentUnixSeconds());
 }
 
 function randomClientNonce(): string {

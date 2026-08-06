@@ -63,7 +63,16 @@ pnpm run test:e2e
 
 # Browser E2E in an isolated Linux container
 pnpm run test:e2e:docker
+
+# Device-link matrix: browser/browser plus both browser/native directions
+pnpm run test:e2e:device-link
 ```
+
+The native lanes use `../iris-drive` by default. Set `IRIS_DRIVE_REPO` or
+`IRIS_DRIVE_BIN` when testing another checkout or prebuilt `idrive` binary.
+They are intentionally separate from the standalone web deploy gate; the
+deploy gate still runs the shared protocol unit coverage, while coordinated
+native/web releases should run the full device-link matrix.
 
 The Docker wrapper builds `scripts/Dockerfile.e2e-linux`, mounts the repo into `/workspace`, and keeps Linux-only `node_modules`, the pnpm store, and Rust build caches in Docker volumes. Pass a custom command to the wrapper when you want a narrower run, for example:
 
