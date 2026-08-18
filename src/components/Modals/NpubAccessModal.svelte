@@ -381,13 +381,14 @@
       {/if}
 
       {#if pendingNpub && canEdit}
-        {@const pendingPubkey = npubToPubkey(pendingNpub)}
+        {@const pendingNpubValue = pendingNpub}
+        {@const pendingPubkey = npubToPubkey(pendingNpubValue)}
         <div class="space-y-2">
           <span class="text-sm font-medium">Add this {selectedSection?.memberLabel || 'user'}?</span>
           <div class="bg-surface-2 rounded p-3 space-y-3">
             <div class="flex items-center gap-3">
               {#if pendingPubkey}
-                <NpubRow npub={pendingNpub} avatarSize={40} />
+                <NpubRow npub={pendingNpubValue} avatarSize={40} />
               {:else}
                 <span class="text-text-3 text-sm">Invalid npub</span>
               {/if}
@@ -413,7 +414,7 @@
                 Cancel
               </button>
               <button
-                onclick={() => applyAdd(pendingNpub)}
+                onclick={() => applyAdd(pendingNpubValue)}
                 class="btn-success flex-1 text-sm"
                 disabled={!pendingPubkey || saving}
               >

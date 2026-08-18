@@ -17,6 +17,7 @@
     snapshotMatchesRootCid,
   } from '../../lib/treeEventSnapshots';
   import { isActiveNostrIdentityRouteScope } from '../../drive/profileRoute';
+  import { isNostrIdentityId } from '../../utils/route';
 
   let route = $derived($routeStore);
   let rootCid = $derived($treeRootStore);
@@ -181,6 +182,14 @@
     const fallbackKeyHex = entry.cid.key ? toHex(entry.cid.key) : undefined;
     const fallbackNhash = nhashEncode({ hash: fallbackHashHex, decryptKey: fallbackKeyHex });
     const fallbackUrl = `#/${fallbackNhash}/${encodeURIComponent(entry.name)}`;
+
+    // Profile UUID routes use the newer Drive-root protocol rather than
+    // legacy npub tree events. Their file CID is already an immutable,
+    // portable revision, so avoid a doomed 20-second legacy snapshot lookup.
+    if (npub && isNostrIdentityId(npub)) {
+      permalinkUrl = fallbackUrl;
+      return;
+    }
 
     if (isSnapshotRoute && snapshot) {
       permalinkUrl = buildTreeEventPermalink(snapshot, path, linkKey);

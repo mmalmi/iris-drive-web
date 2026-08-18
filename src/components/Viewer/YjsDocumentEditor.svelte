@@ -3,7 +3,7 @@
   import type { Editor } from '@tiptap/core';
   import * as Y from 'yjs';
   import { toHex, LinkType } from '@hashtree/core';
-  import type { CID, TreeEntry } from '@hashtree/core';
+  import type { CID, TreeEntry, TreeVisibility } from '@hashtree/core';
   import { getTree } from '../../store';
   import { routeStore, createTreesStore, getTreeRootSync } from '../../stores';
   import { open as openForkModal } from '../Modals/ForkModal.svelte';
@@ -38,7 +38,7 @@
   let editorElement: HTMLElement | undefined = $state();
   let editor: Editor | undefined = $state();
   let ydoc: Y.Doc | undefined = $state();
-  let saveStatus = $state<'idle' | 'saving' | 'saved'>('idle');
+  let saveStatus = $state<'idle' | 'saving' | 'saved' | 'error'>('idle');
   let lastSaved = $state<Date | null>(null);
   let saveTimer: ReturnType<typeof setTimeout> | undefined;
   let loading = $state(true);
@@ -59,7 +59,7 @@
   let ownerPubkey = $derived(ownerNpub ? npubToPubkey(ownerNpub) : null);
   let targetNpub = $derived(viewedNpub || userNpub);
   let treesStore = $derived(createTreesStore(targetNpub));
-  let trees = $state<Array<{ name: string; visibility?: string }>>([]);
+  let trees = $state<Array<{ name: string; visibility?: TreeVisibility }>>([]);
   $effect(() => {
     const store = treesStore;
     const unsub = store.subscribe(value => {
@@ -132,7 +132,7 @@
       userNpub,
       route.treeName,
       isOwnTree,
-      isOwnTree ? undefined : (visibility as import('@hashtree/core').TreeVisibility)
+      isOwnTree ? undefined : visibility,
     );
   }
   async function handleImageUpload(file: File): Promise<void> {
@@ -222,10 +222,10 @@
       } else {
         updateLocalRootCacheHex(
           userNpub,
-          route.treeName!,
+          route.treeName,
           toHex(newRootCid.hash),
           newRootCid.key ? toHex(newRootCid.key) : undefined,
-          (visibility as import('@hashtree/core').TreeVisibility) || 'public'
+          visibility,
         );
       }
       saveStatus = 'saved';
@@ -265,19 +265,7 @@
   async function loadEditors() {
     try {
       const tree = getTree();
-      let docDirCid = dirCid;
-      if (!docDirCid && route.treeName && targetNpub) {
-        const root = getTreeRootSync(targetNpub, route.treeName);
-        if (root) {
-          const resolved = await tree.resolvePath(root, route.path);
-          docDirCid = resolved?.cid;
-        }
-      }
-      if (!docDirCid) {
-        collaborators = [];
-        return;
-      }
-      const docEntries = await tree.listDirectory(docDirCid);
+      const docEntries = await tree.listDirectory(dirCid);
       const yjsConfigEntry = docEntries.find(e => e.name === '.yjs' && e.type !== LinkType.Dir);
       if (!yjsConfigEntry) {
         collaborators = [];
@@ -312,7 +300,7 @@
         '.yjs',
         yjsCid,
         yjsSize,
-        false
+        LinkType.Blob
       );
       autosaveIfOwn(newRootCid);
       collaborators = npubs;
@@ -324,7 +312,13 @@
     openShareModal(window.location.href);
   }
   function handlePush() {
-    openBlossomPushModal(dirCid, dirName, true, route.npub ? npubToPubkey(route.npub) : undefined, route.treeName);
+    openBlossomPushModal(
+      dirCid,
+      dirName,
+      true,
+      route.npub ? (npubToPubkey(route.npub) ?? undefined) : undefined,
+      route.treeName ?? undefined,
+    );
   }
   function handleFork() {
     if (!dirCid) return;

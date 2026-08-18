@@ -16,6 +16,7 @@ export const releaseProfiles = {
     testCommands: [
       ['node', './scripts/verify-htree-cli.mjs'],
       ['pnpm', 'run', 'lint'],
+      ['pnpm', 'run', 'check'],
       ['pnpm', 'run', 'test:unit'],
       ['node', './scripts/smoke-files-iris-portable.mjs'],
       ['pnpm', 'run', 'test:e2e:release'],
@@ -34,6 +35,7 @@ export const releaseProfiles = {
     testCommands: [
       ['node', './scripts/verify-htree-cli.mjs'],
       ['pnpm', 'run', 'lint'],
+      ['pnpm', 'run', 'check'],
       ['pnpm', 'run', 'test:unit'],
       ['node', './scripts/smoke-files-iris-portable.mjs'],
       ['pnpm', 'run', 'test:e2e:release'],

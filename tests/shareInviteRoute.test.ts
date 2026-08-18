@@ -9,7 +9,7 @@ describe('share invite route', () => {
     const router = fs.readFileSync(path.join(appRoot, 'src/components/Router.svelte'), 'utf8');
     const route = fs.readFileSync(path.join(appRoot, 'src/routes/ShareInviteRoute.svelte'), 'utf8');
 
-    expect(router).toContain("{ pattern: '/share-invite/:payload', component: ShareInviteRoute }");
+    expect(router).toContain("{ pattern: '/share-invite/:payload', id: 'shareInvite' }");
     expect(router).toContain('<ShareInviteRoute payload={route.params.payload || \'\'} />');
     expect(route).toContain('projectSharedFolderView');
     expect(route).toContain('SHARE_INVITE_PREFIX');

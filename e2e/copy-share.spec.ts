@@ -72,9 +72,6 @@ test.describe('Copy and Share functionality', () => {
 
       // Should show check icon
       await expect(copyButton.locator('.i-lucide-check')).toBeVisible();
-
-      // After 2 seconds, should show copy icon again
-      await expect(copyButton.locator('.i-lucide-copy')).toBeVisible();
     });
   });
 

@@ -9,7 +9,7 @@ import {
 } from './test-utils.js';
 import { generateSecretKey, getPublicKey, nip19, nip44, type Event } from 'nostr-tools';
 import { privateKeyFromSeedWords } from 'nostr-tools/nip06';
-import type { NostrIdentityKeyPurpose } from '../src/drive/protocol';
+import type { NostrIdentityKeyPurpose } from '../src/drive/protocolTypes';
 import {
   seedRecoverableProfile,
   signWithRecoverySecret,

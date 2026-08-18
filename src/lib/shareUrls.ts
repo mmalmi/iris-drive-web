@@ -2,11 +2,25 @@ import type { AppType } from '../appType';
 import { canUseSameOriginHtreeProtocolStreaming, getInjectedHtreeServerUrl } from './nativeHtree';
 
 export type ShareUrlOptionId = 'web' | 'htree';
+export type ShareLinkVariantId = 'snapshot' | 'latest';
 
 export interface ShareUrlOption {
   id: ShareUrlOptionId;
   label: string;
   url: string;
+}
+
+export interface ShareLinkVariant {
+  id: ShareLinkVariantId;
+  label: string;
+  url: string;
+}
+
+export interface DriveShareLinkOptions {
+  permalinkUrl: string | null;
+  currentUrl: string;
+  routeScope: string | null;
+  isPermalink: boolean;
 }
 
 const DISTRIBUTED_APP_OWNER = 'npub1xdhnr9mrv47kkrn95k6cwecearydeh8e895990n3acntwvmgk2dsdeeycm';
@@ -35,6 +49,55 @@ function extractHashSuffix(rawUrl: string): string {
   const hashIndex = trimmed.indexOf('#');
   if (hashIndex === -1) return '';
   return normalizeHashSuffix(trimmed.slice(hashIndex));
+}
+
+function withoutHashQueryParam(rawUrl: string, name: string): string {
+  const hashIndex = rawUrl.indexOf('#');
+  const prefix = hashIndex === -1 ? '' : rawUrl.slice(0, hashIndex);
+  const hash = hashIndex === -1 ? rawUrl : rawUrl.slice(hashIndex);
+  const queryIndex = hash.indexOf('?');
+  if (queryIndex === -1) return rawUrl;
+
+  const path = hash.slice(0, queryIndex);
+  const params = new URLSearchParams(hash.slice(queryIndex + 1));
+  params.delete(name);
+  const query = params.toString();
+  return `${prefix}${path}${query ? `?${query}` : ''}`;
+}
+
+function sameShareTarget(first: string, second: string): boolean {
+  const firstHash = extractHashSuffix(first);
+  const secondHash = extractHashSuffix(second);
+  if (firstHash || secondHash) return firstHash === secondHash;
+  return first.trim() === second.trim();
+}
+
+/**
+ * Build the link choices shown when sharing a Drive file or folder.
+ *
+ * UUID profile routes are device/profile lookup scopes, not portable public
+ * owner addresses. They must never escape through the share UI. Their
+ * content-addressed snapshot remains independently shareable.
+ */
+export function createDriveShareLinkVariants(options: DriveShareLinkOptions): ShareLinkVariant[] {
+  const variants: ShareLinkVariant[] = [];
+  const permalinkUrl = options.permalinkUrl?.trim() || null;
+  const currentUrl = withoutHashQueryParam(options.currentUrl.trim(), 'edit');
+
+  if (permalinkUrl) {
+    variants.push({ id: 'snapshot', label: 'Snapshot', url: permalinkUrl });
+  }
+
+  const currentRouteIsShareable = options.isPermalink || options.routeScope?.startsWith('npub1');
+  if (
+    currentRouteIsShareable
+    && currentUrl
+    && (!permalinkUrl || !sameShareTarget(permalinkUrl, currentUrl))
+  ) {
+    variants.push({ id: 'latest', label: 'Latest', url: currentUrl });
+  }
+
+  return variants;
 }
 
 export function getDefaultWebAppUrl(appType: AppType): string {

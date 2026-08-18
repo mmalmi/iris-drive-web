@@ -66,9 +66,7 @@ test.describe('Drive setup', () => {
     }, undefined, { timeout: 30000 });
     const profileId = await profileIdHandle.jsonValue();
     await expectDriveRoute(page, profileId);
-    await expect(
-      page.getByRole('region', { name: 'Directory content' }).getByTitle('Add files'),
-    ).toBeVisible({ timeout: 30000 });
+    await expect(page.locator('label[title="Add files"]:visible')).toBeVisible({ timeout: 30000 });
 
     const homeLink = page.getByTestId('home-link');
     await expect(homeLink).toHaveAttribute('href', `#/${profileId}/main`);

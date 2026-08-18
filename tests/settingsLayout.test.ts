@@ -40,7 +40,7 @@ describe('shared settings layout', () => {
   });
 
   it('routes nested settings paths through the shared layout', () => {
-    expect(routerSource).toContain("{ pattern: '/settings/*', component: SettingsLayout }");
+    expect(routerSource).toContain("{ pattern: '/settings/*', id: 'settings' }");
   });
 
   it('maps legacy network routes onto focused network subpages', () => {

@@ -28,6 +28,8 @@
     isNewerTreeEventSnapshot,
     snapshotMatchesRootCid,
   } from '../lib/treeEventSnapshots';
+  import { createDriveShareLinkVariants } from '../lib/shareUrls';
+  import { isNostrIdentityId } from '../utils/route';
 
   interface Props {
     dirCid?: CID | null;
@@ -81,6 +83,13 @@
       hash: toHex(directoryCid.hash),
       decryptKey: directoryCid.key ? toHex(directoryCid.key) : undefined,
     })}`;
+
+    // UUID-scoped Drive roots are not legacy npub trees. The directory CID is
+    // already the portable immutable snapshot and is available immediately.
+    if (npub && isNostrIdentityId(npub)) {
+      permalinkHref = fallbackHref;
+      return;
+    }
 
     if (isSnapshotRoute) {
       permalinkHref = snapshot
@@ -240,6 +249,19 @@
       : null;
   });
 
+  let currentShareUrl = $derived(
+    window.location.origin
+      + window.location.pathname
+      + '#'
+      + buildRouteUrl(route.npub, route.treeName, route.path, undefined, route.params.get('k')),
+  );
+  let shareLinks = $derived.by(() => createDriveShareLinkVariants({
+    permalinkUrl: permalinkHref,
+    currentUrl: currentShareUrl,
+    routeScope: route.npub,
+    isPermalink: route.isPermalink,
+  }));
+
   let btnClass = 'flex items-center gap-1 px-2 h-7 text-xs lg:px-3 lg:h-9 lg:text-sm';
 </script>
 
@@ -247,10 +269,7 @@
   <div class="flex flex-row flex-wrap items-center gap-1">
     <!-- Share and permalink first -->
     {#if dirCid?.hash}
-      {@const shareUrl = route.isPermalink
-        ? window.location.href
-        : window.location.origin + window.location.pathname + '#' + buildRouteUrl(route.npub, route.treeName, route.path, undefined, route.params.get('k'))}
-      <ShareButton url={shareUrl} />
+      <ShareButton url={shareLinks[0]?.url ?? null} latestUrl={shareLinks[1]?.url ?? null} />
       {#if permalinkHref}
         <a
           href={permalinkHref}
