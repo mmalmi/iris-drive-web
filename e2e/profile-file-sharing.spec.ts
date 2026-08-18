@@ -66,9 +66,7 @@ test.describe('profile file sharing', () => {
         buffer: Buffer.from(fileContent),
       });
 
-    const fileLink = page.getByTestId('file-list').getByRole('link', { name: fileName }).first();
-    await expect(fileLink).toBeVisible({ timeout: 30_000 });
-    await fileLink.click();
+    await expect(page.getByRole('heading', { name: fileName })).toBeVisible({ timeout: 30_000 });
     await expect(page.getByText(fileContent)).toBeVisible({ timeout: 30_000 });
     await expect(page.getByTestId('viewer-permalink')).toHaveAttribute('href', /^#\/nhash1/);
 
@@ -87,23 +85,6 @@ test.describe('profile file sharing', () => {
     expect(sharedUrl).not.toContain(owner.profileId);
 
     await page.keyboard.press('Escape');
-    const pushResult = await page.evaluate(async ({ url, name }) => {
-      const { nhashDecode } = await import('/src/lib/nhash.ts');
-      const nhash = new URL(url).hash.replace(/^#\/?/, '').split('/')[0];
-      const cid = nhashDecode(nhash);
-      const adapter = (window as unknown as {
-        __getWorkerAdapter?: () => {
-          pushToBlossom: (hash: Uint8Array, key: Uint8Array | undefined, fileName: string) => Promise<{
-            pushed: number;
-            skipped: number;
-            failed: number;
-          }>;
-        };
-      }).__getWorkerAdapter?.();
-      if (!adapter) throw new Error('Worker adapter is unavailable');
-      return adapter.pushToBlossom(cid.hash, cid.key, name);
-    }, { url: sharedUrl, name: fileName });
-    expect(pushResult.failed).toBe(0);
 
     const guestContext = await browser.newContext({
       permissions: ['clipboard-read', 'clipboard-write'],

@@ -13,11 +13,13 @@ import {
   portableAssetFileNames,
   rewritePortableEntryHtml,
   sanitizePortableHtml,
+  shouldAnalyzeBuild,
 } from './portableViteConfig';
 
 const outDir = 'dist';
 const brand = getAppBrand('files');
 const require = createRequire(import.meta.url);
+const analyzeBuild = shouldAnalyzeBuild();
 
 export const sanitizeFilesHtml = sanitizePortableHtml;
 
@@ -68,12 +70,12 @@ export default defineConfig({
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024, // 5MB for wasm files
       },
     }),
-    visualizer({
+    analyzeBuild && visualizer({
       open: false,
       gzipSize: true,
       filename: 'dist/stats.html',
     }),
-    visualizer({
+    analyzeBuild && visualizer({
       open: false,
       gzipSize: true,
       filename: 'dist/stats-list.txt',
@@ -91,7 +93,7 @@ export default defineConfig({
   },
   build: {
     modulePreload: filesPortableBuild.modulePreload,
-    reportCompressedSize: true,
+    reportCompressedSize: analyzeBuild,
     chunkSizeWarningLimit: 2000,
     rollupOptions: {
       onLog(level, log, handler) {

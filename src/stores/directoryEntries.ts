@@ -7,6 +7,7 @@
 import { writable, get } from 'svelte/store';
 import { type CID, type TreeEntry, toHex, LinkType } from '@hashtree/core';
 import { getTree } from '../store';
+import { filterVisibleDirectoryEntries } from '../lib/directoryEntryVisibility';
 import { markFilesChanged } from './recentlyChanged';
 
 // Sort entries: directories first, then alphabetically
@@ -112,6 +113,7 @@ function createGlobalDirectoryEntriesStore() {
           return;
         }
       }
+      newEntries = filterVisibleDirectoryEntries(newEntries);
 
       // Detect changed files
       if (prevEntryCids.size > 0) {

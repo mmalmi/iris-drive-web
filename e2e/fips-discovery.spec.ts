@@ -1,176 +1,335 @@
-import { getPublicKey, nip19 } from 'nostr-tools';
-import { expect, test } from './fixtures';
-import { ensureLoggedIn, evaluateWithRetry, waitForAppReady, waitForWorkerAdapter } from './test-utils';
+import { expect, test, type Page } from './fixtures';
+import {
+  clearAllStorage,
+  configureBlossomServers,
+  presetLocalRelayInDB,
+  setupPageErrorHandler,
+  useLocalRelay,
+  waitForAppReady,
+  waitForRelayConnected,
+} from './test-utils';
 
-const FIRST_NOSTR_SECRET = new Uint8Array(32).fill(0x61);
-const SECOND_NOSTR_SECRET = new Uint8Array(32).fill(0x62);
-const SWITCHED_NOSTR_SECRET = new Uint8Array(32).fill(0x63);
+interface DriveDevice {
+  profileId: string;
+  appKeyPubkey: string;
+}
 
-async function fipsLinkState(page: import('@playwright/test').Page): Promise<{
+interface FipsState {
+  active: boolean;
   localPeerId: string;
+  localXOnlyPubkey: string;
   connectedPeerIds: string[];
-}> {
+  providerPeerIds: string[];
+}
+
+async function prepareDrivePage(page: Page, relayUrl: string): Promise<void> {
+  setupPageErrorHandler(page);
+  await page.addInitScript(() => {
+    localStorage.setItem('hashtree:disableTestAutoCreate', '1');
+  });
+  await page.goto('/', { waitUntil: 'domcontentloaded' });
+  await clearAllStorage(page);
+  await page.evaluate(() => {
+    localStorage.setItem('hashtree:disableTestAutoCreate', '1');
+  });
+  await presetLocalRelayInDB(page, relayUrl);
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await waitForAppReady(page, 60_000);
+  await useLocalRelay(page, relayUrl);
+  await configureBlossomServers(page);
+  await waitForRelayConnected(page, 30_000);
+}
+
+async function fipsState(page: Page): Promise<FipsState> {
   return page.evaluate(async () => {
     const { getDriveFipsRuntime } = await import('/src/lib/driveFipsRuntime.ts');
-    const stats = getDriveFipsRuntime()?.getStats();
+    const runtime = getDriveFipsRuntime();
+    const stats = runtime?.getStats();
     return {
+      active: stats?.active === true,
       localPeerId: stats?.localPeerId ?? '',
+      localXOnlyPubkey: stats?.localXOnlyPubkey ?? '',
       connectedPeerIds: stats?.connectedPeerIds ?? [],
+      providerPeerIds: runtime
+        ? await runtime.getP2PProvider().listPeerIds().catch(() => [])
+        : [],
     };
-  }).catch(() => ({ localPeerId: '', connectedPeerIds: [] }));
-}
-
-async function installNostrLogin(page: import('@playwright/test').Page, secret: Uint8Array): Promise<void> {
-  const nsec = nip19.nsecEncode(secret);
-  await page.addInitScript((value) => {
-    localStorage.setItem('hashtree:loginType', 'nsec');
-    localStorage.setItem('hashtree:nsec', value);
-  }, nsec);
-}
-
-async function activateNostrLogin(
-  page: import('@playwright/test').Page,
-  secret: Uint8Array,
-): Promise<void> {
-  await evaluateWithRetry(page, async (nsec) => {
-    const { loginWithNsec } = await import('/src/nostr/auth.ts');
-    if (!await loginWithNsec(nsec)) throw new Error('Nostr login failed');
-  }, nip19.nsecEncode(secret), 5);
-}
-
-test('Drive keeps its FIPS device identity across Nostr accounts and explicitly exchanges blocks', async ({
-  browser,
-  page,
-}) => {
-  test.slow();
-  await installNostrLogin(page, FIRST_NOSTR_SECRET);
-  await page.goto('/');
-  await waitForAppReady(page);
-  await ensureLoggedIn(page, 30_000);
-  await activateNostrLogin(page, FIRST_NOSTR_SECRET);
-  await waitForWorkerAdapter(page);
-
-  const secondContext = await browser.newContext();
-  const secondNsec = nip19.nsecEncode(SECOND_NOSTR_SECRET);
-  await secondContext.addInitScript((value) => {
-    localStorage.setItem('hashtree:loginType', 'nsec');
-    localStorage.setItem('hashtree:nsec', value);
-  }, secondNsec);
-  const secondPage = await secondContext.newPage();
-  await secondPage.goto('/');
-  await waitForAppReady(secondPage);
-  await ensureLoggedIn(secondPage, 30_000);
-  await activateNostrLogin(secondPage, SECOND_NOSTR_SECRET);
-  await waitForWorkerAdapter(secondPage);
-
-  await expect.poll(async () => Promise.all(
-    [page, secondPage].map(async (candidate) => (await fipsLinkState(candidate)).localPeerId),
-  ), { timeout: 60_000 }).toEqual([
-    expect.stringMatching(/^(02|03)[0-9a-f]{64}$/),
-    expect.stringMatching(/^(02|03)[0-9a-f]{64}$/),
-  ]);
-  const [firstFipsPeerId, secondFipsPeerId] = await Promise.all(
-    [page, secondPage].map(async (candidate) => (await fipsLinkState(candidate)).localPeerId),
-  );
-  await expect.poll(async () => Promise.all(
-    [
-      [page, secondFipsPeerId],
-      [secondPage, firstFipsPeerId],
-    ].map(async ([candidate, peerId]) => (
-      await fipsLinkState(candidate as import('@playwright/test').Page)
-    ).connectedPeerIds.includes(peerId as string)),
-  ), { timeout: 60_000 }).toEqual([true, true]);
-
-  await page.evaluate(async () => {
-    const { settingsStore } = await import('/src/stores/settings.ts');
-    const { refreshFipsStats } = await import('/src/store.ts');
-    settingsStore.setPoolSettings({ showConnectivity: true });
-    await refreshFipsStats();
   });
-  const indicator = page.getByTestId('peer-indicator-dot');
-  await expect(indicator).toBeVisible({ timeout: 10_000 });
-  await expect.poll(() => indicator.evaluate((element) => getComputedStyle(element).color), {
-    timeout: 10_000,
-  }).toBe('rgb(63, 185, 80)');
+}
 
-  await page.goto('/#/settings/network/p2p');
-  await waitForAppReady(page);
-  await expect(page.getByTestId('settings-fips-peers')).toContainText(/FIPS peers \([1-9]\d*\)/, {
-    timeout: 10_000,
-  });
-  await expect.poll(() => page.getByTestId('settings-fips-peer').count(), { timeout: 10_000 })
-    .toBeGreaterThan(0);
-  const fipsPeerLabels = await page.getByTestId('settings-fips-peer').allTextContents();
-  expect(fipsPeerLabels.every((label) => label.includes('FIPS device identity'))).toBe(true);
-  expect(fipsPeerLabels.some((label) => label.includes('Follow'))).toBe(false);
-
-  const initialIdentity = await page.evaluate(async () => {
-    const { getDriveFipsRuntime } = await import('/src/lib/driveFipsRuntime.ts');
+async function createOwner(page: Page): Promise<DriveDevice> {
+  return page.evaluate(async () => {
+    const { createDriveProfile, getCurrentNostrIdentitySession } = await import('/src/nostr');
+    const created = await createDriveProfile({ name: 'FIPS owner' });
+    const session = getCurrentNostrIdentitySession();
+    if (!session) throw new Error('Drive owner session was not created');
     return {
-      fipsPeerId: getDriveFipsRuntime()?.getStats().localPeerId ?? '',
-      nostrPubkey: (window as typeof window & {
-        __nostrStore?: { getState(): { pubkey?: string } };
-      }).__nostrStore?.getState().pubkey ?? '',
+      profileId: created.profileId,
+      appKeyPubkey: session.appKeyPubkey,
     };
   });
-  expect(initialIdentity.fipsPeerId).toMatch(/^(02|03)[0-9a-f]{64}$/);
-  expect(initialIdentity.nostrPubkey).toBe(getPublicKey(FIRST_NOSTR_SECRET));
-  expect(initialIdentity.fipsPeerId.slice(2)).not.toBe(initialIdentity.nostrPubkey);
+}
 
-  await activateNostrLogin(page, SWITCHED_NOSTR_SECRET);
-  await page.reload();
-  await waitForAppReady(page);
-  await ensureLoggedIn(page, 30_000);
-  await waitForWorkerAdapter(page);
-  await expect.poll(() => page.evaluate(async () => {
-    const { getDriveFipsRuntime } = await import('/src/lib/driveFipsRuntime.ts');
+async function linkBrowserDevice(ownerPage: Page, devicePage: Page): Promise<DriveDevice> {
+  const request = await devicePage.evaluate(async () => {
+    const { createDriveDeviceApprovalLink } = await import('/src/nostr');
+    const link = createDriveDeviceApprovalLink({ label: 'FIPS browser' });
+    (window as typeof window & { __fipsApprovalLink?: unknown }).__fipsApprovalLink = link;
     return {
-      fipsPeerId: getDriveFipsRuntime()?.getStats().localPeerId ?? '',
-      nostrPubkey: (window as typeof window & {
-        __nostrStore?: { getState(): { pubkey?: string } };
-      }).__nostrStore?.getState().pubkey ?? '',
+      appKeyPubkey: link.appKeyPubkey,
+      bootstrap: link.pendingApproval.bootstrap,
     };
-  }), { timeout: 30_000 }).toEqual({
-    fipsPeerId: initialIdentity.fipsPeerId,
-    nostrPubkey: getPublicKey(SWITCHED_NOSTR_SECRET),
   });
-  await expect.poll(async () => Promise.all(
-    [
-      [page, secondFipsPeerId],
-      [secondPage, firstFipsPeerId],
-    ].map(async ([candidate, peerId]) => (
-      await fipsLinkState(candidate as import('@playwright/test').Page)
-    ).connectedPeerIds.includes(peerId as string)),
-  ), { timeout: 60_000 }).toEqual([true, true]);
 
-  const source = await page.evaluate(async () => {
+  await devicePage.evaluate(async () => {
+    const link = (window as typeof window & {
+      __fipsApprovalLink?: {
+        pendingApproval: unknown;
+        appKeyNsec: string;
+      };
+      __fipsApproval?: Promise<DriveDevice>;
+    }).__fipsApprovalLink;
+    if (!link) throw new Error('Drive device approval link is missing');
+    const { activateDriveDeviceApprovalIfApproved } = await import('/src/nostr');
+    (window as typeof window & {
+      __fipsApproval?: Promise<DriveDevice>;
+    }).__fipsApproval = activateDriveDeviceApprovalIfApproved(
+      link.pendingApproval as never,
+      link.appKeyNsec,
+      { timeoutMs: 60_000 },
+    ).then((activation) => {
+      if (!activation) throw new Error('Drive device approval was not activated');
+      return {
+        profileId: activation.session.profileId,
+        appKeyPubkey: activation.session.appKeyPubkey,
+      };
+    });
+  });
+
+  await ownerPage.evaluate(async (bootstrap) => {
+    const { approveDriveDeviceApprovalBootstrap } = await import('/src/nostr');
+    await approveDriveDeviceApprovalBootstrap(bootstrap as never);
+  }, request.bootstrap);
+
+  const activated = await devicePage.evaluate(() => (
+    window as typeof window & { __fipsApproval?: Promise<DriveDevice> }
+  ).__fipsApproval);
+  expect(activated.appKeyPubkey).toBe(request.appKeyPubkey);
+  return activated;
+}
+
+async function putWorkerOnlyBlock(
+  page: Page,
+  label: string,
+): Promise<{ hashHex: string; text: string }> {
+  return page.evaluate(async (prefix) => {
     const adapter = (window as typeof window & {
       __getWorkerAdapter?: () => {
         put(hash: Uint8Array, data: Uint8Array): Promise<boolean>;
-        webrtcProxy?: unknown;
       } | null;
     }).__getWorkerAdapter?.();
     if (!adapter) throw new Error('worker adapter is not ready');
-    const text = `drive-fips-block-${crypto.randomUUID()}`;
+    const text = `${prefix}-${crypto.randomUUID()}`;
     const data = new TextEncoder().encode(text);
     const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', data));
-    if (!await adapter.put(hash, data)) throw new Error('failed to store source block');
+    if (!await adapter.put(hash, data)) throw new Error('failed to store FIPS source block');
     return {
       hashHex: Array.from(hash, (byte) => byte.toString(16).padStart(2, '0')).join(''),
       text,
-      legacyProxyActive: adapter.webrtcProxy != null,
     };
-  });
-  expect(source.legacyProxyActive).toBe(false);
+  }, label);
+}
 
-  const received = await evaluateWithRetry(secondPage, async ({ hashHex, peerId }) => {
+async function workerHasBlock(page: Page, hashHex: string): Promise<boolean> {
+  return page.evaluate(async (hex) => {
+    const adapter = (window as typeof window & {
+      __getWorkerAdapter?: () => {
+        has(hash: Uint8Array): Promise<boolean>;
+      } | null;
+    }).__getWorkerAdapter?.();
+    if (!adapter) throw new Error('worker adapter is not ready');
+    const hash = Uint8Array.from(hex.match(/../g) ?? [], (byte) => Number.parseInt(byte, 16));
+    return adapter.has(hash);
+  }, hashHex);
+}
+
+async function fetchBlock(
+  page: Page,
+  hashHex: string,
+  peerId?: string,
+): Promise<{ ok: boolean; text?: string; error?: string }> {
+  return page.evaluate(async ({ hash, peer }) => {
     const { getDriveFipsRuntime } = await import('/src/lib/driveFipsRuntime.ts');
     const runtime = getDriveFipsRuntime();
-    if (!runtime) throw new Error('FIPS provider bridge is not ready');
-    const data = await runtime.getP2PProvider().fetch(hashHex, peerId, 10);
-    return data ? new TextDecoder().decode(data) : null;
-  }, { hashHex: source.hashHex, peerId: firstFipsPeerId }, 5);
-  expect(received).toBe(source.text);
+    if (!runtime) throw new Error('Drive FIPS runtime is not active');
+    try {
+      const data = await runtime.getP2PProvider().fetch(hash, peer, 10);
+      return data
+        ? { ok: true, text: new TextDecoder().decode(data) }
+        : { ok: false, error: 'explicit miss' };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  }, { hash: hashHex, peer: peerId });
+}
 
-  await secondContext.close();
+async function authorizationDiagnostics(page: Page): Promise<unknown> {
+  return page.evaluate(async () => {
+    const { getDriveFipsRuntime } = await import('/src/lib/driveFipsRuntime.ts');
+    const {
+      getCurrentNostrIdentitySession,
+      refreshCurrentDriveRosterOps,
+    } = await import('/src/nostr/auth.ts');
+    const { ndk } = await import('/src/nostr');
+    const session = getCurrentNostrIdentitySession();
+    let refresh: unknown;
+    try {
+      refresh = session
+        ? { rosterOps: (await refreshCurrentDriveRosterOps(session.profileId, 3_000)).length }
+        : { error: 'no session' };
+    } catch (error) {
+      refresh = { error: error instanceof Error ? error.message : String(error) };
+    }
+    return {
+      session: session ? {
+        profileId: session.profileId,
+        appKeyPubkey: session.appKeyPubkey,
+        rosterOps: session.rosterOps.map((op) => ({ id: op.op_id, op: op.content.op.op })),
+      } : null,
+      refresh,
+      relays: Array.from(ndk.pool.relays.values()).map((relay) => ({
+        url: relay.url,
+        connected: relay.connectivity?.connected === true,
+      })),
+      fips: getDriveFipsRuntime()?.getStats() ?? null,
+    };
+  });
+}
+
+test('linked Drive AppKeys fetch remote-only blocks and live revocation denies later service', async ({
+  browser,
+  page: ownerPage,
+  relayUrl,
+}) => {
+  test.setTimeout(240_000);
+  await prepareDrivePage(ownerPage, relayUrl);
+  const owner = await createOwner(ownerPage);
+
+  const deviceContext = await browser.newContext();
+  const devicePage = await deviceContext.newPage();
+  try {
+    await prepareDrivePage(devicePage, relayUrl);
+    const device = await linkBrowserDevice(ownerPage, devicePage);
+    expect(device.profileId).toBe(owner.profileId);
+
+    await expect.poll(async () => Promise.all(
+      [ownerPage, devicePage].map(async (candidate) => {
+        const state = await fipsState(candidate);
+        return [state.active, state.localXOnlyPubkey] as const;
+      }),
+    ), { timeout: 90_000, intervals: [500, 1_000, 2_000] }).toEqual([
+      [true, owner.appKeyPubkey],
+      [true, device.appKeyPubkey],
+    ]);
+
+    try {
+      await expect.poll(async () => {
+        const [ownerState, deviceState] = await Promise.all([
+          fipsState(ownerPage),
+          fipsState(devicePage),
+        ]);
+        return [ownerState.providerPeerIds, deviceState.providerPeerIds];
+      }, { timeout: 30_000, intervals: [500, 1_000, 2_000] }).toEqual([
+        [`02${device.appKeyPubkey}`, `03${device.appKeyPubkey}`],
+        [`02${owner.appKeyPubkey}`, `03${owner.appKeyPubkey}`],
+      ]);
+    } catch (error) {
+      console.error('FIPS authorization diagnostics', JSON.stringify(await Promise.all([
+        authorizationDiagnostics(ownerPage),
+        authorizationDiagnostics(devicePage),
+      ]), null, 2));
+      throw error;
+    }
+
+    await expect.poll(async () => {
+      const [ownerState, deviceState] = await Promise.all([
+        fipsState(ownerPage),
+        fipsState(devicePage),
+      ]);
+      return [
+        ownerState.connectedPeerIds.some((peerId) => peerId.slice(2) === device.appKeyPubkey),
+        deviceState.connectedPeerIds.some((peerId) => peerId.slice(2) === owner.appKeyPubkey),
+      ];
+    }, { timeout: 90_000, intervals: [500, 1_000, 2_000] }).toEqual([
+      true,
+      true,
+    ]);
+
+    const first = await putWorkerOnlyBlock(ownerPage, 'authorized-remote-only');
+    expect(await workerHasBlock(devicePage, first.hashHex)).toBe(false);
+    await expect.poll(
+      () => fetchBlock(devicePage, first.hashHex),
+      { timeout: 30_000, intervals: [500, 1_000, 2_000] },
+    ).toEqual({ ok: true, text: first.text });
+    expect(await workerHasBlock(devicePage, first.hashHex)).toBe(true);
+
+    const afterRevocation = await putWorkerOnlyBlock(ownerPage, 'revoked-remote-only');
+    expect(await workerHasBlock(devicePage, afterRevocation.hashHex)).toBe(false);
+    await ownerPage.evaluate(async (appKeyPubkey) => {
+      const { removeDriveProfileAppKeyWithAdmin } = await import('/src/nostr');
+      await removeDriveProfileAppKeyWithAdmin(appKeyPubkey);
+    }, device.appKeyPubkey);
+
+    // No Settings visit or reload: the open roster subscription must update the
+    // linked browser, while the bounded FIPS refresh fails closed if relay state
+    // cannot establish current authorization.
+    await expect.poll(async () => {
+      const [ownerState, deviceState, deviceRoster] = await Promise.all([
+        fipsState(ownerPage),
+        fipsState(devicePage),
+        devicePage.evaluate(async () => {
+          const { getCurrentNostrIdentitySession } = await import('/src/nostr');
+          const { projectNostrIdentityRoster } = await import('/src/drive/protocol');
+          const session = getCurrentNostrIdentitySession();
+          if (!session) return { received: true, active: false };
+          const projection = projectNostrIdentityRoster(session.profileId, session.rosterOps);
+          return {
+            received: session.rosterOps.some((op) => (
+              op.content.op.op === 'tombstone_facet'
+              && op.content.op.pubkey === session.appKeyPubkey
+            )),
+            active: Boolean(projection.active_facets[session.appKeyPubkey]),
+          };
+        }),
+      ]);
+      return {
+        ownerRoutes: ownerState.providerPeerIds,
+        deviceRoutes: deviceState.providerPeerIds,
+        ownerStillConnected: ownerState.connectedPeerIds
+          .some((peerId) => peerId.slice(2) === device.appKeyPubkey),
+        deviceRoster,
+      };
+    }, { timeout: 30_000, intervals: [500, 1_000, 2_000] }).toEqual({
+      ownerRoutes: [],
+      deviceRoutes: [],
+      ownerStillConnected: false,
+      deviceRoster: { received: true, active: false },
+    });
+
+    // Explicitly naming the former owner bypasses the revoked device's empty
+    // outbound route list. The owner's authenticated TCP/FIPS serving ACL must
+    // still abort this routed request before returning the local block.
+    const ownerPeerId = (await fipsState(ownerPage)).localPeerId;
+    expect(ownerPeerId.slice(2)).toBe(owner.appKeyPubkey);
+    const denied = await fetchBlock(
+      devicePage,
+      afterRevocation.hashHex,
+      ownerPeerId,
+    );
+    expect(denied.ok).toBe(false);
+    expect(denied.text).toBeUndefined();
+    expect(await workerHasBlock(devicePage, afterRevocation.hashHex)).toBe(false);
+  } finally {
+    await deviceContext.close();
+  }
 });

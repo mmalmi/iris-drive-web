@@ -2,6 +2,7 @@
  * Nostr Authentication and Encryption
  */
 import { generateSecretKey, getPublicKey, nip19, nip44, verifyEvent, type Event as NostrToolsEvent } from 'nostr-tools';
+import type { Hash } from '@hashtree/core';
 import {
   approveDeviceApprovalBootstrap,
   buildDeviceApprovalReceiptEvent,
@@ -22,7 +23,7 @@ import {
   APP_KEY_WRITER_CAPABILITIES,
   normalizeHexPubkey,
 } from 'nostr-social-graph';
-import type { NDKFilter } from 'ndk';
+import { NDKSubscriptionCacheUsage, type NDKFilter } from 'ndk';
 import { ndk, NDKNip46Signer, NDKPrivateKeySigner, NDKNip07Signer, NDKEvent } from './ndk';
 import { nostrStore } from './store';
 import { initHashtreeBackend, getWorkerAdapter, waitForWorkerAdapter } from '../lib/workerInit';
@@ -31,9 +32,12 @@ import {
   initAccountsStore,
   createAccountFromNsec,
   createExtensionAccount,
+  isSessionSignedOut,
   saveActiveAccountToStorage,
+  setSessionSignedOut,
 } from '../accounts';
-import { stopWebRTC } from '../store';
+import { treeRootRegistry } from '../TreeRootRegistry';
+import { profileDriveProjection } from '../drive/profileDriveProjection';
 import { needsMigrations, runMigrations } from '../migrations';
 import { initWallet, disposeWallet } from '../stores/wallet';
 import {
@@ -66,17 +70,36 @@ import {
   encryptDriveDeviceLabelsWithDck,
   encryptedDeviceLabelPayloadsFromEventJson,
   readStoredDeviceLabels,
+  removeStoredDeviceLabels,
   saveStoredDeviceLabel,
   saveStoredDeviceLabels,
 } from '../drive/deviceLabels';
+import {
+  IRIS_IDENTITY_SESSION_STORAGE_KEY,
+  loadStoredNostrIdentitySessions,
+  removeStoredNostrIdentitySession,
+  saveStoredNostrIdentitySessions,
+} from './identitySessionStorage';
+import {
+  DriveRosterLiveCandidateBuffer,
+  driveApprovalRosterIsReadyForAppKey,
+  fetchAuthoritativeDriveRoster,
+  projectDriveRosterFromApprovalReceipt,
+  rosterAuthorFilter,
+  type DriveRosterAuthorSnapshot,
+} from './driveRosterRefresh';
+import {
+  publishDriveRosterHistory,
+  publishDriveRosterThenActivate,
+} from './driveRosterPublish';
 
 // Storage keys
 const STORAGE_KEY_NSEC = 'hashtree:nsec';
 const STORAGE_KEY_LOGIN_TYPE = 'hashtree:loginType';
-const STORAGE_KEY_IRIS_IDENTITY = 'iris:identity:session';
-const STORAGE_KEY_IRIS_IDENTITY_SESSIONS = 'iris:identity:sessions';
+const STORAGE_KEY_IRIS_IDENTITY = IRIS_IDENTITY_SESSION_STORAGE_KEY;
+const STORAGE_KEY_PENDING_DEVICE_APPROVAL = 'iris:drive:pending-device-approval';
 const DRIVE_ROOT_NAME = 'main';
-const DRIVE_ROSTER_PUBLISH_CONCURRENCY = 32;
+const DRIVE_ROOT_APPROVAL_RESOLVE_TIMEOUT_MS = 45_000;
 
 // Private key (only set for nsec login)
 let secretKey: Uint8Array | null = null;
@@ -151,8 +174,12 @@ const CLASSIC_DEFAULT_TREES: readonly DefaultTree[] = [
 const DRIVE_DEFAULT_TREES: readonly DefaultTree[] = [
   { name: DRIVE_ROOT_NAME, visibility: 'private' },
 ];
+const EXISTING_PROFILE_DEFAULT_TREES: readonly DefaultTree[] = [];
 
 let currentNostrIdentitySession: NostrIdentitySession | null = null;
+let activeDriveRosterSubscription: { stop(): void } | null = null;
+let activeDriveRosterSubscriptionKey = '';
+const activeDriveRosterCandidates = new DriveRosterLiveCandidateBuffer();
 
 const DRIVE_APP_KEY_ADMIN_CAPABILITIES: NostrIdentityCapabilities = {
   can_write_roots: true,
@@ -261,6 +288,12 @@ export async function restoreSession(options: RestoreSessionOptions = {}): Promi
 
   initAccountsStore();
   logT('initAccountsStore');
+  if (isSessionSignedOut()) {
+    syncActiveDriveRosterSubscription(null);
+    currentNostrIdentitySession = null;
+    logT('session is signed out');
+    return false;
+  }
   restoreStoredNostrIdentitySession();
 
   // Migrate legacy single account to multi-account storage if needed
@@ -558,12 +591,21 @@ export async function createDriveProfile(
     ...session,
     rosterOps: [...session.rosterOps, dckRotationOp],
   };
-  saveStoredDeviceLabel(activeSession.profileId, activeSession.appKeyPubkey, label);
-  saveNostrIdentitySession(activeSession);
-  const applied = await applySecretKey(appKeySecretKey, DRIVE_DEFAULT_TREES, {
-    nostrIdentityId: activeSession.profileId,
-    name: options.name?.trim() || undefined,
-  });
+  // The local session is the trust anchor for later author-filtered refreshes.
+  // Do not expose a usable profile until every operation in that exact trusted
+  // baseline is durably available from the relay/worker publication path.
+  const applied = await publishDriveRosterThenActivate(
+    activeSession.rosterOps,
+    publishSignedIdentityEventJson,
+    async () => {
+      saveStoredDeviceLabel(activeSession.profileId, activeSession.appKeyPubkey, label);
+      saveNostrIdentitySession(activeSession);
+      return applySecretKey(appKeySecretKey, DRIVE_DEFAULT_TREES, {
+        nostrIdentityId: activeSession.profileId,
+        name: options.name?.trim() || undefined,
+      });
+    },
+  );
   return {
     ...applied,
     profileId: activeSession.profileId,
@@ -656,17 +698,79 @@ export async function approveDriveDeviceApprovalBootstrap(
     subjectPubkey: session.appKeyPubkey,
     rosterOpEvent: JSON.parse(signed.event_json) as NostrToolsEvent,
   });
+  // Resolve the complete logical Drive before publishing any approval state.
+  // A settings-only/cold session may not have hydrated `main` yet, and
+  // acknowledging first would strand the newly approved AppKey without a root
+  // key wrap.
+  const currentDriveRoot = await resolveCurrentDriveRootForApproval(session.profileId);
+  await uploadDriveRootForApproval(currentDriveRoot);
   const approvalRosterOps = [...rosterOps, signed, dckRotationOp];
   await publishDriveIdentityRosterOps(approvalRosterOps);
-  await publishRawNostrEvent(receiptEvent);
   const updated = appendCurrentNostrIdentitySessionRosterOps(session.profileId, approvalRosterOps);
   if (!updated) throw new Error('Approved key removed the active Drive user');
   const updatedProjection = projectNostrIdentityRoster(updated.profileId, updated.rosterOps);
   if (!updatedProjection.active_facets[deviceAppKeyPubkey]) {
     throw new Error('Approved Drive key was not added to the active roster');
   }
+  // Existing Drive roots were encrypted before this AppKey joined, so their
+  // root-key wraps cannot be opened by the new device. Re-publish the current
+  // logical root after updating the roster, then publish the receipt last: a
+  // device that sees the receipt can immediately resolve the adopted Drive.
+  await republishCurrentDriveRootForApproval(currentDriveRoot);
+  await publishRawNostrEvent(receiptEvent);
   saveStoredDeviceLabels(updated.profileId, deviceLabels);
   return updated;
+}
+
+async function resolveCurrentDriveRootForApproval(
+  profileId: NostrIdentityId,
+): Promise<{ hash: Hash; key: Hash }> {
+  const resolverKey = `${profileId}/${DRIVE_ROOT_NAME}`;
+  const { resolveDriveRootProjectionNow } = await import('../stores/treeRootResolver');
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  try {
+    const applied = await Promise.race([
+      resolveDriveRootProjectionNow(resolverKey),
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => {
+          reject(new Error('Could not resolve the current Drive before approving this device'));
+        }, DRIVE_ROOT_APPROVAL_RESOLVE_TIMEOUT_MS);
+      }),
+    ]);
+    const current = treeRootRegistry.getByKey(resolverKey);
+    if (!applied || !current?.hash || !current.key) {
+      throw new Error('The current Drive projection is incomplete');
+    }
+    return { hash: current.hash, key: current.key };
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
+async function uploadDriveRootForApproval(
+  current: { hash: Hash; key: Hash },
+): Promise<void> {
+  const adapter = await waitForWorkerAdapter();
+  if (!adapter?.pushToBlossom) {
+    throw new Error('Drive storage is not ready to hand files to the approved device');
+  }
+  const upload = await adapter.pushToBlossom(current.hash, current.key, DRIVE_ROOT_NAME);
+  if (upload.failed > 0) {
+    throw new Error(`Could not upload ${upload.failed} Drive blocks for the approved device`);
+  }
+}
+
+async function republishCurrentDriveRootForApproval(
+  current: { hash: Hash; key: Hash },
+): Promise<void> {
+  const { publishNostrIdentityDriveRootIfAvailable } = await import('../drive/profileDriveRootPublish');
+  const published = await publishNostrIdentityDriveRootIfAvailable(DRIVE_ROOT_NAME, {
+    hash: current.hash,
+    key: current.key,
+  });
+  if (!published) {
+    throw new Error('Could not hand the current Drive root to the approved device');
+  }
 }
 
 export async function activateDriveDeviceApprovalIfApproved(
@@ -696,15 +800,19 @@ export async function activateDriveDeviceApprovalIfApproved(
     options.timeoutMs ?? 5000,
   );
   const receiptRosterOp = parseDeviceApprovalReceiptRosterOp(receipt);
-  const rosterOps = mergeRosterOps([receiptRosterOp], remoteOps);
-  const projection = projectNostrIdentityRoster(receipt.profileId, rosterOps);
-  const facet = projection.active_facets[appKeyPubkey];
-  const latestEpoch = Object.values(projection.secret_epochs)
-    .sort((left, right) => right.epoch - left.epoch)[0];
-  if (!facet?.capabilities?.can_write_roots
-    || !facet.capabilities.can_receive_secret_wraps
-    || !facet.capabilities.can_decrypt_secret_epochs
-    || !latestEpoch?.wrapped_secrets[appKeyPubkey]) {
+  let anchored;
+  try {
+    anchored = projectDriveRosterFromApprovalReceipt(
+      receipt.profileId,
+      receiptRosterOp,
+      remoteOps,
+    );
+  } catch (error) {
+    console.warn('[auth] Drive approval roster is not yet complete or authorized:', error);
+    return null;
+  }
+  const { rosterOps } = anchored;
+  if (!driveApprovalRosterIsReadyForAppKey(anchored, receiptRosterOp.op_id, appKeyPubkey)) {
     return null;
   }
 
@@ -718,14 +826,17 @@ export async function activateDriveDeviceApprovalIfApproved(
     createdAt: receipt.approvedAt,
     ...(pendingApproval.bootstrap.label ? { label: pendingApproval.bootstrap.label } : {}),
   };
-  await applySecretKey(appKeySecretKey, DRIVE_DEFAULT_TREES, {
+  // Make the profile scope authoritative before backend setup starts. Existing
+  // profiles already have drive roots; activation must adopt them without
+  // publishing a competing empty `main` contribution for the new AppKey.
+  saveNostrIdentitySession(session);
+  await applySecretKey(appKeySecretKey, EXISTING_PROFILE_DEFAULT_TREES, {
     nostrIdentityId: session.profileId,
   });
   const labels = await collectDriveDeviceLabels(session, rosterOps).catch(() => ({
     [session.appKeyPubkey]: session.label ?? currentBrowserDeviceLabel(),
   }));
   saveStoredDeviceLabels(session.profileId, labels);
-  saveNostrIdentitySession(session);
   const ack = buildDriveDeviceApprovalAppliedAckEvent({
     appKeySecretKey,
     receipt,
@@ -879,7 +990,7 @@ export async function recoverDriveProfileWithAppKey(
   }
   const decodedAppKeySecretKey = decoded.data as Uint8Array;
   return {
-    ...(await applySecretKey(decodedAppKeySecretKey, DRIVE_DEFAULT_TREES, {
+    ...(await applySecretKey(decodedAppKeySecretKey, EXISTING_PROFILE_DEFAULT_TREES, {
       nostrIdentityId: activeSession.profileId,
     })),
     session: activeSession,
@@ -965,9 +1076,13 @@ async function createDefaultTrees(defaults: readonly DefaultTree[]) {
     const { getLocalRootCache } = await import('../treeRootCache');
     const state = nostrStore.getState();
     if (!state.npub) return;
+    const rootScope = currentNostrIdentitySession?.status === 'active'
+      && currentNostrIdentitySession.appKeyPubkey === state.pubkey
+      ? currentNostrIdentitySession.profileId
+      : state.npub;
 
     for (const { name, visibility } of defaults) {
-      if (getLocalRootCache(state.npub, name)) continue;
+      if (getLocalRootCache(rootScope, name)) continue;
       await createTree(name, visibility, true);
     }
   } catch (e) {
@@ -1032,6 +1147,34 @@ async function publishInitialProfile(npub: string) {
  * Logout
  */
 export function logout() {
+  const accountState = accountsStore.getState();
+  const activeAccountPubkey = accountState.activeAccountPubkey
+    ?? nostrStore.getState().pubkey;
+  const activeAccount = accountState.accounts.find((account) => account.pubkey === activeAccountPubkey);
+  const activeProfileId = currentNostrIdentitySession?.profileId ?? activeAccount?.nostrIdentityId;
+  const activeNpub = nostrStore.getState().npub;
+
+  const privateRootScopes = new Set([activeProfileId, activeNpub].filter((scope): scope is string => !!scope));
+  for (const rootScope of privateRootScopes) {
+    for (const key of treeRootRegistry.getAllRecords().keys()) {
+      const prefix = `${rootScope}/`;
+      if (!key.startsWith(prefix)) continue;
+      treeRootRegistry.delete(rootScope, key.slice(prefix.length));
+    }
+  }
+  if (activeProfileId) {
+    profileDriveProjection.clear(activeProfileId, DRIVE_ROOT_NAME);
+    removeStoredDeviceLabels(activeProfileId);
+  }
+
+  if (activeAccountPubkey) {
+    accountsStore.forgetAccount(activeAccountPubkey);
+  } else {
+    saveActiveAccountToStorage(null);
+    accountsStore.setActiveAccount(null);
+  }
+  setSessionSignedOut(true);
+
   nostrStore.setPubkey(null);
   nostrStore.setNpub(null);
   nostrStore.setIsLoggedIn(false);
@@ -1039,7 +1182,16 @@ export function logout() {
   secretKey = null;
   ndk.signer = undefined;
 
-  stopWebRTC();
+  // Keep the initialized backend reusable for a same-page login, but detach it
+  // from the logged-out AppKey. This also stops the AppKey-scoped FIPS runtime.
+  const adapter = getWorkerAdapter();
+  if (adapter) {
+    adapter.setP2PProvider?.(null);
+    const anonymousPubkey = getPublicKey(generateSecretKey());
+    void adapter.setIdentity(anonymousPubkey).catch((error) => {
+      console.warn('[auth] Failed to clear backend identity during logout:', error);
+    });
+  }
 
   // Dispose wallet
   disposeWallet().catch(e => {
@@ -1048,15 +1200,19 @@ export function logout() {
 
   localStorage.removeItem(STORAGE_KEY_LOGIN_TYPE);
   localStorage.removeItem(STORAGE_KEY_NSEC);
+  localStorage.removeItem(STORAGE_KEY_IRIS_IDENTITY);
+  localStorage.removeItem(STORAGE_KEY_PENDING_DEVICE_APPROVAL);
+  syncActiveDriveRosterSubscription(null);
   currentNostrIdentitySession = null;
 }
 
 function saveNostrIdentitySession(session: NostrIdentitySession): void {
   currentNostrIdentitySession = session;
+  syncActiveDriveRosterSubscription(session);
   const stored = serializeDriveIdentitySession(session);
   const sessions = loadStoredNostrIdentitySessions();
   sessions[session.appKeyPubkey] = stored;
-  localStorage.setItem(STORAGE_KEY_IRIS_IDENTITY_SESSIONS, JSON.stringify(sessions));
+  saveStoredNostrIdentitySessions(sessions);
   localStorage.setItem(STORAGE_KEY_IRIS_IDENTITY, JSON.stringify(stored));
   const state = nostrStore.getState();
   if (state.pubkey === session.appKeyPubkey) {
@@ -1078,6 +1234,7 @@ function appendCurrentNostrIdentitySessionRosterOps(
     removeStoredNostrIdentitySession(removed);
   }
   if (removed && currentNostrIdentitySession.appKeyPubkey === removed) {
+    syncActiveDriveRosterSubscription(null);
     currentNostrIdentitySession = null;
     localStorage.removeItem(STORAGE_KEY_IRIS_IDENTITY);
     return null;
@@ -1096,6 +1253,21 @@ function appendCurrentNostrIdentitySessionRosterOps(
   return session;
 }
 
+function replaceCurrentNostrIdentitySessionRosterOps(
+  profileId: NostrIdentityId,
+  rosterOps: SignedNostrIdentityRosterOp[],
+): NostrIdentitySession | null {
+  if (!currentNostrIdentitySession || currentNostrIdentitySession.profileId !== profileId) {
+    return currentNostrIdentitySession;
+  }
+  const session: NostrIdentitySession = {
+    ...currentNostrIdentitySession,
+    rosterOps,
+  };
+  saveNostrIdentitySession(session);
+  return session;
+}
+
 function restoreStoredNostrIdentitySession(): NostrIdentitySession | null {
   const activeAccountPubkey = accountsStore.getState().activeAccountPubkey;
   const sessions = loadStoredNostrIdentitySessions();
@@ -1108,11 +1280,13 @@ function restoreStoredNostrIdentitySession(): NostrIdentitySession | null {
   }
 
   if (!legacyRaw) {
+    syncActiveDriveRosterSubscription(null);
     currentNostrIdentitySession = null;
     return null;
   }
   if (!legacyStored) {
     localStorage.removeItem(STORAGE_KEY_IRIS_IDENTITY);
+    syncActiveDriveRosterSubscription(null);
     currentNostrIdentitySession = null;
     return null;
   }
@@ -1120,6 +1294,7 @@ function restoreStoredNostrIdentitySession(): NostrIdentitySession | null {
     const legacySession = restoreDriveIdentitySession(legacyStored);
     saveNostrIdentitySession(legacySession);
     if (activeAccountPubkey && activeAccountPubkey !== legacySession.appKeyPubkey) {
+      syncActiveDriveRosterSubscription(null);
       currentNostrIdentitySession = null;
       return null;
     }
@@ -1127,6 +1302,7 @@ function restoreStoredNostrIdentitySession(): NostrIdentitySession | null {
   } catch (error) {
     console.warn('[auth] Ignoring invalid Iris identity session:', error);
     localStorage.removeItem(STORAGE_KEY_IRIS_IDENTITY);
+    syncActiveDriveRosterSubscription(null);
     currentNostrIdentitySession = null;
     return null;
   }
@@ -1145,6 +1321,7 @@ function activateStoredNostrIdentitySession(stored: StoredNostrIdentitySession):
   try {
     const session = restoreDriveIdentitySession(stored);
     currentNostrIdentitySession = session;
+    syncActiveDriveRosterSubscription(session);
     accountsStore.updateAccount(session.appKeyPubkey, {
       type: 'drive_profile',
       nostrIdentityId: session.profileId,
@@ -1154,27 +1331,61 @@ function activateStoredNostrIdentitySession(stored: StoredNostrIdentitySession):
     return session;
   } catch (error) {
     console.warn('[auth] Ignoring invalid Iris identity session:', error);
+    syncActiveDriveRosterSubscription(null);
     currentNostrIdentitySession = null;
     return null;
   }
 }
 
-function loadStoredNostrIdentitySessions(): Record<string, StoredNostrIdentitySession> {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY_IRIS_IDENTITY_SESSIONS);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
-    const sessions: Record<string, StoredNostrIdentitySession> = {};
-    for (const [appKeyPubkey, stored] of Object.entries(parsed)) {
-      const normalizedPubkey = normalizeHexPubkey(appKeyPubkey);
-      if (!normalizedPubkey || !stored || typeof stored !== 'object') continue;
-      sessions[normalizedPubkey] = stored as StoredNostrIdentitySession;
+/**
+ * Keep the active Drive roster live instead of treating the login snapshot as
+ * an authorization cache. Root and FIPS admission both read the current
+ * session, so a remote device removal takes effect without a reload or a visit
+ * to Settings.
+ */
+function syncActiveDriveRosterSubscription(session: NostrIdentitySession | null): void {
+  const key = session?.status === 'active'
+    ? `${session.profileId}:${session.appKeyPubkey}`
+    : '';
+  if (key && key === activeDriveRosterSubscriptionKey && activeDriveRosterSubscription) return;
+
+  activeDriveRosterSubscription?.stop();
+  activeDriveRosterSubscription = null;
+  activeDriveRosterSubscriptionKey = key;
+  activeDriveRosterCandidates.clear();
+  if (!session || session.status !== 'active') return;
+
+  const profileId = session.profileId;
+  const appKeyPubkey = session.appKeyPubkey;
+  const filter: NDKFilter<number> = {
+    kinds: [KIND_NOSTR_IDENTITY_ROSTER_OP],
+    '#i': [profileId],
+  };
+  const sub = ndk.subscribe(filter, {
+    closeOnEose: false,
+    cacheUsage: NDKSubscriptionCacheUsage.ONLY_RELAY,
+  }, false);
+  sub.on('event', (event) => {
+    if (activeDriveRosterSubscriptionKey !== `${profileId}:${appKeyPubkey}`) return;
+    try {
+      const raw = event.rawEvent() as NostrToolsEvent;
+      if (!verifyEvent(raw)) return;
+      const signed = parseNostrIdentityRosterOpEvent(raw);
+      if (signed.content.profile_id !== profileId) return;
+      const current = currentNostrIdentitySession;
+      if (!current || current.profileId !== profileId || current.appKeyPubkey !== appKeyPubkey) return;
+      const anchored = activeDriveRosterCandidates.replay(profileId, current.rosterOps, signed);
+      if (anchored.rosterOps.length === current.rosterOps.length) return;
+      replaceCurrentNostrIdentitySessionRosterOps(profileId, anchored.rosterOps);
+      void import('../stores/treeRootResolver').then(({ refreshDriveRootResolverKey }) => {
+        refreshDriveRootResolverKey(`${profileId}/${DRIVE_ROOT_NAME}`);
+      });
+    } catch (error) {
+      console.warn('[auth] Ignoring invalid live Drive roster event:', error);
     }
-    return sessions;
-  } catch {
-    return {};
-  }
+  });
+  sub.start();
+  activeDriveRosterSubscription = sub;
 }
 
 export function getStoredNostrIdentitySessionForAccount(appKeyPubkey: string): NostrIdentitySession | null {
@@ -1188,14 +1399,6 @@ export function getStoredNostrIdentitySessionForAccount(appKeyPubkey: string): N
     console.warn('[auth] Ignoring invalid Iris identity session:', error);
     return null;
   }
-}
-
-function removeStoredNostrIdentitySession(appKeyPubkey: string): void {
-  const normalized = normalizeHexPubkey(appKeyPubkey);
-  if (!normalized) return;
-  const sessions = loadStoredNostrIdentitySessions();
-  delete sessions[normalized];
-  localStorage.setItem(STORAGE_KEY_IRIS_IDENTITY_SESSIONS, JSON.stringify(sessions));
 }
 
 function createDriveIdentitySession(options: {
@@ -1299,8 +1502,30 @@ function requireCurrentDriveAdmin(session: NostrIdentitySession): void {
 }
 
 async function currentDriveRosterOps(session: NostrIdentitySession): Promise<SignedNostrIdentityRosterOp[]> {
-  const remoteOps = await fetchNostrIdentityRosterOps(session.profileId, 3000);
-  return mergeRosterOps(session.rosterOps, remoteOps);
+  return fetchNostrIdentityRosterOps(session.profileId, 3000, session.rosterOps);
+}
+
+export async function refreshCurrentDriveRosterOps(
+  profileId: NostrIdentityId,
+  timeoutMs = 3000,
+): Promise<SignedNostrIdentityRosterOp[]> {
+  const session = currentNostrIdentitySession;
+  if (!session || session.status !== 'active' || session.profileId !== profileId) {
+    throw new Error('No matching active Drive roster session');
+  }
+  const appKeyPubkey = session.appKeyPubkey;
+  const refreshed = await fetchNostrIdentityRosterOps(profileId, timeoutMs, session.rosterOps);
+  const current = currentNostrIdentitySession;
+  if (
+    !current
+    || current.status !== 'active'
+    || current.profileId !== profileId
+    || current.appKeyPubkey !== appKeyPubkey
+  ) {
+    throw new Error('Active Drive roster changed during refresh');
+  }
+  replaceCurrentNostrIdentitySessionRosterOps(profileId, refreshed);
+  return refreshed;
 }
 
 async function collectDriveDeviceLabels(
@@ -1391,23 +1616,8 @@ async function currentDriveDckPlaintext(
   }
 }
 
-function mergeRosterOps(
-  localOps: SignedNostrIdentityRosterOp[],
-  remoteOps: SignedNostrIdentityRosterOp[],
-): SignedNostrIdentityRosterOp[] {
-  const byId = new Map<string, SignedNostrIdentityRosterOp>();
-  for (const op of [...localOps, ...remoteOps]) {
-    byId.set(op.op_id, op);
-  }
-  return Array.from(byId.values())
-    .sort((left, right) => left.content.created_at - right.content.created_at || left.op_id.localeCompare(right.op_id));
-}
-
 async function publishDriveIdentityRosterOps(rosterOps: SignedNostrIdentityRosterOp[]): Promise<void> {
-  for (let offset = 0; offset < rosterOps.length; offset += DRIVE_ROSTER_PUBLISH_CONCURRENCY) {
-    await Promise.all(rosterOps.slice(offset, offset + DRIVE_ROSTER_PUBLISH_CONCURRENCY)
-      .map((op) => publishSignedIdentityEventJson(op.event_json)));
-  }
+  await publishDriveRosterHistory(rosterOps, publishSignedIdentityEventJson);
 }
 
 async function fetchDriveDeviceApprovalReceipt(
@@ -1434,7 +1644,10 @@ async function fetchDriveDeviceApprovalReceipt(
       '#p': [requestPubkey],
       limit: 50,
     };
-    const sub = ndk.subscribe(filter, { closeOnEose: false }, false);
+    const sub = ndk.subscribe(filter, {
+      closeOnEose: false,
+      cacheUsage: NDKSubscriptionCacheUsage.ONLY_RELAY,
+    }, false);
     const timer = setTimeout(finish, timeoutMs);
 
     sub.on('event', (event) => {
@@ -1514,25 +1727,133 @@ async function createRecoverySigner(recovery: DriveRecoveryRequest): Promise<Nos
 async function fetchNostrIdentityRosterOps(
   profileId: NostrIdentityId,
   timeoutMs = 5000,
+  trustedRosterOps?: readonly SignedNostrIdentityRosterOp[],
+): Promise<SignedNostrIdentityRosterOp[]> {
+  if (trustedRosterOps?.length) {
+    await waitForWorkerAdapter(2000).catch(() => null);
+    const deadline = Date.now() + timeoutMs;
+    const authoritative = await fetchAuthoritativeDriveRoster({
+      profileId,
+      trustedRosterOps,
+      fetchAuthors: (authors) => fetchDriveRosterAuthorSnapshots(profileId, authors, deadline),
+    });
+    return authoritative.rosterOps;
+  }
+
+  return fetchUnanchoredNostrIdentityRosterOps(profileId, timeoutMs);
+}
+
+const DRIVE_ROSTER_AUTHOR_BATCH_SIZE = 32;
+const DRIVE_ROSTER_EOSE_DRAIN_MS = 250;
+
+async function fetchDriveRosterAuthorSnapshots(
+  profileId: NostrIdentityId,
+  authors: readonly string[],
+  deadline: number,
+): Promise<DriveRosterAuthorSnapshot> {
+  const batches: string[][] = [];
+  for (let offset = 0; offset < authors.length; offset += DRIVE_ROSTER_AUTHOR_BATCH_SIZE) {
+    batches.push(authors.slice(offset, offset + DRIVE_ROSTER_AUTHOR_BATCH_SIZE));
+  }
+  const remainingMs = deadline - Date.now();
+  if (remainingMs <= DRIVE_ROSTER_EOSE_DRAIN_MS) {
+    return { rosterOps: [], complete: false };
+  }
+  const snapshots = await Promise.all(
+    batches.map((batch) => fetchDriveRosterAuthorBatch(profileId, batch, remainingMs)),
+  );
+  const byId = new Map<string, SignedNostrIdentityRosterOp>();
+  for (const snapshot of snapshots) {
+    for (const op of snapshot.rosterOps) byId.set(op.op_id, op);
+  }
+  return {
+    rosterOps: [...byId.values()],
+    complete: snapshots.every((snapshot) => snapshot.complete),
+  };
+}
+
+async function fetchDriveRosterAuthorBatch(
+  profileId: NostrIdentityId,
+  authors: readonly string[],
+  timeoutMs: number,
+): Promise<DriveRosterAuthorSnapshot> {
+  const expectedAuthors = new Set(authors);
+  const byId = new Map<string, SignedNostrIdentityRosterOp>();
+  return new Promise<DriveRosterAuthorSnapshot>((resolve) => {
+    let resolved = false;
+    let eoseSeen = false;
+    let eoseDrainTimer: ReturnType<typeof setTimeout> | null = null;
+    const finish = (complete: boolean) => {
+      if (resolved) return;
+      resolved = true;
+      clearTimeout(timeoutTimer);
+      if (eoseDrainTimer) clearTimeout(eoseDrainTimer);
+      sub.stop();
+      resolve({ rosterOps: [...byId.values()], complete });
+    };
+    const scheduleEoseDrain = () => {
+      if (eoseDrainTimer) clearTimeout(eoseDrainTimer);
+      eoseDrainTimer = setTimeout(() => finish(true), DRIVE_ROSTER_EOSE_DRAIN_MS);
+    };
+    const filter = rosterAuthorFilter(profileId, authors) as NDKFilter<number>;
+    const sub = ndk.subscribe(filter, {
+      closeOnEose: false,
+      cacheUsage: NDKSubscriptionCacheUsage.ONLY_RELAY,
+    }, false);
+    const timeoutTimer = setTimeout(() => finish(false), timeoutMs);
+    sub.on('event', (event) => {
+      try {
+        const raw = event.rawEvent() as NostrToolsEvent;
+        if (!verifyEvent(raw) || !expectedAuthors.has(raw.pubkey)) return;
+        const signed = parseNostrIdentityRosterOpEvent(raw);
+        if (signed.content.profile_id === profileId) byId.set(signed.op_id, signed);
+        if (eoseSeen) scheduleEoseDrain();
+      } catch (error) {
+        console.warn('[auth] Ignoring invalid Iris identity roster event:', error);
+      }
+    });
+    sub.on('eose', () => {
+      eoseSeen = true;
+      scheduleEoseDrain();
+    });
+    sub.start();
+  });
+}
+
+async function fetchUnanchoredNostrIdentityRosterOps(
+  profileId: NostrIdentityId,
+  timeoutMs: number,
 ): Promise<SignedNostrIdentityRosterOp[]> {
   await waitForWorkerAdapter(2000).catch(() => null);
   const byId = new Map<string, SignedNostrIdentityRosterOp>();
 
   await new Promise<void>((resolve) => {
     let resolved = false;
+    let eoseSeen = false;
+    let eoseDrainTimer: ReturnType<typeof setTimeout> | null = null;
     const finish = () => {
       if (resolved) return;
       resolved = true;
       clearTimeout(timer);
+      if (eoseDrainTimer) clearTimeout(eoseDrainTimer);
       sub.stop();
       resolve();
+    };
+    const scheduleEoseDrain = () => {
+      if (eoseDrainTimer) clearTimeout(eoseDrainTimer);
+      // NDK can emit EOSE before its already-received event callbacks have
+      // drained. Keep the subscription open for one short quiet window so a
+      // valid relay snapshot is not mistaken for an empty authorization set.
+      eoseDrainTimer = setTimeout(finish, DRIVE_ROSTER_EOSE_DRAIN_MS);
     };
     const filter: NDKFilter<number> = {
       kinds: [KIND_NOSTR_IDENTITY_ROSTER_OP],
       '#i': [profileId],
-      limit: 500,
     };
-    const sub = ndk.subscribe(filter, { closeOnEose: true }, false);
+    const sub = ndk.subscribe(filter, {
+      closeOnEose: false,
+      cacheUsage: NDKSubscriptionCacheUsage.ONLY_RELAY,
+    }, false);
     const timer = setTimeout(finish, timeoutMs);
 
     sub.on('event', (event) => {
@@ -1546,11 +1867,15 @@ async function fetchNostrIdentityRosterOps(
         if (signed.content.profile_id === profileId) {
           byId.set(signed.op_id, signed);
         }
+        if (eoseSeen) scheduleEoseDrain();
       } catch (error) {
         console.warn('[auth] Ignoring invalid Iris identity roster event:', error);
       }
     });
-    sub.on('eose', finish);
+    sub.on('eose', () => {
+      eoseSeen = true;
+      scheduleEoseDrain();
+    });
     sub.start();
   });
 
@@ -1606,7 +1931,10 @@ async function fetchNostrIdentityIdsSelfReferencedByPubkey(
       '#p': [pubkey],
       limit: 500,
     };
-    const sub = ndk.subscribe(filter, { closeOnEose: true });
+    const sub = ndk.subscribe(filter, {
+      closeOnEose: true,
+      cacheUsage: NDKSubscriptionCacheUsage.ONLY_RELAY,
+    });
     const timer = setTimeout(finish, timeoutMs);
 
     sub.on('event', (event) => {

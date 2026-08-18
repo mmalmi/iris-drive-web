@@ -18,6 +18,10 @@ export const filesPortableBuild = {
   modulePreload: false,
 } as const;
 
+export function shouldAnalyzeBuild(env: Record<string, string | undefined> = process.env): boolean {
+  return env.BUILD_ANALYZE === '1' || env.npm_lifecycle_event === 'build:analyze';
+}
+
 export function getFilesBase(env: Record<string, string | undefined> = process.env): string {
   return env.GITHUB_PAGES === 'true' ? '/iris-drive-web/' : portableAssetBase;
 }
@@ -58,6 +62,9 @@ function resolveSharedVendorChunk(id: string): string | undefined {
 }
 
 export function filesManualChunks(id: string): string | undefined {
+  if (id.includes('node_modules/@fips/') || id.includes('node_modules/@hashtree/fips-transport')) {
+    return 'fips';
+  }
   if (id.includes('marked')) {
     return 'markdown';
   }

@@ -10,6 +10,7 @@ export type VmSession = {
   tmpDir: string;
   ownerNpub: string;
   ownerNsec: string;
+  profileId: string;
   devicePubkey: string;
   relayUrl: string;
   blossomUrl: string;
@@ -192,9 +193,13 @@ printf '__IRIS_VM_CONFIG__=%s\\n' "$config"
 printf '__IRIS_VM_TMP__=%s\\n' "$tmp"
 printf '__IRIS_VM_OWNER_NSEC__=%s\\n' "$owner_nsec"
 `);
-  const init = parseJsonLines(stdout)[0] as { owner_npub: string; device_npub: string };
-  if (!init?.owner_npub || !init.device_npub) {
-    throw new Error(`idrive init output did not include owner/device npubs: ${stdout}`);
+  const init = parseJsonLines(stdout)[0] as {
+    owner_npub: string;
+    device_npub: string;
+    profile_id: string;
+  };
+  if (!init?.owner_npub || !init.device_npub || !init.profile_id) {
+    throw new Error(`idrive init output did not include the profile and owner/device npubs: ${stdout}`);
   }
 
   return {
@@ -205,6 +210,7 @@ printf '__IRIS_VM_OWNER_NSEC__=%s\\n' "$owner_nsec"
     tmpDir: marker(stdout, 'TMP'),
     ownerNsec: marker(stdout, 'OWNER_NSEC'),
     ownerNpub: init.owner_npub,
+    profileId: init.profile_id,
     devicePubkey: npubToHex(init.device_npub),
     relayUrl: vmRelayUrl,
     blossomUrl: vmBlossomUrl,

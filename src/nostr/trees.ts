@@ -17,6 +17,7 @@ import { resolvePublishLabels } from '@iris/hashtree-app/publishLabels';
 import { publishNostrIdentityDriveRootIfAvailable } from '../drive/profileDriveRootPublish';
 import { activeNostrIdentityRootScope, isActiveNostrIdentityRouteScope } from '../drive/profileRoute';
 import { treeRootRegistry } from '../TreeRootRegistry';
+import { getWorkerAdapter } from '../workerAdapter';
 
 // Re-export visibility hex helpers from hashtree lib
 export { visibilityHex as linkKeyUtils } from '@hashtree/core';
@@ -109,11 +110,26 @@ export async function saveHashtree(
   if (!driveRootPublished) {
     return { success: false, linkKey: result.linkKey ? toHex(result.linkKey) : undefined };
   }
+  pushRootToBlossomInBackground(name, rootCid);
 
   return {
     success: true,
     linkKey: result.linkKey ? toHex(result.linkKey) : undefined,
   };
+}
+
+function pushRootToBlossomInBackground(treeName: string, rootCid: CID): void {
+  const adapter = getWorkerAdapter();
+  if (!adapter) return;
+  void adapter.pushToBlossom(rootCid.hash, rootCid.key, treeName)
+    .then((result) => {
+      if (result.failed > 0) {
+        console.warn(`[nostr] Background file-server push left ${result.failed} block(s) unavailable`);
+      }
+    })
+    .catch((error) => {
+      console.warn('[nostr] Background file-server push failed:', error);
+    });
 }
 
 /**

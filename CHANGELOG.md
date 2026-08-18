@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.1.11 - 2026-08-18
+
+- Share revision-pinned, same-origin file links and verify that they load in a
+  fresh browser session.
+- Make account management and logout visible, with logout purging credentials,
+  profile caches, and device-local session state.
+- Make device linking fail closed, persist initial roster history durably, and
+  synchronize encrypted device names between Web and native clients.
+- Synchronize native and Web files through causal root projection, retaining
+  tombstones and lossless conflict copies across concurrent edits.
+- Scope live FIPS peers to each AppKey roster and revoke removed devices without
+  a restart.
+- Reduce the production JavaScript bundle and omit analysis-only artifacts from
+  normal builds for faster build and test cycles.
+
 ## 0.1.10 - 2026-08-06
 
 - Keep device-approval receipt subscriptions open through relay EOSE and

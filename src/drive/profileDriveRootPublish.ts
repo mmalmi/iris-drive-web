@@ -3,8 +3,10 @@ import { getPublicKey } from 'nostr-tools';
 import type { NostrIdentitySession } from './deviceLink';
 import { NDKEvent, getCurrentNostrIdentitySession, getSecretKey, ndk } from '../nostr';
 import { publishEventWithFallback } from '../lib/nostrPublish';
+import { profileDriveProjection } from './profileDriveProjection';
 import {
   buildDriveRootEvent,
+  parseDriveRootEventForDevice,
   projectNostrIdentityRoster,
   type NostrIdentityRosterProjection,
 } from './protocol';
@@ -91,17 +93,65 @@ export async function publishNostrIdentityDriveRootIfAvailable(
     return false;
   }
 
+  const previousContribution = profileDriveProjection.contributionRoot(
+    session.profileId,
+    driveId,
+    appKeyPubkey,
+  );
+  const [{ getTree }, { prepareProfileDriveRootForPublish }] = await Promise.all([
+    import('../store'),
+    import('./profileDriveMutation'),
+  ]);
+  const publishRoot = await prepareProfileDriveRootForPublish(
+    getTree(),
+    rootCid,
+    previousContribution,
+  );
+  // A relay root is useful to another device only after its exact block graph
+  // is durable. Keep the registry dirty so its normal retry loop can try again
+  // instead of announcing an unreadable root.
+  const { getWorkerAdapter } = await import('../workerAdapter');
+  const adapter = getWorkerAdapter();
+  if (!adapter) {
+    console.warn('[driveRoot] Cannot publish Drive root before the worker adapter is ready');
+    return false;
+  }
+  let upload: Awaited<ReturnType<typeof adapter.pushToBlossom>>;
+  try {
+    upload = await adapter.pushToBlossom(publishRoot.hash, publishRoot.key, driveId);
+  } catch (error) {
+    console.warn('[driveRoot] Could not durably upload Drive root before publish:', error);
+    return false;
+  }
+  if (upload.failed > 0) {
+    console.warn(`[driveRoot] Refusing to publish Drive root with ${upload.failed} unavailable block(s)`);
+    return false;
+  }
+
   const rawEvent = buildDriveRootEvent({
     deviceSecretKey: secretKey,
     rootScopeId: session.profileId,
     driveId,
-    root: rootCid,
+    root: publishRoot,
     dckGeneration: projected.keyEpoch,
     appKeySeq: options.appKeySeq ?? nextDriveRootSequence(session.profileId, driveId, appKeyPubkey),
     publishedAt: options.publishedAt ?? nextDriveRootPublishedAt(session.profileId, driveId, appKeyPubkey),
     publishedAtMs: options.publishedAtMs,
     authorizedAppKeyPubkeys: projected.activeAppKeyPubkeys,
+    observed: profileDriveProjection.observations(
+      session.profileId,
+      driveId,
+      new Set(projected.activeAppKeyPubkeys),
+    ),
   });
+
+  // Retain the just-signed contribution immediately. A forced logical rebuild
+  // (for example while approving another device) must not depend on the relay
+  // echo arriving before it can include the newest local write.
+  profileDriveProjection.add(
+    rawEvent,
+    parseDriveRootEventForDevice(rawEvent, secretKey),
+  );
 
   const event = new NDKEvent(ndk, rawEvent);
   await publishEventWithFallback(event);

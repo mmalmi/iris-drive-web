@@ -13,6 +13,33 @@ import type {
   ExtendedWorkerRequest,
   SubscriptionCallback,
 } from './workerAdapterCore';
+import { verifyEvent } from 'nostr-tools';
+
+/** Reject worker-cache records whose signatures were intentionally omitted. */
+export function isValidSignedNostrEvent(event: SignedEvent): boolean {
+  if (
+    !/^[0-9a-f]{64}$/u.test(event.id)
+    || !/^[0-9a-f]{64}$/u.test(event.pubkey)
+    || !/^[0-9a-f]{128}$/u.test(event.sig)
+  ) {
+    return false;
+  }
+  try {
+    // Verify a fresh value so a caller cannot carry nostr-tools' internal
+    // verification symbol across a later mutation of `sig` or event content.
+    return verifyEvent({
+      id: event.id,
+      pubkey: event.pubkey,
+      sig: event.sig,
+      kind: event.kind,
+      content: event.content,
+      tags: event.tags,
+      created_at: event.created_at,
+    });
+  } catch {
+    return false;
+  }
+}
 
 export class WorkerAdapterNostr extends WorkerAdapterStorage {
   // Public API - Nostr
@@ -47,6 +74,9 @@ export class WorkerAdapterNostr extends WorkerAdapterStorage {
   }
 
   async publish(event: SignedEvent): Promise<void> {
+    if (!isValidSignedNostrEvent(event)) {
+      throw new Error('Worker publication requires a valid signed Nostr event');
+    }
     const id = generateRequestId();
     const response = await this.request<{ error?: string }>({
       type: 'publish',
@@ -218,4 +248,28 @@ export class WorkerAdapterNostr extends WorkerAdapterStorage {
   }
 
   // ============================================================================
+}
+
+export interface WorkerNostrSubscriptionLifecycle {
+  on(event: 'close', listener: () => void): unknown;
+}
+
+/**
+ * Attach the worker as an opportunistic event source, never as a snapshot
+ * authority. Its local NDK cache can omit signatures, so forwarding its EOSE
+ * would allow a verified main-thread query to finish empty before the direct
+ * relay delivers the signed copy.
+ */
+export function attachNonAuthoritativeWorkerNostrSubscription(
+  adapter: Pick<WorkerAdapterNostr, 'subscribe' | 'unsubscribe'>,
+  subscription: WorkerNostrSubscriptionLifecycle,
+  filters: NostrFilter[],
+  onDetached?: () => void,
+): string {
+  const subId = adapter.subscribe(filters);
+  subscription.on('close', () => {
+    adapter.unsubscribe(subId);
+    onDetached?.();
+  });
+  return subId;
 }

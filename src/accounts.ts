@@ -5,10 +5,12 @@
  */
 import { writable, get } from 'svelte/store';
 import { nip19, getPublicKey } from 'nostr-tools';
+import { removeStoredNostrIdentitySession } from './nostr/identitySessionStorage';
 
 // Storage key for accounts list
 const STORAGE_KEY_ACCOUNTS = 'hashtree:accounts';
 const STORAGE_KEY_ACTIVE_ACCOUNT = 'hashtree:activeAccount';
+const STORAGE_KEY_SIGNED_OUT = 'hashtree:signedOut';
 
 export type AccountType = 'nsec' | 'extension' | 'drive_profile';
 
@@ -94,22 +96,30 @@ function createAccountsStore() {
 
     removeAccount: (pubkey: string): boolean => {
       const state = get(accountsStore);
+      if (state.activeAccountPubkey === pubkey) {
+        return false;
+      }
       // Don't allow removing the last account
       if (state.accounts.length <= 1) {
         return false;
       }
 
       const newAccounts = state.accounts.filter(a => a.pubkey !== pubkey);
+      if (newAccounts.length === state.accounts.length) return false;
       saveAccountsToStorage(newAccounts);
+      removeStoredNostrIdentitySession(pubkey);
+      set({ accounts: newAccounts, activeAccountPubkey: state.activeAccountPubkey });
+      return true;
+    },
 
-      let newActiveAccountPubkey = state.activeAccountPubkey;
-      // If removing active account, switch to another
-      if (state.activeAccountPubkey === pubkey && newAccounts.length > 0) {
-        newActiveAccountPubkey = newAccounts[0].pubkey;
-        localStorage.setItem(STORAGE_KEY_ACTIVE_ACCOUNT, newAccounts[0].pubkey);
-      }
-
-      set({ accounts: newAccounts, activeAccountPubkey: newActiveAccountPubkey });
+    forgetAccount: (pubkey: string): boolean => {
+      const state = get(accountsStore);
+      const newAccounts = state.accounts.filter(account => account.pubkey !== pubkey);
+      if (newAccounts.length === state.accounts.length) return false;
+      saveAccountsToStorage(newAccounts);
+      removeStoredNostrIdentitySession(pubkey);
+      saveActiveAccountToStorage(null);
+      set({ accounts: newAccounts, activeAccountPubkey: null });
       return true;
     },
 
@@ -202,9 +212,22 @@ function getActiveAccountFromStorage(): string | null {
 export function saveActiveAccountToStorage(pubkey: string | null) {
   if (pubkey) {
     localStorage.setItem(STORAGE_KEY_ACTIVE_ACCOUNT, pubkey);
+    localStorage.removeItem(STORAGE_KEY_SIGNED_OUT);
   } else {
     localStorage.removeItem(STORAGE_KEY_ACTIVE_ACCOUNT);
   }
+}
+
+export function setSessionSignedOut(signedOut: boolean): void {
+  if (signedOut) {
+    localStorage.setItem(STORAGE_KEY_SIGNED_OUT, '1');
+  } else {
+    localStorage.removeItem(STORAGE_KEY_SIGNED_OUT);
+  }
+}
+
+export function isSessionSignedOut(): boolean {
+  return localStorage.getItem(STORAGE_KEY_SIGNED_OUT) === '1';
 }
 
 /**
@@ -262,11 +285,14 @@ export function initAccountsStore() {
     saveAccountsToStorage(accounts);
   }
   const activeAccountPubkey = getActiveAccountFromStorage();
+  const signedOut = isSessionSignedOut();
 
   accountsStore.setState({
     accounts,
-    activeAccountPubkey: activeAccountPubkey && accounts.some(a => a.pubkey === activeAccountPubkey)
-      ? activeAccountPubkey
-      : accounts.length > 0 ? accounts[0].pubkey : null,
+    activeAccountPubkey: signedOut
+      ? null
+      : activeAccountPubkey && accounts.some(a => a.pubkey === activeAccountPubkey)
+        ? activeAccountPubkey
+        : accounts.length > 0 ? accounts[0].pubkey : null,
   });
 }

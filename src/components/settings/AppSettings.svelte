@@ -2,7 +2,8 @@
   import CopyButton from '@iris/svelte-ui/CopyButton.svelte';
   import { shouldOpenSourceCodeLinkInNewTab } from '../../appType';
   import { getCanonicalGitRepositoryUrl } from '../../lib/shareUrls';
-  import { getNsec } from '../../nostr';
+  import { navigate } from '../../lib/router.svelte';
+  import { getNsec, logout, nostrStore } from '../../nostr';
 
   const openSourceCodeInNewTab = shouldOpenSourceCodeLinkInNewTab();
   const sourceCodeLinkTarget = openSourceCodeInNewTab ? '_blank' : '_self';
@@ -10,26 +11,52 @@
   const hashtreeDevUrl = 'https://hashtree.cc/#/dev';
   const sourceCodeUrl = getCanonicalGitRepositoryUrl('hashtree');
 
-  let nsec = $derived(getNsec());
+  let isLoggedIn = $derived($nostrStore.isLoggedIn);
+  let nsec = $derived.by(() => {
+    isLoggedIn;
+    return getNsec();
+  });
+
+  function handleLogout(): void {
+    logout();
+    navigate('/');
+  }
 </script>
 
 <div class="space-y-6">
-  <!-- Account (only show when logged in with nsec) -->
-  {#if nsec}
+  {#if isLoggedIn}
     <div>
       <h3 class="text-xs font-medium text-muted uppercase tracking-wide mb-3">
         Account
       </h3>
-      <div class="bg-surface-2 rounded p-3">
-        <CopyButton
-          text={nsec}
-          label="Copy secret key"
-          copiedLabel="Copied"
-          class="btn-ghost flex items-center gap-2 text-sm w-full justify-start"
-          iconClass="i-lucide-key"
-          copiedIconClass="i-lucide-check text-success"
-          testId="copy-secret-key"
-        />
+      <div class="bg-surface-2 rounded p-3 space-y-1">
+        <button
+          class="btn-ghost flex w-full items-center justify-start gap-2 text-sm"
+          onclick={() => navigate('/users')}
+          data-testid="settings-manage-users"
+        >
+          <span class="i-lucide-users"></span>
+          <span>Manage users</span>
+        </button>
+        {#if nsec}
+          <CopyButton
+            text={nsec}
+            label="Copy secret key"
+            copiedLabel="Copied"
+            class="btn-ghost flex items-center gap-2 text-sm w-full justify-start"
+            iconClass="i-lucide-key"
+            copiedIconClass="i-lucide-check text-success"
+            testId="copy-secret-key"
+          />
+        {/if}
+        <button
+          class="btn-ghost flex w-full items-center justify-start gap-2 text-sm text-danger hover:bg-danger/10"
+          onclick={handleLogout}
+          data-testid="settings-logout"
+        >
+          <span class="i-lucide-log-out"></span>
+          <span>Log out</span>
+        </button>
       </div>
     </div>
   {/if}

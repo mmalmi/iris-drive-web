@@ -10,7 +10,7 @@ import { nip19 } from 'nostr-tools';
 import { localStore, getTree } from '../store';
 import { autosaveIfOwn } from '../nostr';
 import { getCurrentRootCid, getCurrentPathFromUrl } from './route';
-import { updateLocalRootCache } from '../treeRootCache';
+import { getLocalRootCache, updateLocalRootCache } from '../treeRootCache';
 import { activeNostrIdentityRootScope, isActiveNostrIdentityRouteScope } from '../drive/profileRoute';
 export { forkTree } from './treeFork';
 
@@ -169,6 +169,12 @@ export async function createTree(name: string, visibility: import('@hashtree/cor
   // If logged in, publish to nostr
   if (nostrState.isLoggedIn && nostrState.npub && nostrState.pubkey) {
     const rootScope = activeNostrIdentityRootScope(nostrState) ?? nostrState.npub;
+    // Background default-tree creation races with immediate user uploads after
+    // login. Re-check after the async putDirectory call so an empty initializer
+    // never replaces a real root that appeared while it was being prepared.
+    if (skipNavigation && getLocalRootCache(rootScope, name)) {
+      return { success: true };
+    }
     // Set selectedTree BEFORE saving so updates work (only if we're navigating)
     if (!skipNavigation) {
       useNostrStore.setSelectedTree({

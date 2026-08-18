@@ -13,8 +13,9 @@ import type { WorkerAdapterConfig, WorkerConstructor } from './workerAdapterCore
 
 export class WorkerAdapter extends WorkerAdapterSocial {}
 
-export type BackendAdapter = Omit<WorkerAdapter, 'setP2PProvider'> & {
+export type BackendAdapter = Omit<WorkerAdapter, 'setP2PProvider' | 'onIdentityChange'> & {
   setP2PProvider?: WorkerAdapter['setP2PProvider'];
+  onIdentityChange?: WorkerAdapter['onIdentityChange'];
 };
 
 let instance: BackendAdapter | null = null;

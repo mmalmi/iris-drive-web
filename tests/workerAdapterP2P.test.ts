@@ -1,5 +1,10 @@
 import { describe, expect, test, vi } from 'vitest';
+import { finalizeEvent, generateSecretKey } from 'nostr-tools';
 import { WorkerAdapter } from '../src/workerAdapter';
+import {
+  attachNonAuthoritativeWorkerNostrSubscription,
+  isValidSignedNostrEvent,
+} from '../src/workerAdapterNostr';
 
 type PostedMessage = {
   message: Record<string, unknown>;
@@ -41,6 +46,89 @@ async function initializedAdapter(): Promise<{ adapter: WorkerAdapter; worker: F
 }
 
 describe('WorkerAdapter external P2P bridge', () => {
+  test('does not let sigless worker cache EOSE complete a verified query before a signed event', () => {
+    const adapterPromise = initializedAdapter();
+    return adapterPromise.then(({ adapter, worker }) => {
+      let workerEoseForwarded = 0;
+      let closeListener: (() => void) | undefined;
+      const ndkSubscription = {
+        on(event: 'close', listener: () => void) {
+          if (event === 'close') closeListener = listener;
+        },
+        emit(event: 'eose') {
+          if (event === 'eose') workerEoseForwarded += 1;
+        },
+      };
+      const acceptedEvents: Array<{ id: string }> = [];
+      adapter.onEvent((event) => {
+        if (isValidSignedNostrEvent(event)) acceptedEvents.push(event);
+      });
+      const subId = attachNonAuthoritativeWorkerNostrSubscription(
+        adapter,
+        ndkSubscription,
+        [{ kinds: [7368] }],
+      );
+      const signed = finalizeEvent({
+        kind: 7368,
+        created_at: 1_787_000_000,
+        tags: [],
+        content: '',
+      }, generateSecretKey());
+
+      worker.emit({ type: 'event', subId, event: { ...signed, sig: '' } });
+      worker.emit({ type: 'eose', subId });
+      expect(acceptedEvents).toEqual([]);
+      expect(workerEoseForwarded).toBe(0);
+
+      // A signed relay copy arriving after the worker-cache EOSE is still
+      // eligible for the open NDK query.
+      worker.emit({ type: 'event', subId, event: signed });
+      expect(acceptedEvents).toEqual([signed]);
+      expect(workerEoseForwarded).toBe(0);
+
+      closeListener?.();
+      adapter.close();
+    });
+  });
+
+  test('forwards the complete signed Nostr event to the relay-facing worker unchanged', async () => {
+    const { adapter, worker } = await initializedAdapter();
+    const event = finalizeEvent({
+      kind: 7368,
+      created_at: 1_787_000_000,
+      tags: [['i', '89f3d04f-41fb-437b-9339-75df537bf291']],
+      content: '{"schema":1}',
+    }, generateSecretKey());
+
+    const publishing = adapter.publish(event);
+    const request = worker.posted.find(({ message }) => message.type === 'publish')?.message;
+    expect(request?.event).toEqual(event);
+    expect((request?.event as typeof event).sig).toBe(event.sig);
+    worker.emit({ type: 'void', id: request?.id });
+    await expect(publishing).resolves.toBeUndefined();
+    adapter.close();
+  });
+
+  test('does not send an event without a valid signature to the relay-facing worker', async () => {
+    const { adapter, worker } = await initializedAdapter();
+    const event = finalizeEvent({
+      kind: 7368,
+      created_at: 1_787_000_000,
+      tags: [],
+      content: '',
+    }, generateSecretKey());
+    const postedBefore = worker.posted.length;
+
+    const publishing = adapter.publish({ ...event, sig: '' });
+    const request = worker.posted.slice(postedBefore)
+      .find(({ message }) => message.type === 'publish')?.message;
+    if (request) worker.emit({ type: 'void', id: request.id });
+
+    await expect(publishing).rejects.toThrow('valid signed Nostr event');
+    expect(request).toBeUndefined();
+    adapter.close();
+  });
+
   test('keeps worker provider state aligned across install and removal', async () => {
     const { adapter, worker } = await initializedAdapter();
     expect(worker.posted[0]?.message.p2pProviderEnabled).toBe(false);
@@ -131,6 +219,20 @@ describe('WorkerAdapter external P2P bridge', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  test('reports successful identity changes to runtime integrations', async () => {
+    const { adapter, worker } = await initializedAdapter();
+    const changes: Array<{ pubkey: string; nsec?: string }> = [];
+    adapter.onIdentityChange((identity) => changes.push(identity));
+
+    const update = adapter.setIdentity('22'.repeat(32), '33'.repeat(32));
+    const request = worker.posted.at(-1)?.message;
+    worker.emit({ type: 'void', id: request?.id });
+    await update;
+
+    expect(changes).toEqual([{ pubkey: '22'.repeat(32), nsec: '33'.repeat(32) }]);
+    adapter.close();
   });
 
   test('returns provider bytes to a worker P2P request', async () => {

@@ -28,9 +28,27 @@ import { getEffectiveBlossomServers, getEffectiveNostrRelays } from './runtimeNe
 import { setupTreeRootRegistryBridge } from './workerTreeRootBridge';
 import { initializePublishFn } from '../treeRootCache';
 import { setupMediaStreaming } from './mediaStreamingSetup';
-import type { NDKFilter, NDKSubscription } from 'ndk';
+import {
+  NDKSubscriptionCacheUsage,
+  type NDKFilter,
+  type NDKSubscription,
+} from 'ndk';
 import type { WorkerNostrFilter, WorkerSignedEvent } from '@hashtree/core';
-import { startDriveFipsRuntime, stopDriveFipsRuntime } from './driveFipsRuntime';
+import {
+  attachDriveFipsProvider,
+  startDriveFipsRuntime,
+  stopDriveFipsRuntime,
+} from './driveFipsRuntime';
+import {
+  createDriveFipsRosterAuthorizationSource,
+  resolveDriveFipsIdentity,
+  type ResolvedDriveFipsIdentity,
+} from './driveFipsIdentity';
+import { accountsStore } from '../accounts';
+import {
+  attachNonAuthoritativeWorkerNostrSubscription,
+  isValidSignedNostrEvent,
+} from '../workerAdapterNostr';
 
 const isTestMode = !!import.meta.env.VITE_TEST_MODE;
 
@@ -60,6 +78,7 @@ let initPromise: Promise<void> | null = null;
 let lastBlossomServersHash = '';
 let lastRelaysHash = '';
 let fipsStoreName: string | null = null;
+let fipsIdentity: ResolvedDriveFipsIdentity | null = null;
 let fipsRuntimeReadyFor: BackendAdapter | null = null;
 let fipsDesiredKey = '';
 let fipsActiveKey = '';
@@ -78,9 +97,15 @@ function startFipsForAdapter(
   adapter: BackendAdapter,
   relays: string[],
   storeName: string,
+  identity: ResolvedDriveFipsIdentity | null,
   retry = false,
 ): Promise<void> {
-  const desiredKey = JSON.stringify({ relays, storeName });
+  const desiredKey = JSON.stringify({
+    relays,
+    storeName,
+    appKeyPubkey: identity?.appKeyPubkey ?? null,
+    profileId: identity?.profileId ?? null,
+  });
   if (desiredKey === fipsDesiredKey) return fipsSyncTail;
   clearFipsRetry();
   if (!retry) fipsRetryDelayMs = 1_000;
@@ -91,25 +116,37 @@ function startFipsForAdapter(
     if (desiredKey === fipsActiveKey && fipsRuntimeReadyFor === adapter) return;
 
     fipsRuntimeReadyFor = null;
+    adapter.setP2PProvider?.(null);
     await stopDriveFipsRuntime();
     if (version !== fipsSyncVersion || getWorkerAdapter() !== adapter) return;
+    if (!identity) {
+      fipsActiveKey = desiredKey;
+      return;
+    }
 
     try {
+      const authorizedAppKeyPubkeys = await driveFipsAuthorizedAppKeySource(identity);
       const runtime = await startDriveFipsRuntime({
         relays,
         storeName,
+        deviceSecretKey: identity.deviceSecretKey,
+        profileId: identity.profileId,
+        authorizedAppKeyPubkeys,
         log: isTestMode,
       });
       if (version !== fipsSyncVersion || getWorkerAdapter() !== adapter) {
         await runtime.stop();
         return;
       }
+      attachDriveFipsProvider(adapter, runtime);
       fipsActiveKey = desiredKey;
       fipsRuntimeReadyFor = adapter;
       fipsRetryDelayMs = 1_000;
       console.log('[WorkerInit] FIPS runtime ready');
     } catch (error) {
       if (version !== fipsSyncVersion) return;
+      adapter.setP2PProvider?.(null);
+      await stopDriveFipsRuntime().catch(() => undefined);
       fipsDesiredKey = '';
       console.warn('[WorkerInit] FIPS runtime failed to start:', error);
       const delay = fipsRetryDelayMs;
@@ -117,13 +154,41 @@ function startFipsForAdapter(
       fipsRetryTimer = setTimeout(() => {
         fipsRetryTimer = null;
         if (getWorkerAdapter() === adapter && fipsStoreName === storeName) {
-          void startFipsForAdapter(adapter, relays, storeName, true);
+          void startFipsForAdapter(adapter, relays, storeName, identity, true);
         }
       }, delay);
     }
   });
   fipsSyncTail = sync;
   return sync;
+}
+
+async function driveFipsAuthorizedAppKeySource(
+  identity: ResolvedDriveFipsIdentity,
+): Promise<() => Promise<string[]>> {
+  const profileId = identity.profileId;
+  if (!profileId) return async () => [identity.appKeyPubkey];
+  const {
+    getCurrentNostrIdentitySession,
+    refreshCurrentDriveRosterOps,
+  } = await import('../nostr/auth');
+  return createDriveFipsRosterAuthorizationSource({
+    identity: { ...identity, profileId },
+    getSession: getCurrentNostrIdentitySession,
+    refreshRosterOps: refreshCurrentDriveRosterOps,
+    onRefreshError: (error) => {
+      console.warn('[WorkerInit] Failed to refresh FIPS AppKey authorization:', error);
+    },
+  });
+}
+
+function resolveFipsIdentityForBackend(identity: WorkerInitIdentity): ResolvedDriveFipsIdentity | null {
+  const account = accountsStore.getState().accounts.find(({ pubkey }) => pubkey === identity.pubkey);
+  return resolveDriveFipsIdentity({
+    pubkey: identity.pubkey,
+    nsec: identity.nsec,
+    profileId: account?.nostrIdentityId,
+  });
 }
 
 /**
@@ -170,7 +235,7 @@ function syncRelays(): void {
     console.warn('[WorkerInit] Failed to sync relays to main NDK:', error);
   });
   if (fipsStoreName) {
-    void startFipsForAdapter(adapter, relays, fipsStoreName);
+    void startFipsForAdapter(adapter, relays, fipsStoreName, fipsIdentity);
   }
 }
 
@@ -317,27 +382,46 @@ export async function initHashtreeBackend(identity: WorkerInitIdentity): Promise
 
         if (backendMode === 'worker') {
           fipsStoreName = config.storeName;
-          startFipsForAdapter(adapter, runtimeEndpoints.nostrRelays, config.storeName);
+          fipsIdentity = resolveFipsIdentityForBackend(identity);
+          adapter.onIdentityChange?.((nextIdentity) => {
+            fipsIdentity = resolveFipsIdentityForBackend(nextIdentity);
+            if (fipsStoreName) {
+              const settings = get(settingsStore);
+              const relays = getEffectiveNostrRelays(settings.network.relays);
+              void startFipsForAdapter(adapter, relays, fipsStoreName, fipsIdentity);
+            }
+          });
+          startFipsForAdapter(
+            adapter,
+            runtimeEndpoints.nostrRelays,
+            config.storeName,
+            fipsIdentity,
+          );
 
           // Set up event dispatch from worker to NDK subscriptions
           adapter.onEvent((event: WorkerSignedEvent) => {
+            if (!isValidSignedNostrEvent(event)) {
+              console.warn('[WorkerInit] Ignoring unsigned or invalid worker-cache Nostr event');
+              return;
+            }
             ndk.subManager.dispatchEvent(event as Parameters<typeof ndk.subManager.dispatchEvent>[0], undefined, false);
           });
 
           const attachWorkerSubscription = (subscription: NDKSubscription, filters: NDKFilter[]) => {
+            // A relay-only security snapshot must not be preempted by the
+            // worker's local NDK cache. That cache intentionally omits event
+            // signatures, and NDK de-duplicates the later signed relay copy.
+            if (subscription.opts.cacheUsage === NDKSubscriptionCacheUsage.ONLY_RELAY) return;
             if (workerSubscriptionIds.has(subscription)) return;
-            const subId = adapter.subscribe(
+            const subId = attachNonAuthoritativeWorkerNostrSubscription(
+              adapter,
+              subscription,
               filters as unknown as WorkerNostrFilter[],
-              undefined,
               () => {
-                subscription.emit('eose', subscription);
-              }
+                workerSubscriptionIds.delete(subscription);
+              },
             );
             workerSubscriptionIds.set(subscription, subId);
-            subscription.on('close', () => {
-              adapter.unsubscribe(subId);
-              workerSubscriptionIds.delete(subscription);
-            });
           };
 
           ndk.transportPlugins.push({
@@ -471,6 +555,7 @@ export async function stopHashtreeBrowserP2P(): Promise<void> {
   clearFipsRetry();
   fipsRetryDelayMs = 1_000;
   fipsStoreName = null;
+  fipsIdentity = null;
   fipsDesiredKey = '';
   fipsActiveKey = '';
   fipsRuntimeReadyFor = null;

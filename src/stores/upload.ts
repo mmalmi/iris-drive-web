@@ -16,13 +16,13 @@ import { markFilesChanged } from './recentlyChanged';
 import { open as openExtractModal } from '../components/Modals/ExtractModal.svelte';
 import { open as openGitignoreModal } from '../components/Modals/GitignoreModal.svelte';
 import { isArchiveFile, getArchiveFileList } from '../utils/compression';
-import { nip19 } from 'nostr-tools';
 import type { FileWithPath, DirectoryReadResult } from '@iris/hashtree-app/directory';
 import { findGitignoreFile, parseGitignoreFromFile, applyGitignoreFilter, applyDefaultIgnoreFilter } from '@iris/hashtree-app/directory';
 import { getTreeRootSync } from './treeRoot';
 import { settingsStore } from '../stores/settings';
 import { toast } from '../stores/toast';
 import { isVideoFile, withStallDetection } from './uploadHelpers';
+import { editableTreeRoutePubkey } from '../drive/profileRoute';
 
 // Upload progress type
 export interface UploadProgress {
@@ -89,18 +89,11 @@ export async function uploadFiles(files: FileList): Promise<void> {
   let currentRootCid: CID | null = getTreeRootSync(route.npub, route.treeName);
 
   // Check if we need to initialize a new tree (virtual directory case)
-  let needsTreeInit = !currentRootCid?.hash && route.npub && route.treeName;
-  let isOwnTree = false;
-  let routePubkey: string | null = null;
-
-  if (needsTreeInit) {
-    const nostrState = nostrStore.getState();
-    try {
-      const decoded = nip19.decode(route.npub!);
-      if (decoded.type === 'npub') routePubkey = decoded.data as string;
-    } catch {}
-    isOwnTree = routePubkey === nostrState.pubkey;
-  }
+  let needsTreeInit = Boolean(!currentRootCid?.hash && route.npub && route.treeName);
+  const routePubkey = needsTreeInit
+    ? editableTreeRoutePubkey(route.npub, nostrStore.getState())
+    : null;
+  const isOwnTree = routePubkey !== null;
 
   for (let i = 0; i < filesArray.length; i++) {
     // Check for cancellation at start of each file
@@ -322,18 +315,11 @@ export async function uploadFilesWithPaths(filesWithPaths: FileWithPath[]): Prom
   let currentRootCid: CID | null = getTreeRootSync(route.npub, route.treeName);
 
   // Check if we need to initialize a new tree
-  let needsTreeInit = !currentRootCid?.hash && route.npub && route.treeName;
-  let isOwnTree = false;
-  let routePubkey: string | null = null;
-
-  if (needsTreeInit) {
-    const nostrState = nostrStore.getState();
-    try {
-      const decoded = nip19.decode(route.npub!);
-      if (decoded.type === 'npub') routePubkey = decoded.data as string;
-    } catch {}
-    isOwnTree = routePubkey === nostrState.pubkey;
-  }
+  let needsTreeInit = Boolean(!currentRootCid?.hash && route.npub && route.treeName);
+  const routePubkey = needsTreeInit
+    ? editableTreeRoutePubkey(route.npub, nostrStore.getState())
+    : null;
+  const isOwnTree = routePubkey !== null;
 
   // Collect all unique directory paths that need to be created
   const dirsToCreate = new Set<string>();

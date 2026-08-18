@@ -171,13 +171,13 @@ test.describe('Iris Drive VM interop', () => {
         running: true,
         enabled: true,
         webrtcEnabled: true,
-        discoveryScope: 'fips-overlay-v1',
+        discoveryScope: `iris-drive:${session.profileId}`,
         authorized: true,
       });
 
       const initialStats = await startBrowserDriveFips(page, session, webDevice);
       expect(initialStats.localXOnlyPubkey).toBe(webDevice.pubkey);
-      expect(initialStats.discoveryScope).toBe('fips-overlay-v1');
+      expect(initialStats.discoveryScope).toBe(`iris-drive:${session.profileId}`);
 
       await expect.poll(async () => {
         const stats = await ensureBrowserDriveFipsStats(page, session, webDevice);
