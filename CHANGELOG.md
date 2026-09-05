@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.14 - 2026-09-05
+
+- Open the current native app download site from Drive setup.
+
 ## 0.1.13 - 2026-09-05
 
 - Update the shared Hashtree core, storage, index, Nostr, FIPS transport, and
