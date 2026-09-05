@@ -2,7 +2,8 @@ import type { NostrIdentityId, ShareInviteBundle, SharedFolder } from './protoco
 import { SHARE_INVITE_PREFIX } from './protocolTypes';
 import { base64UrlEncode } from './protocolJson';
 import { validateSignedNostrIdentityRosterOps } from './protocolProfileValidation';
-import { projectNostrIdentityRoster } from './protocolProfileProjection';
+import { projectSharedFolderKeys } from './protocolShareSnapshot';
+import { validateNativeShareInvite } from './protocolShareSnapshotValidation';
 import { validateShareRosterCheckpoint } from './protocolShareEvents';
 import { shareMembers } from './protocolShareAccess';
 import { validateSignedShareMemberRosterOps } from './protocolShareValidation';
@@ -19,6 +20,10 @@ export function parseShareInvite(input: string): ShareInviteBundle {
   const parsed = JSON.parse(json) as ShareInviteBundle;
   if (parsed.schema !== 1) {
     throw new Error(`unsupported share invite schema ${parsed.schema}`);
+  }
+  if (Object.hasOwn(parsed.shared_folder, 'access') || Object.hasOwn(parsed, 'access_snapshot')) {
+    validateNativeShareInvite(parsed);
+    return parsed;
   }
   validateSignedNostrIdentityRosterOps(parsed.shared_folder);
   validateSignedShareMemberRosterOps(parsed.shared_folder);
@@ -50,10 +55,7 @@ export function shareInviteBundleIncludesProfile(
   bundle: ShareInviteBundle,
   localProfileId: NostrIdentityId,
 ): boolean {
-  const projection = projectNostrIdentityRoster(
-    bundle.shared_folder.share_id,
-    bundle.shared_folder.roster_ops ?? [],
-  );
+  const projection = projectSharedFolderKeys(bundle.shared_folder);
   const members = shareMembers(bundle.shared_folder, projection);
   return bundle.recipient_profile_id === localProfileId && Boolean(members[localProfileId]);
 }

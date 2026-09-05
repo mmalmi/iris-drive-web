@@ -1,5 +1,5 @@
+import { projectSharedFolderKeys } from './protocolShareSnapshot';
 import type { PendingShareInviteView, ShareShortcut, SharedFolder, SharedFolderView } from './protocolTypes';
-import { projectNostrIdentityRoster } from './protocolProfileProjection';
 import {
   activeShareKeyRecipients,
   shareKeyStatus,
@@ -20,7 +20,7 @@ export function projectSharedFolderView(
   shortcuts: ShareShortcut[],
   currentAppKeyPubkey: string,
 ): SharedFolderView {
-  const projection = projectNostrIdentityRoster(folder.share_id, folder.roster_ops ?? []);
+  const projection = projectSharedFolderKeys(folder);
   const epochNumbers = Object.keys(projection.secret_epochs).map((epoch) => Number(epoch));
   const currentKeyEpoch = epochNumbers.length ? Math.max(...epochNumbers) : undefined;
   const missing = currentKeyEpoch === undefined

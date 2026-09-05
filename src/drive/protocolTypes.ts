@@ -3,6 +3,8 @@ import type {
   NostrIdentityId,
   SignedNostrIdentityFacetAcceptance,
   SignedNostrIdentityRosterOp,
+  NostrIdentitySecretEpoch,
+  NostrIdentityTombstone,
 } from 'nostr-social-graph';
 
 export {
@@ -124,12 +126,38 @@ export interface ShareRecipientProfileEvidence {
   facet_acceptances?: SignedNostrIdentityFacetAcceptance[];
 }
 
+export interface ShareAccessGrant {
+  target: { type: 'id'; id: NostrIdentityId } | { type: 'pubkey'; pubkey: string };
+  role: ShareRole;
+  status: ShareMemberStatus;
+  representative_npub_hint?: string;
+  display_name?: string;
+}
+
+export interface ShareAccessSnapshot {
+  schema: number;
+  resource_id: NostrIdentityId;
+  updated_at: number;
+  grants?: ShareAccessGrant[];
+  devices?: Record<string, { pubkey: string; profile_id?: NostrIdentityId; added_at: number; label?: string }>;
+  tombstones?: Record<string, NostrIdentityTombstone>;
+  key_epochs?: Record<string, NostrIdentitySecretEpoch>;
+}
+
+export interface SignedShareAccessSnapshot {
+  snapshot_id: string;
+  signer_pubkey: string;
+  content: ShareAccessSnapshot;
+  event_json: string;
+}
+
 export interface SharedFolder {
   share_id: NostrIdentityId;
   owner_profile_id: NostrIdentityId;
   source_path: string;
   display_name: string;
   local_role: ShareRole;
+  access?: ShareAccessSnapshot;
   members?: Record<string, ShareMember>;
   pending_invites?: Record<string, PendingShareInvite>;
   member_ops?: SignedShareMemberRosterOp[];
@@ -200,6 +228,7 @@ export interface ShareInviteBundle {
   role: ShareRole;
   representative_npub_hint?: string;
   roster_checkpoint?: SignedShareRosterCheckpoint;
+  access_snapshot?: SignedShareAccessSnapshot;
   created_at: number;
 }
 
