@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawn } from 'node:child_process';
 import { generateSecretKey, getPublicKey, nip19 } from 'nostr-tools';
 import { expect, test, type Page } from './fixtures';
 import {
@@ -17,12 +18,31 @@ import {
 } from './test-utils';
 import {
   configureNativeRelay,
+  idriveBin,
   irisDriveAvailable,
   runIdriveJson,
 } from './native-idrive';
+import { applyMainActionMutations } from './profile-drive-actions';
 
 const PENDING_APPROVAL_STORAGE_KEY = 'iris:drive:pending-device-approval';
 const LARGE_ROSTER_ROTATIONS = 24;
+
+type ProjectionEntry = {
+  path: string;
+  kind: 'file' | 'directory';
+  content: string | null;
+};
+
+type PathKindProjectionSnapshot = {
+  hiddenMetadata: boolean;
+  directoryCanonicalKind: ProjectionEntry['kind'] | null;
+  directoryCanonicalContent: string | null;
+  directoryConflictCount: number;
+  directoryConflictFiles: string[];
+  fileCanonicalKind: ProjectionEntry['kind'] | null;
+  fileConflictCount: number;
+  fileConflictContents: string[];
+};
 
 function nativeLinkInvite(profileId: string, adminAppKeyPubkey: string): string {
   const payload = {
@@ -191,6 +211,172 @@ async function expectNativeProfileFile(
   throw new Error(`Native device did not read ${fileName}:\n${JSON.stringify(diagnostics, null, 2)}`);
 }
 
+function summarizePathKindProjection(
+  entries: ProjectionEntry[],
+  directoryPath: string,
+  filePath: string,
+): PathKindProjectionSnapshot {
+  const directoryCanonical = entries.find((entry) => entry.path === directoryPath);
+  const directoryConflicts = entries.filter((entry) => (
+    entry.kind === 'directory'
+      && !entry.path.includes('/')
+      && entry.path.startsWith(`${directoryPath} (conflict from `)
+  ));
+  const directoryConflictFiles = directoryConflicts.flatMap((directory) => (
+    entries
+      .filter((entry) => entry.kind === 'file' && entry.path.startsWith(`${directory.path}/`))
+      .map((entry) => `${entry.path.slice(directory.path.length + 1)}\u0000${entry.content ?? ''}`)
+  )).sort();
+  const fileCanonical = entries.find((entry) => entry.path === filePath);
+  const fileConflicts = entries.filter((entry) => (
+    entry.kind === 'file'
+      && !entry.path.includes('/')
+      && entry.path.startsWith(`${filePath} (conflict from `)
+  ));
+
+  return {
+    hiddenMetadata: entries.some((entry) => (
+      entry.path === '.hashtree' || entry.path.startsWith('.hashtree/')
+    )),
+    directoryCanonicalKind: directoryCanonical?.kind ?? null,
+    directoryCanonicalContent: directoryCanonical?.content ?? null,
+    directoryConflictCount: directoryConflicts.length,
+    directoryConflictFiles,
+    fileCanonicalKind: fileCanonical?.kind ?? null,
+    fileConflictCount: fileConflicts.length,
+    fileConflictContents: fileConflicts
+      .map((entry) => entry.content ?? '')
+      .sort(),
+  };
+}
+
+async function readWebProjectionEntries(
+  page: Page,
+  profileId: string,
+): Promise<ProjectionEntry[]> {
+  return page.evaluate(async (profile) => {
+    const { getTree, LinkType } = await import('/src/store');
+    const { getTreeRootSync } = await import('/src/stores');
+    const root = getTreeRootSync(profile, 'main');
+    if (!root) return [];
+    const tree = getTree();
+    const entries: ProjectionEntry[] = [];
+    const walk = async (
+      directory: typeof root,
+      parentPath: string,
+    ): Promise<void> => {
+      for (const entry of await tree.listDirectory(directory)) {
+        const entryPath = parentPath ? `${parentPath}/${entry.name}` : entry.name;
+        if (entry.type === LinkType.Dir) {
+          entries.push({ path: entryPath, kind: 'directory', content: null });
+          await walk(entry.cid, entryPath);
+        } else {
+          const bytes = await tree.readFile(entry.cid);
+          entries.push({
+            path: entryPath,
+            kind: 'file',
+            content: bytes ? new TextDecoder().decode(bytes) : null,
+          });
+        }
+      }
+    };
+    await walk(root, '');
+    return entries.sort((left, right) => left.path.localeCompare(right.path));
+  }, profileId);
+}
+
+function readNativeProjectionEntries(
+  configDir: string,
+  outputDir: string,
+): ProjectionEntry[] {
+  const listing = runIdriveJson<{
+    entries: Array<{ path: string; kind: 'file' | 'directory' }>;
+  }>(configDir, ['provider', 'list']);
+  let outputIndex = 0;
+  return listing.entries.map((entry) => {
+    if (entry.kind === 'directory') return { ...entry, content: null };
+    const output = path.join(outputDir, `projection-read-${outputIndex++}`);
+    runIdriveJson(configDir, ['provider', 'read', entry.path, output]);
+    return { ...entry, content: fs.readFileSync(output, 'utf8') };
+  });
+}
+
+async function expectWebPathKindProjection(
+  page: Page,
+  profileId: string,
+  directoryPath: string,
+  filePath: string,
+  expected: PathKindProjectionSnapshot,
+): Promise<void> {
+  await page.goto(`/#/${profileId}/main`, { waitUntil: 'domcontentloaded' });
+  await waitForAppReady(page, 60_000);
+  await expect.poll(async () => summarizePathKindProjection(
+    await readWebProjectionEntries(page, profileId),
+    directoryPath,
+    filePath,
+  ), {
+    timeout: 60_000,
+    intervals: [500, 1_000, 2_000],
+  }).toEqual(expected);
+}
+
+async function expectNativePathKindProjection(
+  configDir: string,
+  relayUrl: string,
+  outputDir: string,
+  directoryPath: string,
+  filePath: string,
+  expected: PathKindProjectionSnapshot,
+): Promise<void> {
+  const deadline = Date.now() + 90_000;
+  let diagnostics: unknown = null;
+  while (Date.now() < deadline) {
+    try {
+      const sync = runIdriveJson<unknown>(configDir, [
+        'sync',
+        '--relay',
+        relayUrl,
+        '--timeout',
+        '3',
+      ]);
+      const entries = readNativeProjectionEntries(configDir, outputDir);
+      const snapshot = summarizePathKindProjection(entries, directoryPath, filePath);
+      diagnostics = { sync, snapshot, entries };
+      if (JSON.stringify(snapshot) === JSON.stringify(expected)) return;
+    } catch (error) {
+      diagnostics = error instanceof Error ? error.stack : String(error);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+  }
+  throw new Error(`Native path-kind projection did not converge:\n${JSON.stringify(diagnostics, null, 2)}`);
+}
+
+async function waitForNativeDaemonExit(
+  daemon: ReturnType<typeof spawn>,
+  timeoutMs: number,
+): Promise<boolean> {
+  if (daemon.exitCode !== null || daemon.signalCode !== null) return true;
+  return new Promise((resolve) => {
+    const onExit = (): void => {
+      clearTimeout(timeout);
+      resolve(true);
+    };
+    const timeout = setTimeout(() => {
+      daemon.off('exit', onExit);
+      resolve(false);
+    }, timeoutMs);
+    daemon.once('exit', onExit);
+  });
+}
+
+async function stopNativeDaemon(daemon: ReturnType<typeof spawn> | null): Promise<void> {
+  if (!daemon || daemon.exitCode !== null || daemon.signalCode !== null) return;
+  daemon.kill('SIGTERM');
+  if (await waitForNativeDaemonExit(daemon, 5_000)) return;
+  daemon.kill('SIGKILL');
+  await waitForNativeDaemonExit(daemon, 5_000);
+}
+
 test('native owner and restarted web device link quickly through a large roster with exact ACK replay', async ({
   page,
   relayUrl,
@@ -200,6 +386,7 @@ test('native owner and restarted web device link quickly through a large roster 
 
   const nativeConfig = fs.mkdtempSync(path.join(os.tmpdir(), 'iris-drive-web-link-native-'));
   const nativeFiles = fs.mkdtempSync(path.join(os.tmpdir(), 'iris-drive-web-link-files-'));
+  let nativeDaemon: ReturnType<typeof spawn> | null = null;
   try {
     const native = runIdriveJson<{ profile_id: string }>(nativeConfig, [
       'init',
@@ -213,7 +400,18 @@ test('native owner and restarted web device link quickly through a large roster 
     }
     const existingFileName = 'present-before-web-link.txt';
     const existingFileContent = 'native content that predates browser approval';
+    const directoryReplacementPath = 'native-folder-replaced-by-web-file';
+    const directoryChildPath = `${directoryReplacementPath}/old.txt`;
+    const directoryChildContent = 'native directory bytes survive the Web file replacement';
+    const directoryReplacementContent = 'Web file owns the replaced directory path';
+    const fileReplacementPath = 'native-file-replaced-by-web-folder';
+    const fileReplacementContent = 'native file bytes survive the Web directory replacement';
+    const unrelatedWebPath = 'unrelated-after-web-kind-replacements.txt';
+    const unrelatedWebContent = 'an unrelated Web edit keeps both replacement roles';
     fs.writeFileSync(path.join(nativeFiles, existingFileName), existingFileContent);
+    fs.mkdirSync(path.join(nativeFiles, directoryReplacementPath));
+    fs.writeFileSync(path.join(nativeFiles, directoryChildPath), directoryChildContent);
+    fs.writeFileSync(path.join(nativeFiles, fileReplacementPath), fileReplacementContent);
     runIdriveJson(nativeConfig, ['import', nativeFiles]);
     const initialPublish = runIdriveJson<{ published_files_root: boolean }>(nativeConfig, [
       'publish',
@@ -297,6 +495,126 @@ test('native owner and restarted web device link quickly through a large roster 
       webFileContent,
     );
 
+    // Exercise the encrypted durable path-kind wire in both directions. Web
+    // replaces native-owned paths through production actions, publishes a
+    // later unrelated edit, and reloads. Native must project the same one-copy
+    // conflicts, then republish an unrelated provider edit without adopting
+    // either materialized conflict copy as a new canonical contribution.
+    await expectProfileFile(
+      page,
+      native.profile_id,
+      directoryChildPath,
+      directoryChildContent,
+    );
+    await expectProfileFile(
+      page,
+      native.profile_id,
+      fileReplacementPath,
+      fileReplacementContent,
+    );
+    await applyMainActionMutations(page, [{
+      type: 'write',
+      path: directoryReplacementPath,
+      content: directoryReplacementContent,
+    }, {
+      type: 'mkdir',
+      path: fileReplacementPath,
+    }]);
+    await flushPendingPublishes(page);
+    await applyMainActionMutations(page, [{
+      type: 'write',
+      path: unrelatedWebPath,
+      content: unrelatedWebContent,
+    }]);
+    await flushPendingPublishes(page);
+
+    const expectedPathKindProjection: PathKindProjectionSnapshot = {
+      hiddenMetadata: false,
+      directoryCanonicalKind: 'file',
+      directoryCanonicalContent: directoryReplacementContent,
+      directoryConflictCount: 1,
+      directoryConflictFiles: [`old.txt\u0000${directoryChildContent}`],
+      fileCanonicalKind: 'directory',
+      fileConflictCount: 1,
+      fileConflictContents: [fileReplacementContent],
+    };
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await expectWebPathKindProjection(
+      page,
+      native.profile_id,
+      directoryReplacementPath,
+      fileReplacementPath,
+      expectedPathKindProjection,
+    );
+    await expectNativePathKindProjection(
+      nativeConfig,
+      relayUrl,
+      nativeFiles,
+      directoryReplacementPath,
+      fileReplacementPath,
+      expectedPathKindProjection,
+    );
+
+    const nativeUnrelatedPath = 'unrelated-after-native-conflict-projection.txt';
+    const nativeUnrelatedContent = 'native provider republish keeps Web conflict provenance';
+    const nativeUnrelatedSource = path.join(nativeFiles, 'native-unrelated-source');
+    fs.writeFileSync(nativeUnrelatedSource, nativeUnrelatedContent);
+    nativeDaemon = spawn(idriveBin(), [
+      'daemon',
+      '--relay',
+      relayUrl,
+      '--no-gateway',
+    ], {
+      env: { ...process.env, IRIS_DRIVE_CONFIG_DIR: nativeConfig },
+      stdio: 'ignore',
+    });
+    await expect.poll(() => {
+      try {
+        runIdriveJson(nativeConfig, [
+          'provider',
+          'write',
+          nativeUnrelatedPath,
+          nativeUnrelatedSource,
+        ]);
+        return true;
+      } catch {
+        return false;
+      }
+    }, {
+      timeout: 15_000,
+      intervals: [100, 250, 500],
+    }).toBe(true);
+    const republish = runIdriveJson<{ published_files_root: boolean }>(nativeConfig, [
+      'publish',
+      '--relay',
+      relayUrl,
+      '--timeout',
+      '2',
+    ]);
+    expect(republish.published_files_root).toBe(true);
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await expectProfileFile(
+      page,
+      native.profile_id,
+      nativeUnrelatedPath,
+      nativeUnrelatedContent,
+    );
+    await expectWebPathKindProjection(
+      page,
+      native.profile_id,
+      directoryReplacementPath,
+      fileReplacementPath,
+      expectedPathKindProjection,
+    );
+    await expectNativePathKindProjection(
+      nativeConfig,
+      relayUrl,
+      nativeFiles,
+      directoryReplacementPath,
+      fileReplacementPath,
+      expectedPathKindProjection,
+    );
+
     // A restarted device must replay the exact receipt ACK until the owner observes it.
     await page.waitForTimeout(1_100);
     await page.reload({ waitUntil: 'domcontentloaded' });
@@ -322,6 +640,7 @@ test('native owner and restarted web device link quickly through a large roster 
     expect(status.profile.pending_device_approval_receipt_count).toBe(0);
     expect(status.profile.profile.profile_roster_op_count).toBeGreaterThan(LARGE_ROSTER_ROTATIONS);
   } finally {
+    await stopNativeDaemon(nativeDaemon);
     fs.rmSync(nativeConfig, { recursive: true, force: true });
     fs.rmSync(nativeFiles, { recursive: true, force: true });
   }

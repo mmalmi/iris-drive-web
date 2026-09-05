@@ -11,6 +11,7 @@ import {
   buildDriveRootEvent,
   parseDriveRootEventForDevice,
 } from '../src/drive/protocol';
+import { mutateProfileDriveRoot } from '../src/drive/profileDriveMutation';
 import { ProfileDriveProjection } from '../src/drive/profileDriveProjection';
 
 const PROFILE_ID = '89f3d04f-41fb-437b-9339-75df537bf291';
@@ -42,6 +43,29 @@ async function rootWithDirectoryFile(
     size: file.size,
     type: LinkType.Blob,
   }]);
+  return (await tree.putDirectory([{
+    name: directoryName,
+    cid: directory.cid,
+    size: directory.size,
+    type: LinkType.Dir,
+  }])).cid;
+}
+
+async function rootWithDirectoryFiles(
+  tree: HashTree,
+  directoryName: string,
+  files: Array<{ name: string; text: string }>,
+): Promise<CID> {
+  const entries = await Promise.all(files.map(async ({ name, text }) => {
+    const file = await fileCid(tree, text);
+    return {
+      name,
+      cid: file.cid,
+      size: file.size,
+      type: LinkType.Blob,
+    };
+  }));
+  const directory = await tree.putDirectory(entries);
   return (await tree.putDirectory([{
     name: directoryName,
     cid: directory.cid,
@@ -510,6 +534,223 @@ describe('profile Drive projection', () => {
     const oldChild = await tree.resolvePath(result!.root, [conflictDirectory, 'old.txt']);
     expect(new TextDecoder().decode(await tree.readFile(oldChild!.cid) ?? undefined))
       .toBe('old child');
+  });
+
+  it('preserves a real mutation-replaced directory subtree under a conflict name', async () => {
+    const tree = new HashTree({ store: new MemoryStore() });
+    const reader = generateSecretKey();
+    const readerPubkey = getPublicKey(reader);
+    const directoryWriter = generateSecretKey();
+    const fileWriter = generateSecretKey();
+    const directoryPubkey = getPublicKey(directoryWriter);
+    const filePubkey = getPublicKey(fileWriter);
+    const directoryRoot = await rootWithDirectoryFile(tree, 'draft', 'old.txt', 'old child');
+    const fileRoot = await mutateProfileDriveRoot(
+      tree,
+      directoryRoot,
+      { type: 'write', path: 'draft', content: 'replacement file' },
+      { tombstonedAt: 200 },
+    );
+    const directoryEvent = driveRoot({
+      signer: directoryWriter,
+      readerPubkey,
+      root: directoryRoot,
+      sequence: 1,
+      publishedAt: 100,
+    });
+    const fileEvent = driveRoot({
+      signer: fileWriter,
+      readerPubkey,
+      root: fileRoot,
+      sequence: 1,
+      publishedAt: 999,
+      observed: {
+        [directoryPubkey]: { app_key_seq: 1, root_cid: toHex(directoryRoot.hash) },
+      },
+    });
+    const projection = new ProfileDriveProjection();
+    projection.add(directoryEvent, parseDriveRootEventForDevice(directoryEvent, reader));
+    projection.add(fileEvent, parseDriveRootEventForDevice(fileEvent, reader));
+
+    const result = await projection.materialize(
+      tree,
+      PROFILE_ID,
+      'main',
+      new Set([directoryPubkey, filePubkey]),
+    );
+
+    const replacement = await tree.resolvePath(result!.root, ['draft']);
+    expect(replacement?.type).toBe(LinkType.Blob);
+    expect(new TextDecoder().decode(await tree.readFile(replacement!.cid) ?? undefined))
+      .toBe('replacement file');
+    const conflictDirectory = `draft (conflict from ${directoryPubkey})`;
+    const oldChild = await tree.resolvePath(result!.root, [conflictDirectory, 'old.txt']);
+    expect(new TextDecoder().decode(await tree.readFile(oldChild!.cid) ?? undefined))
+      .toBe('old child');
+  });
+
+  it('preserves a real mutation-replaced file as a conflict copy', async () => {
+    const tree = new HashTree({ store: new MemoryStore() });
+    const reader = generateSecretKey();
+    const readerPubkey = getPublicKey(reader);
+    const fileWriter = generateSecretKey();
+    const directoryWriter = generateSecretKey();
+    const filePubkey = getPublicKey(fileWriter);
+    const directoryPubkey = getPublicKey(directoryWriter);
+    const fileRoot = await rootWithFile(tree, 'draft', 'old file');
+    const directoryRoot = await mutateProfileDriveRoot(
+      tree,
+      fileRoot,
+      { type: 'mkdir', path: 'draft' },
+      { tombstonedAt: 200 },
+    );
+    const fileEvent = driveRoot({
+      signer: fileWriter,
+      readerPubkey,
+      root: fileRoot,
+      sequence: 1,
+      publishedAt: 100,
+    });
+    const directoryEvent = driveRoot({
+      signer: directoryWriter,
+      readerPubkey,
+      root: directoryRoot,
+      sequence: 1,
+      publishedAt: 999,
+      observed: {
+        [filePubkey]: { app_key_seq: 1, root_cid: toHex(fileRoot.hash) },
+      },
+    });
+    const projection = new ProfileDriveProjection();
+    projection.add(fileEvent, parseDriveRootEventForDevice(fileEvent, reader));
+    projection.add(directoryEvent, parseDriveRootEventForDevice(directoryEvent, reader));
+
+    const result = await projection.materialize(
+      tree,
+      PROFILE_ID,
+      'main',
+      new Set([filePubkey, directoryPubkey]),
+    );
+
+    expect((await tree.resolvePath(result!.root, ['draft']))?.type).toBe(LinkType.Dir);
+    const conflict = await tree.resolvePath(
+      result!.root,
+      [`draft (conflict from ${filePubkey})`],
+    );
+    expect(new TextDecoder().decode(await tree.readFile(conflict!.cid) ?? undefined))
+      .toBe('old file');
+  });
+
+  it('does not revive an older carried tombstone during a later kind replacement', async () => {
+    const tree = new HashTree({ store: new MemoryStore() });
+    const reader = generateSecretKey();
+    const readerPubkey = getPublicKey(reader);
+    const originalWriter = generateSecretKey();
+    const replacementWriter = generateSecretKey();
+    const originalPubkey = getPublicKey(originalWriter);
+    const replacementPubkey = getPublicKey(replacementWriter);
+    const originalRoot = await rootWithDirectoryFiles(tree, 'draft', [
+      { name: 'deleted.txt', text: 'must stay deleted' },
+      { name: 'keep.txt', text: 'must survive as conflict' },
+    ]);
+    const afterChildDelete = await mutateProfileDriveRoot(
+      tree,
+      originalRoot,
+      { type: 'delete', path: 'draft/deleted.txt' },
+      { tombstonedAt: 100 },
+    );
+    const replacementRoot = await mutateProfileDriveRoot(
+      tree,
+      afterChildDelete,
+      { type: 'write', path: 'draft', content: 'replacement file' },
+      { tombstonedAt: 200 },
+    );
+    const originalEvent = driveRoot({
+      signer: originalWriter,
+      readerPubkey,
+      root: originalRoot,
+      sequence: 1,
+      publishedAt: 50,
+    });
+    const replacementEvent = driveRoot({
+      signer: replacementWriter,
+      readerPubkey,
+      root: replacementRoot,
+      sequence: 2,
+      publishedAt: 999,
+      observed: {
+        [originalPubkey]: { app_key_seq: 1, root_cid: toHex(originalRoot.hash) },
+      },
+    });
+    const projection = new ProfileDriveProjection();
+    projection.add(originalEvent, parseDriveRootEventForDevice(originalEvent, reader));
+    projection.add(replacementEvent, parseDriveRootEventForDevice(replacementEvent, reader));
+
+    const result = await projection.materialize(
+      tree,
+      PROFILE_ID,
+      'main',
+      new Set([originalPubkey, replacementPubkey]),
+    );
+    const conflictDirectory = `draft (conflict from ${originalPubkey})`;
+    const kept = await tree.resolvePath(result!.root, [conflictDirectory, 'keep.txt']);
+    expect(new TextDecoder().decode(await tree.readFile(kept!.cid) ?? undefined))
+      .toBe('must survive as conflict');
+    expect(await tree.resolvePath(result!.root, [conflictDirectory, 'deleted.txt']))
+      .toBeNull();
+  });
+
+  it('does not revive a kind conflict after the replacement is later deleted', async () => {
+    const tree = new HashTree({ store: new MemoryStore() });
+    const reader = generateSecretKey();
+    const readerPubkey = getPublicKey(reader);
+    const originalWriter = generateSecretKey();
+    const replacementWriter = generateSecretKey();
+    const originalPubkey = getPublicKey(originalWriter);
+    const replacementPubkey = getPublicKey(replacementWriter);
+    const originalRoot = await rootWithDirectoryFile(tree, 'draft', 'old.txt', 'must stay deleted');
+    const replacementRoot = await mutateProfileDriveRoot(
+      tree,
+      originalRoot,
+      { type: 'write', path: 'draft', content: 'temporary replacement' },
+      { tombstonedAt: 200 },
+    );
+    const deletedRoot = await mutateProfileDriveRoot(
+      tree,
+      replacementRoot,
+      { type: 'delete', path: 'draft' },
+      { tombstonedAt: 300 },
+    );
+    const originalEvent = driveRoot({
+      signer: originalWriter,
+      readerPubkey,
+      root: originalRoot,
+      sequence: 1,
+      publishedAt: 50,
+    });
+    const deleteEvent = driveRoot({
+      signer: replacementWriter,
+      readerPubkey,
+      root: deletedRoot,
+      sequence: 3,
+      publishedAt: 1000,
+      observed: {
+        [originalPubkey]: { app_key_seq: 1, root_cid: toHex(originalRoot.hash) },
+      },
+    });
+    const projection = new ProfileDriveProjection();
+    projection.add(originalEvent, parseDriveRootEventForDevice(originalEvent, reader));
+    projection.add(deleteEvent, parseDriveRootEventForDevice(deleteEvent, reader));
+
+    const result = await projection.materialize(
+      tree,
+      PROFILE_ID,
+      'main',
+      new Set([originalPubkey, replacementPubkey]),
+    );
+    expect(await tree.resolvePath(result!.root, ['draft'])).toBeNull();
+    expect((await tree.listDirectory(result!.root)).some((entry) => entry.name.startsWith('draft (conflict')))
+      .toBe(false);
   });
 
   it('never materializes a partial projection and can retry retained roots after blocks arrive', async () => {

@@ -265,6 +265,48 @@ describe('NostrIdentity tree-root scope', () => {
     expect(entries.map((entry) => entry.name)).toEqual(['current.txt']);
   });
 
+  it('rebuilds a locally retained root even when its relay echo is deduplicated', async () => {
+    const { appSecret, appPubkey } = activateProfile();
+    const tree = new HashTree({ store: new MemoryStore() });
+    shared.tree = tree;
+    const file = await tree.putFile(new TextEncoder().encode('local retained event'));
+    const sourceRoot = (await tree.putDirectory([{
+      name: 'local.txt',
+      cid: file.cid,
+      size: file.size,
+      type: LinkType.Blob,
+    }])).cid;
+    const event = buildDriveRootEvent({
+      deviceSecretKey: appSecret,
+      rootScopeId: PROFILE_ID,
+      driveId: 'main',
+      root: sourceRoot,
+      dckGeneration: 1,
+      appKeySeq: 1,
+      publishedAt: 100,
+      authorizedAppKeyPubkeys: [appPubkey],
+    });
+    expect(profileDriveProjection.add(
+      event,
+      parseDriveRootEventForDevice(event, appSecret),
+    )).toBe(true);
+    const { rebuildRetainedDriveRootProjection } = await import('../src/stores/treeRootResolver');
+
+    expect(rebuildRetainedDriveRootProjection(`${PROFILE_ID}/main`)).toBe(true);
+    // This is the exact relay-echo path after the publisher retained the event.
+    expect(profileDriveProjection.add(
+      event,
+      parseDriveRootEventForDevice(event, appSecret),
+    )).toBe(false);
+
+    await vi.waitFor(() => {
+      expect(treeRootRegistry.get(PROFILE_ID, 'main')).not.toBeNull();
+    });
+    const current = treeRootRegistry.get(PROFILE_ID, 'main')!;
+    expect((await tree.listDirectory({ hash: current.hash, key: current.key }))
+      .map((entry) => entry.name)).toEqual(['local.txt']);
+  });
+
   it('refuses to discard a newer dirty local root when its publish cannot be flushed', async () => {
     activateProfile();
     const localHash = fromHex('31'.repeat(32));

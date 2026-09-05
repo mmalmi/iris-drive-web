@@ -12,6 +12,16 @@ import {
   type RootObservation,
   type RootParent,
 } from './protocol';
+import { recoverSuppressedPathKindCandidates } from './profileDrivePathKindRecovery';
+import {
+  decodePathKindReplacements,
+  PATH_KIND_REPLACEMENTS_FILE,
+} from './profileDrivePathKindMetadata';
+import {
+  preferredKindFromActiveRole,
+  type PathKindSourceState,
+} from './profileDrivePathKindPreference';
+import { conflictPath } from './profileDriveConflictPath';
 
 const META_DIR = '.hashtree';
 const TOMBSTONES_DIR = 'tombstones';
@@ -35,34 +45,52 @@ export type MaterializedProfileDrive = {
   sourceRootCount: number;
 };
 
-type SnapshotFile = {
+export type SnapshotFile = {
   path: string;
+  originalPath?: string;
   entry: TreeEntry;
   source: ProfileDriveRootCandidate;
 };
 
-type SnapshotTombstone = {
+export type SnapshotTombstone = {
   path: string;
   tombstonedAt: number;
   source: ProfileDriveRootCandidate;
 };
 
-type SnapshotDirectory = {
+export type SnapshotDirectory = {
   path: string;
   entry: TreeEntry;
   source: ProfileDriveRootCandidate;
+};
+
+export type SuppressedSnapshotFile = {
+  file: SnapshotFile;
+  tombstone: SnapshotTombstone;
+};
+
+export type SuppressedSnapshotDirectory = {
+  directory: SnapshotDirectory;
+  tombstone: SnapshotTombstone;
 };
 
 type ProfileDriveSnapshot = {
   files: SnapshotFile[];
   tombstones: SnapshotTombstone[];
   directories: SnapshotDirectory[];
+  pathKindReplacements: Map<string, number>;
+  pathKindMetadataPresent: boolean;
+  source: ProfileDriveRootCandidate;
 };
 
-type RootRelation = 'same' | 'left-descends' | 'right-descends' | 'concurrent';
+export type RootRelation = 'same' | 'left-descends' | 'right-descends' | 'concurrent';
 
 function projectionKey(rootScopeId: string, driveId: string): string {
   return `${rootScopeId}/${driveId}`;
+}
+
+export function sourceRootKey(source: ProfileDriveRootCandidate): string {
+  return `${source.event.pubkey}:${toHex(source.parsed.root.hash)}`;
 }
 
 /**
@@ -179,10 +207,30 @@ export class ProfileDriveProjection {
       result.status === 'fulfilled' ? [result.value] : []
     ));
     if (snapshots.length === 0) throw new Error('No readable profile Drive roots');
+    const pathKindSourceStates = new Map(snapshots.map((snapshot) => [
+      sourceRootKey(snapshot.source),
+      {
+        metadataPresent: snapshot.pathKindMetadataPresent,
+        activeReplacementPaths: new Set(snapshot.tombstones
+          .filter((tombstone) => isActiveReplacementBarrier(snapshot, tombstone))
+          .map((tombstone) => tombstone.path)),
+      },
+    ]));
     const tombstones = mergeSnapshotTombstones(snapshots);
+    const fileMerge = mergeSnapshotFiles(snapshots, tombstones);
+    const directoryMerge = mergeSnapshotDirectories(snapshots, tombstones);
+    const recovered = recoverSuppressedPathKindCandidates(
+      fileMerge,
+      directoryMerge,
+      tombstones,
+      new Set(snapshots
+        .filter((snapshot) => !snapshot.pathKindMetadataPresent)
+        .map((snapshot) => sourceRootKey(snapshot.source))),
+    );
     const merged = resolvePathKindConflicts(
-      mergeSnapshotFiles(snapshots, tombstones),
-      mergeSnapshotDirectories(snapshots, tombstones),
+      recovered.files,
+      recovered.directories,
+      pathKindSourceStates,
     );
     const { files, directories } = merged;
     let root = (await tree.putDirectory([])).cid;
@@ -241,7 +289,14 @@ async function walkProfileDriveRoot(
   source: ProfileDriveRootCandidate,
   signal?: AbortSignal,
 ): Promise<ProfileDriveSnapshot> {
-  const snapshot: ProfileDriveSnapshot = { files: [], tombstones: [], directories: [] };
+  const snapshot: ProfileDriveSnapshot = {
+    files: [],
+    tombstones: [],
+    directories: [],
+    pathKindReplacements: new Map(),
+    pathKindMetadataPresent: false,
+    source,
+  };
   await walkVisibleDirectory(tree, source.parsed.root, '', source, snapshot, signal);
   return snapshot;
 }
@@ -286,6 +341,16 @@ async function walkMetadataDirectory(
   if (tombstones) {
     await walkTombstones(tree, tombstones.cid, '', source, snapshot, signal);
   }
+  const replacements = entries.find((entry) => entry.name === PATH_KIND_REPLACEMENTS_FILE);
+  if (replacements) {
+    if (replacements.type === LinkType.Dir) {
+      throw new Error('path-kind replacement metadata must be a file');
+    }
+    const raw = await tree.readFile(replacements.cid);
+    if (!raw) throw new Error('path-kind replacement metadata is unavailable');
+    snapshot.pathKindReplacements = decodePathKindReplacements(raw);
+    snapshot.pathKindMetadataPresent = true;
+  }
 }
 
 async function walkTombstones(
@@ -318,6 +383,7 @@ function mergeSnapshotTombstones(
   const tombstones = new Map<string, SnapshotTombstone>();
   for (const snapshot of snapshots) {
     for (const tombstone of snapshot.tombstones) {
+      if (isActiveReplacementBarrier(snapshot, tombstone)) continue;
       const current = tombstones.get(tombstone.path);
       if (!current || tombstoneWins(tombstone, current)) {
         tombstones.set(tombstone.path, tombstone);
@@ -327,10 +393,19 @@ function mergeSnapshotTombstones(
   return tombstones;
 }
 
+function isActiveReplacementBarrier(
+  snapshot: ProfileDriveSnapshot,
+  tombstone: SnapshotTombstone,
+): boolean {
+  if (snapshot.pathKindReplacements.get(tombstone.path) !== tombstone.tombstonedAt) return false;
+  return snapshot.files.some((file) => file.path === tombstone.path)
+    || snapshot.directories.some((directory) => directory.path === tombstone.path);
+}
+
 function mergeSnapshotFiles(
   snapshots: ProfileDriveSnapshot[],
   tombstones: ReadonlyMap<string, SnapshotTombstone>,
-): SnapshotFile[] {
+): { files: SnapshotFile[]; suppressed: SuppressedSnapshotFile[] } {
   const writes = new Map<string, SnapshotFile[]>();
 
   for (const snapshot of snapshots) {
@@ -342,19 +417,38 @@ function mergeSnapshotFiles(
   }
 
   const visible: SnapshotFile[] = [];
+  const suppressedFiles: SuppressedSnapshotFile[] = [];
+  const suppressedConflicts: Array<{
+    originalPath: string;
+    file: SnapshotFile;
+    tombstone: SnapshotTombstone;
+  }> = [];
   const conflicts: Array<{ originalPath: string; file: SnapshotFile }> = [];
   const occupiedPaths = new Set<string>();
 
   for (const [path, candidates] of [...writes].sort(([left], [right]) => left.localeCompare(right))) {
-    const winner = candidates.reduce((current, candidate) => (
-      writeWins(candidate, current) ? candidate : current
-    ));
     const tombstone = applicableTombstone(path, tombstones);
-    const suppressed = !!tombstone && tombstoneSuppressesWrite(tombstone, winner);
-    if (!suppressed) {
+    const unsuppressed: SnapshotFile[] = [];
+    const causallySuppressed: SnapshotFile[] = [];
+    for (const candidate of candidates) {
+      if (!tombstone || !tombstoneSuppressesWrite(tombstone, candidate)) {
+        unsuppressed.push(candidate);
+        continue;
+      }
+      const concurrentConflict = rootRelation(tombstone.source, candidate.source) === 'concurrent'
+        && rootsAreCausal(tombstone.source)
+        && rootsAreCausal(candidate.source);
+      if (concurrentConflict) conflicts.push({ originalPath: path, file: candidate });
+      else causallySuppressed.push(candidate);
+    }
+
+    if (unsuppressed.length > 0) {
+      const winner = unsuppressed.reduce((current, candidate) => (
+        writeWins(candidate, current) ? candidate : current
+      ));
       visible.push(winner);
       occupiedPaths.add(path);
-      for (const candidate of candidates) {
+      for (const candidate of unsuppressed) {
         if (candidate === winner || sameFileIdentity(candidate, winner)) continue;
         if (rootRelation(candidate.source, winner.source) === 'concurrent'
           && rootsAreCausal(candidate.source)
@@ -362,35 +456,44 @@ function mergeSnapshotFiles(
           conflicts.push({ originalPath: path, file: candidate });
         }
       }
-    } else if (
-      tombstone
-      && rootRelation(tombstone.source, winner.source) === 'concurrent'
-      && rootsAreCausal(tombstone.source)
-      && rootsAreCausal(winner.source)
-    ) {
-      const concurrentWrites = candidates.filter((candidate) => (
-        rootRelation(tombstone.source, candidate.source) === 'concurrent'
-        && rootsAreCausal(tombstone.source)
-        && rootsAreCausal(candidate.source)
+    }
+    if (tombstone && causallySuppressed.length > 0) {
+      const suppressedCandidates = uniqueFileIdentities(causallySuppressed);
+      const primary = suppressedCandidates.reduce((current, candidate) => (
+        sourceWins(candidate.source, current.source) ? candidate : current
       ));
-      for (const candidate of uniqueFileIdentities(concurrentWrites)) {
-        conflicts.push({ originalPath: path, file: candidate });
+      suppressedFiles.push({ file: primary, tombstone });
+      for (const candidate of suppressedCandidates) {
+        if (candidate === primary || sameFileIdentity(candidate, primary)) continue;
+        suppressedConflicts.push({ originalPath: path, file: candidate, tombstone });
       }
     }
   }
 
   for (const { originalPath, file } of conflicts.sort(compareConflictFiles)) {
     const path = nextConflictPath(originalPath, file.source.event.pubkey, occupiedPaths);
-    visible.push({ ...file, path });
+    visible.push({ ...file, path, originalPath });
     occupiedPaths.add(path);
   }
-  return visible;
+  const suppressedOccupiedPaths = new Set([
+    ...occupiedPaths,
+    ...suppressedFiles.map(({ file }) => file.path),
+  ]);
+  for (const { originalPath, file, tombstone } of suppressedConflicts.sort(compareConflictFiles)) {
+    const path = nextConflictPath(originalPath, file.source.event.pubkey, suppressedOccupiedPaths);
+    suppressedFiles.push({ file: { ...file, path, originalPath }, tombstone });
+    suppressedOccupiedPaths.add(path);
+  }
+  return { files: visible, suppressed: suppressedFiles };
 }
 
 function mergeSnapshotDirectories(
   snapshots: ProfileDriveSnapshot[],
   tombstones: ReadonlyMap<string, SnapshotTombstone>,
-): Map<string, SnapshotDirectory> {
+): {
+  directories: Map<string, SnapshotDirectory>;
+  suppressed: SuppressedSnapshotDirectory[];
+} {
   const candidates = new Map<string, SnapshotDirectory[]>();
   for (const snapshot of snapshots) {
     for (const directory of snapshot.directories) {
@@ -400,17 +503,31 @@ function mergeSnapshotDirectories(
     }
   }
   const directories = new Map<string, SnapshotDirectory>();
+  const suppressedDirectories: SuppressedSnapshotDirectory[] = [];
   for (const [path, entries] of candidates) {
     const tombstone = applicableTombstone(path, tombstones);
     const visible = tombstone
       ? entries.filter((entry) => !tombstoneSuppressesSource(tombstone, entry.source))
       : entries;
-    if (visible.length === 0) continue;
-    directories.set(path, visible.reduce((current, candidate) => (
-      sourceWins(candidate.source, current.source) ? candidate : current
-    )));
+    if (visible.length > 0) {
+      directories.set(path, visible.reduce((current, candidate) => (
+        sourceWins(candidate.source, current.source) ? candidate : current
+      )));
+    }
+    if (tombstone) {
+      const suppressed = entries.filter((entry) => tombstoneSuppressesSource(tombstone, entry.source));
+      if (suppressed.length > 0) {
+        const winner = suppressed.reduce((current, candidate) => (
+          sourceWins(candidate.source, current.source) ? candidate : current
+        ));
+        suppressedDirectories.push({
+          directory: winner,
+          tombstone,
+        });
+      }
+    }
   }
-  return directories;
+  return { directories, suppressed: suppressedDirectories };
 }
 
 /**
@@ -424,6 +541,7 @@ function mergeSnapshotDirectories(
 function resolvePathKindConflicts(
   initialFiles: SnapshotFile[],
   initialDirectories: Map<string, SnapshotDirectory>,
+  pathKindSourceStates: ReadonlyMap<string, PathKindSourceState>,
 ): { files: SnapshotFile[]; directories: Map<string, SnapshotDirectory> } {
   let files = [...initialFiles];
   let directories = new Map(initialDirectories);
@@ -436,7 +554,31 @@ function resolvePathKindConflicts(
 
     const directory = directories.get(collision.path)!;
     const relation = rootRelation(directory.source, collision.source);
-    if (relation !== 'right-descends') {
+    const activeRolePreference = preferredKindFromActiveRole(
+      collision.path,
+      sourceRootKey(directory.source),
+      sourceRootKey(collision.source),
+      pathKindSourceStates,
+    );
+    const fileIsCanonical = activeRolePreference === 'file'
+      || (activeRolePreference === null && relation === 'right-descends');
+    if (!fileIsCanonical) {
+      const preferredConflict = conflictPath(
+        collision.path,
+        collision.source.event.pubkey,
+      );
+      const existingConflict = files.find((file) => (
+        file !== collision
+        && file.path === preferredConflict
+        && sameEntryIdentity(file.entry, collision.entry)
+      ));
+      if (existingConflict) {
+        // A previous materialization may already have copied this exact losing
+        // file into the replacing AppKey's contribution. Reuse that immutable
+        // copy instead of manufacturing "conflict … 2" on every later edit.
+        files = files.filter((file) => file !== collision);
+        continue;
+      }
       const occupied = collectOccupiedPaths(
         files.filter((file) => file !== collision),
         directories,
@@ -463,6 +605,24 @@ function resolvePathKindConflicts(
     const occupied = collectOccupiedPaths(stationaryFiles, new Map(
       stationaryDirectories.map((entry) => [entry.path, entry]),
     ));
+    const preferredConflict = conflictPath(
+      prefix,
+      directory.source.event.pubkey,
+    );
+    const existingConflict = stationaryDirectories.find((entry) => (
+      entry.path === preferredConflict
+      && sameEntryIdentity(entry.entry, directory.entry)
+    ));
+    if (existingConflict) {
+      // The immutable directory CID proves the complete losing subtree is
+      // already present at its deterministic conflict path. Drop the duplicate
+      // canonical copy while retaining the replacing file and existing copy.
+      directories = new Map(
+        stationaryDirectories.map((entry) => [entry.path, entry] as const),
+      );
+      files = stationaryFiles;
+      continue;
+    }
     const conflictRoot = nextSubtreeConflictPath(
       prefix,
       directory.source.event.pubkey,
@@ -551,6 +711,19 @@ function sameFileIdentity(left: SnapshotFile, right: SnapshotFile): boolean {
   return left.entry.size === right.entry.size && fileIdentity(left.entry) === fileIdentity(right.entry);
 }
 
+function sameEntryIdentity(left: TreeEntry, right: TreeEntry): boolean {
+  return left.type === right.type
+    && left.size === right.size
+    && toHex(left.cid.hash) === toHex(right.cid.hash)
+    && optionalBytesEqual(left.cid.key, right.cid.key)
+    && JSON.stringify(left.meta ?? null) === JSON.stringify(right.meta ?? null);
+}
+
+function optionalBytesEqual(left?: Uint8Array, right?: Uint8Array): boolean {
+  if (!left || !right) return !left && !right;
+  return toHex(left) === toHex(right);
+}
+
 function fileIdentity(entry: TreeEntry): string {
   const wholeFileHash = entry.meta?.whole_file_hash;
   return typeof wholeFileHash === 'string' && /^[0-9a-f]{64}$/i.test(wholeFileHash)
@@ -594,40 +767,6 @@ function nextConflictPath(originalPath: string, appKeyPubkey: string, occupied: 
   return conflictPath(originalPath, `${appKeyPubkey} 257`);
 }
 
-function conflictPath(originalPath: string, appKeyLabel: string): string {
-  const splitAt = originalPath.lastIndexOf('/');
-  const directory = splitAt >= 0 ? originalPath.slice(0, splitAt + 1) : '';
-  const name = splitAt >= 0 ? originalPath.slice(splitAt + 1) : originalPath;
-  const dot = name.lastIndexOf('.');
-  const hasExtension = dot > 0 && dot < name.length - 1;
-  const stem = hasExtension ? name.slice(0, dot) : name;
-  const extension = truncateUtf8(hasExtension ? name.slice(dot) : '', 48);
-  const markerPrefix = ' (conflict from ';
-  const markerSuffix = ')';
-  const fixedBytes = byteLength(markerPrefix) + byteLength(markerSuffix) + byteLength(extension);
-  const available = Math.max(0, 240 - fixedBytes);
-  const label = truncateUtf8(appKeyLabel, Math.min(byteLength(appKeyLabel), Math.max(0, available - 1)));
-  const truncatedStem = truncateUtf8(stem, Math.max(0, available - byteLength(label)));
-  return `${directory}${truncatedStem}${markerPrefix}${label}${markerSuffix}${extension}`;
-}
-
-function truncateUtf8(value: string, maxBytes: number): string {
-  if (byteLength(value) <= maxBytes) return value;
-  let result = '';
-  let resultBytes = 0;
-  for (const character of value) {
-    const characterBytes = byteLength(character);
-    if (resultBytes + characterBytes > maxBytes) break;
-    result += character;
-    resultBytes += characterBytes;
-  }
-  return result;
-}
-
-function byteLength(value: string): number {
-  return new TextEncoder().encode(value).byteLength;
-}
-
 function tombstoneWins(candidate: SnapshotTombstone, current: SnapshotTombstone): boolean {
   const relation = rootRelation(candidate.source, current.source);
   if (relation === 'same' || relation === 'left-descends') return true;
@@ -645,8 +784,10 @@ function tombstoneSuppressesSource(
   tombstone: SnapshotTombstone,
   source: ProfileDriveRootCandidate,
 ): boolean {
+  if (sourceRootKey(tombstone.source) === sourceRootKey(source)) return false;
   const relation = rootRelation(tombstone.source, source);
-  if (relation === 'same' || relation === 'left-descends') return true;
+  if (relation === 'same') return true;
+  if (relation === 'left-descends') return true;
   if (relation === 'right-descends') return false;
   return tombstone.tombstonedAt >= source.parsed.published_at;
 }

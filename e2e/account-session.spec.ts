@@ -1,7 +1,15 @@
 import { expect, test, type Page } from './fixtures';
-import { clearAllStorage, setupPageErrorHandler, waitForAppReady } from './test-utils';
+import {
+  clearAllStorage,
+  configureBlossomServers,
+  presetLocalRelayInDB,
+  setupPageErrorHandler,
+  useLocalRelay,
+  waitForAppReady,
+  waitForRelayConnected,
+} from './test-utils';
 
-async function openFreshSetup(page: Page): Promise<void> {
+async function openFreshSetup(page: Page, relayUrl: string): Promise<void> {
   setupPageErrorHandler(page);
   await page.addInitScript(() => {
     localStorage.setItem('hashtree:disableTestAutoCreate', '1');
@@ -11,8 +19,12 @@ async function openFreshSetup(page: Page): Promise<void> {
   await page.evaluate(() => {
     localStorage.setItem('hashtree:disableTestAutoCreate', '1');
   });
+  await presetLocalRelayInDB(page, relayUrl);
   await page.reload({ waitUntil: 'domcontentloaded' });
   await waitForAppReady(page, 60_000);
+  await useLocalRelay(page, relayUrl);
+  await configureBlossomServers(page);
+  await waitForRelayConnected(page, 30_000);
   await expect(page.getByTestId('drive-setup')).toBeVisible({ timeout: 30_000 });
 }
 
@@ -35,7 +47,13 @@ async function uploadTextFile(page: Page, name: string, content: string): Promis
   await editor.fill(content);
   const saveButton = page.getByRole('button', { name: /Save|Saved|Saving/ });
   if (await saveButton.isEnabled().catch(() => false)) await saveButton.click();
-  await expect(saveButton).toBeDisabled({ timeout: 30_000 });
+  // Autosave may start before the explicit click, and the short-lived "Saved"
+  // label is not a synchronization contract. Wait until the editor is clean
+  // (disabled) and no save is still running before closing it.
+  await expect.poll(async () => (
+    await saveButton.isDisabled()
+    && await saveButton.locator('span.absolute').textContent() !== 'Saving...'
+  ), { timeout: 30_000 }).toBe(true);
   await page.getByRole('button', { name: 'Done' }).click();
   await expect(editor).not.toBeVisible({ timeout: 30_000 });
   await expect(page).toHaveURL(new RegExp(`/${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`), {
@@ -51,8 +69,8 @@ async function openAccountMenu(page: Page): Promise<void> {
 test.describe('account navigation and logout', () => {
   test.setTimeout(180_000);
 
-  test('opens Users from settings and stays logged out after reload', async ({ page }) => {
-    await openFreshSetup(page);
+  test('opens Users from settings and stays logged out after reload', async ({ page, relayUrl }) => {
+    await openFreshSetup(page, relayUrl);
     await createProfile(page);
     await uploadTextFile(page, 'private-before-logout.txt', 'must disappear after logout');
 

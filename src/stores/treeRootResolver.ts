@@ -466,6 +466,28 @@ export function refreshDriveRootResolverKey(key: string): void {
     });
 }
 
+/**
+ * Rebuild the logical Drive view after a local publisher has already retained
+ * its signed event in the projection. The later relay echo is intentionally
+ * deduplicated, so it cannot be relied on to schedule this rebuild.
+ */
+export function rebuildRetainedDriveRootProjection(key: string): boolean {
+  const scope = driveRootScopeFromResolverKey(key);
+  if (!scope) return false;
+  const { authorization } = syncDriveRootAuthorization(
+    key,
+    scope.rootScopeId,
+    scope.driveId,
+  );
+  if (!authorization.active || !profileDriveProjection.hasAuthorizedRoots(
+    scope.rootScopeId,
+    scope.driveId,
+    authorization.appKeys,
+  )) return false;
+  scheduleDriveRootProjection(key, scope.rootScopeId, scope.driveId);
+  return true;
+}
+
 type ResolveDriveRootProjectionOptions = {
   publishWaitTimeoutMs?: number;
   publishWaitPollIntervalMs?: number;

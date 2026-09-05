@@ -24,18 +24,25 @@ async function rootWithFiles(
 }
 
 async function tombstonePaths(tree: HashTree, root: CID): Promise<string[]> {
+  return [...(await tombstoneTimestamps(tree, root)).keys()].sort();
+}
+
+async function tombstoneTimestamps(tree: HashTree, root: CID): Promise<Map<string, number>> {
   const tombstones = await tree.resolvePath(root, ['.hashtree', 'tombstones']);
-  if (!tombstones || tombstones.type !== LinkType.Dir) return [];
-  const paths: string[] = [];
+  if (!tombstones || tombstones.type !== LinkType.Dir) return new Map();
+  const timestamps = new Map<string, number>();
   const walk = async (cid: CID, prefix: string): Promise<void> => {
     for (const entry of await tree.listDirectory(cid)) {
       const path = prefix ? `${prefix}/${entry.name}` : entry.name;
       if (entry.type === LinkType.Dir) await walk(entry.cid, path);
-      else paths.push(path);
+      else {
+        const value = await tree.readFile(entry.cid);
+        timestamps.set(path, Number(new TextDecoder().decode(value ?? undefined)));
+      }
     }
   };
   await walk(tombstones.cid, '');
-  return paths.sort();
+  return timestamps;
 }
 
 describe('profile Drive production mutations', () => {
@@ -73,6 +80,21 @@ describe('profile Drive production mutations', () => {
     expect(await tree.resolvePath(root, ['target', 'file.txt'])).not.toBeNull();
   });
 
+  it('assigns a new marker generation to consecutive production mutations', async () => {
+    const tree = new HashTree({ store: new MemoryStore() });
+    let root = await rootWithFiles(tree, {
+      'first.txt': 'first',
+      'second.txt': 'second',
+    });
+    root = await mutateProfileDriveRoot(tree, root, { type: 'delete', path: 'first.txt' });
+    const firstGeneration = (await tombstoneTimestamps(tree, root)).get('first.txt')!;
+    root = await mutateProfileDriveRoot(tree, root, { type: 'delete', path: 'second.txt' });
+    const generations = await tombstoneTimestamps(tree, root);
+
+    expect(generations.get('second.txt')).toBeGreaterThan(firstGeneration);
+    expect(generations.get('first.txt')).toBe(firstGeneration);
+  });
+
   it('re-layers retained tombstones after a metadata-free unrelated edit', async () => {
     const tree = new HashTree({ store: new MemoryStore() });
     const original = await rootWithFiles(tree, {
@@ -97,7 +119,7 @@ describe('profile Drive production mutations', () => {
     expect(await tree.resolvePath(prepared, ['unrelated.txt'])).not.toBeNull();
   });
 
-  it('clears a retained tombstone when that path is recreated', async () => {
+  it('retains a deletion barrier when that path is recreated', async () => {
     const tree = new HashTree({ store: new MemoryStore() });
     const original = await rootWithFiles(tree, { 'recreated.txt': 'old bytes' });
     const deleted = await mutateProfileDriveRoot(tree, original, {
@@ -107,12 +129,12 @@ describe('profile Drive production mutations', () => {
     const recreated = await rootWithFiles(tree, { 'recreated.txt': 'new bytes' });
     const prepared = await prepareProfileDriveRootForPublish(tree, recreated, deleted);
 
-    expect(await tombstonePaths(tree, prepared)).toEqual([]);
+    expect(await tombstonePaths(tree, prepared)).toEqual(['recreated.txt']);
     const entry = await tree.resolvePath(prepared, ['recreated.txt']);
     expect(new TextDecoder().decode(await tree.readFile(entry!.cid) ?? undefined)).toBe('new bytes');
   });
 
-  it('clears a retained empty-directory marker when the directory is recreated', async () => {
+  it('retains an empty-directory deletion barrier when the directory is recreated', async () => {
     const tree = new HashTree({ store: new MemoryStore() });
     let original = (await tree.putDirectory([])).cid;
     original = await mutateProfileDriveRoot(tree, original, {
@@ -131,7 +153,7 @@ describe('profile Drive production mutations', () => {
 
     const prepared = await prepareProfileDriveRootForPublish(tree, recreated, deleted);
 
-    expect(await tombstonePaths(tree, prepared)).toEqual([]);
+    expect(await tombstonePaths(tree, prepared)).toEqual(['empty']);
     expect((await tree.resolvePath(prepared, ['empty']))?.type).toBe(LinkType.Dir);
   });
 });

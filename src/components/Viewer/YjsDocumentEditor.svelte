@@ -23,9 +23,13 @@
     loadCollaboratorDeltas,
     setupCollaboratorSubscriptions,
     createYjsTiptapEditor,
+    resolveYjsRouteScopes,
+    parseAttachmentReference,
   } from '../../lib/yjs';
   import { createThrottledCapture, getThumbnailFilename } from '../../lib/yjs/thumbnail';
   import { getNpubFileUrl } from '../../lib/mediaUrl';
+  import { setEntryForDriveRoute } from '../../drive/profileDriveRouteEntry';
+  import { captureRouteWriteGuard } from '../../lib/routeWriteGuard';
   interface Props {
     dirCid: CID;
     dirName: string;
@@ -34,7 +38,8 @@
   let { dirCid, dirName, entries }: Props = $props();
   let route = $derived($routeStore);
   let userNpub = $derived($nostrStore.npub);
-  let viewedNpub = $derived(route.npub);
+  let routeScopes = $derived(resolveYjsRouteScopes(route.npub, userNpub, $nostrStore));
+  let writeRootScope = $derived(routeScopes.writeRootScope);
   let editorElement: HTMLElement | undefined = $state();
   let editor: Editor | undefined = $state();
   let ydoc: Y.Doc | undefined = $state();
@@ -52,13 +57,13 @@
   let showAddCommentModal = $state(false);
   let pendingCommentSelection = $state<{ from: number; to: number; text: string } | null>(null);
   let collaborators = $state<string[]>([]);
-  let isOwnTree = $derived(!viewedNpub || viewedNpub === userNpub);
+  let isOwnTree = $derived(routeScopes.isOwnTree);
   let isEditor = $derived(userNpub ? collaborators.includes(userNpub) : false);
   let canEdit = $derived(isOwnTree || isEditor);
-  let ownerNpub = $derived(viewedNpub || userNpub);
+  let ownerNpub = $derived(routeScopes.ownerNpub);
   let ownerPubkey = $derived(ownerNpub ? npubToPubkey(ownerNpub) : null);
-  let targetNpub = $derived(viewedNpub || userNpub);
-  let treesStore = $derived(createTreesStore(targetNpub));
+  let targetRootScope = $derived(routeScopes.viewedRootScope);
+  let treesStore = $derived(createTreesStore(targetRootScope));
   let trees = $state<Array<{ name: string; visibility?: TreeVisibility }>>([]);
   $effect(() => {
     const store = treesStore;
@@ -121,28 +126,30 @@
     }
   });
   async function saveImage(data: Uint8Array, filename: string): Promise<string | null> {
-    if (!userNpub || !route.treeName) {
-      console.warn('[YjsDoc] Missing userNpub or treeName, cannot save image');
+    if (!userNpub || !writeRootScope || !route.treeName) {
+      console.warn('[YjsDoc] Missing user identity, root scope, or tree name; cannot save image');
       return null;
     }
     return saveImageToTree(
       data,
       filename,
       route.path,
-      userNpub,
+      writeRootScope,
       route.treeName,
       isOwnTree,
       isOwnTree ? undefined : visibility,
     );
   }
   async function handleImageUpload(file: File): Promise<void> {
+    const isCurrent = captureRouteWriteGuard();
     if (!file.type.startsWith('image/')) return;
     const data = new Uint8Array(await file.arrayBuffer());
     const filename = generateImageFilename(file);
+    if (!isCurrent()) return;
     const savedFilename = await saveImage(data, filename);
+    if (!isCurrent()) return;
     if (savedFilename && editor) {
-      const uploaderNpub = userNpub;
-      editor.chain().focus().setImage({ src: `attachments:${uploaderNpub}/${savedFilename}` }).run();
+      editor.chain().focus().setImage({ src: `attachments:${writeRootScope}/${savedFilename}` }).run();
       scheduleSave();
     }
   }
@@ -156,7 +163,7 @@
       collaboratorNpubs,
       route.treeName,
       route.path,
-      viewedNpub,
+      ownerNpub,
       userNpub,
       ydoc,
       () => collaborators,
@@ -164,12 +171,13 @@
     );
   }
   async function saveStateSnapshot(): Promise<void> {
+    const isCurrent = captureRouteWriteGuard();
     const tree = getTree();
-    if (!ydoc || !userNpub || !route.treeName) {
-      console.warn('[YjsDoc] Missing ydoc, userNpub, or treeName, cannot save');
+    if (!ydoc || !userNpub || !writeRootScope || !route.treeName) {
+      console.warn('[YjsDoc] Missing ydoc, user identity, root scope, or tree name; cannot save');
       return;
     }
-    let rootCid = getTreeRootSync(userNpub, route.treeName);
+    let rootCid = getTreeRootSync(writeRootScope, route.treeName);
     if (!rootCid) {
       const { cid: emptyDirCid } = await tree.putDirectory([]);
       rootCid = emptyDirCid;
@@ -189,7 +197,16 @@
         const pathExists = await tree.resolvePath(rootCid, fullPath);
         if (!pathExists) {
           const { cid: emptyDirCid } = await tree.putDirectory([]);
-          rootCid = await tree.setEntry(rootCid, parentPath, dirName, emptyDirCid, 0, LinkType.Dir);
+          if (!isCurrent()) return;
+          rootCid = await setEntryForDriveRoute(
+            tree,
+            rootCid,
+            parentPath,
+            dirName,
+            { cid: emptyDirCid, size: 0, type: LinkType.Dir },
+            route,
+            $nostrStore,
+          );
         }
       }
       const docResult = await tree.resolvePath(rootCid, currentPath.join('/'));
@@ -200,28 +217,49 @@
           const yjsContent = collaborators.join('\n') + '\n';
           const yjsData = new TextEncoder().encode(yjsContent);
           const { cid: yjsCid, size: yjsSize } = await tree.putFile(yjsData);
-          rootCid = await tree.setEntry(rootCid, currentPath, '.yjs', yjsCid, yjsSize, LinkType.Blob);
+          if (!isCurrent()) return;
+          rootCid = await setEntryForDriveRoute(
+            tree,
+            rootCid,
+            currentPath,
+            '.yjs',
+            { cid: yjsCid, size: yjsSize, type: LinkType.Blob },
+            route,
+            $nostrStore,
+          );
         }
       }
       const deltasResult = await tree.resolvePath(rootCid, deltasPath.join('/'));
       if (!deltasResult) {
         const { cid: emptyDirCid } = await tree.putDirectory([]);
-        rootCid = await tree.setEntry(rootCid, currentPath, 'deltas', emptyDirCid, 0, LinkType.Dir);
+        if (!isCurrent()) return;
+        rootCid = await setEntryForDriveRoute(
+          tree,
+          rootCid,
+          currentPath,
+          'deltas',
+          { cid: emptyDirCid, size: 0, type: LinkType.Dir },
+          route,
+          $nostrStore,
+        );
       }
       const { cid: deltaCid, size: deltaSize } = await tree.putFile(stateUpdate);
-      const newRootCid = await tree.setEntry(
+      if (!isCurrent()) return;
+      const newRootCid = await setEntryForDriveRoute(
+        tree,
         rootCid,
         deltasPath,
         deltaName,
-        deltaCid,
-        deltaSize,
-        LinkType.Blob
+        { cid: deltaCid, size: deltaSize, type: LinkType.Blob },
+        route,
+        $nostrStore,
       );
+      if (!isCurrent()) return;
       if (isOwnTree) {
         autosaveIfOwn(newRootCid);
       } else {
         updateLocalRootCacheHex(
-          userNpub,
+          writeRootScope,
           route.treeName,
           toHex(newRootCid.hash),
           newRootCid.key ? toHex(newRootCid.key) : undefined,
@@ -236,24 +274,30 @@
     } catch (e) {
       console.error('[YjsDoc] Failed to save state snapshot:', e);
       saveStatus = 'error';
+    } finally {
+      if (!isCurrent()) saveStatus = 'error';
     }
   }
   async function captureThumbnail(currentRootCid: CID) {
-    if (!editorElement || !userNpub || !route.treeName) return;
+    const isCurrent = captureRouteWriteGuard();
+    if (!editorElement || !writeRootScope || !route.treeName) return;
     try {
       const thumbnailData = await captureThrottled(editorElement);
       if (!thumbnailData) return; // Throttled or failed
       const tree = getTree();
       const currentPath = route.path;
       const { cid: thumbCid, size: thumbSize } = await tree.putFile(thumbnailData);
-      const newRootCid = await tree.setEntry(
+      if (!isCurrent()) return;
+      const newRootCid = await setEntryForDriveRoute(
+        tree,
         currentRootCid,
         currentPath,
         getThumbnailFilename(),
-        thumbCid,
-        thumbSize,
-        LinkType.Blob
+        { cid: thumbCid, size: thumbSize, type: LinkType.Blob },
+        route,
+        $nostrStore,
       );
+      if (!isCurrent()) return;
       autosaveIfOwn(newRootCid);
     } catch {
     }
@@ -284,6 +328,7 @@
     }
   }
   async function saveCollaborators(npubs: string[]) {
+    const isCurrent = captureRouteWriteGuard();
     const tree = getTree();
     let currentRootCid = getCurrentRootCid();
     if (!currentRootCid) {
@@ -294,14 +339,17 @@
       const content = npubs.join('\n') + '\n';
       const data = new TextEncoder().encode(content);
       const { cid: yjsCid, size: yjsSize } = await tree.putFile(data);
-      const newRootCid = await tree.setEntry(
+      if (!isCurrent()) return;
+      const newRootCid = await setEntryForDriveRoute(
+        tree,
         currentRootCid,
         route.path,
         '.yjs',
-        yjsCid,
-        yjsSize,
-        LinkType.Blob
+        { cid: yjsCid, size: yjsSize, type: LinkType.Blob },
+        route,
+        $nostrStore,
       );
+      if (!isCurrent()) return;
       autosaveIfOwn(newRootCid);
       collaborators = npubs;
     } catch (e) {
@@ -354,7 +402,7 @@
         Y.applyUpdate(ydoc, delta, 'remote');
       }
       if (collaborators.length > 0) {
-        await loadCollaboratorDeltas(collaborators, route.npub, route.path, route.treeName, ydoc);
+        await loadCollaboratorDeltas(collaborators, ownerNpub, route.path, route.treeName, ydoc);
       }
     })().catch((err) => {
       console.error('[YjsDoc] Init failed:', err);
@@ -384,28 +432,14 @@
     const src = img.getAttribute('src');
     if (!src || !src.startsWith('attachments:')) return;
     const attachmentPath = src.replace('attachments:', '');
-    let imageNpub: string;
-    let filename: string;
-    if (attachmentPath.startsWith('npub1')) {
-      const slashIndex = attachmentPath.indexOf('/');
-      if (slashIndex > 0) {
-        imageNpub = attachmentPath.slice(0, slashIndex);
-        filename = attachmentPath.slice(slashIndex + 1);
-      } else {
-        imageNpub = viewedNpub || userNpub || '';
-        filename = attachmentPath;
-      }
-    } else {
-      imageNpub = viewedNpub || userNpub || '';
-      filename = attachmentPath;
-    }
+    const reference = parseAttachmentReference(attachmentPath, routeScopes.viewedRootScope);
     const treeName = route.treeName;
-    if (!imageNpub || !treeName) {
+    if (!reference || !treeName) {
       img.dataset.pendingResolve = 'true';
       return;
     }
-    const pathParts = [...route.path, 'attachments', filename];
-    img.src = getNpubFileUrl(imageNpub, treeName, pathParts.join('/'));
+    const pathParts = [...route.path, 'attachments', reference.filename];
+    img.src = getNpubFileUrl(reference.rootScope, treeName, pathParts.join('/'));
   }
   onDestroy(() => {
     if (saveTimer) clearTimeout(saveTimer);

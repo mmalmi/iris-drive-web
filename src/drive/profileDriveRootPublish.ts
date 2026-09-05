@@ -148,12 +148,24 @@ export async function publishNostrIdentityDriveRootIfAvailable(
   // Retain the just-signed contribution immediately. A forced logical rebuild
   // (for example while approving another device) must not depend on the relay
   // echo arriving before it can include the newest local write.
-  profileDriveProjection.add(
+  const retained = profileDriveProjection.add(
     rawEvent,
     parseDriveRootEventForDevice(rawEvent, secretKey),
   );
-
   const event = new NDKEvent(ndk, rawEvent);
   await publishEventWithFallback(event);
+  if (retained) {
+    // Run after this publish resolves so TreeRootRegistry can mark its local
+    // record clean before the resolver replaces it with the merged view.
+    globalThis.setTimeout(() => {
+      void import('../stores/treeRootResolver')
+        .then(({ rebuildRetainedDriveRootProjection }) => {
+          rebuildRetainedDriveRootProjection(`${session.profileId}/${driveId}`);
+        })
+        .catch((error) => {
+          console.warn('[driveRoot] Could not rebuild the retained local Drive projection:', error);
+        });
+    }, 0);
+  }
   return true;
 }

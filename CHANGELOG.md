@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.1.12 - 2026-09-05
+
+- Preserve every file and directory when linked devices replace one kind with
+  the other, using a deterministic encrypted per-path role document shared by
+  Web and native clients.
+- Keep real deletions final across later edits and delete-then-recreate while
+  retaining explicit conflict copies for active replacements.
+- Route uploads, file and folder actions, collaborative documents, attachments,
+  and recordings through the same durable profile Drive mutation path.
+- Verify native signed share-access snapshots before accepting invites and
+  derive membership, permissions, and key availability from the verified data.
+- Stop pending document, attachment, and file writes when their destination
+  or active identity changes, and report unavailable conflict metadata instead
+  of treating it as an empty tree.
+
 ## 0.1.11 - 2026-08-18
 
 - Share revision-pinned, same-origin file links and verify that they load in a

@@ -7,9 +7,12 @@ import type { CID } from '@hashtree/core';
 import { getTree } from '../../store';
 import { getTreeRootSync } from '../../stores';
 import { getRefResolver } from '../../refResolver';
-import { autosaveIfOwn } from '../../nostr';
+import { autosaveIfOwn, nostrStore } from '../../nostr';
 import { updateLocalRootCacheHex } from '../../treeRootCache';
 import { toHex } from '@hashtree/core';
+import { setEntryForDriveRoute } from '../../drive/profileDriveRouteEntry';
+import { isNostrIdentityId } from '../../utils/route';
+import { captureRouteWriteGuard } from '../routeWriteGuard';
 
 const ATTACHMENTS_DIR = 'attachments';
 
@@ -67,6 +70,21 @@ export function createImageCache() {
 }
 
 export type ImageCache = ReturnType<typeof createImageCache>;
+
+export function parseAttachmentReference(
+  attachmentPath: string,
+  defaultRootScope: string | null,
+): { rootScope: string; filename: string } | null {
+  const slashIndex = attachmentPath.indexOf('/');
+  const explicitScope = slashIndex > 0 ? attachmentPath.slice(0, slashIndex) : '';
+  if (explicitScope.startsWith('npub1') || isNostrIdentityId(explicitScope)) {
+    const filename = attachmentPath.slice(slashIndex + 1);
+    return filename ? { rootScope: explicitScope, filename } : null;
+  }
+  return defaultRootScope && attachmentPath
+    ? { rootScope: defaultRootScope, filename: attachmentPath }
+    : null;
+}
 
 /**
  * Try to load an image from a specific npub's tree
@@ -181,14 +199,15 @@ export async function saveImageToTree(
   data: Uint8Array,
   filename: string,
   path: string[],
-  userNpub: string,
+  rootScope: string,
   treeName: string,
   isOwnTree: boolean,
   visibility?: import('@hashtree/core').TreeVisibility
 ): Promise<string | null> {
   const tree = getTree();
+  const isCurrent = captureRouteWriteGuard();
 
-  let rootCid = getTreeRootSync(userNpub, treeName);
+  let rootCid = getTreeRootSync(rootScope, treeName);
   if (!rootCid) {
     const { cid: emptyDirCid } = await tree.putDirectory([]);
     rootCid = emptyDirCid;
@@ -201,26 +220,38 @@ export async function saveImageToTree(
     const attachmentsResult = await tree.resolvePath(rootCid, attachmentsPath.join('/'));
     if (!attachmentsResult) {
       const { cid: emptyDirCid } = await tree.putDirectory([]);
-      rootCid = await tree.setEntry(rootCid, path, ATTACHMENTS_DIR, emptyDirCid, 0, LinkType.Dir);
+      if (!isCurrent()) return null;
+      rootCid = await setEntryForDriveRoute(
+        tree,
+        rootCid,
+        path,
+        ATTACHMENTS_DIR,
+        { cid: emptyDirCid, size: 0, type: LinkType.Dir },
+        { npub: rootScope, treeName },
+        nostrStore.getState(),
+      );
     }
 
     // Save the image file
     const { cid: imageCid, size: imageSize } = await tree.putFile(data);
-    const newRootCid = await tree.setEntry(
+    if (!isCurrent()) return null;
+    const newRootCid = await setEntryForDriveRoute(
+      tree,
       rootCid,
       attachmentsPath,
       filename,
-      imageCid,
-      imageSize,
-      LinkType.Blob
+      { cid: imageCid, size: imageSize, type: LinkType.Blob },
+      { npub: rootScope, treeName },
+      nostrStore.getState(),
     );
 
+    if (!isCurrent()) return null;
     // Publish update
     if (isOwnTree) {
       autosaveIfOwn(newRootCid);
     } else {
       updateLocalRootCacheHex(
-        userNpub,
+        rootScope,
         treeName,
         toHex(newRootCid.hash),
         newRootCid.key ? toHex(newRootCid.key) : undefined,

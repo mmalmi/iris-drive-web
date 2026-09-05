@@ -19,6 +19,7 @@ import {
   resumeProfileDriveRootUpdates,
   type MainActionMutation,
 } from './profile-drive-actions.js';
+import { expectProfilePathKindActionConvergence } from './profile-drive-path-kind.js';
 
 async function prepareDriveInstance(page: Page, relayUrl: string): Promise<void> {
   setupPageErrorHandler(page);
@@ -715,6 +716,14 @@ async function expectLinkedBrowsersCanExchangeEdits(owner: Page, linked: Page, r
   await gotoMain(owner);
   await expectMainFileMissing(owner, relayUrl, 'move-source.txt');
   await expectMainFileContent(owner, relayUrl, 'moved/move-source.txt', 'move and retain source tombstone');
+
+  await expectProfilePathKindActionConvergence({
+    owner,
+    linked,
+    gotoMain,
+    mutateAndPublish: (page, mutations) => mutateMainWithActionsAndPublish(page, relayUrl, mutations),
+    expectFileContent: (page, path, content) => expectMainFileContent(page, relayUrl, path, content),
+  });
 
   // Hold the linked browser's production root subscriptions at the shared
   // baseline so the two action-layer writes are provably concurrent.

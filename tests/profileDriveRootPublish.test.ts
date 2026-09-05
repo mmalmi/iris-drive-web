@@ -129,10 +129,10 @@ describe('profile Drive root durability before publish', () => {
     })).resolves.toBe(true);
 
     expect(order).toEqual(['upload', 'publish']);
-    expect(pushToBlossom).toHaveBeenCalledWith(root.hash, root.key, 'main');
     expect(shared.publish).toHaveBeenCalledTimes(1);
-    expect(profileDriveProjection.contributionRoot(PROFILE_ID, 'main', appKeyPubkey))
-      .toEqual(root);
+    const contribution = profileDriveProjection.contributionRoot(PROFILE_ID, 'main', appKeyPubkey)!;
+    expect(pushToBlossom).toHaveBeenCalledWith(contribution.hash, contribution.key, 'main');
+    expect(toHex(contribution.hash)).not.toBe(toHex(root.hash));
   });
 
   it('does not announce a prepared tombstone root when any block upload fails', async () => {

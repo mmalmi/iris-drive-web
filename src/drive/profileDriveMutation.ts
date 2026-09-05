@@ -4,13 +4,23 @@ import {
   type HashTree,
   type TreeEntry,
 } from '@hashtree/core';
+import {
+  applyPathKindReplacementOperations,
+  readPathKindReplacementDelta,
+  readPathKindReplacements,
+  replacePathKindReplacementDelta,
+  replacePathKindReplacements,
+  type PathKindReplacementOperation,
+} from './profileDrivePathKindMetadata';
 
 const META_DIRECTORY = '.hashtree';
 const TOMBSTONE_DIRECTORY = 'tombstones';
+const AUTHORED_TOMBSTONES_FILE = 'authored-tombstones.json';
 
 export type ProfileDriveMutation =
   | { type: 'write'; path: string; content: string | Uint8Array }
   | { type: 'mkdir'; path: string }
+  | { type: 'set-entry'; path: string; entry: Omit<TreeEntry, 'name'> }
   | { type: 'delete'; path: string }
   | { type: 'rename'; from: string; to: string };
 
@@ -31,10 +41,10 @@ export async function mutateProfileDriveRoot(
   options: ProfileDriveMutationOptions = {},
 ): Promise<CID> {
   const recordTombstones = options.recordTombstones !== false;
-  const tombstonedAt = options.tombstonedAt ?? Math.floor(Date.now() / 1000);
   let nextRoot = root;
   const deletedPaths: string[] = [];
-  const visiblePaths: string[] = [];
+  const replacementPaths: string[] = [];
+  const roleOperations: PathKindReplacementOperation[] = [];
 
   if (mutation.type === 'write') {
     const parts = splitPath(mutation.path);
@@ -42,11 +52,15 @@ export async function mutateProfileDriveRoot(
     if (!name) throw new Error('write path is empty');
     const existing = await resolveEntry(tree, nextRoot, [...parts, name]);
     if (existing?.type === LinkType.Dir) {
-      deletedPaths.push(...await visiblePathsUnder(tree, nextRoot, [...parts, name]));
+      deletedPaths.push(mutation.path);
+      replacementPaths.push(mutation.path);
+    } else if (!existing) {
+      roleOperations.push({ op: 'clear', path: mutation.path });
     }
     const ensured = await ensureParentDirectories(tree, nextRoot, parts);
     nextRoot = ensured.root;
     deletedPaths.push(...ensured.replacedFiles);
+    replacementPaths.push(...ensured.replacedFiles);
     if (existing?.type === LinkType.Dir) {
       nextRoot = await tree.removeEntry(nextRoot, parts, name);
     }
@@ -55,20 +69,50 @@ export async function mutateProfileDriveRoot(
       : mutation.content;
     const file = await tree.putFile(data);
     nextRoot = await tree.setEntry(nextRoot, parts, name, file.cid, file.size, LinkType.Blob);
-    visiblePaths.push(mutation.path);
   } else if (mutation.type === 'mkdir') {
     const parts = splitPath(mutation.path);
     const name = parts.pop();
     if (!name) throw new Error('mkdir path is empty');
-    deletedPaths.push(...await visiblePathsUnder(tree, nextRoot, [...parts, name]));
+    const existing = await resolveEntry(tree, nextRoot, [...parts, name]);
+    if (existing?.type === LinkType.Dir) return nextRoot;
+    if (existing) {
+      deletedPaths.push(mutation.path);
+      replacementPaths.push(mutation.path);
+    } else {
+      roleOperations.push({ op: 'clear', path: mutation.path });
+    }
     const ensured = await ensureParentDirectories(tree, nextRoot, parts);
     nextRoot = ensured.root;
     deletedPaths.push(...ensured.replacedFiles);
-    const existing = await resolveEntry(tree, nextRoot, [...parts, name]);
+    replacementPaths.push(...ensured.replacedFiles);
     if (existing) nextRoot = await tree.removeEntry(nextRoot, parts, name);
     const empty = await tree.putDirectory([]);
     nextRoot = await tree.setEntry(nextRoot, parts, name, empty.cid, 0, LinkType.Dir);
-    visiblePaths.push(mutation.path);
+  } else if (mutation.type === 'set-entry') {
+    const parts = splitPath(mutation.path);
+    const name = parts.pop();
+    if (!name) throw new Error('set-entry path is empty');
+    const existing = await resolveEntry(tree, nextRoot, [...parts, name]);
+    if (existing && existing.type !== mutation.entry.type) {
+      deletedPaths.push(mutation.path);
+      replacementPaths.push(mutation.path);
+    } else if (!existing) {
+      roleOperations.push({ op: 'clear', path: mutation.path });
+    }
+    const ensured = await ensureParentDirectories(tree, nextRoot, parts);
+    nextRoot = ensured.root;
+    deletedPaths.push(...ensured.replacedFiles);
+    replacementPaths.push(...ensured.replacedFiles);
+    if (existing) nextRoot = await tree.removeEntry(nextRoot, parts, name);
+    nextRoot = await tree.setEntry(
+      nextRoot,
+      parts,
+      name,
+      mutation.entry.cid,
+      mutation.entry.size,
+      mutation.entry.type,
+      mutation.entry.meta,
+    );
   } else if (mutation.type === 'delete') {
     const parts = splitPath(mutation.path);
     const name = parts.pop();
@@ -76,6 +120,7 @@ export async function mutateProfileDriveRoot(
     const existing = await resolveEntry(tree, nextRoot, [...parts, name]);
     if (!existing) return nextRoot;
     deletedPaths.push(...await visiblePathsUnder(tree, nextRoot, [...parts, name]));
+    roleOperations.push({ op: 'clear', path: mutation.path });
     nextRoot = await tree.removeEntry(nextRoot, parts, name);
   } else {
     const fromParts = splitPath(mutation.from);
@@ -93,16 +138,23 @@ export async function mutateProfileDriveRoot(
       path === mutation.from ? mutation.to : `${mutation.to}/${path.slice(mutation.from.length + 1)}`
     ));
     const renamedSet = new Set(renamedPaths);
-    const replacedTargetPaths = (await visiblePathsUnder(tree, nextRoot, targetPath))
+    let replacedTargetPaths = (await visiblePathsUnder(tree, nextRoot, targetPath))
       .filter((path) => !renamedSet.has(path));
-    deletedPaths.push(...sourcePaths, ...replacedTargetPaths);
 
     const target = await resolveEntry(tree, nextRoot, targetPath);
+    if (target && target.type !== source.type) {
+      replacedTargetPaths = replacedTargetPaths.filter((path) => path === mutation.to);
+    }
+    deletedPaths.push(...sourcePaths, ...replacedTargetPaths);
+    roleOperations.push({ op: 'clear', path: mutation.to });
+    roleOperations.push({ op: 'clear', path: mutation.from });
+    if (target && target.type !== source.type) replacementPaths.push(mutation.to);
     if (target) nextRoot = await tree.removeEntry(nextRoot, toParts, toName);
     nextRoot = await tree.removeEntry(nextRoot, fromParts, fromName);
     const ensured = await ensureParentDirectories(tree, nextRoot, toParts);
     nextRoot = ensured.root;
     deletedPaths.push(...ensured.replacedFiles);
+    replacementPaths.push(...ensured.replacedFiles);
     nextRoot = await tree.setEntry(
       nextRoot,
       toParts,
@@ -112,51 +164,132 @@ export async function mutateProfileDriveRoot(
       source.type,
       source.meta,
     );
-    visiblePaths.push(...renamedPaths);
   }
 
   if (!recordTombstones) return nextRoot;
-  return updateTombstones(tree, nextRoot, {
+  return updateMutationMetadata(tree, nextRoot, {
     add: deletedPaths,
-    clear: visiblePaths,
-    tombstonedAt,
+    replacementPaths,
+    roleOperations,
+    tombstonedAt: options.tombstonedAt,
   });
 }
 
 /**
- * Re-attach this AppKey's retained tombstones to a metadata-free logical root
- * immediately before signing it. A visible recreation at the same path wins
- * and clears the old marker.
+ * Re-attach this AppKey's retained deletion barriers and path-kind roles to a
+ * metadata-free logical root immediately before signing it. A local mutation
+ * delta distinguishes an active kind replacement from delete-then-recreate.
  */
 export async function prepareProfileDriveRootForPublish(
   tree: HashTree,
   root: CID,
   previousContribution?: CID | null,
 ): Promise<CID> {
+  return (await prepareProfileDriveRootForPublishResult(
+    tree,
+    root,
+    previousContribution,
+  )).root;
+}
+
+export type PreparedProfileDriveRoot = {
+  root: CID;
+};
+
+export async function prepareProfileDriveRootForPublishResult(
+  tree: HashTree,
+  root: CID,
+  previousContribution?: CID | null,
+): Promise<PreparedProfileDriveRoot> {
   const retained = previousContribution
     ? await readTombstoneTimestamps(tree, previousContribution)
     : new Map<string, number>();
   const current = await readTombstoneTimestamps(tree, root);
+  let retainedMax = 0;
+  for (const timestamp of retained.values()) retainedMax = Math.max(retainedMax, timestamp);
+  const authoredPaths = await readAuthoredTombstonePaths(tree, root);
+  for (const [path, timestamp] of current) {
+    const previous = retained.get(path);
+    if (previous === undefined || timestamp > previous) authoredPaths.add(path);
+  }
+  const generationRemap = new Map<number, number>();
+  const authoredGenerations = [...new Set([...authoredPaths]
+    .map((path) => current.get(path))
+    .filter((value): value is number => value !== undefined))].sort((left, right) => left - right);
+  for (const generation of authoredGenerations) {
+    const next = generation > retainedMax ? generation : retainedMax + 1;
+    generationRemap.set(generation, next);
+    retainedMax = next;
+  }
+  for (const path of authoredPaths) {
+    const generation = current.get(path);
+    if (generation !== undefined) current.set(path, generationRemap.get(generation) ?? generation);
+  }
   for (const [path, timestamp] of current) {
     retained.set(path, Math.max(retained.get(path) ?? 0, timestamp));
   }
-  for (const path of await visiblePaths(tree, root)) retained.delete(path);
-  return replaceTombstones(tree, root, retained);
+  const currentRoles = await readPathKindReplacements(tree, root);
+  const previousRoles = previousContribution
+    ? await readPathKindReplacements(tree, previousContribution)
+    : { present: false, roles: new Map<string, number>() };
+  const delta = await readPathKindReplacementDelta(tree, root);
+  let roles = delta
+    ? new Map(delta.inheritPrevious
+      ? [...previousRoles.roles, ...currentRoles.roles]
+      : currentRoles.roles)
+    : new Map(currentRoles.present ? currentRoles.roles : previousRoles.roles);
+  if (delta) {
+    const operations = delta.operations.map((operation) => (
+      operation.op === 'set'
+        ? { ...operation, generation: generationRemap.get(operation.generation) ?? operation.generation }
+        : operation
+    ));
+    roles = applyPathKindReplacementOperations(roles, operations);
+  }
+  let prepared = await replaceTombstones(tree, root, retained);
+  prepared = await replacePathKindReplacements(tree, prepared, roles);
+  prepared = await replacePathKindReplacementDelta(tree, prepared, null);
+  return { root: await replaceAuthoredTombstonePaths(tree, prepared, []) };
 }
 
-async function updateTombstones(
+async function updateMutationMetadata(
   tree: HashTree,
   root: CID,
-  options: { add: string[]; clear: string[]; tombstonedAt: number },
+  options: {
+    add: string[];
+    replacementPaths: string[];
+    roleOperations: PathKindReplacementOperation[];
+    tombstonedAt?: number;
+  },
 ): Promise<CID> {
   const tombstones = await readTombstoneTimestamps(tree, root);
+  const roles = await readPathKindReplacements(tree, root);
+  const previousDelta = await readPathKindReplacementDelta(tree, root);
+  let newestRetained = 0;
+  for (const value of tombstones.values()) newestRetained = Math.max(newestRetained, value);
+  for (const value of roles.roles.values()) newestRetained = Math.max(newestRetained, value);
+  for (const operation of previousDelta?.operations ?? []) {
+    if (operation.op === 'set') newestRetained = Math.max(newestRetained, operation.generation);
+  }
+  const requestedGeneration = options.tombstonedAt ?? Math.floor(Date.now() / 1000);
+  const tombstonedAt = Math.max(requestedGeneration, newestRetained + 1);
+  const authored = await readAuthoredTombstonePaths(tree, root);
   for (const path of options.add) {
     if (path && !path.startsWith(`${META_DIRECTORY}/`)) {
-      tombstones.set(path, Math.max(tombstones.get(path) ?? 0, options.tombstonedAt));
+      tombstones.set(path, Math.max(tombstones.get(path) ?? 0, tombstonedAt));
+      authored.add(path);
     }
   }
-  for (const path of options.clear) tombstones.delete(path);
-  return replaceTombstones(tree, root, tombstones);
+  const operations = [...(previousDelta?.operations ?? []), ...options.roleOperations];
+  for (const path of new Set(options.replacementPaths)) {
+    operations.push({ op: 'set', path, generation: tombstonedAt });
+  }
+  let updated = await replaceTombstones(tree, root, tombstones);
+  updated = await replaceAuthoredTombstonePaths(tree, updated, authored);
+  return replacePathKindReplacementDelta(tree, updated, {
+    inheritPrevious: previousDelta?.inheritPrevious ?? !roles.present,
+    operations,
+  });
 }
 
 async function replaceTombstones(
@@ -190,6 +323,57 @@ async function replaceTombstones(
     );
   }
 
+  const metadataEntries = await tree.listDirectory(metadataRoot);
+  if (metadataEntries.length === 0) {
+    return metadata ? tree.removeEntry(root, [], META_DIRECTORY) : root;
+  }
+  return tree.setEntry(root, [], META_DIRECTORY, metadataRoot, 0, LinkType.Dir);
+}
+
+async function readAuthoredTombstonePaths(tree: HashTree, root: CID): Promise<Set<string>> {
+  const marker = await resolveEntry(tree, root, [META_DIRECTORY, AUTHORED_TOMBSTONES_FILE]);
+  if (!marker || marker.type === LinkType.Dir) return new Set();
+  const raw = await tree.readFile(marker.cid);
+  if (!raw) return new Set();
+  try {
+    const parsed: unknown = JSON.parse(new TextDecoder().decode(raw));
+    if (!Array.isArray(parsed)) return new Set();
+    return new Set(parsed.filter((path): path is string => (
+      typeof path === 'string' && path.length > 0 && !path.startsWith(`${META_DIRECTORY}/`)
+    )));
+  } catch {
+    return new Set();
+  }
+}
+
+async function replaceAuthoredTombstonePaths(
+  tree: HashTree,
+  root: CID,
+  paths: ReadonlySet<string> | readonly string[],
+): Promise<CID> {
+  const metadata = await resolveEntry(tree, root, [META_DIRECTORY]);
+  let metadataRoot = metadata?.type === LinkType.Dir
+    ? metadata.cid
+    : (await tree.putDirectory([])).cid;
+  if (metadata && metadata.type !== LinkType.Dir) {
+    root = await tree.removeEntry(root, [], META_DIRECTORY);
+  }
+  const existing = await resolveEntry(tree, metadataRoot, [AUTHORED_TOMBSTONES_FILE]);
+  if (existing) {
+    metadataRoot = await tree.removeEntry(metadataRoot, [], AUTHORED_TOMBSTONES_FILE);
+  }
+  const uniquePaths = [...new Set(paths)].sort();
+  if (uniquePaths.length > 0) {
+    const marker = await tree.putFile(new TextEncoder().encode(JSON.stringify(uniquePaths)));
+    metadataRoot = await tree.setEntry(
+      metadataRoot,
+      [],
+      AUTHORED_TOMBSTONES_FILE,
+      marker.cid,
+      marker.size,
+      LinkType.Blob,
+    );
+  }
   const metadataEntries = await tree.listDirectory(metadataRoot);
   if (metadataEntries.length === 0) {
     return metadata ? tree.removeEntry(root, [], META_DIRECTORY) : root;
@@ -265,20 +449,6 @@ async function readTombstoneTimestamps(tree: HashTree, root: CID): Promise<Map<s
   return out;
 }
 
-async function visiblePaths(tree: HashTree, root: CID): Promise<string[]> {
-  const paths: string[] = [];
-  const walk = async (directory: CID, prefix: string): Promise<void> => {
-    for (const entry of await tree.listDirectory(directory)) {
-      if (!prefix && entry.name === META_DIRECTORY) continue;
-      const path = prefix ? `${prefix}/${entry.name}` : entry.name;
-      paths.push(path);
-      if (entry.type === LinkType.Dir) await walk(entry.cid, path);
-    }
-  };
-  await walk(root, '');
-  return paths;
-}
-
 async function visiblePathsUnder(
   tree: HashTree,
   root: CID,
@@ -334,10 +504,10 @@ async function resolveEntry(
   if (!name) return null;
   const parentParts = parts.slice(0, -1);
   const parent = parentParts.length > 0
-    ? await tree.resolvePath(root, parentParts).catch(() => null)
+    ? await tree.resolvePath(root, parentParts)
     : { cid: root, type: LinkType.Dir };
   if (!parent?.cid || parent.type !== LinkType.Dir) return null;
-  const entries = await tree.listDirectory(parent.cid).catch(() => []);
+  const entries = await tree.listDirectory(parent.cid);
   return entries.find((entry) => entry.name === name) ?? null;
 }
 

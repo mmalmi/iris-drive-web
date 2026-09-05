@@ -66,7 +66,7 @@ test.describe('profile file sharing', () => {
         buffer: Buffer.from(fileContent),
       });
 
-    await expect(page.getByRole('heading', { name: fileName })).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId('viewer-header')).toContainText(fileName, { timeout: 30_000 });
     await expect(page.getByText(fileContent)).toBeVisible({ timeout: 30_000 });
     await expect(page.getByTestId('viewer-permalink')).toHaveAttribute('href', /^#\/nhash1/);
 
