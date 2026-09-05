@@ -676,6 +676,7 @@ test('web owner approves a native device that durably activates and acknowledges
       'Native device',
     ]);
     configureNativeRelay(nativeConfig, relayUrl);
+    configureNativeBlossom(nativeConfig);
 
     const startedAt = Date.now();
     await page.getByTestId('device-approval-input').fill(request.app_key_link_request.url);
@@ -690,6 +691,7 @@ test('web owner approves a native device that durably activates and acknowledges
       index === 0 || time > rosterTimes[index - 1]
     ))).toBe(true);
 
+    const syncStartedAt = Date.now();
     const sync = runIdriveJson<{ device_approval_receipts_applied: number }>(nativeConfig, [
       'sync',
       '--relay',
@@ -698,7 +700,9 @@ test('web owner approves a native device that durably activates and acknowledges
       '3',
     ]);
     expect(sync.device_approval_receipts_applied).toBe(1);
-    expect(Date.now() - startedAt).toBeLessThan(10_000);
+    expect(Date.now() - startedAt,
+      `Web approval: ${syncStartedAt - startedAt}ms; native sync: ${Date.now() - syncStartedAt}ms`,
+    ).toBeLessThan(10_000);
 
     const status = runIdriveJson<any>(nativeConfig, ['status']);
     expect(status.profile.authorization_state).toBe('authorized');

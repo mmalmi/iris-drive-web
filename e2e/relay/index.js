@@ -3,7 +3,7 @@
  * Based on https://github.com/coracle-social/bucket
  *
  * This relay stores events in memory and broadcasts to subscribers.
- * Events are cleared every 30 seconds to prevent memory buildup during tests.
+ * Standalone runs clear events every five minutes; isolated test runs disable cleanup.
  */
 import http from 'http'
 import fs from 'fs'
