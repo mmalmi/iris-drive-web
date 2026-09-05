@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.13 - 2026-09-05
+
+- Update the shared Hashtree core, storage, index, Nostr, FIPS transport, and
+  browser worker packages to the published TypeScript runtime v0.5.6.
+
 ## 0.1.12 - 2026-09-05
 
 - Preserve every file and directory when linked devices replace one kind with

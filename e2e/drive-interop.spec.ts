@@ -12,7 +12,6 @@ import {
   waitForAppReady,
   waitForRelayConnected,
 } from './test-utils.js';
-import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -38,16 +37,6 @@ type StoredNostrIdentitySessionForTest = {
   }>;
   createdAt: number;
   label?: string;
-};
-
-type BlossomPushDetails = {
-  hashHex: string;
-  keyHex?: string;
-  pushed: number;
-  skipped: number;
-  failed: number;
-  blossomUrl: string;
-  blockHashes: string[];
 };
 
 function readNativeNostrIdentitySession(configDir: string, label = 'native-e2e'): StoredNostrIdentitySessionForTest {
@@ -174,73 +163,6 @@ async function pushCurrentRootToBlossom(page: Page, treeName: string): Promise<v
   }, treeName);
 }
 
-async function verifyBlossomBlocksFromNode(details: BlossomPushDetails): Promise<void> {
-  for (const hashHex of details.blockHashes) {
-    const response = await fetch(`${details.blossomUrl}/${hashHex}.bin`);
-    if (!response.ok) {
-      throw new Error(`Node could not GET Blossom block ${hashHex} from ${details.blossomUrl}: ${response.status}`);
-    }
-    const bytes = Buffer.from(await response.arrayBuffer());
-    const digest = createHash('sha256').update(bytes).digest('hex');
-    if (digest !== hashHex) {
-      throw new Error(`Node Blossom block hash mismatch for ${hashHex}: got ${digest}`);
-    }
-  }
-}
-
-async function pushProfileRootToBlossom(page: Page, profileId: string, treeName: string): Promise<BlossomPushDetails> {
-  const details = await page.evaluate(async ({ profile, tree, blossomUrl }) => {
-    const { getTreeRootSync } = await import('/src/stores');
-    const { getTree } = await import('/src/store');
-    const toHex = (bytes: Uint8Array): string => Array.from(bytes)
-      .map((byte) => byte.toString(16).padStart(2, '0'))
-      .join('');
-    const assertReadableBlock = async (hashHex: string): Promise<void> => {
-      const response = await fetch(`${blossomUrl}/${hashHex}.bin`);
-      if (!response.ok) {
-        throw new Error(`Browser could not GET Blossom block ${hashHex}: ${response.status}`);
-      }
-      const buffer = await response.arrayBuffer();
-      const digest = await crypto.subtle.digest('SHA-256', buffer);
-      const actualHash = toHex(new Uint8Array(digest));
-      if (actualHash !== hashHex) {
-        throw new Error(`Browser Blossom block hash mismatch for ${hashHex}: got ${actualHash}`);
-      }
-    };
-    const root = getTreeRootSync(profile, tree);
-    if (!root?.hash) {
-      throw new Error(`No root for ${profile}/${tree}`);
-    }
-    const adapter = (window as any).__getWorkerAdapter?.() ?? (window as any).__workerAdapter;
-    if (!adapter?.pushToBlossom) {
-      throw new Error('Worker adapter has no pushToBlossom');
-    }
-    const result = await adapter.pushToBlossom(root.hash, root.key, tree);
-    if (result.failed > 0) {
-      throw new Error(`Blossom push failed: ${JSON.stringify(result)}`);
-    }
-    const hashtree = getTree();
-    const blockHashes: string[] = [];
-    for await (const block of hashtree.walkBlocks(root)) {
-      const hashHex = toHex(block.hash);
-      blockHashes.push(hashHex);
-      await assertReadableBlock(hashHex);
-    }
-    return {
-      hashHex: toHex(root.hash),
-      keyHex: root.key ? toHex(root.key) : undefined,
-      pushed: result.pushed,
-      skipped: result.skipped,
-      failed: result.failed,
-      blossomUrl,
-      blockHashes,
-    };
-  }, { profile: profileId, tree: treeName, blossomUrl: getTestBlossomUrl() });
-
-  await verifyBlossomBlocksFromNode(details);
-  return details;
-}
-
 async function waitForRemoteTreeRoot(page: Page, npub: string, treeName: string): Promise<void> {
   await page.evaluate(async ({ owner, tree, timeout }) => {
     const { waitForTreeRoot } = await import('/src/stores');
@@ -293,7 +215,7 @@ async function fetchRelayDriveRootHashes(
   treeName: string,
 ): Promise<RelayDriveRootDiagnostic[]> {
   return page.evaluate(async ({ relay, profile, tree }) => {
-    const { driveRootDTag, KIND_DRIVE_ROOT } = await import('/src/drive/protocol');
+    const { driveRootDTag, KIND_DRIVE_ROOT, parseDriveRootEventParts } = await import('/src/drive/protocol');
     const dTag = driveRootDTag(profile, tree);
 
     return new Promise<RelayDriveRootDiagnostic[]>((resolve, reject) => {
@@ -320,8 +242,8 @@ async function fetchRelayDriveRootHashes(
           let appKeySeq: number | null = null;
           let dckGeneration: number | null = null;
           try {
-            const content = JSON.parse(event.content);
-            rootHash = content?.root_hash ?? null;
+            const { content } = parseDriveRootEventParts(event);
+            rootHash = content.root_hash ?? null;
             appKeySeq = typeof content?.app_key_seq === 'number' ? content.app_key_seq : null;
             dckGeneration = typeof content?.dck_generation === 'number' ? content.dck_generation : null;
           } catch {
@@ -350,76 +272,6 @@ async function fetchRelayDriveRootHashes(
       };
     });
   }, { relay: relayUrl, profile: profileId, tree: treeName });
-}
-
-async function waitForPublishedProfileRoot(
-  page: Page,
-  relayUrl: string,
-  profileId: string,
-  treeName: string,
-  expectedRootHash: string,
-): Promise<void> {
-  try {
-    await expect.poll(
-      async () => {
-        const events = await fetchRelayDriveRootHashes(page, relayUrl, profileId, treeName);
-        return events.some((event) => event.root_hash === expectedRootHash);
-      },
-      { timeout: 30000, intervals: [500, 1000, 2000] },
-    ).toBe(true);
-  } catch (error) {
-    const relayEvents = await fetchRelayDriveRootHashes(page, relayUrl, profileId, treeName)
-      .catch((relayError) => [{
-        id: 'relay-error',
-        pubkey: String(relayError),
-        created_at: 0,
-        root_hash: null,
-        app_key_seq: null,
-        dck_generation: null,
-        d: null,
-      }]);
-    const diagnostics = await page.evaluate(async ({ profile, tree, expectedHash }) => {
-      const { driveRootDTag, KIND_DRIVE_ROOT } = await import('/src/drive/protocol');
-      const { ndk } = await import('/src/nostr');
-      const events = Array.from(await ndk.fetchEvents({
-        kinds: [KIND_DRIVE_ROOT],
-        '#d': [driveRootDTag(profile, tree)],
-        limit: 50,
-      }));
-      return {
-        expectedHash,
-        hash: window.location.hash,
-        relayStats: await (window as any).__getWorkerAdapter?.()?.getRelayStats?.().catch((statsError: unknown) => ({
-          error: String(statsError),
-        })),
-        ndkEvents: events.map((event) => {
-          try {
-            return {
-              id: event.id,
-              pubkey: event.pubkey,
-              created_at: event.created_at,
-              root_hash: JSON.parse(event.content)?.root_hash ?? null,
-              app_key_seq: JSON.parse(event.content)?.app_key_seq ?? null,
-              dck_generation: JSON.parse(event.content)?.dck_generation ?? null,
-              d: event.tags?.find((tag) => tag[0] === 'd')?.[1] ?? null,
-            };
-          } catch {
-            return {
-              id: event.id,
-              pubkey: event.pubkey,
-              created_at: event.created_at,
-              root_hash: null,
-              app_key_seq: null,
-              dck_generation: null,
-              d: event.tags?.find((tag) => tag[0] === 'd')?.[1] ?? null,
-            };
-          }
-        }),
-      };
-    }, { profile: profileId, tree: treeName, expectedHash: expectedRootHash })
-      .catch((diagnosticError) => ({ diagnosticError: String(diagnosticError) }));
-    throw new Error(`${error instanceof Error ? error.message : String(error)}\nPublish diagnostics:\n${JSON.stringify({ ...diagnostics, relayEvents }, null, 2)}`);
-  }
 }
 
 async function readTreeFile(page: Page, npub: string, treeName: string, fileName: string): Promise<string | null> {
@@ -462,17 +314,6 @@ function generateNsec(): { nsec: string; npub: string } {
     nsec: nip19.nsecEncode(secret),
     npub: nip19.npubEncode(getPublicKey(secret)),
   };
-}
-
-function rootHashFromRootCid(rootCid: unknown): string {
-  if (typeof rootCid !== 'string') {
-    throw new Error(`Expected root_cid string, got ${typeof rootCid}`);
-  }
-  const hash = rootCid.split(':')[0] ?? '';
-  if (!/^[a-f0-9]{64}$/.test(hash)) {
-    throw new Error(`Invalid root_cid hash: ${rootCid}`);
-  }
-  return hash;
 }
 
 async function waitForNativeFiles(
@@ -526,6 +367,11 @@ async function waitForNativeFiles(
       diagnostics,
     };
     if (JSON.stringify(files) === JSON.stringify(expectedFiles)) {
+      for (const { fileName, content } of expected) {
+        const output = path.join(configDir, 'interop-read');
+        runIdriveJson(configDir, ['provider', 'read', fileName, output]);
+        expect(fs.readFileSync(output)).toEqual(Buffer.from(content));
+      }
       return;
     }
     await new Promise((resolve) => setTimeout(resolve, 2000));
@@ -601,16 +447,29 @@ test.describe('Iris Drive web interop', () => {
       await page.goto(`/#/${encodeURIComponent(profileId)}/main`);
       await waitForAppReady(page, 60000);
       await waitForRemoteTreeRoot(page, profileId, 'main');
-      const webRoot = await addFileViaTreeAPI(page, [], fileName, content);
-      expect(webRoot).toBeTruthy();
+      const secret = nip19.decode(identitySession.appKeyNsec);
+      if (secret.type !== 'nsec') throw new Error('Expected native AppKey secret');
+      const author = getPublicKey(secret.data);
+      const rootsBefore = await fetchRelayDriveRootHashes(page, relayUrl, profileId, 'main');
+      const previousSequence = Math.max(0, ...rootsBefore
+        .filter((event) => event.pubkey === author)
+        .map((event) => event.app_key_seq ?? 0));
+      await addFileViaTreeAPI(page, [], fileName, content);
       await flushPendingPublishes(page);
-      await waitForPublishedProfileRoot(page, relayUrl, profileId, 'main', webRoot);
-      const webPush = await pushProfileRootToBlossom(page, profileId, 'main');
-      const relayRoots = await fetchRelayDriveRootHashes(page, relayUrl, profileId, 'main');
+      // Publication adds causal metadata to the visible tree. Check the signed
+      // author advance, then let the native reader verify its durable file bytes.
+      let relayRoots: RelayDriveRootDiagnostic[] = [];
+      await expect.poll(async () => {
+        relayRoots = await fetchRelayDriveRootHashes(page, relayUrl, profileId, 'main');
+        return relayRoots.some((event) => event.pubkey === author
+          && (event.app_key_seq ?? 0) > previousSequence
+          && event.root_hash !== null
+          && !rootsBefore.some((previous) => previous.root_hash === event.root_hash));
+      }, { timeout: 30000, intervals: [500, 1000, 2000] }).toBe(true);
 
       await waitForNativeFiles(configDir, relayUrl, [
         { fileName, content },
-      ], { webPush, relayRoots });
+      ], { previousSequence, relayRoots });
     } finally {
       fs.rmSync(configDir, { recursive: true, force: true });
     }
