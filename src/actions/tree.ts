@@ -10,14 +10,17 @@ import { nip19 } from 'nostr-tools';
 import { localStore, getTree } from '../store';
 import { autosaveIfOwn } from '../nostr';
 import { getCurrentRootCid, getCurrentPathFromUrl } from './route';
-import { updateLocalRootCache } from '../treeRootCache';
+import { getLocalRootCache, updateLocalRootCache } from '../treeRootCache';
 import { activeNostrIdentityRootScope, isActiveNostrIdentityRouteScope } from '../drive/profileRoute';
+import { setEntryForDriveRoute } from '../drive/profileDriveRouteEntry';
+import { captureRouteWriteGuard } from '../lib/routeWriteGuard';
 export { forkTree } from './treeFork';
 
 type DirectoryEntryInput = { name: string; cid: CID; size: number; type?: LinkType };
 
 // Helper to initialize a virtual tree (when rootCid is null but we're in a tree route)
 export async function initVirtualTree(entries: DirectoryEntryInput[]): Promise<CID | null> {
+  const isCurrent = captureRouteWriteGuard();
   const route = parseRoute();
   if (!route.npub || !route.treeName) return null;
 
@@ -55,6 +58,7 @@ export async function initVirtualTree(entries: DirectoryEntryInput[]): Promise<C
   const currentVisibility = nostrStore.selectedTree?.visibility ?? (isProfileDriveRoute ? 'private' : 'public');
 
   // Update UI state immediately (uses hex for storage)
+  if (!isCurrent()) return null;
   useNostrStore.setSelectedTree({
     id: '',
     name: route.treeName,
@@ -78,6 +82,7 @@ export async function initVirtualTree(entries: DirectoryEntryInput[]): Promise<C
 
 // Create new folder
 export async function createFolder(name: string) {
+  const isCurrent = captureRouteWriteGuard();
   if (!name) return;
 
   const rootCid = getCurrentRootCid();
@@ -89,24 +94,29 @@ export async function createFolder(name: string) {
 
   if (rootCid) {
     // Add to existing tree
-    const newRootCid = await tree.setEntry(
+    if (!isCurrent()) return;
+    const newRootCid = await setEntryForDriveRoute(
+      tree,
       rootCid,
       currentPath,
       name,
-      emptyDirCid,
-      0,
-      LinkType.Dir
+      { cid: emptyDirCid, size: 0, type: LinkType.Dir },
+      parseRoute(),
+      useNostrStore.getState(),
     );
     // Publish to nostr - resolver will pick up the update
+    if (!isCurrent()) return;
     autosaveIfOwn(newRootCid);
   } else {
     // Initialize virtual tree with this folder
+    if (!isCurrent()) return;
     await initVirtualTree([{ name, cid: emptyDirCid, size: 0, type: LinkType.Dir }]);
   }
 }
 
 // Create new Yjs document folder (folder with .yjs config file)
 export async function createDocument(name: string) {
+  const isCurrent = captureRouteWriteGuard();
   if (!name) return;
 
   const rootCid = getCurrentRootCid();
@@ -126,19 +136,22 @@ export async function createDocument(name: string) {
 
   if (rootCid) {
     // Add to existing tree
-    const newRootCid = await tree.setEntry(
+    const route = parseRoute();
+    if (!isCurrent()) return;
+    const newRootCid = await setEntryForDriveRoute(
+      tree,
       rootCid,
       currentPath,
       name,
-      docDirCid,
-      0,
-      LinkType.Dir
+      { cid: docDirCid, size: 0, type: LinkType.Dir },
+      route,
+      nostrState,
     );
     // Publish to nostr
+    if (!isCurrent()) return;
     autosaveIfOwn(newRootCid);
 
     // Update local cache for subsequent saves (visibility is preserved from selectedTree)
-    const route = parseRoute();
     const nostrStore = useNostrStore.getState();
     const isProfileDriveRoute = isActiveNostrIdentityRouteScope(route.npub, nostrStore);
     const rootScope = isProfileDriveRoute ? route.npub : nostrStore.npub;
@@ -147,6 +160,7 @@ export async function createDocument(name: string) {
     }
   } else {
     // Initialize virtual tree with this document folder
+    if (!isCurrent()) return;
     await initVirtualTree([{ name, cid: docDirCid, size: 0, type: LinkType.Dir }]);
   }
 }
@@ -169,6 +183,12 @@ export async function createTree(name: string, visibility: import('@hashtree/cor
   // If logged in, publish to nostr
   if (nostrState.isLoggedIn && nostrState.npub && nostrState.pubkey) {
     const rootScope = activeNostrIdentityRootScope(nostrState) ?? nostrState.npub;
+    // Background default-tree creation races with immediate user uploads after
+    // login. Re-check after the async putDirectory call so an empty initializer
+    // never replaces a real root that appeared while it was being prepared.
+    if (skipNavigation && getLocalRootCache(rootScope, name)) {
+      return { success: true };
+    }
     // Set selectedTree BEFORE saving so updates work (only if we're navigating)
     if (!skipNavigation) {
       useNostrStore.setSelectedTree({

@@ -5,18 +5,47 @@
   import { getAppType } from '../../appType';
   import { createShareUrlOptions, type ShareUrlOption, type ShareUrlOptionId } from '../../lib/shareUrls';
 
+  interface ModalLinkVariant {
+    id: 'snapshot' | 'latest';
+    label: string;
+    options: ShareUrlOption[];
+  }
+
   let show = $state(false);
+  let linkVariants = $state<ModalLinkVariant[]>([]);
+  let selectedLinkVariantId = $state<ModalLinkVariant['id']>('snapshot');
   let options = $state<ShareUrlOption[]>([]);
   let selectedOptionId = $state<ShareUrlOptionId>('web');
 
-  export function open(shareUrl: string) {
-    options = createShareUrlOptions(getAppType(), shareUrl);
+  export function open(shareUrl: string, latestShareUrl: string | null = null) {
+    const snapshotOptions = createShareUrlOptions(getAppType(), shareUrl);
+    const latestOptions = latestShareUrl
+      ? createShareUrlOptions(getAppType(), latestShareUrl)
+      : null;
+    linkVariants = [
+      { id: 'snapshot', label: 'Snapshot', options: snapshotOptions },
+      ...(latestOptions && latestOptions[0]?.url !== snapshotOptions[0]?.url
+        ? [{ id: 'latest' as const, label: 'Latest', options: latestOptions }]
+        : []),
+    ];
+    selectedLinkVariantId = 'snapshot';
+    options = snapshotOptions;
     selectedOptionId = 'web';
     show = true;
   }
 
+  function selectLinkVariant(id: ModalLinkVariant['id']) {
+    const variant = linkVariants.find((candidate) => candidate.id === id);
+    if (!variant) return;
+    selectedLinkVariantId = id;
+    options = variant.options;
+    selectedOptionId = 'web';
+  }
+
   export function close() {
     show = false;
+    linkVariants = [];
+    selectedLinkVariantId = 'snapshot';
     options = [];
     selectedOptionId = 'web';
   }
@@ -88,6 +117,30 @@
       class="bg-surface-1 sm:rounded-lg overflow-auto w-screen sm:w-96 sm:border border-surface-3 max-h-full my-auto"
       data-testid="share-modal"
     >
+      {#if linkVariants.length > 1}
+        <div class="grid grid-cols-2 gap-2 px-4 pt-4">
+          {#each linkVariants as variant (variant.id)}
+            <button
+              class={`rounded-md border px-3 py-2 text-sm font-medium transition-colors ${
+                variant.id === selectedLinkVariantId
+                  ? 'border-accent bg-accent/10 text-text-1'
+                  : 'border-surface-3 text-text-3'
+              }`}
+              onclick={() => selectLinkVariant(variant.id)}
+              aria-pressed={variant.id === selectedLinkVariantId}
+              data-testid={`share-link-variant-${variant.id}`}
+            >
+              {variant.label}
+            </button>
+          {/each}
+        </div>
+        <p class="px-4 pt-2 text-xs text-text-3">
+          {selectedLinkVariantId === 'snapshot'
+            ? 'Fixed to this revision.'
+            : 'Follows future updates at this path.'}
+        </p>
+      {/if}
+
       <div class="grid grid-cols-2 gap-2 px-4 pt-4">
         {#each options as option (option.id)}
           <button

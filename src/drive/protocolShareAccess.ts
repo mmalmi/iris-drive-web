@@ -1,3 +1,4 @@
+import { projectSharedFolderKeys, snapshotMembers, activeDirectGrant } from './protocolShareSnapshot';
 import { fallbackIdentityName } from '@iris/svelte-ui/profile';
 import type {
   NostrIdentityId,
@@ -8,7 +9,6 @@ import type {
   SharedFolderMemberView,
   SharedFolderView,
 } from './protocolTypes';
-import { projectNostrIdentityRoster } from './protocolProfileProjection';
 import { projectSharedFolderMemberRoster } from './protocolShareProjection';
 import {
   profileIdForAppKey,
@@ -58,12 +58,12 @@ export function sharedFolderAppKeyWriteAuthorization(
   folder: SharedFolder,
   appKeyPubkey: string,
 ): ShareRootWriteAuthorization {
-  const projection = projectNostrIdentityRoster(folder.share_id, folder.roster_ops ?? []);
+  const projection = projectSharedFolderKeys(folder);
   return sharedFolderAppKeyWriteAuthorizationWithProjection(folder, projection, appKeyPubkey);
 }
 
 export function sharedFolderAuthorizedWriterPubkeys(folder: SharedFolder): string[] {
-  const projection = projectNostrIdentityRoster(folder.share_id, folder.roster_ops ?? []);
+  const projection = projectSharedFolderKeys(folder);
   return Object.keys(shareParticipantProfiles(projection))
     .filter((pubkey) => (
       sharedFolderAppKeyWriteAuthorizationWithProjection(folder, projection, pubkey) === 'authorized'
@@ -72,7 +72,7 @@ export function sharedFolderAuthorizedWriterPubkeys(folder: SharedFolder): strin
 }
 
 export function sharedFolderAppKeysForProfile(folder: SharedFolder, profileId: NostrIdentityId): string[] {
-  const projection = projectNostrIdentityRoster(folder.share_id, folder.roster_ops ?? []);
+  const projection = projectSharedFolderKeys(folder);
   return Object.entries(shareParticipantProfiles(projection))
     .filter(([, participantProfileId]) => participantProfileId === profileId)
     .map(([appKeyPubkey]) => appKeyPubkey)
@@ -85,6 +85,7 @@ export function shareMembers(
   folder: SharedFolder,
   projection: NostrIdentityRosterProjection,
 ): Record<string, ShareMember> {
+  if (folder.access) return snapshotMembers(folder.access);
   if (!folder.member_ops?.length) return { ...(folder.members ?? {}) };
   return projectSharedFolderMemberRoster(folder, projection).members;
 }
@@ -115,8 +116,9 @@ export function sharedFolderAppKeyWriteAuthorizationWithProjection(
   appKeyPubkey: string,
 ): ShareRootWriteAuthorization {
   const profileId = profileIdForAppKey(projection, appKeyPubkey);
-  if (!profileId) return 'unknown_app_key';
-  const member = shareMembers(folder, projection)[profileId];
+  const direct = activeDirectGrant(folder, appKeyPubkey);
+  if (!profileId && !direct) return 'unknown_app_key';
+  const member = profileId ? shareMembers(folder, projection)[profileId] : direct;
   if (!member) return 'unknown_member';
   if (member.status === 'pending') return 'pending_member';
   if (member.status === 'revoked') return 'revoked_member';
@@ -135,7 +137,8 @@ export function sharedFolderAppKeyCanAdmin(
 ): boolean {
   const member = activeMemberForAppKey(folder, projection, appKeyPubkey);
   const facet = projection.active_facets[appKeyPubkey];
-  return Boolean(member?.role === 'admin' && facet?.capabilities?.can_admin_profile);
+  return Boolean((member?.role === 'admin' || activeDirectGrant(folder, appKeyPubkey)?.role === 'admin')
+    && facet?.capabilities?.can_admin_profile);
 }
 
 export function shareKeyStatus(

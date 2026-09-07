@@ -3,8 +3,8 @@ import WebSocket from 'ws';
 import {
   signNostrIdentityFacetAcceptance,
   signNostrIdentityRosterOp,
-  type NostrIdentityKeyPurpose,
-} from '../src/drive/protocol';
+} from '../src/drive/protocolProfileEvents';
+import type { NostrIdentityKeyPurpose } from '../src/drive/protocolTypes';
 
 export type RecoveryProfile = {
   profileId: string;

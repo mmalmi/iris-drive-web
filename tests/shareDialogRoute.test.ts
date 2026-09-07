@@ -49,7 +49,7 @@ describe('share dialog route', () => {
     const route = fs.readFileSync(path.join(appRoot, 'src/routes/ShareDialogRoute.svelte'), 'utf8');
     const actions = fs.readFileSync(path.join(appRoot, 'src/drive/shareDialogActions.ts'), 'utf8');
 
-    expect(router).toContain("{ pattern: '/share', component: ShareDialogRoute }");
+    expect(router).toContain("{ pattern: '/share', id: 'shareDialog' }");
     expect(router).toContain('<ShareDialogRoute />');
     expect(route).toContain('parseShareDialogPath');
     expect(route).toContain('searchShareContacts');

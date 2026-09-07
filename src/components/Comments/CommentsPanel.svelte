@@ -29,27 +29,27 @@
     return () => document.removeEventListener('keydown', handleKeyDown);
   });
 
-  let state = $state<CommentsState>({ threads: new Map(), activeThreadId: null, panelOpen: false });
+  let commentsState = $state<CommentsState>({ threads: new Map(), activeThreadId: null, panelOpen: false });
   let replyInputs = $state<Record<string, string>>({});
   let showResolved = $state(false);
 
   // Subscribe to comments store
   $effect(() => {
     const unsub = commentsStore.subscribe((newState) => {
-      state = newState;
+      commentsState = newState;
     });
     return unsub;
   });
 
   // Get threads as array, sorted by creation time (newest first)
   let threads = $derived(
-    Array.from(state.threads.values())
+    Array.from(commentsState.threads.values())
       .filter(t => showResolved || !t.resolved)
       .sort((a, b) => b.createdAt - a.createdAt)
   );
 
   let resolvedCount = $derived(
-    Array.from(state.threads.values()).filter(t => t.resolved).length
+    Array.from(commentsState.threads.values()).filter(t => t.resolved).length
   );
 
   function handleReply(threadId: string) {
@@ -156,7 +156,7 @@
     {:else}
       <div class="p-2 space-y-2">
         {#each threads as thread (thread.id)}
-          {@const isActive = state.activeThreadId === thread.id}
+          {@const isActive = commentsState.activeThreadId === thread.id}
 
           <div
             class="rounded-lg border transition-colors cursor-pointer {isActive

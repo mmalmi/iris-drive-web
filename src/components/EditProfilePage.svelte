@@ -39,7 +39,7 @@
     if (!npub) return;
     const store = profileStore;
     const unsub = store.subscribe(value => {
-      profile = value;
+      profile = value ?? null;
     });
     return unsub;
   });

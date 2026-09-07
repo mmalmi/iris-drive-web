@@ -279,7 +279,7 @@
       description: account.nostrIdentityId ? 'Drive user' : account.npub,
       avatarKey: account.pubkey,
       current: isActive,
-      removable: accounts.length > 1,
+      removable: accounts.length > 1 && !isActive,
     };
   }
 

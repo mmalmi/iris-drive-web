@@ -1,17 +1,37 @@
 import { get } from 'svelte/store';
-import type { Hash, RefResolverSubscriptionMetadata, SubscribeVisibilityInfo, TreeVisibility } from '@hashtree/core';
+import { toHex, type Hash, type RefResolverSubscriptionMetadata, type SubscribeVisibilityInfo, type TreeVisibility } from '@hashtree/core';
 import { NDKEvent, type NDKFilter, type NDKSubscriptionOptions, NDKSubscriptionCacheUsage } from 'ndk';
 import type { Event as NostrToolsEvent } from 'nostr-tools';
 import { routeStore } from './route';
 import { getRefResolver, getResolverKey } from '../refResolver';
-import { driveRootDTag, KIND_DRIVE_ROOT, parseDriveRootEventForDevice } from '../drive/protocol';
+import {
+  driveRootDTag,
+  KIND_DRIVE_ROOT,
+  parseDriveRootEventForDevice,
+  projectNostrIdentityRoster,
+} from '../drive/protocol';
+import { profileDriveProjection } from '../drive/profileDriveProjection';
+import {
+  driveRootAuthorizationFingerprint,
+  driveRootBackfillFilters,
+  isActiveDriveRootScopeSession,
+  isAuthorizedDriveRootScopeSession,
+  shouldResetDriveRootProjection,
+} from '../lib/driveRootResolverPolicy';
 import { syncNativeTreeRootCache } from '../lib/nativeTreeRootCache';
 import {
   getTreeRootSubscriptionPlan,
   shouldStartTreeRootSubscription,
 } from '../lib/treeRootSubscriptionPlan';
 import { shouldWaitForLinkVisibleMetadata } from '../lib/treeRootRoutePolicy';
-import { getSecretKey, ndk, useNostrStore, type NostrState } from '../nostr';
+import {
+  getCurrentNostrIdentitySession,
+  getSecretKey,
+  ndk,
+  useNostrStore,
+  type NostrState,
+} from '../nostr';
+import { getTree } from '../store';
 import { treeRootRegistry } from '../TreeRootRegistry';
 import { isNostrIdentityId } from '../utils/route';
 import {
@@ -29,6 +49,40 @@ import {
 } from './treeRootWorker';
 
 const DRIVE_ROOT_BACKFILL_INTERVAL_MS = 3000;
+const DRIVE_ROOT_MATERIALIZE_TIMEOUT_MS = 20_000;
+const DRIVE_ROOT_LOCAL_PUBLISH_WAIT_TIMEOUT_MS = 20_000;
+const DRIVE_ROOT_LOCAL_PUBLISH_POLL_INTERVAL_MS = 25;
+type ProjectionRebuildWaiter = {
+  resolve: (applied: boolean) => void;
+  reject: (error: unknown) => void;
+};
+type ProjectionRebuildState = {
+  requested: number;
+  running: boolean;
+  retryPending: boolean;
+  authorizationFingerprint?: string;
+  waiters: ProjectionRebuildWaiter[];
+};
+type DriveRootAuthorization = {
+  active: boolean;
+  appKeys: Set<string>;
+  fingerprint: string;
+};
+const projectionRebuildState = new Map<string, ProjectionRebuildState>();
+
+function projectionState(key: string): ProjectionRebuildState {
+  let state = projectionRebuildState.get(key);
+  if (!state) {
+    state = {
+      requested: 0,
+      running: false,
+      retryPending: false,
+      waiters: [],
+    };
+    projectionRebuildState.set(key, state);
+  }
+  return state;
+}
 
 /**
  * Update the subscription cache directly (called from feed subscriptions).
@@ -44,6 +98,10 @@ export function updateSubscriptionCache(
   if (slashIndex > 0 && slashIndex < key.length - 1) {
     const npub = key.slice(0, slashIndex);
     const treeName = key.slice(slashIndex + 1);
+    if (isNostrIdentityId(npub) && !hasActiveDriveRootScope(npub)) {
+      treeRootRegistry.delete(npub, treeName);
+      return;
+    }
     const visibility = options?.visibility ?? treeRootRegistry.getVisibility(npub, treeName) ?? 'public';
     const updatedAt = options?.updatedAt ?? Math.floor(Date.now() / 1000);
     treeRootRegistry.setFromExternal(npub, treeName, hash, 'prefetch', {
@@ -77,46 +135,251 @@ export function updateSubscriptionCache(
   }));
 }
 
-async function applyDriveRootEvent(
+function driveRootAuthorization(rootScopeId: string): DriveRootAuthorization {
+  const session = getCurrentNostrIdentitySession();
+  if (!isActiveDriveRootScopeSession(rootScopeId, session)) {
+    return { active: false, appKeys: new Set(), fingerprint: 'inactive' };
+  }
+  try {
+    const projection = projectNostrIdentityRoster(session.profileId, session.rosterOps);
+    const activeAppKeys = new Set(Object.entries(projection.active_facets)
+      .filter(([, facet]) => facet.purposes?.includes('app_key'))
+      .map(([pubkey]) => pubkey));
+    const appKeys = new Set(Object.entries(projection.active_facets)
+      .filter(([pubkey, facet]) => (
+        activeAppKeys.has(pubkey)
+        && facet.capabilities?.can_write_roots
+      ))
+      .map(([pubkey]) => pubkey));
+    return {
+      active: isAuthorizedDriveRootScopeSession(rootScopeId, session, activeAppKeys),
+      appKeys,
+      fingerprint: driveRootAuthorizationFingerprint(session, appKeys),
+    };
+  } catch (error) {
+    console.warn('[treeRoot] Could not project Drive roster for root authorization:', error);
+    return { active: false, appKeys: new Set(), fingerprint: 'invalid' };
+  }
+}
+
+export function hasActiveDriveRootScope(rootScopeId: string): boolean {
+  return driveRootAuthorization(rootScopeId).active;
+}
+
+export function canUseTreeRootResolverKey(key: string): boolean {
+  const scope = driveRootScopeFromResolverKey(key);
+  return !scope || hasActiveDriveRootScope(scope.rootScopeId);
+}
+
+function syncDriveRootAuthorization(
+  key: string,
+  rootScopeId: string,
+  driveId: string,
+): { authorization: DriveRootAuthorization; changed: boolean; projectionChanged: boolean } {
+  const state = projectionState(key);
+  const authorization = driveRootAuthorization(rootScopeId);
+  const previousFingerprint = state.authorizationFingerprint;
+  const changed = shouldResetDriveRootProjection(
+    previousFingerprint,
+    authorization.fingerprint,
+  );
+  state.authorizationFingerprint = authorization.fingerprint;
+  const projectionChanged = profileDriveProjection.pruneUnauthorized(
+    rootScopeId,
+    driveId,
+    authorization.appKeys,
+  );
+
+  if (!authorization.active || changed) {
+    // A registry snapshot has no author provenance. It must be re-proven on
+    // the first authorization fingerprint after reload as well as after a
+    // later identity/roster change.
+    if (treeRootRegistry.get(rootScopeId, driveId)) {
+      treeRootRegistry.delete(rootScopeId, driveId);
+    }
+    const entry = subscriptionState.get(key);
+    if (entry) {
+      entry.decryptedKey = undefined;
+      if (changed && previousFingerprint !== undefined) {
+        entry.listeners.forEach((listener) => listener(
+          null,
+          undefined,
+          { visibility: 'private' },
+          { updatedAt: Math.floor(Date.now() / 1000) },
+        ));
+      }
+    }
+  }
+
+  return { authorization, changed, projectionChanged };
+}
+
+function applyDriveRootEvent(
   key: string,
   rootScopeId: string,
   driveId: string,
   event: NostrToolsEvent,
-): Promise<void> {
+  options: { rebuild?: boolean } = {},
+): boolean {
   const secretKey = getSecretKey();
-  if (!secretKey) return;
+  if (!secretKey) return false;
+
+  const { authorization, changed, projectionChanged } = syncDriveRootAuthorization(
+    key,
+    rootScopeId,
+    driveId,
+  );
+  if (!authorization.active) return false;
+  if (!authorization.appKeys.has(event.pubkey)) {
+    console.warn('[treeRoot] Ignoring Drive root from unauthorized AppKey');
+    if (options.rebuild !== false && (changed || projectionChanged)) {
+      scheduleDriveRootProjection(key, rootScopeId, driveId);
+    }
+    return false;
+  }
 
   let parsed;
   try {
     parsed = parseDriveRootEventForDevice(event, secretKey);
   } catch (error) {
     console.warn('[treeRoot] Ignoring unreadable NostrIdentity drive root:', error);
-    return;
+    return false;
   }
 
-  if (parsed.root_scope_id !== rootScopeId || parsed.drive_id !== driveId) return;
+  if (parsed.root_scope_id !== rootScopeId || parsed.drive_id !== driveId) return false;
 
-  const entry = subscriptionState.get(key);
-  if (!entry) return;
+  const accepted = profileDriveProjection.add(event, parsed);
+  if ((accepted || changed || projectionChanged) && options.rebuild !== false) {
+    scheduleDriveRootProjection(key, rootScopeId, driveId);
+  }
+  return accepted;
+}
 
-  const visibilityInfo: SubscribeVisibilityInfo = { visibility: 'private' };
-  const apply = () => treeRootRegistry.setFromResolver(rootScopeId, driveId, parsed.root.hash, parsed.published_at, {
-    key: parsed.root.key,
-    visibility: 'private',
-    labels: ['iris-drive'],
+function scheduleDriveRootProjection(key: string, rootScopeId: string, driveId: string): void {
+  enqueueDriveRootProjection(key, rootScopeId, driveId);
+}
+
+function requestDriveRootProjection(
+  key: string,
+  rootScopeId: string,
+  driveId: string,
+): Promise<boolean> {
+  return new Promise<boolean>((resolve, reject) => {
+    enqueueDriveRootProjection(key, rootScopeId, driveId, { resolve, reject });
   });
-  let updated = apply();
-  if (!updated && treeRootRegistry.getByKey(key)?.dirty) {
-    await treeRootRegistry.flushPendingPublishes();
-    updated = apply();
-  }
-  if (!updated) return;
+}
 
-  entry.decryptedKey = parsed.root.key;
-  entry.listeners.forEach(listener => listener(parsed.root.hash, parsed.root.key, visibilityInfo, {
-    updatedAt: parsed.published_at,
-    eventId: event.id,
-  }));
+function enqueueDriveRootProjection(
+  key: string,
+  rootScopeId: string,
+  driveId: string,
+  waiter?: ProjectionRebuildWaiter,
+): void {
+  const state = projectionState(key);
+  state.requested += 1;
+  if (waiter) state.waiters.push(waiter);
+  if (state.running) return;
+  state.running = true;
+  queueMicrotask(() => {
+    void rebuildDriveRootProjection(key, rootScopeId, driveId, state);
+  });
+}
+
+async function rebuildDriveRootProjection(
+  key: string,
+  rootScopeId: string,
+  driveId: string,
+  state: ProjectionRebuildState,
+): Promise<void> {
+  let applied = false;
+  let failure: unknown;
+  try {
+    while (state.requested > 0) {
+      state.requested = 0;
+      const { authorization } = syncDriveRootAuthorization(key, rootScopeId, driveId);
+      if (!authorization.active || authorization.appKeys.size === 0) {
+        state.retryPending = false;
+        continue;
+      }
+      const authorizationFingerprint = authorization.fingerprint;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), DRIVE_ROOT_MATERIALIZE_TIMEOUT_MS);
+      let materialized;
+      try {
+        materialized = await profileDriveProjection.materialize(
+          getTree(),
+          rootScopeId,
+          driveId,
+          authorization.appKeys,
+          controller.signal,
+        );
+      } finally {
+        clearTimeout(timeout);
+      }
+      if (!materialized || state.requested > 0) continue;
+
+      const currentAuthorization = syncDriveRootAuthorization(key, rootScopeId, driveId).authorization;
+      if (!currentAuthorization.active || currentAuthorization.fingerprint !== authorizationFingerprint) {
+        state.requested += 1;
+        continue;
+      }
+
+      const entry = subscriptionState.get(key);
+      const visibilityInfo: SubscribeVisibilityInfo = { visibility: 'private' };
+      const apply = () => treeRootRegistry.setFromResolver(
+        rootScopeId,
+        driveId,
+        materialized.root.hash,
+        materialized.updatedAt,
+        {
+          key: materialized.root.key,
+          visibility: 'private',
+          labels: ['iris-drive'],
+        },
+      );
+      let updated = apply();
+      if (!updated && treeRootRegistry.getByKey(key)?.dirty) {
+        await treeRootRegistry.flushPendingPublishes();
+        updated = apply();
+      }
+      const record = treeRootRegistry.getByKey(key);
+      const recordMatches = !!record
+        && toHex(record.hash) === toHex(materialized.root.hash)
+        && (!materialized.root.key || (!!record.key && toHex(record.key) === toHex(materialized.root.key)));
+      if (!updated && !recordMatches) {
+        throw new Error('Could not apply the current NostrIdentity Drive projection');
+      }
+
+      if (entry) {
+        entry.decryptedKey = materialized.root.key;
+        entry.listeners.forEach(listener => listener(
+          materialized.root.hash,
+          materialized.root.key,
+          visibilityInfo,
+          { updatedAt: materialized.updatedAt },
+        ));
+      }
+      state.retryPending = false;
+      applied = true;
+    }
+  } catch (error) {
+    state.retryPending = true;
+    failure = error;
+    console.warn('[treeRoot] Failed to materialize NostrIdentity Drive roots:', error);
+  } finally {
+    state.running = false;
+    const waiters = state.waiters.splice(0);
+    for (const waiter of waiters) {
+      if (failure) waiter.reject(failure);
+      else waiter.resolve(applied);
+    }
+    if (state.requested > 0) {
+      state.running = true;
+      queueMicrotask(() => {
+        void rebuildDriveRootProjection(key, rootScopeId, driveId, state);
+      });
+    }
+  }
 }
 
 function rawNdkEvent(event: NDKEvent): NostrToolsEvent | null {
@@ -127,22 +390,51 @@ function rawNdkEvent(event: NDKEvent): NostrToolsEvent | null {
   return rawEvent as NostrToolsEvent;
 }
 
-function backfillDriveRootScope(key: string, rootScopeId: string, driveId: string): void {
-  const filter: NDKFilter = {
-    kinds: [KIND_DRIVE_ROOT],
-    '#d': [driveRootDTag(rootScopeId, driveId)],
-    limit: 50,
-  };
-  void ndk.fetchEvents(filter)
-    .then(async (events) => {
-      for (const event of events) {
-        const rawEvent = rawNdkEvent(event);
-        if (rawEvent) await applyDriveRootEvent(key, rootScopeId, driveId, rawEvent);
-      }
-    })
-    .catch((error) => {
-      console.warn('[treeRoot] Failed to backfill NostrIdentity drive roots:', error);
-    });
+async function backfillDriveRootScope(
+  key: string,
+  rootScopeId: string,
+  driveId: string,
+  options: { forceRebuild?: boolean; awaitRebuild?: boolean } = {},
+): Promise<boolean> {
+  const initial = syncDriveRootAuthorization(key, rootScopeId, driveId);
+  if (!initial.authorization.active) return false;
+
+  const filters = driveRootBackfillFilters(
+    rootScopeId,
+    driveId,
+    initial.authorization.appKeys,
+  );
+  const events = filters.length > 0 ? await ndk.fetchEvents(filters) : new Set<NDKEvent>();
+  let accepted = false;
+  for (const event of events) {
+    const rawEvent = rawNdkEvent(event);
+    if (rawEvent) {
+      accepted = applyDriveRootEvent(key, rootScopeId, driveId, rawEvent, { rebuild: false }) || accepted;
+    }
+  }
+
+  const current = syncDriveRootAuthorization(key, rootScopeId, driveId);
+  if (!current.authorization.active) return false;
+  const rebuildState = projectionState(key);
+  const shouldRetry = rebuildState.retryPending
+    && profileDriveProjection.hasAuthorizedRoots(
+      rootScopeId,
+      driveId,
+      current.authorization.appKeys,
+    );
+  const shouldRebuild = options.forceRebuild
+    || accepted
+    || initial.changed
+    || initial.projectionChanged
+    || current.changed
+    || current.projectionChanged
+    || shouldRetry;
+  if (!shouldRebuild) return false;
+  if (options.awaitRebuild) {
+    return requestDriveRootProjection(key, rootScopeId, driveId);
+  }
+  scheduleDriveRootProjection(key, rootScopeId, driveId);
+  return true;
 }
 
 function driveRootScopeFromResolverKey(key: string): { rootScopeId: string; driveId: string } | null {
@@ -159,7 +451,130 @@ function driveRootScopeFromResolverKey(key: string): { rootScopeId: string; driv
 export function refreshDriveRootResolverKey(key: string): void {
   const scope = driveRootScopeFromResolverKey(key);
   if (!scope) return;
-  backfillDriveRootScope(key, scope.rootScopeId, scope.driveId);
+  if (!hasActiveDriveRootScope(scope.rootScopeId)) {
+    syncDriveRootAuthorization(key, scope.rootScopeId, scope.driveId);
+    return;
+  }
+  const state = subscriptionState.get(key);
+  if (state && !state.unsubscribeResolver && !state.unsubscribeWorker) {
+    void startResolverSubscription(key);
+    return;
+  }
+  void backfillDriveRootScope(key, scope.rootScopeId, scope.driveId)
+    .catch((error) => {
+      console.warn('[treeRoot] Failed to backfill NostrIdentity drive roots:', error);
+    });
+}
+
+/**
+ * Rebuild the logical Drive view after a local publisher has already retained
+ * its signed event in the projection. The later relay echo is intentionally
+ * deduplicated, so it cannot be relied on to schedule this rebuild.
+ */
+export function rebuildRetainedDriveRootProjection(key: string): boolean {
+  const scope = driveRootScopeFromResolverKey(key);
+  if (!scope) return false;
+  const { authorization } = syncDriveRootAuthorization(
+    key,
+    scope.rootScopeId,
+    scope.driveId,
+  );
+  if (!authorization.active || !profileDriveProjection.hasAuthorizedRoots(
+    scope.rootScopeId,
+    scope.driveId,
+    authorization.appKeys,
+  )) return false;
+  scheduleDriveRootProjection(key, scope.rootScopeId, scope.driveId);
+  return true;
+}
+
+type ResolveDriveRootProjectionOptions = {
+  publishWaitTimeoutMs?: number;
+  publishWaitPollIntervalMs?: number;
+};
+
+async function waitForNewestLocalDriveRootPublish(
+  rootScopeId: string,
+  driveId: string,
+  options: ResolveDriveRootProjectionOptions,
+): Promise<boolean> {
+  // Flush a publish that is still waiting on the registry throttle. If its
+  // timer already fired, the registry no longer retains the in-flight promise,
+  // so passively wait for that exact production path to mark the record clean.
+  // Do not call flush repeatedly: that can duplicate retries for a slow root.
+  await treeRootRegistry.flushPendingPublishes();
+
+  const configuredTimeout = options.publishWaitTimeoutMs
+    ?? DRIVE_ROOT_LOCAL_PUBLISH_WAIT_TIMEOUT_MS;
+  const timeoutMs = Number.isFinite(configuredTimeout)
+    ? Math.max(0, configuredTimeout)
+    : DRIVE_ROOT_LOCAL_PUBLISH_WAIT_TIMEOUT_MS;
+  const configuredInterval = options.publishWaitPollIntervalMs
+    ?? DRIVE_ROOT_LOCAL_PUBLISH_POLL_INTERVAL_MS;
+  const pollIntervalMs = Number.isFinite(configuredInterval)
+    ? Math.max(1, configuredInterval)
+    : DRIVE_ROOT_LOCAL_PUBLISH_POLL_INTERVAL_MS;
+  const deadline = Date.now() + timeoutMs;
+
+  while (true) {
+    const current = treeRootRegistry.get(rootScopeId, driveId);
+    if (!current) return false;
+    if (current.source !== 'local-write' || !current.dirty) return true;
+
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) return false;
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, Math.min(pollIntervalMs, remaining));
+    });
+  }
+}
+
+/**
+ * Force the current logical Drive view to be rebuilt from every authorized
+ * AppKey root. Unlike the UI refresh helper, this is awaitable and never treats
+ * an existing registry record as proof that the projection is current.
+ */
+export async function resolveDriveRootProjectionNow(
+  key: string,
+  options: ResolveDriveRootProjectionOptions = {},
+): Promise<boolean> {
+  const scope = driveRootScopeFromResolverKey(key);
+  if (!scope) throw new Error('Drive projection key must use a NostrIdentity profile UUID');
+  if (!hasActiveDriveRootScope(scope.rootScopeId)) {
+    syncDriveRootAuthorization(key, scope.rootScopeId, scope.driveId);
+    throw new Error('Drive projection requires an active matching NostrIdentity session');
+  }
+  const existing = treeRootRegistry.get(scope.rootScopeId, scope.driveId);
+  const hadDirtyLocalWrite = existing?.source === 'local-write' && existing.dirty;
+  if (hadDirtyLocalWrite) {
+    if (!await waitForNewestLocalDriveRootPublish(
+      scope.rootScopeId,
+      scope.driveId,
+      options,
+    )) {
+      throw new Error('Could not publish the newest local Drive root before rebuilding');
+    }
+  }
+
+  const currentLocal = treeRootRegistry.get(scope.rootScopeId, scope.driveId);
+  if (currentLocal?.source === 'local-write' && !hadDirtyLocalWrite) {
+    const { publishNostrIdentityDriveRootIfAvailable } = await import('../drive/profileDriveRootPublish');
+    const retained = await publishNostrIdentityDriveRootIfAvailable(scope.driveId, {
+      hash: currentLocal.hash,
+      key: currentLocal.key,
+    });
+    if (!retained) {
+      throw new Error('Could not retain the newest local Drive root before rebuilding');
+    }
+  }
+  // The caller explicitly requested a fresh logical projection. A hydrated
+  // record can predate the current roster and its timestamp would otherwise
+  // prevent an older-but-authoritative rebuilt view from replacing it.
+  treeRootRegistry.delete(scope.rootScopeId, scope.driveId);
+  return backfillDriveRootScope(key, scope.rootScopeId, scope.driveId, {
+    forceRebuild: true,
+    awaitRebuild: true,
+  });
 }
 
 function subscribeToDriveRootScope(key: string, rootScopeId: string, driveId: string): () => void {
@@ -182,7 +597,12 @@ function subscribeToDriveRootScope(key: string, rootScopeId: string, driveId: st
   };
 
   let sub = attachSub();
-  const fetchSnapshot = () => backfillDriveRootScope(key, rootScopeId, driveId);
+  const fetchSnapshot = () => {
+    void backfillDriveRootScope(key, rootScopeId, driveId)
+      .catch((error) => {
+        console.warn('[treeRoot] Failed to backfill NostrIdentity drive roots:', error);
+      });
+  };
   fetchSnapshot();
   const backfillTimer = window.setInterval(fetchSnapshot, DRIVE_ROOT_BACKFILL_INTERVAL_MS);
   let lastConnectedRelays = useNostrStore.getState().connectedRelays;
@@ -234,6 +654,10 @@ async function startResolverSubscription(
   const treeName = key.slice(slashIndex + 1);
 
   if (isNostrIdentityId(npub)) {
+    if (!hasActiveDriveRootScope(npub)) {
+      syncDriveRootAuthorization(key, npub, treeName);
+      return;
+    }
     state.unsubscribeResolver = subscribeToDriveRootScope(key, npub, treeName);
     return;
   }
@@ -337,6 +761,7 @@ export function subscribeToResolver(
     metadata?: RefResolverSubscriptionMetadata
   ) => void
 ): () => void {
+  const driveScope = driveRootScopeFromResolverKey(key);
   let state = subscriptionState.get(key);
   const hadState = !!state;
 
@@ -350,6 +775,14 @@ export function subscribeToResolver(
     };
     subscriptionState.set(key, state);
   }
+  state.listeners.add(callback);
+
+  if (driveScope && !hasActiveDriveRootScope(driveScope.rootScopeId)) {
+    syncDriveRootAuthorization(key, driveScope.rootScopeId, driveScope.driveId);
+    return () => {
+      subscriptionState.get(key)?.listeners.delete(callback);
+    };
+  }
 
   if (shouldStartTreeRootSubscription({
     hasState: hadState,
@@ -362,11 +795,9 @@ export function subscribeToResolver(
     startResolverSubscription(key);
   }
 
-  state.listeners.add(callback);
-
   // Emit current snapshot from registry if available
   const record = treeRootRegistry.getByKey(key);
-  if (record) {
+  if (record && canUseTreeRootResolverKey(key)) {
     const visibilityInfo = getVisibilityInfoFromRegistry(key);
     const currentRoute = get(routeStore);
     const hasRouteLinkKey = getResolverKey(currentRoute.npub ?? undefined, currentRoute.treeName ?? undefined) === key

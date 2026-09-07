@@ -3,10 +3,21 @@
  */
 import { navigate } from '../utils/navigate';
 import { parseRoute } from '../utils/route';
-import { autosaveIfOwn } from '../nostr';
+import { autosaveIfOwn, nostrStore } from '../nostr';
 import { getTree } from '../store';
 import { LinkType } from '@hashtree/core';
 import { getCurrentRootCid, getCurrentPathFromUrl, buildRouteUrl, updateRoute } from './route';
+import { isActiveNostrIdentityRouteScope } from '../drive/profileRoute';
+import { mutateProfileDriveRoot } from '../drive/profileDriveMutation';
+
+function isProfileDriveMutation(): boolean {
+  const route = parseRoute();
+  return !!route.treeName && isActiveNostrIdentityRouteScope(route.npub, nostrStore.getState());
+}
+
+function pathString(parts: string[]): string {
+  return parts.filter(Boolean).join('/');
+}
 
 // Rename entry
 export async function renameEntry(oldName: string, newName: string) {
@@ -32,12 +43,13 @@ export async function renameEntry(oldName: string, newName: string) {
     parentPath = getCurrentPathFromUrl();
   }
 
-  const newRootCid = await tree.renameEntry(
-    rootCid,
-    parentPath,
-    oldName,
-    newName
-  );
+  const newRootCid = isProfileDriveMutation()
+    ? await mutateProfileDriveRoot(tree, rootCid, {
+        type: 'rename',
+        from: pathString([...parentPath, oldName]),
+        to: pathString([...parentPath, newName]),
+      })
+    : await tree.renameEntry(rootCid, parentPath, oldName, newName);
   // Update local cache (publishes to nostr with throttle)
   autosaveIfOwn(newRootCid);
 
@@ -60,11 +72,12 @@ export async function deleteEntry(name: string) {
   const tree = getTree();
   const currentPath = getCurrentPathFromUrl();
 
-  const newRootCid = await tree.removeEntry(
-    rootCid,
-    currentPath,
-    name
-  );
+  const newRootCid = isProfileDriveMutation()
+    ? await mutateProfileDriveRoot(tree, rootCid, {
+        type: 'delete',
+        path: pathString([...currentPath, name]),
+      })
+    : await tree.removeEntry(rootCid, currentPath, name);
   // Update local cache (publishes to nostr with throttle)
   autosaveIfOwn(newRootCid);
 
@@ -90,11 +103,12 @@ export async function deleteCurrentFolder() {
 
   const tree = getTree();
 
-  const newRootCid = await tree.removeEntry(
-    rootCid,
-    parentPath,
-    folderName
-  );
+  const newRootCid = isProfileDriveMutation()
+    ? await mutateProfileDriveRoot(tree, rootCid, {
+        type: 'delete',
+        path: pathString([...parentPath, folderName]),
+      })
+    : await tree.removeEntry(rootCid, parentPath, folderName);
   // Update local cache (publishes to nostr with throttle)
   autosaveIfOwn(newRootCid);
 
@@ -127,7 +141,13 @@ export async function moveEntry(sourceName: string, targetDirName: string) {
     return;
   }
 
-  const newRootCid = await tree.moveEntry(rootCid, currentPath, sourceName, [...currentPath, targetDirName]);
+  const newRootCid = isProfileDriveMutation()
+    ? await mutateProfileDriveRoot(tree, rootCid, {
+        type: 'rename',
+        from: pathString([...currentPath, sourceName]),
+        to: pathString([...currentPath, targetDirName, sourceName]),
+      })
+    : await tree.moveEntry(rootCid, currentPath, sourceName, [...currentPath, targetDirName]);
   // Update local cache (publishes to nostr with throttle)
   autosaveIfOwn(newRootCid);
 
@@ -163,7 +183,13 @@ export async function moveToParent(sourceName: string) {
     return;
   }
 
-  const newRootCid = await tree.moveEntry(rootCid, currentPath, sourceName, parentPath);
+  const newRootCid = isProfileDriveMutation()
+    ? await mutateProfileDriveRoot(tree, rootCid, {
+        type: 'rename',
+        from: pathString([...currentPath, sourceName]),
+        to: pathString([...parentPath, sourceName]),
+      })
+    : await tree.moveEntry(rootCid, currentPath, sourceName, parentPath);
   // Update local cache (publishes to nostr with throttle)
   autosaveIfOwn(newRootCid);
 

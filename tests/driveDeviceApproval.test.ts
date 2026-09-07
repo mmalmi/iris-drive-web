@@ -12,8 +12,10 @@ import {
   parseDeviceApprovalReceiptEvent,
 } from '@iris/identity';
 import {
+  buildDriveDeviceApprovalAppliedAckEvent,
   createDriveDeviceApprovalDraft,
   driveDeviceApprovalRequestSecretKey,
+  NOSTR_IDENTITY_DEVICE_APPROVAL_APPLIED_ACK_TYPE,
   pendingDriveDeviceApprovalFromDraft,
 } from '../src/drive/deviceLink';
 
@@ -100,6 +102,68 @@ describe('Drive device approval bootstraps', () => {
       requestPubkey: getPublicKey(draft.requestSecretKey),
       deviceAppKeyPubkey: getPublicKey(draft.appKeySecretKey),
     });
+  });
+
+  it('acknowledges durable receipt application with the native shared contract', () => {
+    const adminSecretKey = generateSecretKey();
+    const draft = createDriveDeviceApprovalDraft({ label: 'Browser' });
+    const receiptEvent = buildDeviceApprovalReceiptEvent({
+      signerSecretKey: adminSecretKey,
+      bootstrap: draft.bootstrap,
+      profileId: PROFILE_ID,
+      approvedAt: 1_782_388_101,
+    });
+    const receipt = parseDeviceApprovalReceiptEvent(receiptEvent, {
+      requestSecretKey: draft.requestSecretKey,
+      bootstrap: draft.bootstrap,
+    });
+
+    const ack = buildDriveDeviceApprovalAppliedAckEvent({
+      appKeySecretKey: draft.appKeySecretKey,
+      receipt,
+      approvalEventId: receiptEvent.id,
+      appliedAt: 1_782_388_102,
+    });
+
+    expect(verifyEvent(ack)).toBe(true);
+    expect(ack.pubkey).toBe(receipt.deviceAppKeyPubkey);
+    expect(ack.created_at).toBe(1_782_388_102);
+    expect(ack.tags).toEqual([
+      ['type', NOSTR_IDENTITY_DEVICE_APPROVAL_APPLIED_ACK_TYPE],
+      ['p', receipt.approvedByPubkey],
+      ['e', receiptEvent.id],
+      ['request_pubkey', receipt.requestPubkey],
+    ]);
+    expect(JSON.parse(ack.content)).toEqual({
+      schema: 1,
+      requestPubkey: receipt.requestPubkey,
+      deviceAppKeyPubkey: receipt.deviceAppKeyPubkey,
+      approvalEventId: receiptEvent.id,
+      approvedByPubkey: receipt.approvedByPubkey,
+      appliedAt: 1_782_388_102,
+    });
+  });
+
+  it('refuses to acknowledge a receipt for another device key', () => {
+    const draft = createDriveDeviceApprovalDraft();
+    const otherDevice = createDriveDeviceApprovalDraft();
+    const receiptEvent = buildDeviceApprovalReceiptEvent({
+      signerSecretKey: generateSecretKey(),
+      bootstrap: draft.bootstrap,
+      profileId: PROFILE_ID,
+      approvedAt: 1_782_388_101,
+    });
+    const receipt = parseDeviceApprovalReceiptEvent(receiptEvent, {
+      requestSecretKey: draft.requestSecretKey,
+      bootstrap: draft.bootstrap,
+    });
+
+    expect(() => buildDriveDeviceApprovalAppliedAckEvent({
+      appKeySecretKey: otherDevice.appKeySecretKey,
+      receipt,
+      approvalEventId: receiptEvent.id,
+      appliedAt: 1_782_388_102,
+    })).toThrow(/signer mismatch/);
   });
 
   it('rejects legacy links, URI suffixes, malformed values, and request metadata fields', () => {

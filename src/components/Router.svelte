@@ -10,7 +10,6 @@
   import SettingsLayout from './settings/SettingsLayout.svelte';
   import WalletPage from './WalletPage.svelte';
   import UsersPage from './UsersPage.svelte';
-  import ProfileView from './ProfileView.svelte';
   import FollowsPage from './FollowsPage.svelte';
   import FollowersPage from './FollowersPage.svelte';
   import EditProfilePage from './EditProfilePage.svelte';
@@ -27,29 +26,53 @@
 
   // Route definitions with patterns
   // Note: More specific routes must come before less specific ones
-  const routePatterns = [
-    { pattern: '/', component: HomeRoute },
-    { pattern: '/approve-device/:payload', component: DeviceApprovalRoute },
-    { pattern: '/share', component: ShareDialogRoute },
-    { pattern: '/share-invite/:payload', component: ShareInviteRoute },
-    { pattern: '/recent', component: RecentRoute },
-    { pattern: '/shared-with-me', component: SharedWithMeRoute },
-    { pattern: '/settings', component: SettingsLayout },
-    { pattern: '/settings/*', component: SettingsLayout },
-    { pattern: '/wallet', component: WalletPage },
-    { pattern: '/users/no_existing', component: UsersPage, staticParams: { usersMode: 'no_existing' } },
-    { pattern: '/users/create', component: UsersPage, staticParams: { usersMode: 'create' } },
-    { pattern: '/users/existing', component: UsersPage, staticParams: { usersMode: 'existing' } },
-    { pattern: '/users', component: UsersPage, staticParams: { usersMode: 'list' } },
-    { pattern: '/:npub/follows', component: FollowsPage },
-    { pattern: '/:npub/followers', component: FollowersPage },
-    { pattern: '/:npub/edit', component: EditProfilePage },
-    { pattern: '/:npub/profile', component: UserRoute },
+  type RouteId =
+    | 'home'
+    | 'deviceApproval'
+    | 'shareDialog'
+    | 'shareInvite'
+    | 'recent'
+    | 'sharedWithMe'
+    | 'settings'
+    | 'wallet'
+    | 'users'
+    | 'follows'
+    | 'followers'
+    | 'editProfile'
+    | 'tree'
+    | 'user';
+  type ResolvedRouteParams = Partial<Record<
+    'payload' | 'usersMode' | 'npub' | 'treeName' | 'wild' | 'id',
+    string
+  >>;
+
+  const routePatterns: Array<{
+    pattern: string;
+    id: RouteId;
+    staticParams?: ResolvedRouteParams;
+  }> = [
+    { pattern: '/', id: 'home' },
+    { pattern: '/approve-device/:payload', id: 'deviceApproval' },
+    { pattern: '/share', id: 'shareDialog' },
+    { pattern: '/share-invite/:payload', id: 'shareInvite' },
+    { pattern: '/recent', id: 'recent' },
+    { pattern: '/shared-with-me', id: 'sharedWithMe' },
+    { pattern: '/settings', id: 'settings' },
+    { pattern: '/settings/*', id: 'settings' },
+    { pattern: '/wallet', id: 'wallet' },
+    { pattern: '/users/no_existing', id: 'users', staticParams: { usersMode: 'no_existing' } },
+    { pattern: '/users/create', id: 'users', staticParams: { usersMode: 'create' } },
+    { pattern: '/users/existing', id: 'users', staticParams: { usersMode: 'existing' } },
+    { pattern: '/users', id: 'users', staticParams: { usersMode: 'list' } },
+    { pattern: '/:npub/follows', id: 'follows' },
+    { pattern: '/:npub/followers', id: 'followers' },
+    { pattern: '/:npub/edit', id: 'editProfile' },
+    { pattern: '/:npub/profile', id: 'user' },
     // Generic tree routes
-    { pattern: '/:npub/:treeName/*', component: TreeRoute },
-    { pattern: '/:npub/:treeName', component: TreeRoute },
-    { pattern: '/:id/*', component: UserRoute },
-    { pattern: '/:id', component: UserRoute },
+    { pattern: '/:npub/:treeName/*', id: 'tree' },
+    { pattern: '/:npub/:treeName', id: 'tree' },
+    { pattern: '/:id/*', id: 'user' },
+    { pattern: '/:id', id: 'user' },
   ];
 
   interface Props {
@@ -59,19 +82,19 @@
   let { currentPath }: Props = $props();
 
   // Find matching route
-  function findRoute(path: string) {
+  function findRoute(path: string): { id: RouteId; params: ResolvedRouteParams } {
     const directContentRoute = matchDirectContentRoute(path);
     if (directContentRoute) {
-      return { component: UserRoute, params: directContentRoute };
+      return { id: 'user', params: directContentRoute };
     }
 
     for (const route of routePatterns) {
       const match = matchRoute(route.pattern, path);
       if (match.matched) {
-        return { component: route.component, params: { ...match.params, ...(route.staticParams ?? {}) } };
+        return { id: route.id, params: { ...match.params, ...(route.staticParams ?? {}) } };
       }
     }
-    return { component: HomeRoute, params: {} };
+    return { id: 'home', params: {} };
   }
 
   // Derive route from path prop
@@ -79,35 +102,33 @@
 </script>
 
 <div class="flex-1 flex flex-col lg:flex-row min-h-0">
-  {#if route.component === HomeRoute}
+  {#if route.id === 'home'}
     <HomeRoute />
-  {:else if route.component === DeviceApprovalRoute}
+  {:else if route.id === 'deviceApproval'}
     <DeviceApprovalRoute payload={route.params.payload || ''} />
-  {:else if route.component === ShareDialogRoute}
+  {:else if route.id === 'shareDialog'}
     <ShareDialogRoute />
-  {:else if route.component === ShareInviteRoute}
+  {:else if route.id === 'shareInvite'}
     <ShareInviteRoute payload={route.params.payload || ''} />
-  {:else if route.component === RecentRoute}
+  {:else if route.id === 'recent'}
     <RecentRoute />
-  {:else if route.component === SharedWithMeRoute}
+  {:else if route.id === 'sharedWithMe'}
     <SharedWithMeRoute />
-  {:else if route.component === SettingsLayout}
+  {:else if route.id === 'settings'}
     <SettingsLayout />
-  {:else if route.component === WalletPage}
+  {:else if route.id === 'wallet'}
     <WalletPage />
-  {:else if route.component === UsersPage}
+  {:else if route.id === 'users'}
     <UsersPage mode={route.params.usersMode === 'no_existing' ? 'no_existing' : route.params.usersMode === 'create' ? 'create' : route.params.usersMode === 'existing' ? 'existing' : 'list'} />
-  {:else if route.component === FollowsPage}
+  {:else if route.id === 'follows'}
     <FollowsPage npub={route.params.npub} />
-  {:else if route.component === FollowersPage}
+  {:else if route.id === 'followers'}
     <FollowersPage npub={route.params.npub} />
-  {:else if route.component === EditProfilePage}
+  {:else if route.id === 'editProfile'}
     <EditProfilePage npub={route.params.npub} />
-  {:else if route.component === ProfileView}
-    <ProfileView npub={route.params.npub || ''} />
-  {:else if route.component === TreeRoute}
+  {:else if route.id === 'tree'}
     <TreeRoute npub={route.params.npub} treeName={route.params.treeName} wild={route.params.wild} />
-  {:else if route.component === UserRoute}
+  {:else if route.id === 'user'}
     <UserRoute id={route.params.id || route.params.npub} wild={route.params.wild} />
   {:else}
     <HomeRoute />

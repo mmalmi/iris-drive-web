@@ -1,3 +1,4 @@
+import { projectSharedFolderKeys } from './protocolShareSnapshot';
 import { nip19 } from 'nostr-tools';
 import type {
   NostrIdentityFacet,
@@ -17,7 +18,7 @@ import { projectNostrIdentityRoster } from './protocolProfileProjection';
 import { activeShareKeyRecipients } from './protocolShareAccess';
 
 export function sharedFolderKeyRecipientPubkeys(folder: SharedFolder): string[] {
-  const projection = projectNostrIdentityRoster(folder.share_id, folder.roster_ops ?? []);
+  const projection = projectSharedFolderKeys(folder);
   return activeShareKeyRecipients(folder, projection);
 }
 

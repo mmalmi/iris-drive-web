@@ -9,6 +9,8 @@ import { getTreeRootSync } from '../../stores/treeRoot';
 import { markFilesChanged } from '../../stores/recentlyChanged';
 import { patchWebmDuration } from '../../utils/webmDuration';
 import { BoundedQueue } from '../../utils/boundedQueue';
+import { setEntryForDriveRoute } from '../../drive/profileDriveRouteEntry';
+import { captureRouteWriteGuard } from '../../lib/routeWriteGuard';
 
 // Generate default stream filename
 export function getDefaultFilename(): string {
@@ -81,6 +83,7 @@ let mediaStream: MediaStream | null = null;
 let mediaRecorder: MediaRecorder | null = null;
 let recordingInterval: number | null = null;
 let publishInterval: number | null = null;
+let recordingWriteGuard: (() => boolean) | null = null;
 // Bounded queue for non-persist mode: 30 chunks max, ~4MB max (1Mbps * 30s)
 const recentChunks = new BoundedQueue<Uint8Array>({
   maxItems: 30,
@@ -130,10 +133,17 @@ function concatChunks(chunks: Uint8Array[]): Uint8Array {
 }
 
 export async function startRecording(videoEl: HTMLVideoElement | null): Promise<void> {
+  const isCurrent = captureRouteWriteGuard();
   if (!mediaStream) {
     await startPreview(videoEl);
     if (!mediaStream) return;
   }
+
+  if (!isCurrent()) {
+    stopPreview(videoEl);
+    return;
+  }
+  recordingWriteGuard = isCurrent;
 
   // Reset state
   recentChunks.clear();
@@ -180,6 +190,7 @@ export async function startRecording(videoEl: HTMLVideoElement | null): Promise<
 
   // Publish to nostr every 3 seconds (check login/tree state inside interval)
   publishInterval = window.setInterval(async () => {
+    if (recordingWriteGuard !== isCurrent || !isCurrent()) return;
     const nostrState = nostrStore.getState();
     // Only publish if logged in and have a selected tree
     if (!nostrState.isLoggedIn || !nostrState.selectedTree) {
@@ -216,13 +227,24 @@ export async function startRecording(videoEl: HTMLVideoElement | null): Promise<
 
     if (rootCid) {
       const currentPath = getCurrentPathFromUrl();
-      const newRootCid = await tree.setEntry(rootCid, currentPath, filename, fileCid!, fileSize);
+      if (recordingWriteGuard !== isCurrent || !isCurrent()) return;
+      const newRootCid = await setEntryForDriveRoute(
+        tree,
+        rootCid,
+        currentPath,
+        filename,
+        { cid: fileCid!, size: fileSize, type: LinkType.Blob },
+        route,
+        nostrState,
+      );
       // Publish to nostr - resolver will pick up the update
+      if (recordingWriteGuard !== isCurrent || !isCurrent()) return;
       autosaveIfOwn(newRootCid);
       markFilesChanged(new Set([filename]));
     } else {
       // Create new tree - public directory but with encrypted file entries
       const newRootCid = (await tree.putDirectory([{ name: filename, cid: fileCid!, size: fileSize, type: LinkType.Blob }], {})).cid;
+      if (recordingWriteGuard !== isCurrent || !isCurrent()) return;
       autosaveIfOwn(newRootCid);
       markFilesChanged(new Set([filename]));
     }
@@ -230,6 +252,8 @@ export async function startRecording(videoEl: HTMLVideoElement | null): Promise<
 }
 
 export async function stopRecording(): Promise<void> {
+  const isCurrent = recordingWriteGuard;
+  recordingWriteGuard = null;
   if (recordingInterval) {
     clearInterval(recordingInterval);
     recordingInterval = null;
@@ -254,49 +278,65 @@ export async function stopRecording(): Promise<void> {
   setIsRecording(false);
   setIsPreviewing(false);
 
-  const currentState = getStreamState();
-  const filename = `${currentState.streamFilename}.webm`;
-  const durationMs = currentState.recordingTime * 1000; // Convert seconds to ms
+  try {
+    if (!isCurrent || !isCurrent()) return;
+    const currentState = getStreamState();
+    const filename = `${currentState.streamFilename}.webm`;
+    const durationMs = currentState.recordingTime * 1000; // Convert seconds to ms
 
-  const tree = getTree();
-  let fileCid: CID | undefined, fileSize: number | undefined;
-  if (currentState.persistStream && currentState.streamWriter) {
-    const result = await currentState.streamWriter.finalize();
-    // StreamWriter returns { hash, size, key? } - use key for encrypted CID
-    fileCid = cid(result.hash, result.key);
-    fileSize = result.size;
-  } else if (!currentState.persistStream && !recentChunks.isEmpty) {
-    const combined = concatChunks(recentChunks.toArray());
-    // Always encrypt files (CHK encryption for deduplication)
-    const result = await tree.putFile(combined);
-    fileCid = result.cid;
-    fileSize = result.size;
-  }
-
-  // Patch WebM duration in the file header
-  if (fileCid && durationMs > 0) {
-    console.log(`[Stream] Patching WebM duration: ${durationMs}ms`);
-    fileCid = await patchWebmDuration(tree, fileCid, durationMs);
-  }
-
-  if (fileCid && fileSize) {
-    const route = parseRoute();
-    const rootCid = getTreeRootSync(route.npub, route.treeName);
-    if (rootCid) {
-      const currentPath = getCurrentPathFromUrl();
-      const newRootCid = await tree.setEntry(rootCid, currentPath, filename, fileCid, fileSize);
-      // Publish to nostr - resolver will pick up the update
-      autosaveIfOwn(newRootCid);
-    } else {
-      // Create new tree - public directory but with encrypted file entries
-      const newRootCid = (await tree.putDirectory([{ name: filename, cid: fileCid, size: fileSize, type: LinkType.Blob }], {})).cid;
-      autosaveIfOwn(newRootCid);
-      window.location.hash = '#/';
+    const tree = getTree();
+    let fileCid: CID | undefined, fileSize: number | undefined;
+    if (currentState.persistStream && currentState.streamWriter) {
+      const result = await currentState.streamWriter.finalize();
+      // StreamWriter returns { hash, size, key? } - use key for encrypted CID
+      fileCid = cid(result.hash, result.key);
+      fileSize = result.size;
+    } else if (!currentState.persistStream && !recentChunks.isEmpty) {
+      const combined = concatChunks(recentChunks.toArray());
+      // Always encrypt files (CHK encryption for deduplication)
+      const result = await tree.putFile(combined);
+      fileCid = result.cid;
+      fileSize = result.size;
     }
+
+    // Patch WebM duration in the file header
+    if (fileCid && durationMs > 0) {
+      console.log(`[Stream] Patching WebM duration: ${durationMs}ms`);
+      fileCid = await patchWebmDuration(tree, fileCid, durationMs);
+    }
+
+    if (!isCurrent()) return;
+    if (fileCid && fileSize) {
+      const route = parseRoute();
+      const rootCid = getTreeRootSync(route.npub, route.treeName);
+      if (rootCid) {
+        const currentPath = getCurrentPathFromUrl();
+        const newRootCid = await setEntryForDriveRoute(
+          tree,
+          rootCid,
+          currentPath,
+          filename,
+          { cid: fileCid, size: fileSize, type: LinkType.Blob },
+          route,
+          nostrStore.getState(),
+        );
+        // Publish to nostr - resolver will pick up the update
+        if (!isCurrent()) return;
+        autosaveIfOwn(newRootCid);
+      } else {
+        // Create new tree - public directory but with encrypted file entries
+        const newRootCid = (await tree.putDirectory([{ name: filename, cid: fileCid, size: fileSize, type: LinkType.Blob }], {})).cid;
+        if (!isCurrent()) return;
+        autosaveIfOwn(newRootCid);
+        window.location.hash = '#/';
+      }
+    }
+  } finally {
+    setStreamWriter(null);
+    recentChunks.clear();
   }
 
-  setStreamWriter(null);
-  recentChunks.clear();
+  if (!isCurrent?.()) return;
 
   // Close streaming mode by removing ?stream=1 and ?live=1 from URL
   const hash = window.location.hash;

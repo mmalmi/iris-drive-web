@@ -3,6 +3,10 @@ import { WorkerAdapterNostr } from './workerAdapterNostr';
 import type { ExtendedWorkerRequest } from './workerAdapterCore';
 
 export class WorkerAdapterSocial extends WorkerAdapterNostr {
+  private readonly identityChangeCallbacks = new Set<(
+    identity: { pubkey: string; nsec?: string },
+  ) => void>();
+
   // Public API - Media Streaming
   // ============================================================================
 
@@ -196,6 +200,13 @@ export class WorkerAdapterSocial extends WorkerAdapterNostr {
   // Identity Management
   // ============================================================================
 
+  onIdentityChange(
+    callback: (identity: { pubkey: string; nsec?: string }) => void,
+  ): () => void {
+    this.identityChangeCallbacks.add(callback);
+    return () => this.identityChangeCallbacks.delete(callback);
+  }
+
   /**
    * Update worker's user identity (for account switching)
    */
@@ -211,6 +222,10 @@ export class WorkerAdapterSocial extends WorkerAdapterNostr {
     } catch (error) {
       if (!(error instanceof Error) || error.message !== 'Worker crashed') throw error;
       await update();
+    }
+    this.config = { ...this.config, pubkey, nsec };
+    for (const callback of this.identityChangeCallbacks) {
+      callback({ pubkey, ...(nsec ? { nsec } : {}) });
     }
   }
 
@@ -233,6 +248,7 @@ export class WorkerAdapterSocial extends WorkerAdapterNostr {
     this.messageQueue = [];
     this.socialGraphVersionCallback = null;
     this.treeRootUpdateCallbacks.clear();
+    this.identityChangeCallbacks.clear();
     this.p2pProvider = null;
   }
 }

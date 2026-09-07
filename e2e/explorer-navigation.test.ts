@@ -17,7 +17,7 @@ test.describe('Hashtree Explorer', () => {
 
   test('should persist login across page reload', async ({ page }) => {
     // Avatar button should be visible (logged in state)
-    const profileButton = page.locator('header button[title*="My Profile"]');
+    const profileButton = page.getByTestId('header-user-avatar');
     await expect(profileButton).toBeVisible();
 
     // Reload page

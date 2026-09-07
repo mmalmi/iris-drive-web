@@ -10,6 +10,8 @@ import {
 import { randomUUID } from 'node:crypto';
 import { attachRenderLoopGuardToContext, formatRenderLoopFailures } from './renderLoopGuard';
 
+const relayBaseUrl = `ws://localhost:${process.env.PW_RELAY_PORT}`;
+
 type Fixtures = {
   relayUrl: string;
   renderLoopErrors: Set<string>;
@@ -29,10 +31,10 @@ async function initializeContext(context: BrowserContext, relayUrl: string, rend
 
 const test = base.extend<Fixtures, WorkerFixtures>({
   relayState: [async ({}, use, workerInfo) => {
-    await use({ current: `ws://localhost:4736/${randomUUID()}-w${workerInfo.workerIndex}` });
+    await use({ current: `${relayBaseUrl}/${randomUUID()}-w${workerInfo.workerIndex}` });
   }, { scope: 'worker' }],
   relayUrl: async ({ relayState }, use) => {
-    const relayUrl = `ws://localhost:4736/${randomUUID()}`;
+    const relayUrl = `${relayBaseUrl}/${randomUUID()}`;
     relayState.current = relayUrl;
     process.env.PW_TEST_RELAY_URL = relayUrl;
     await use(relayUrl);

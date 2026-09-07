@@ -1,11 +1,64 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createShareUrlOptions, getCanonicalGitRepositoryUrl } from '../src/lib/shareUrls';
+import {
+  createDriveShareLinkVariants,
+  createShareUrlOptions,
+  getCanonicalGitRepositoryUrl,
+} from '../src/lib/shareUrls';
 
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
 describe('shareUrls', () => {
+  it('shares profile-scoped files only through their immutable snapshot URL', () => {
+    const profileId = '89f3d04f-41fb-437b-9339-75df537bf291';
+    const permalinkUrl = '#/nhash1revision/squirreldisk.png';
+
+    expect(createDriveShareLinkVariants({
+      permalinkUrl,
+      currentUrl: `https://drive.iris.to/#/${profileId}/main/squirreldisk.png`,
+      routeScope: profileId,
+      isPermalink: false,
+    })).toEqual([
+      {
+        id: 'snapshot',
+        label: 'Snapshot',
+        url: permalinkUrl,
+      },
+    ]);
+  });
+
+  it('offers both the immutable snapshot and mutable latest URL for public npub routes', () => {
+    expect(createDriveShareLinkVariants({
+      permalinkUrl: '#/nhash1revision/share.txt',
+      currentUrl: 'https://drive.iris.to/#/npub1owner/main/share.txt?edit=1',
+      routeScope: 'npub1owner',
+      isPermalink: false,
+    })).toEqual([
+      {
+        id: 'snapshot',
+        label: 'Snapshot',
+        url: '#/nhash1revision/share.txt',
+      },
+      {
+        id: 'latest',
+        label: 'Latest',
+        url: 'https://drive.iris.to/#/npub1owner/main/share.txt',
+      },
+    ]);
+  });
+
+  it('does not expose a profile UUID while its permalink is still resolving', () => {
+    const profileId = '89f3d04f-41fb-437b-9339-75df537bf291';
+
+    expect(createDriveShareLinkVariants({
+      permalinkUrl: null,
+      currentUrl: `https://drive.iris.to/#/${profileId}/main/squirreldisk.png`,
+      routeScope: profileId,
+      isPermalink: false,
+    })).toEqual([]);
+  });
+
   it('maps hosted drive routes to web and htree app URLs', () => {
     expect(createShareUrlOptions('files', 'https://drive.iris.to/#/npub1owner/main/share.txt?k=abc')).toEqual([
       {

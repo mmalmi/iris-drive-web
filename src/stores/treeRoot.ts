@@ -39,6 +39,7 @@ import {
   recoverMissingLinkKeyForOwner,
 } from './treeRootKeys';
 import {
+  canUseTreeRootResolverKey,
   getResolverUpdatedAt,
   refreshDriveRootResolverKey,
   refreshResolverSubscription,
@@ -62,6 +63,7 @@ async function syncActiveTreeRootFromRecord(
   } | undefined
 ): Promise<void> {
   if (!record) return;
+  if (!canUseTreeRootResolverKey(key)) return;
   if (key !== activeResolverKey) return;
 
   const currentRoute = get(routeStore);
@@ -92,8 +94,18 @@ async function syncActiveTreeRootFromRecord(
   logHtreeDebug('treeRoot:set', { source: 'registry-active', resolverKey: key });
 }
 
+// Active subscription cleanup. Declared before the registry listener because
+// a registry implementation may notify synchronously.
+let activeUnsubscribe: (() => void) | null = null;
+let activeResolverKey: string | null = null;
+
 // Subscribe to registry updates to notify listeners
 treeRootRegistry.subscribeAll((key, record) => {
+  if (!canUseTreeRootResolverKey(key)) {
+    workerRootCacheSync.delete(key);
+    if (key === activeResolverKey) treeRootStore.set(null);
+    return;
+  }
   if (!record) {
     workerRootCacheSync.delete(key);
     return;
@@ -109,9 +121,6 @@ treeRootRegistry.subscribeAll((key, record) => {
   void syncResolvedTreeRootToWorker(key, record);
 });
 
-// Active subscription cleanup
-let activeUnsubscribe: (() => void) | null = null;
-let activeResolverKey: string | null = null;
 let resolverRetryTimer: ReturnType<typeof setTimeout> | null = null;
 let resolverRetryAttempts = 0;
 const RESOLVER_RETRY_DELAY_MS = 2000;
@@ -194,6 +203,10 @@ export function createTreeRootStore(): Readable<CID | null> {
       }
       resetResolverRetry();
       return;
+    }
+    if (!canUseTreeRootResolverKey(resolverKey)) {
+      treeRootStore.set(null);
+      logHtreeDebug('treeRoot:clear', { reason: 'inactive-drive-profile', resolverKey });
     }
 
     // Same key, no need to resubscribe
@@ -382,6 +395,7 @@ export function createTreeRootStore(): Readable<CID | null> {
 export function getTreeRootSync(npub: string | null | undefined, treeName: string | null | undefined): CID | null {
   const key = getResolverKey(npub ?? undefined, treeName ?? undefined);
   if (!key) return null;
+  if (!canUseTreeRootResolverKey(key)) return null;
 
   // Check registry first
   const record = treeRootRegistry.getByKey(key);
@@ -409,6 +423,7 @@ async function resolveTreeRootWithLinkKey(
   key: string,
   linkKey: string | null = null
 ): Promise<CID | null> {
+  if (!canUseTreeRootResolverKey(key)) return null;
   const record = treeRootRegistry.getByKey(key);
   if (!record?.hash) return null;
 

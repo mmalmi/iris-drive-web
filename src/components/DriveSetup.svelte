@@ -19,7 +19,7 @@
 
     <a
       class="text-center text-sm text-text-3 hover:text-text-1"
-      href="https://irisdrive.iris.to/"
+      href="https://getdrive.iris.to/"
       target="_blank"
       rel="noreferrer"
     >

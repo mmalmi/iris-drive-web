@@ -1,30 +1,49 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { navigate } from '../utils/navigate';
-  import { nostrStore, loginWithExtension, loginWithNsec, generateNewKey, getCurrentNostrIdentitySession } from '../nostr';
+  import {
+    nostrStore,
+    loginWithExtension,
+    loginWithNsec,
+    generateNewKey,
+    logout,
+  } from '../nostr';
   import { isFilesApp } from '../appType';
   import { Avatar } from './User';
 
   let showNsec = $state(false);
   let nsecInput = $state('');
   let error = $state('');
+  let menuOpen = $state(false);
+  let menuRoot: HTMLDivElement | undefined = $state();
 
   let isLoggedIn = $derived($nostrStore.isLoggedIn);
-  let npub = $derived($nostrStore.npub);
   let pubkey = $derived($nostrStore.pubkey);
-  let hasActiveDriveSession = $derived.by(() => {
-    isLoggedIn;
-    pubkey;
-    return getCurrentNostrIdentitySession()?.status === 'active';
+
+  onMount(() => {
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!menuRoot?.contains(event.target as Node)) menuOpen = false;
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') menuOpen = false;
+    };
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
   });
 
-  function goToProfile() {
-    const driveSession = getCurrentNostrIdentitySession();
-    if (driveSession?.status === 'active') {
-      navigate('/settings/user');
-      return;
-    }
-    if (!npub) return;
-    navigate(`/${npub}/profile`);
+  function openRoute(path: string) {
+    menuOpen = false;
+    navigate(path);
+  }
+
+  function handleLogout() {
+    menuOpen = false;
+    logout();
+    navigate('/');
   }
 
   async function handleExtensionLogin() {
@@ -57,16 +76,56 @@
 </script>
 
 {#if isLoggedIn && pubkey}
-  <!-- Logged in: just show avatar that links to profile (double-click for accounts) -->
-  <button
-    onclick={goToProfile}
-    ondblclick={() => navigate('/users')}
-    class="bg-transparent border-none cursor-pointer p-0"
-    title={hasActiveDriveSession ? 'User settings (double-click for users)' : 'My Profile (double-click for users)'}
-    data-testid="header-user-avatar"
-  >
-    <Avatar pubkey={pubkey} size={36} />
-  </button>
+  <div class="relative" bind:this={menuRoot}>
+    <button
+      onclick={() => (menuOpen = !menuOpen)}
+      class="bg-transparent border-none cursor-pointer p-0"
+      title="Account menu"
+      aria-label="Open account menu"
+      aria-haspopup="menu"
+      aria-expanded={menuOpen}
+      data-testid="header-user-avatar"
+    >
+      <Avatar pubkey={pubkey} size={36} />
+    </button>
+
+    {#if menuOpen}
+      <div
+        class="absolute right-0 top-full z-50 mt-2 w-48 overflow-hidden rounded-xl bg-surface-1 py-1 shadow-xl ring-1 ring-surface-3"
+        role="menu"
+        data-testid="account-menu"
+      >
+        <button
+          class="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-text-1 hover:bg-surface-2"
+          role="menuitem"
+          onclick={() => openRoute('/users')}
+          data-testid="account-menu-users"
+        >
+          <span class="i-lucide-users"></span>
+          <span>Users</span>
+        </button>
+        <button
+          class="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-text-1 hover:bg-surface-2"
+          role="menuitem"
+          onclick={() => openRoute('/settings')}
+          data-testid="account-menu-settings"
+        >
+          <span class="i-lucide-settings"></span>
+          <span>Settings</span>
+        </button>
+        <div class="my-1 border-t border-surface-3"></div>
+        <button
+          class="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-danger hover:bg-danger/10"
+          role="menuitem"
+          onclick={handleLogout}
+          data-testid="account-menu-logout"
+        >
+          <span class="i-lucide-log-out"></span>
+          <span>Log out</span>
+        </button>
+      </div>
+    {/if}
+  </div>
 {:else if isFilesApp()}
   <button
     onclick={() => navigate('/')}

@@ -72,6 +72,20 @@ export function saveStoredDeviceLabels(
   return { ...normalized };
 }
 
+export function removeStoredDeviceLabels(
+  profileId: string,
+  storage: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'> = localStorage,
+): void {
+  const all = readAllStoredDeviceLabels(storage);
+  if (!(profileId in all)) return;
+  delete all[profileId];
+  if (Object.keys(all).length === 0) {
+    storage.removeItem(DRIVE_DEVICE_LABEL_STORAGE_KEY);
+  } else {
+    storage.setItem(DRIVE_DEVICE_LABEL_STORAGE_KEY, JSON.stringify(all));
+  }
+}
+
 export async function encryptDriveDeviceLabelsWithDck(
   payload: DriveDeviceLabelPayload,
   dckPlaintextHex: string,

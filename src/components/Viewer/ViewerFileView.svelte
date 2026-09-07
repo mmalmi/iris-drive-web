@@ -10,6 +10,7 @@
   import { open as openBlossomPushModal } from '../Modals/BlossomPushModal.svelte';
   import { open as openRenameModal } from '../Modals/RenameModal.svelte';
   import { open as openShareModal } from '../Modals/ShareModal.svelte';
+  import { createDriveShareLinkVariants } from '../../lib/shareUrls';
   import { TreeRow } from '../ui';
   import CodeViewer from './CodeViewer.svelte';
   import FileEditor from './FileEditor.svelte';
@@ -127,6 +128,12 @@
       path: routePath[routePath.length - 1] || '',
     };
   });
+  let shareLinks = $derived.by(() => createDriveShareLinkVariants({
+    permalinkUrl,
+    currentUrl: window.location.href,
+    routeScope: routeNpub,
+    isPermalink: routeIsPermalink,
+  }));
 
   $effect(() => {
     if (typeof window !== 'undefined') {
@@ -347,7 +354,8 @@
   }
 
   function handleShare() {
-    openShareModal(window.location.href.replace(/[?&]edit=1/, ''));
+    const [primary, secondary] = shareLinks;
+    if (primary) openShareModal(primary.url, secondary?.url ?? null);
   }
 </script>
 
@@ -399,8 +407,14 @@
             <button onclick={toggleFullscreen} class="btn-circle btn-ghost h-8 w-8 min-h-8 min-w-8" title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'} data-testid="viewer-fullscreen">
               <span class={isFullscreen ? 'i-lucide-minimize text-base' : 'i-lucide-maximize text-base'}></span>
             </button>
-            <button onclick={handleShare} class="btn-circle btn-ghost h-8 w-8 min-h-8 min-w-8" title="Share" data-testid="viewer-share">
-              <span class="i-lucide-share text-base"></span>
+            <button
+              onclick={handleShare}
+              class="btn-circle btn-ghost h-8 w-8 min-h-8 min-w-8"
+              title={shareLinks.length > 0 ? 'Share' : 'Preparing share link…'}
+              data-testid="viewer-share"
+              disabled={shareLinks.length === 0}
+            >
+              <span class={shareLinks.length > 0 ? 'i-lucide-share text-base' : 'i-lucide-loader-2 animate-spin text-base'}></span>
             </button>
             {#if entry?.cid}
               <button

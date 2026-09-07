@@ -13,6 +13,13 @@ import {
   waitForFipsConnection,
   waitForRelayConnected,
 } from './test-utils.js';
+import {
+  applyMainActionMutations,
+  pauseProfileDriveRootUpdates,
+  resumeProfileDriveRootUpdates,
+  type MainActionMutation,
+} from './profile-drive-actions.js';
+import { expectProfilePathKindActionConvergence } from './profile-drive-path-kind.js';
 
 async function prepareDriveInstance(page: Page, relayUrl: string): Promise<void> {
   setupPageErrorHandler(page);
@@ -166,29 +173,36 @@ async function activateApprovedDevice(page: Page, profileId: string): Promise<vo
   await expectDeviceAdminBadges(page, 2, 1);
   await expectPrivateDeviceLabel(page.getByTestId('user-key-row').nth(0).locator('strong'));
   await expectLinkedDeviceLabel(page);
+  await expectAppliedApprovalAck(page);
 }
 
-async function appKeyPubkey(page: Page): Promise<string> {
-  return page.evaluate(() => {
-    const stored = JSON.parse(localStorage.getItem('iris:identity:session') ?? 'null');
-    return stored?.appKeyPubkey ?? '';
-  });
-}
-
-async function pushCurrentProfileRootToBlossom(page: Page): Promise<void> {
-  await page.evaluate(async () => {
-    const { getTreeRootSync } = await import('/src/stores');
-    const stored = JSON.parse(localStorage.getItem('iris:identity:session') ?? 'null');
-    const profileId = stored?.profileId ?? '';
-    if (!profileId) throw new Error('No active Drive profile id');
-    const root = getTreeRootSync(profileId, 'main');
-    if (!root?.hash) throw new Error('No current profile root');
-    const adapter = (window as any).__getWorkerAdapter?.() ?? (window as any).__workerAdapter;
-    if (!adapter?.pushToBlossom) throw new Error('Worker adapter has no pushToBlossom');
-    const result = await adapter.pushToBlossom(root.hash, root.key, 'main');
-    if (result.failed > 0) {
-      throw new Error(`Blossom push failed: ${JSON.stringify(result)}`);
-    }
+async function expectAppliedApprovalAck(page: Page): Promise<void> {
+  await expect.poll(async () => page.evaluate(async () => {
+    const { getCurrentNostrIdentitySession, ndk } = await import('/src/nostr');
+    const {
+      KIND_NOSTR_IDENTITY_DEVICE_APPROVAL_APPLIED_ACK,
+      NOSTR_IDENTITY_DEVICE_APPROVAL_APPLIED_ACK_TYPE,
+    } = await import('/src/drive/deviceLink');
+    const session = getCurrentNostrIdentitySession();
+    if (!session) return null;
+    const events = Array.from(await ndk.fetchEvents({
+      authors: [session.appKeyPubkey],
+      kinds: [KIND_NOSTR_IDENTITY_DEVICE_APPROVAL_APPLIED_ACK],
+      '#type': [NOSTR_IDENTITY_DEVICE_APPROVAL_APPLIED_ACK_TYPE],
+      limit: 10,
+    }));
+    const event = events.find((candidate) => candidate.tags.some((tag) => (
+      tag[0] === 'type' && tag[1] === NOSTR_IDENTITY_DEVICE_APPROVAL_APPLIED_ACK_TYPE
+    )));
+    if (!event) return null;
+    const content = JSON.parse(event.content);
+    return {
+      signerMatchesDevice: event.pubkey === content.deviceAppKeyPubkey,
+      approvalEventId: content.approvalEventId,
+    };
+  }), { timeout: 10000, intervals: [100, 250, 500] }).toEqual({
+    signerMatchesDevice: true,
+    approvalEventId: expect.stringMatching(/^[0-9a-f]{64}$/),
   });
 }
 
@@ -374,29 +388,55 @@ async function gotoMain(page: Page): Promise<void> {
   }), { timeout: 30000, intervals: [500, 1000, 2000] }).toBe(true);
 }
 
-async function gotoUserSettingsViaHeaderAvatar(page: Page, profileId: string): Promise<void> {
-  const activeProfileId = await page.evaluate(async () => {
-    const { getCurrentNostrIdentitySession } = await import('/src/nostr');
-    const session = getCurrentNostrIdentitySession();
-    const stored = JSON.parse(localStorage.getItem('iris:identity:session') ?? 'null');
-    return session?.profileId ?? stored?.profileId ?? '';
-  });
-  expect(activeProfileId).toBe(profileId);
-  await expect(page.getByTestId('header-user-avatar')).toBeVisible({ timeout: 30000 });
-  await page.getByTestId('header-user-avatar').click();
-  await expect.poll(
-    () => page.evaluate(() => window.location.hash.split('?')[0].replace(/\/$/, '')),
-    { timeout: 30000, intervals: [500, 1000, 2000] },
-  ).toBe('#/settings/user');
-  await expect(page.getByTestId('user-settings-panel')).toBeVisible({ timeout: 30000 });
-}
-
 async function writeMainFileAndPublish(page: Page, relayUrl: string, filename: string, content: string): Promise<void> {
   const rootHash = await addFileViaTreeAPI(page, [], filename, content);
   expect(rootHash).toMatch(/^[a-f0-9]{64}$/);
+  await flushAndWaitForCurrentProfileRoot(page, relayUrl);
+}
+
+async function currentPublishedProfileRootHash(page: Page): Promise<string | null> {
+  return page.evaluate(async () => {
+    const { toHex } = await import('/src/lib/nhash.ts');
+    const { getCurrentNostrIdentitySession } = await import('/src/nostr');
+    const { profileDriveProjection } = await import('/src/drive/profileDriveProjection.ts');
+    const { treeRootRegistry } = await import('/src/TreeRootRegistry');
+    const session = getCurrentNostrIdentitySession();
+    if (!session) return null;
+    const record = treeRootRegistry.get(session.profileId, 'main');
+    if (!record || record.dirty) return null;
+    const contribution = profileDriveProjection.contributionRoot(
+      session.profileId,
+      'main',
+      session.appKeyPubkey,
+    );
+    return contribution ? toHex(contribution.hash) : null;
+  });
+}
+
+async function flushAndWaitForCurrentProfileRoot(page: Page, relayUrl: string): Promise<string> {
   await flushPendingPublishes(page);
-  await waitForPublishedProfileRoot(page, relayUrl, rootHash);
-  await pushCurrentProfileRootToBlossom(page);
+  await expect.poll(
+    () => currentPublishedProfileRootHash(page),
+    { timeout: 30000, intervals: [250, 500, 1000, 2000] },
+  ).toMatch(/^[a-f0-9]{64}$/);
+  const rootHash = await currentPublishedProfileRootHash(page);
+  expect(rootHash).toMatch(/^[a-f0-9]{64}$/);
+  await waitForPublishedProfileRoot(page, relayUrl, rootHash!);
+  return rootHash!;
+}
+
+async function discardHydratedMainRootBeforeSettingsApproval(page: Page, profileId: string): Promise<void> {
+  await expectOwnerSettingsReady(page);
+  await page.evaluate(async ({ id }) => {
+    const { treeRootRegistry } = await import('/src/TreeRootRegistry');
+    const { profileDriveProjection } = await import('/src/drive/profileDriveProjection.ts');
+    treeRootRegistry.delete(id, 'main');
+    profileDriveProjection.clear(id, 'main');
+  }, { id: profileId });
+  expect(await page.evaluate(({ id }) => {
+    const roots = JSON.parse(localStorage.getItem('hashtree:localRootCache') ?? '{}');
+    return roots[`${id}/main`] ?? null;
+  }, { id: profileId })).toBeNull();
 }
 
 async function readMainFileContent(page: Page, filename: string): Promise<string | null> {
@@ -405,7 +445,7 @@ async function readMainFileContent(page: Page, filename: string): Promise<string
     const { getCurrentRootCid } = await import('/src/actions/route.ts');
     const rootCid = getCurrentRootCid();
     if (!rootCid) return null;
-    const entry = await getTree().resolvePath(rootCid, [target]).catch(() => null);
+    const entry = await getTree().resolvePath(rootCid, target.split('/').filter(Boolean)).catch(() => null);
     if (!entry?.cid || entry.type === LinkType.Dir) return null;
     const bytes = await getTree().readFile(entry.cid).catch(() => null);
     return bytes ? new TextDecoder().decode(bytes) : null;
@@ -505,7 +545,7 @@ async function expectMainFileContent(page: Page, relayUrl: string, filename: str
       () => readMainFileContent(page, filename),
       { timeout: 60000, intervals: [1000, 2000, 3000] },
     ).toBe(expected);
-    await waitForCurrentDirectoryEntries(page, [filename], 10000);
+    if (!filename.includes('/')) await waitForCurrentDirectoryEntries(page, [filename], 10000);
   } catch (error) {
     const diagnostics = await profileDriveRootDiagnostics(page, relayUrl).catch((diagnosticError) => ({
       diagnosticError: String(diagnosticError),
@@ -514,13 +554,74 @@ async function expectMainFileContent(page: Page, relayUrl: string, filename: str
   }
 }
 
+async function expectMainFileMissing(page: Page, relayUrl: string, filename: string): Promise<void> {
+  try {
+    await expect.poll(
+      () => readMainFileContent(page, filename),
+      { timeout: 60000, intervals: [500, 1000, 2000, 3000] },
+    ).toBeNull();
+  } catch (error) {
+    const diagnostics = await profileDriveRootDiagnostics(page, relayUrl).catch((diagnosticError) => ({
+      diagnosticError: String(diagnosticError),
+    }));
+    throw new Error(`${error instanceof Error ? error.message : String(error)}\nDiagnostics:\n${JSON.stringify(diagnostics, null, 2)}`);
+  }
+}
+
+async function mainFileContentsWithPrefix(page: Page, prefix: string): Promise<string[]> {
+  return page.evaluate(async (targetPrefix: string) => {
+    const { getTree, LinkType } = await import('/src/store.ts');
+    const { directoryEntriesStore } = await import('/src/stores/directoryEntries.ts');
+    let entries: Array<{
+      name: string;
+      cid: { hash: Uint8Array; key?: Uint8Array };
+      type: number;
+    }> = [];
+    const unsubscribe = directoryEntriesStore.subscribe((state) => { entries = state.entries; });
+    unsubscribe();
+    const contents: string[] = [];
+    for (const entry of entries) {
+      if (!entry.name.startsWith(targetPrefix) || entry.type === LinkType.Dir) continue;
+      const bytes = await getTree().readFile(entry.cid);
+      if (bytes) contents.push(new TextDecoder().decode(bytes));
+    }
+    return contents.sort();
+  }, prefix);
+}
+
+async function expectMainContentsWithPrefix(
+  page: Page,
+  relayUrl: string,
+  prefix: string,
+  expected: string[],
+): Promise<void> {
+  try {
+    await expect.poll(
+      () => mainFileContentsWithPrefix(page, prefix),
+      { timeout: 60000, intervals: [500, 1000, 2000, 3000] },
+    ).toEqual([...expected].sort());
+  } catch (error) {
+    const diagnostics = await profileDriveRootDiagnostics(page, relayUrl).catch((diagnosticError) => ({
+      diagnosticError: String(diagnosticError),
+    }));
+    throw new Error(`${error instanceof Error ? error.message : String(error)}\nDiagnostics:\n${JSON.stringify(diagnostics, null, 2)}`);
+  }
+}
+
+async function mutateMainWithActionsAndPublish(
+  page: Page,
+  relayUrl: string,
+  mutations: MainActionMutation[],
+): Promise<void> {
+  await applyMainActionMutations(page, mutations);
+  await flushAndWaitForCurrentProfileRoot(page, relayUrl);
+}
+
 async function expectLinkedBrowsersCanExchangeEdits(owner: Page, linked: Page, relayUrl: string): Promise<void> {
   await gotoMain(owner);
   await gotoMain(linked);
   await enableOthersPool(owner, 6);
   await enableOthersPool(linked, 6);
-  const ownerKey = await appKeyPubkey(owner);
-  const linkedKey = await appKeyPubkey(linked);
   await waitForFipsConnection(owner, 30000);
   await waitForFipsConnection(linked, 30000);
 
@@ -531,27 +632,124 @@ async function expectLinkedBrowsersCanExchangeEdits(owner: Page, linked: Page, r
   await writeMainFileAndPublish(owner, relayUrl, 'owner-browser-edit.txt', 'from owner browser');
   await gotoMain(linked);
   await expectMainFileContent(linked, relayUrl, 'owner-browser-edit.txt', 'from owner browser');
-}
 
-async function expectMainDirectoryTestFileSyncs(owner: Page, linked: Page, profileId: string, relayUrl: string): Promise<void> {
-  await gotoUserSettingsViaHeaderAvatar(owner, profileId);
-  await gotoUserSettingsViaHeaderAvatar(linked, profileId);
-  await enableOthersPool(owner, 6);
-  await enableOthersPool(linked, 6);
-  const ownerKey = await appKeyPubkey(owner);
-  const linkedKey = await appKeyPubkey(linked);
-  await waitForFipsConnection(owner, 30000);
-  await waitForFipsConnection(linked, 30000);
   await gotoMain(owner);
+  await mutateMainWithActionsAndPublish(owner, relayUrl, [{
+    type: 'write',
+    path: 'delete-across-devices.txt',
+    content: 'delete this from linked browser',
+  }]);
   await gotoMain(linked);
-
-  await writeMainFileAndPublish(owner, relayUrl, 'test.txt', 'created from owner browser');
-  await gotoMain(linked);
-  await expectMainFileContent(linked, relayUrl, 'test.txt', 'created from owner browser');
-
-  await writeMainFileAndPublish(linked, relayUrl, 'test.txt', 'edited from linked browser');
+  await expectMainFileContent(
+    linked,
+    relayUrl,
+    'delete-across-devices.txt',
+    'delete this from linked browser',
+  );
+  await mutateMainWithActionsAndPublish(linked, relayUrl, [{
+    type: 'delete',
+    path: 'delete-across-devices.txt',
+  }]);
   await gotoMain(owner);
-  await expectMainFileContent(owner, relayUrl, 'test.txt', 'edited from linked browser');
+  await expectMainFileMissing(owner, relayUrl, 'delete-across-devices.txt');
+
+  // A metadata-free merged root is what Web edits. Publishing a later,
+  // unrelated change must re-layer the linked AppKey's retained tombstone.
+  await gotoMain(linked);
+  await mutateMainWithActionsAndPublish(linked, relayUrl, [{
+    type: 'write',
+    path: 'after-delete.txt',
+    content: 'unrelated edit after delete',
+  }]);
+  await gotoMain(owner);
+  await expectMainFileMissing(owner, relayUrl, 'delete-across-devices.txt');
+  await expectMainFileContent(owner, relayUrl, 'after-delete.txt', 'unrelated edit after delete');
+
+  await gotoMain(linked);
+  await mutateMainWithActionsAndPublish(linked, relayUrl, [{
+    type: 'write',
+    path: 'delete-across-devices.txt',
+    content: 'recreated after delete',
+  }]);
+  await gotoMain(owner);
+  await expectMainFileContent(owner, relayUrl, 'delete-across-devices.txt', 'recreated after delete');
+
+  await mutateMainWithActionsAndPublish(owner, relayUrl, [{
+    type: 'write',
+    path: 'rename-source.txt',
+    content: 'rename and retain source tombstone',
+  }]);
+  await gotoMain(linked);
+  await expectMainFileContent(linked, relayUrl, 'rename-source.txt', 'rename and retain source tombstone');
+  await mutateMainWithActionsAndPublish(linked, relayUrl, [{
+    type: 'rename',
+    from: 'rename-source.txt',
+    to: 'rename-target.txt',
+  }, {
+    type: 'write',
+    path: 'after-rename.txt',
+    content: 'unrelated edit after rename',
+  }]);
+  await gotoMain(owner);
+  await expectMainFileMissing(owner, relayUrl, 'rename-source.txt');
+  await expectMainFileContent(owner, relayUrl, 'rename-target.txt', 'rename and retain source tombstone');
+
+  await mutateMainWithActionsAndPublish(owner, relayUrl, [{
+    type: 'write',
+    path: 'move-source.txt',
+    content: 'move and retain source tombstone',
+  }]);
+  await gotoMain(linked);
+  await expectMainFileContent(linked, relayUrl, 'move-source.txt', 'move and retain source tombstone');
+  await mutateMainWithActionsAndPublish(linked, relayUrl, [{
+    type: 'mkdir',
+    path: 'moved',
+  }, {
+    type: 'move',
+    path: 'move-source.txt',
+    directory: 'moved',
+  }, {
+    type: 'write',
+    path: 'after-move.txt',
+    content: 'unrelated edit after move',
+  }]);
+  await gotoMain(owner);
+  await expectMainFileMissing(owner, relayUrl, 'move-source.txt');
+  await expectMainFileContent(owner, relayUrl, 'moved/move-source.txt', 'move and retain source tombstone');
+
+  await expectProfilePathKindActionConvergence({
+    owner,
+    linked,
+    gotoMain,
+    mutateAndPublish: (page, mutations) => mutateMainWithActionsAndPublish(page, relayUrl, mutations),
+    expectFileContent: (page, path, content) => expectMainFileContent(page, relayUrl, path, content),
+  });
+
+  // Hold the linked browser's production root subscriptions at the shared
+  // baseline so the two action-layer writes are provably concurrent.
+  await gotoMain(linked);
+  const linkedResolverKey = await pauseProfileDriveRootUpdates(linked);
+  await gotoMain(owner);
+  await mutateMainWithActionsAndPublish(owner, relayUrl, [{
+    type: 'write',
+    path: 'concurrent-action.txt',
+    content: 'owner concurrent bytes',
+  }]);
+  await mutateMainWithActionsAndPublish(linked, relayUrl, [{
+    type: 'write',
+    path: 'concurrent-action.txt',
+    content: 'linked concurrent bytes',
+  }]);
+  await resumeProfileDriveRootUpdates(linked, linkedResolverKey);
+  await gotoMain(owner);
+  await expectMainContentsWithPrefix(owner, relayUrl, 'concurrent-action', [
+    'linked concurrent bytes',
+    'owner concurrent bytes',
+  ]);
+  await gotoMain(linked);
+  await expect(
+    linked.getByTestId('file-list').locator('a').filter({ hasText: 'concurrent-action' }),
+  ).toHaveCount(2, { timeout: 60000 });
 }
 
 async function createLinkedDriveBrowsers(
@@ -562,6 +760,17 @@ async function createLinkedDriveBrowsers(
   await prepareDriveInstance(ownerPage, relayUrl);
   const profileId = await createAdminDriveUser(ownerPage);
   await expectOwnerSettingsReady(ownerPage);
+  await gotoMain(ownerPage);
+  await writeMainFileAndPublish(
+    ownerPage,
+    relayUrl,
+    'before-device-link.txt',
+    'present before approval',
+  );
+  // Reproduce an owner opening Settings in a cold session: approval must first
+  // resolve the relay-published logical root instead of treating a missing
+  // in-memory/local cache record as an empty Drive.
+  await discardHydratedMainRootBeforeSettingsApproval(ownerPage, profileId);
 
   const deviceContext = await browser.newContext();
   const devicePage = await deviceContext.newPage();
@@ -570,6 +779,28 @@ async function createLinkedDriveBrowsers(
     const approvalUrl = await createDeviceApprovalRequest(devicePage);
     await approveDeviceApprovalRequest(ownerPage, approvalUrl);
     await activateApprovedDevice(devicePage, profileId);
+    await gotoMain(devicePage);
+    await expectMainFileContent(
+      devicePage,
+      relayUrl,
+      'before-device-link.txt',
+      'present before approval',
+    );
+    expect(await devicePage.evaluate(async () => {
+      const { getTree } = await import('/src/store.ts');
+      const { getCurrentRootCid } = await import('/src/actions/route.ts');
+      const root = getCurrentRootCid();
+      return root ? (await getTree().listDirectory(root)).map((entry) => entry.name) : [];
+    })).not.toContain('.hashtree');
+
+    await devicePage.reload({ waitUntil: 'domcontentloaded' });
+    await gotoMain(devicePage);
+    await expectMainFileContent(
+      devicePage,
+      relayUrl,
+      'before-device-link.txt',
+      'present before approval',
+    );
     return { deviceContext, devicePage, profileId };
   } catch (error) {
     await deviceContext.close();
@@ -579,20 +810,10 @@ async function createLinkedDriveBrowsers(
 
 test.describe('Drive user settings link device', () => {
   test('links an existing Drive user through an approval QR/link from another Drive instance', async ({ page, browser, relayUrl }) => {
-    test.setTimeout(120000);
+    test.setTimeout(300000);
     const { deviceContext, devicePage } = await createLinkedDriveBrowsers(page, browser as Browser, relayUrl);
     try {
       await expectLinkedBrowsersCanExchangeEdits(page, devicePage, relayUrl);
-    } finally {
-      await deviceContext.close();
-    }
-  });
-
-  test('syncs main test.txt creation and edits between linked browsers', async ({ page, browser, relayUrl }) => {
-    test.setTimeout(120000);
-    const { deviceContext, devicePage, profileId } = await createLinkedDriveBrowsers(page, browser as Browser, relayUrl);
-    try {
-      await expectMainDirectoryTestFileSyncs(page, devicePage, profileId, relayUrl);
     } finally {
       await deviceContext.close();
     }

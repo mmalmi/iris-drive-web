@@ -5,8 +5,10 @@ export {
   preloadAttachments,
   generateImageFilename,
   getMimeType,
+  parseAttachmentReference,
   type ImageCache,
 } from './imageAttachments';
+export { resolveYjsRouteScopes, type YjsRouteScopes } from './routeScope';
 
 export {
   loadDeltasFromEntries,

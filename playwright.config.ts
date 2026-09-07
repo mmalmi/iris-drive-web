@@ -1,5 +1,6 @@
 import { defineConfig, devices } from '@playwright/test';
 import os from 'os';
+import net from 'node:net';
 import { getPublicKey } from 'nostr-tools';
 import { BOOTSTRAP_SECKEY_HEX } from './e2e/nostr-test-keys';
 
@@ -58,6 +59,18 @@ const testBlossomUrl = process.env.PW_TEST_BLOSSOM_URL ?? 'http://127.0.0.1:1878
 process.env.PW_TEST_BLOSSOM_URL = testBlossomUrl;
 const appPort = process.env.PW_APP_PORT ?? '5173';
 const appBaseUrl = `http://localhost:${appPort}`;
+// A relay belongs to this run: shared relays may purge events mid-test.
+const relayPort = process.env.PW_RELAY_PORT ?? await new Promise<string>((resolve, reject) => {
+  const probe = net.createServer();
+  probe.once('error', reject);
+  probe.listen(0, '127.0.0.1', () => {
+    const { port } = probe.address() as net.AddressInfo;
+    probe.close((error) => error ? reject(error) : resolve(String(port)));
+  });
+});
+process.env.PW_RELAY_PORT = relayPort;
+const relayBaseUrl = `ws://localhost:${relayPort}`;
+process.env.VITE_TEST_RELAY = relayBaseUrl;
 
 /**
  * Playwright E2E test configuration.
@@ -93,27 +106,27 @@ export default defineConfig({
   webServer: [
     {
       command: 'bash e2e/htree-blossom.sh',
-      url: 'http://127.0.0.1:18780/health',
+      url: `${testBlossomUrl}/health`,
       reuseExistingServer: !process.env.CI,
       timeout: 120000,
     },
     {
       command: 'node e2e/relay/index.js',
-      url: 'http://localhost:4736',
-      reuseExistingServer: !process.env.CI,
+      url: `http://localhost:${relayPort}`,
+      reuseExistingServer: false,
       timeout: 5000,
+      env: { RELAY_PORT: relayPort, RELAY_CLEAR_EVENTS_INTERVAL_MS: '0' },
     },
     {
-      command: `pnpm exec vite --force --port ${appPort} --strictPort`,
+      command: `pnpm exec vite --port ${appPort} --strictPort`,
       url: appBaseUrl,
-      // Avoid silently reusing a non-test Vite instance (e.g. maps dev server).
-      // Fresh app server startup is slower but deterministic for E2E.
+      // Keep a fresh test server without needlessly rebuilding Vite's dependency cache.
       reuseExistingServer: false,
       timeout: 120000,
       env: {
         // Test mode: local relay, no Blossom, others pool disabled
         VITE_TEST_MODE: 'true',
-        VITE_TEST_RELAY: 'ws://localhost:4736',
+        VITE_TEST_RELAY: relayBaseUrl,
         VITE_TEST_BOOTSTRAP_PUBKEY: testBootstrapPubkey,
         CHOKIDAR_USEPOLLING: '1',
         CHOKIDAR_INTERVAL: '100',

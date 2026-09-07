@@ -2,7 +2,7 @@
  * File operations - create, save, upload files
  */
 import { LinkType, type CID } from '@hashtree/core';
-import { autosaveIfOwn } from '../nostr';
+import { autosaveIfOwn, nostrStore } from '../nostr';
 import { getTree } from '../store';
 import { markFilesChanged } from '../stores/recentlyChanged';
 import { setUploadProgress } from '../stores/upload';
@@ -10,9 +10,33 @@ import { extractArchive } from '../utils/compression';
 import { parseRoute } from '../utils/route';
 import { getCurrentRootCid, getCurrentPathFromUrl, updateRoute } from './route';
 import { initVirtualTree } from './tree';
+import { setEntryForDriveRoute } from '../drive/profileDriveRouteEntry';
+import { captureRouteWriteGuard } from '../lib/routeWriteGuard';
+
+async function setCurrentRouteEntry(
+  root: CID,
+  parentPath: string[],
+  name: string,
+  cid: CID,
+  size: number,
+  type: LinkType = LinkType.Blob,
+): Promise<CID> {
+  const tree = getTree();
+  const route = parseRoute();
+  return setEntryForDriveRoute(
+    tree,
+    root,
+    parentPath,
+    name,
+    { cid, size, type },
+    route,
+    nostrStore.getState(),
+  );
+}
 
 // Save edited file
 export async function saveFile(entryName: string | undefined, content: string): Promise<Uint8Array | null> {
+  const isCurrent = captureRouteWriteGuard();
   if (!entryName) return null;
 
   const rootCid = getCurrentRootCid();
@@ -26,7 +50,8 @@ export async function saveFile(entryName: string | undefined, content: string): 
   const { cid: fileCid, size } = await tree.putFile(data);
 
   // setEntry uses root CID and entry CID - handles encryption automatically
-  const newRootCid = await tree.setEntry(
+  if (!isCurrent()) return null;
+  const newRootCid = await setCurrentRouteEntry(
     rootCid,
     currentPath,
     entryName,
@@ -35,6 +60,7 @@ export async function saveFile(entryName: string | undefined, content: string): 
   );
 
   // Publish to nostr - resolver will pick up the update automatically
+  if (!isCurrent()) return null;
   autosaveIfOwn(newRootCid);
 
   // Mark file as recently changed for LIVE indicator
@@ -45,6 +71,7 @@ export async function saveFile(entryName: string | undefined, content: string): 
 
 // Create new file
 export async function createFile(name: string, content: string = '') {
+  const isCurrent = captureRouteWriteGuard();
   if (!name) return;
 
   const rootCid = getCurrentRootCid();
@@ -57,7 +84,8 @@ export async function createFile(name: string, content: string = '') {
 
   if (rootCid) {
     // Add to existing tree
-    const newRootCid = await tree.setEntry(
+    if (!isCurrent()) return;
+    const newRootCid = await setCurrentRouteEntry(
       rootCid,
       currentPath,
       name,
@@ -65,9 +93,11 @@ export async function createFile(name: string, content: string = '') {
       size
     );
     // Publish to nostr - resolver will pick up the update
+    if (!isCurrent()) return;
     autosaveIfOwn(newRootCid);
   } else {
     // Initialize virtual tree with this file
+    if (!isCurrent()) return;
     const result = await initVirtualTree([{ name, cid: fileCid, size }]);
     if (!result) return; // Failed to initialize
   }
@@ -81,6 +111,7 @@ export async function createFile(name: string, content: string = '') {
 
 // Upload a single file (used for "Keep as ZIP" option)
 export async function uploadSingleFile(fileName: string, data: Uint8Array): Promise<void> {
+  const isCurrent = captureRouteWriteGuard();
   const tree = getTree();
   const route = parseRoute();
   const currentPath = getCurrentPathFromUrl();
@@ -90,7 +121,8 @@ export async function uploadSingleFile(fileName: string, data: Uint8Array): Prom
   let rootCid = getCurrentRootCid();
 
   if (rootCid) {
-    const newRootCid = await tree.setEntry(
+    if (!isCurrent()) return;
+    const newRootCid = await setCurrentRouteEntry(
       rootCid,
       currentPath,
       fileName,
@@ -101,11 +133,12 @@ export async function uploadSingleFile(fileName: string, data: Uint8Array): Prom
     markFilesChanged(new Set([fileName]));
   } else if (route.npub && route.treeName) {
     // Virtual tree case - initialize and save to nostr
+    if (!isCurrent()) return;
     const result = await initVirtualTree([{ name: fileName, cid: fileCid, size, type: LinkType.Blob }]);
     if (result) {
-      rootCid = result;
       markFilesChanged(new Set([fileName]));
     }
+    return;
   } else {
     // No tree context - create new encrypted tree
     const result = await tree.putDirectory([{ name: fileName, cid: fileCid, size, type: LinkType.Blob }]);
@@ -114,6 +147,7 @@ export async function uploadSingleFile(fileName: string, data: Uint8Array): Prom
   }
 
   if (rootCid) {
+    if (!isCurrent()) return;
     autosaveIfOwn(rootCid);
   }
 }
@@ -122,6 +156,7 @@ export async function uploadSingleFile(fileName: string, data: Uint8Array): Prom
 // archiveData is the raw ZIP, archiveName is for extractArchive
 // If subdirName is provided, files will be extracted into a subdirectory with that name
 export async function uploadExtractedFiles(archiveData: Uint8Array, archiveName: string, subdirName?: string): Promise<void> {
+  let isCurrent = captureRouteWriteGuard();
   // Show extracting status
   setUploadProgress({
     current: 0,
@@ -134,6 +169,7 @@ export async function uploadExtractedFiles(archiveData: Uint8Array, archiveName:
 
   // Allow UI to update before heavy sync extraction
   await new Promise(r => setTimeout(r, 50));
+  if (!isCurrent()) return;
 
   // Extract all files at once (ZIP format requires this - sync operation)
   const extractedFiles = extractArchive(archiveData, archiveName);
@@ -165,7 +201,8 @@ export async function uploadExtractedFiles(archiveData: Uint8Array, archiveName:
 
     if (rootCid) {
       // Add subdirectory to existing tree
-      const newRootCid = await tree.setEntry(
+      if (!isCurrent()) return;
+      const newRootCid = await setCurrentRouteEntry(
         rootCid,
         currentPath,
         subdirName,
@@ -176,9 +213,12 @@ export async function uploadExtractedFiles(archiveData: Uint8Array, archiveName:
       rootCid = newRootCid;
     } else {
       // Initialize virtual tree with the subdirectory
+      if (!isCurrent()) return;
       const result = await initVirtualTree([{ name: subdirName, cid: emptyDirCid, size: 0, type: LinkType.Dir }]);
       if (result) {
         rootCid = result;
+        // Initialization intentionally selects the newly created tree.
+        isCurrent = captureRouteWriteGuard();
       }
     }
   }
@@ -215,7 +255,8 @@ export async function uploadExtractedFiles(archiveData: Uint8Array, archiveName:
     const { cid: emptyDirCid } = await tree.putDirectory([]);
 
     if (rootCid) {
-      const newRootCid = await tree.setEntry(
+      if (!isCurrent()) return;
+      const newRootCid = await setCurrentRouteEntry(
         rootCid,
         parentPath,
         dirName,
@@ -262,7 +303,8 @@ export async function uploadExtractedFiles(archiveData: Uint8Array, archiveName:
     const targetPath = pathParts.length > 0 ? [...basePath, ...pathParts] : basePath;
 
     if (rootCid) {
-      const newRootCid = await tree.setEntry(
+      if (!isCurrent()) return;
+      const newRootCid = await setCurrentRouteEntry(
         rootCid,
         targetPath,
         fileName,
@@ -279,12 +321,14 @@ export async function uploadExtractedFiles(archiveData: Uint8Array, archiveName:
 
     // Publish periodically (every 50 files) so UI updates without overwhelming
     if (rootCid && (i % 50 === 0 || i === extractedFiles.length - 1)) {
+      if (!isCurrent()) return;
       autosaveIfOwn(rootCid);
     }
   }
 
   // Final publish to ensure all files are saved
   if (rootCid) {
+    if (!isCurrent()) return;
     autosaveIfOwn(rootCid);
   }
 
