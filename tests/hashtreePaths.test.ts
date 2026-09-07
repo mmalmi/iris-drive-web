@@ -36,7 +36,7 @@ describe('hashtree path resolution', () => {
   it('requires the immutable public CLI for browser process tests', () => {
     const source = fs.readFileSync(path.join(repoRoot, 'e2e', 'htree-blossom.sh'), 'utf8');
 
-    expect(source).toContain('htree 0.2.114');
+    expect(source).toContain('htree 0.2.142');
     expect(source).not.toContain('cargo build');
     expect(source).not.toContain('HASHTREE_RUST_DIR');
     expect(source).not.toContain('resolve_rust_dir');

@@ -1,6 +1,6 @@
 {
   "name": "iris-drive-web",
-  "version": "0.1.14",
+  "version": "0.1.15",
   "license": "MIT",
   "private": true,
   "description": "Iris Drive - content-addressed file sync on Nostr",

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.15 - 2026-09-07
+
+- Upgrade to Hashtree runtime 0.5.7, which validates remote content hashes and
+  sizes before returning or caching data.
+- Pin native test and publishing tools to Hashtree CLI 0.2.142.
+
 ## 0.1.14 - 2026-09-05
 
 - Open the current native app download site from Drive setup.

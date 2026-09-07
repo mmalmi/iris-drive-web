@@ -106,7 +106,7 @@ export default defineConfig({
   webServer: [
     {
       command: 'bash e2e/htree-blossom.sh',
-      url: 'http://127.0.0.1:18780/health',
+      url: `${testBlossomUrl}/health`,
       reuseExistingServer: !process.env.CI,
       timeout: 120000,
     },
