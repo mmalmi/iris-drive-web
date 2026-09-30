@@ -167,8 +167,10 @@ test.describe('Offline Upload', () => {
     // Set up fresh user while online
     await setupFreshUser(page);
 
-    // Wait for initial connection (give relays time to connect)
-    await page.waitForTimeout(3000);
+    await page.evaluate(async () => {
+      const { settingsStore } = await import('/src/stores/settings.ts');
+      settingsStore.setPoolSettings({ showConnectivity: true });
+    });
 
     // Get initial connection count
     const indicator = page.locator('[data-testid="peer-count"]');
@@ -179,7 +181,7 @@ test.describe('Offline Upload', () => {
     expect(parseInt(initialCount || '0')).toBeGreaterThan(0);
 
     // Verify title attribute shows relay info
-    const indicatorLink = page.locator('a[href="#/settings"]');
+    const indicatorLink = page.getByTestId('connectivity-indicator');
     const title = await indicatorLink.getAttribute('title');
     console.log(`Indicator title: ${title}`);
     expect(title).toContain('relay');
@@ -193,8 +195,10 @@ test.describe('Offline Upload', () => {
     // Set up fresh user while online
     await setupFreshUser(page);
 
-    // Wait for initial connection
-    await page.waitForTimeout(2000);
+    await page.evaluate(async () => {
+      const { settingsStore } = await import('/src/stores/settings.ts');
+      settingsStore.setPoolSettings({ showConnectivity: true });
+    });
 
     // "offline" text should NOT be visible when online
     const offlineText = page.getByText('offline', { exact: true });
@@ -211,7 +215,7 @@ test.describe('Offline Upload', () => {
     await expect(offlineText).toBeVisible({ timeout: 5000 });
     console.log('Offline text visible');
 
-    // Connection count should NOT change to 0 (NDK still reports cached state)
+    // The indicator remains present while reconnecting.
     const indicator = page.locator('[data-testid="peer-count"]');
     const count = await indicator.textContent();
     console.log(`Connection count while offline: ${count}`);

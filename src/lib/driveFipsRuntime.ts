@@ -1,11 +1,12 @@
+import type { NostrEventReader, RuntimeSource } from 'nostr-pubsub';
 import { DexieStore } from '@hashtree/dexie';
 import { BLOB_DEFAULT_HTL } from '@hashtree/core';
 import {
   DEFAULT_FIPS_DISCOVERY_APP,
 } from '@hashtree/fips-transport';
 import {
-  createBrowserHashtreeFipsProvider,
-  type BrowserHashtreeFipsProvider,
+  createBrowserHashtreeNostrProvider,
+  type BrowserHashtreeNostrProvider,
 } from '@hashtree/fips-transport/browser';
 import type { FipsBlobRoute } from '@hashtree/fips-transport/worker';
 import {
@@ -48,6 +49,7 @@ export interface DriveFipsRuntimeOptions {
   requestTimeoutMs?: number;
   authorizedAppKeyPubkeys: DriveFipsAuthorizedAppKeySource;
   log?: boolean;
+  retainedEventReader?: NostrEventReader;
 }
 
 export interface DriveFipsPeerStats {
@@ -213,7 +215,7 @@ export class DriveFipsRuntime {
   private readonly options: DriveFipsRuntimeOptions;
   private readonly discoveryScope: string;
   private readonly relays: string[];
-  private provider: BrowserHashtreeFipsProvider | null = null;
+  private provider: BrowserHashtreeNostrProvider | null = null;
   private localStore: DexieStore | null = null;
   private localIdentity: FipsIdentity | null = null;
   private peerPolicy: DriveFipsPeerPolicy | null = null;
@@ -244,11 +246,13 @@ export class DriveFipsRuntime {
     );
     const storeName = this.options.storeName ?? 'hashtree-worker';
     const localStore = new DexieStore(storeName);
-    let provider: BrowserHashtreeFipsProvider;
+    let provider: BrowserHashtreeNostrProvider;
     try {
-      provider = await createBrowserHashtreeFipsProvider({
+      provider = await createBrowserHashtreeNostrProvider({
         identity,
         localStore,
+        nostrPeers: () => this.getStats().connectedPeerIds,
+        retainedEventReader: this.options.retainedEventReader,
         discoveryApp: this.discoveryScope,
         forwarding: true,
         logger: createLogger(this.options.log === true, 'drive-fips:node'),
@@ -314,12 +318,14 @@ export class DriveFipsRuntime {
     }
   }
 
-  getP2PProvider(): BrowserHashtreeFipsProvider {
+  getP2PProvider(): BrowserHashtreeNostrProvider {
     if (!this.provider) {
       throw new Error('drive FIPS runtime is not active');
     }
     return this.provider;
   }
+
+  getNostrSource(): RuntimeSource { return this.getP2PProvider().nostrSource; }
 
   getStats(): DriveFipsRuntimeStats {
     const identity = this.localIdentity;
@@ -345,6 +351,7 @@ export class DriveFipsRuntime {
     if (!remotePubkey) return;
     if (!this.peerPolicy || !await this.peerPolicy.allowsPeer(remotePubkey)) {
       this.peerStats.delete(remotePubkey);
+      this.provider?.refreshNostrPeers();
       if (event.state === 'connected') {
         await this.provider?.webRtcTransport.close?.({
           transport: 'webrtc',
@@ -356,6 +363,7 @@ export class DriveFipsRuntime {
     const stats = this.ensurePeerStats(remotePubkey);
     stats.connected = event.state === 'connected';
     stats.lastStateAt = Date.now();
+    this.provider?.refreshNostrPeers();
   }
 
   private async retireUnauthorizedPeers(): Promise<void> {
@@ -365,6 +373,7 @@ export class DriveFipsRuntime {
     for (const peerId of [...this.peerStats.keys()]) {
       if (await policy.allowsPeer(peerId)) continue;
       this.peerStats.delete(peerId);
+      this.provider?.refreshNostrPeers();
       await transport.close?.({ transport: 'webrtc', addr: peerId }).catch(() => undefined);
     }
   }

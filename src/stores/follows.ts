@@ -4,10 +4,10 @@
  */
 import { writable } from 'svelte/store';
 import { nip19 } from 'nostr-tools';
-import { NDKEvent } from 'ndk';
+import type { Event as NostrEvent } from 'nostr-tools';
 import { LRUCache } from '../utils/lruCache';
 import { KeyedEventEmitter } from '../utils/keyedEventEmitter';
-import { ndk, nostrStore } from '../nostr';
+import { nostr, nostrStore } from '../nostr';
 
 export interface Follows {
   pubkey: string;
@@ -26,8 +26,7 @@ const activeSubscriptions = new Map<string, { stop: () => void }>();
 
 /**
  * Subscribe to follows (kept open for live updates).
- * NOTE: Main thread NDK has no relay connections - use subscribe() which
- * works via NDK's internal relay pool, not fetchEvents() which hangs forever.
+ * Subscriptions use the shared worker, including its persistent event index.
  */
 function fetchFollows(pubkey: string): void {
   if (!pubkey || pubkey.length !== 64) {
@@ -41,12 +40,12 @@ function fetchFollows(pubkey: string): void {
   // Track latest event timestamp to only process newer events
   let latestTimestamp = 0;
 
-  const sub = ndk.subscribe(
+  const sub = nostr.subscribe(
     { kinds: [3], authors: [pubkey] },
-    { closeOnEose: false } // Keep open for live updates
+    { closeAfterHistory: false } // Keep open for live updates
   );
 
-  sub.on('event', (event: NDKEvent) => {
+  sub.on('event', (event: NostrEvent) => {
     const eventTime = event.created_at || 0;
 
     // Only process if newer than what we have
@@ -136,7 +135,7 @@ export function getFollowsSync(pubkey?: string): Follows | undefined {
  */
 export async function followPubkey(targetPubkey: string): Promise<boolean> {
   const pk = nostrStore.getState().pubkey;
-  if (!pk || !ndk.signer) return false;
+  if (!pk || !nostr.signer) return false;
 
   // Get current follows
   let currentFollows = followsCache.get(pk);
@@ -157,7 +156,7 @@ export async function followPubkey(targetPubkey: string): Promise<boolean> {
  */
 export async function unfollowPubkey(targetPubkey: string): Promise<boolean> {
   const pk = nostrStore.getState().pubkey;
-  if (!pk || !ndk.signer) return false;
+  if (!pk || !nostr.signer) return false;
 
   // Get current follows
   let currentFollows = followsCache.get(pk);
@@ -178,7 +177,7 @@ let lastFollowTimestamp = 0;
 
 async function publishFollowList(pk: string, follows: string[]): Promise<boolean> {
   try {
-    const event = new NDKEvent(ndk);
+    const event = { kind: 0, created_at: Math.floor(Date.now() / 1000), content: '', tags: [] as string[][] };
     event.kind = 3;
     event.content = '';
     event.tags = follows.map(p => ['p', p]);
@@ -188,7 +187,7 @@ async function publishFollowList(pk: string, follows: string[]): Promise<boolean
     event.created_at = Math.max(now, lastFollowTimestamp + 1);
     lastFollowTimestamp = event.created_at;
 
-    await event.publish();
+    await nostr.publishEvent(event);
 
     // Update cache
     const newFollows: Follows = {

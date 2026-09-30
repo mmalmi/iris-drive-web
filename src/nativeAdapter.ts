@@ -1,3 +1,4 @@
+import type { Filter } from 'nostr-tools';
 import {
   BlossomStore,
   cid,
@@ -14,15 +15,10 @@ import {
   type WorkerSignedEvent,
   type WorkerSocialGraphEvent as SocialGraphEvent,
 } from '@hashtree/core';
-import type { NDKEvent, NDKFilter } from 'ndk';
-import { NDKSubscriptionCacheUsage } from 'ndk';
+import { createNostrRuntime, type NostrRuntime, type RuntimePublishResult, type RuntimeQueryOptions } from 'nostr-pubsub';
+import type { HistoryStatus } from '@iris/hashtree-app/nostr';
 import type { TreeRootInfo } from '@hashtree/worker/relay-client';
-import {
-  configureNdkRelays,
-  disconnectNdkRelays,
-  getNdkRelayStats,
-  ndk,
-} from './nostr/ndk';
+import { getEffectiveNostrRelayUrls } from './nostr/client';
 import { getRuntimeHtreeServerUrl } from './lib/htreeRuntime';
 import { syncNativeTreeRootCache } from './lib/nativeTreeRootCache';
 import { treeRootRegistry } from './TreeRootRegistry';
@@ -49,6 +45,7 @@ import {
 
 export class NativeBackendAdapter implements BackendAdapter {
   private readonly serverUrl: string;
+  private readonly runtime: NostrRuntime;
   private identity: WorkerInitIdentity;
   private relays: string[];
   private blossomServers: WorkerBlossomServerConfig[];
@@ -69,13 +66,14 @@ export class NativeBackendAdapter implements BackendAdapter {
 
   constructor(serverUrl: string, config: RelayConfig) {
     this.serverUrl = normalizeServerUrl(serverUrl);
+    this.runtime = createNostrRuntime({ relays: getEffectiveNostrRelayUrls(config.relays) });
     this.identity = { pubkey: config.pubkey, nsec: config.nsec };
     this.relays = Array.isArray(config.relays) ? [...config.relays] : [];
     this.blossomServers = Array.isArray(config.blossomServers) ? [...config.blossomServers] : [];
   }
 
   async init(): Promise<void> {
-    await configureNdkRelays(this.relays);
+    this.runtime.setRelays(getEffectiveNostrRelayUrls(this.relays));
   }
 
   onBlossomProgress(callback: (progress: WorkerBlossomUploadProgress) => void): void {
@@ -154,7 +152,7 @@ export class NativeBackendAdapter implements BackendAdapter {
   ): BlossomStore {
     return new BlossomStore({
       servers: this.blossomServers,
-      signer: async (event) => await import('./nostr/ndk').then(({ signEvent }) => signEvent(event as Parameters<typeof signEvent>[0])) as BlossomAuthEvent,
+      signer: async (event) => await import('./nostr/client').then(({ signEvent }) => signEvent(event as Parameters<typeof signEvent>[0])) as BlossomAuthEvent,
       onUploadProgress,
       logger: (entry) => {
         if (entry.operation === 'put' && entry.success) {
@@ -374,35 +372,31 @@ export class NativeBackendAdapter implements BackendAdapter {
   subscribe(
     filters: WorkerNostrFilter[],
     callback?: (event: WorkerSignedEvent) => void,
-    eose?: () => void
+    history?: (status?: HistoryStatus) => void,
   ): string {
-    const subId = `native-sub-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    const sub = ndk.subscribe(filters as unknown as NDKFilter[], {
-      closeOnEose: false,
-      cacheUsage: NDKSubscriptionCacheUsage.ONLY_RELAY,
-    });
-    sub.on('event', (event: NDKEvent) => {
-      const rawEvent = event.rawEvent() as WorkerSignedEvent;
-      this.globalEventCallback?.(rawEvent);
-      callback?.(rawEvent);
-    });
-    sub.on('eose', () => {
-      eose?.();
+    const subId = crypto.randomUUID();
+    const sub = this.runtime.subscribe(filters as Filter[], {
+      onEvent: event => {
+        this.globalEventCallback?.(event);
+        callback?.(event);
+      },
+      onEose: status => history?.(status),
     });
     this.subscriptions.set(subId, { sub });
     return subId;
   }
 
+  queryEvents(filters: Filter[], options: RuntimeQueryOptions = {}) {
+    return this.runtime.query(filters, options);
+  }
+
   unsubscribe(subId: string): void {
-    const existing = this.subscriptions.get(subId);
-    if (!existing) return;
-    existing.sub.stop();
+    this.subscriptions.get(subId)?.sub.close();
     this.subscriptions.delete(subId);
   }
 
-  async publish(event: WorkerSignedEvent): Promise<void> {
-    const ndkEvent = new (await import('ndk')).NDKEvent(ndk, event);
-    await ndkEvent.publish();
+  async publish(event: WorkerSignedEvent): Promise<RuntimePublishResult> {
+    return this.runtime.publish(event);
   }
 
   async getPeerStats(): Promise<WorkerPeerStats[]> {
@@ -410,7 +404,7 @@ export class NativeBackendAdapter implements BackendAdapter {
   }
 
   async getRelayStats(): Promise<WorkerRelayStats[]> {
-    return getNdkRelayStats();
+    return this.runtime.getRelayStats().map(relay => ({ ...relay, eventsReceived: 0, eventsSent: 0 }));
   }
 
   async getStorageStats(): Promise<{ items: number; bytes: number }> {
@@ -436,7 +430,7 @@ export class NativeBackendAdapter implements BackendAdapter {
 
   async setRelays(relays: string[]): Promise<void> {
     this.relays = [...relays];
-    await configureNdkRelays(this.relays);
+    this.runtime.setRelays(getEffectiveNostrRelayUrls(this.relays));
   }
 
   async setTreeRootCache(
@@ -554,14 +548,14 @@ export class NativeBackendAdapter implements BackendAdapter {
 
   close(): void {
     for (const { sub } of this.subscriptions.values()) {
-      sub.stop();
+      sub.close();
     }
     this.subscriptions.clear();
     for (const subscription of this.followsSubscriptions.values()) {
       subscription.destroy();
     }
     this.followsSubscriptions.clear();
-    disconnectNdkRelays();
+    void this.runtime.close();
     this.globalEventCallback = null;
     this.blossomProgressCallback = null;
     this.blossomBandwidthCallback = null;

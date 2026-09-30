@@ -9,7 +9,7 @@ import {
   type TreeVisibility,
 } from '@hashtree/core';
 import { nostrStore } from './store';
-import { ndk } from './ndk';
+import { nostr } from './client';
 import { updateLocalRootCache } from '../treeRootCache';
 import { parseRoute } from '../utils/route';
 import { getRefResolver } from '../refResolver';
@@ -197,7 +197,7 @@ export function autosaveIfOwn(rootCid: CID): void {
  */
 export async function publishTreeRoot(treeName: string, rootCid: CID, cachedVisibility?: TreeVisibility): Promise<boolean> {
   const state = nostrStore.getState();
-  if (!state.pubkey || !ndk.signer) return false;
+  if (!state.pubkey || !nostr.signer) return false;
   const selectedTreeLabels = state.selectedTree?.name === treeName && state.selectedTree.pubkey === state.pubkey
     ? state.selectedTree.labels
     : undefined;

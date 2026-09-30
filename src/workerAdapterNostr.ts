@@ -1,3 +1,4 @@
+import type { RuntimePublishResult, RuntimeQueryOptions, RuntimeQueryResult, NostrFilter as PubsubFilter } from 'nostr-pubsub';
 import {
   generateRequestId,
   type WorkerNostrFilter as NostrFilter,
@@ -47,7 +48,7 @@ export class WorkerAdapterNostr extends WorkerAdapterStorage {
 
   /**
    * Set global event callback - called for ALL events from ALL subscriptions.
-   * Used with ndk.subManager.dispatchEvent pattern.
+   * Available for application event observers.
    */
   onEvent(callback: (event: SignedEvent) => void): void {
     this.globalEventCallback = callback;
@@ -63,7 +64,7 @@ export class WorkerAdapterNostr extends WorkerAdapterStorage {
     eose?: EoseCallback
   ): string {
     const subId = generateRequestId();
-    this.subscriptions.set(subId, { callback, eose });
+    this.subscriptions.set(subId, { filters: structuredClone(filters), callback, eose });
     this.postMessage({ type: 'subscribe', id: subId, filters });
     return subId;
   }
@@ -73,17 +74,32 @@ export class WorkerAdapterNostr extends WorkerAdapterStorage {
     this.postMessage({ type: 'unsubscribe', id: generateRequestId(), subId });
   }
 
-  async publish(event: SignedEvent): Promise<void> {
-    if (!isValidSignedNostrEvent(event)) {
-      throw new Error('Worker publication requires a valid signed Nostr event');
-    }
+  async queryEvents(filters: PubsubFilter[], options: RuntimeQueryOptions = {}): Promise<RuntimeQueryResult> {
+    const { signal, ...wireOptions } = options;
+    if (signal?.aborted) throw new DOMException('Query cancelled', 'AbortError');
     const id = generateRequestId();
-    const response = await this.request<{ error?: string }>({
+    const cancel = () => this.postMessage({ type: 'cancelNostrQuery', requestId: id });
+    signal?.addEventListener('abort', cancel, { once: true });
+    try {
+      const response = await this.request<{ result?: RuntimeQueryResult; error?: string }>({
+        type: 'query', id, filters, options: wireOptions,
+      });
+      if (signal?.aborted) throw new DOMException('Query cancelled', 'AbortError');
+      if (response.error || !response.result) throw new Error(response.error ?? 'Missing query result');
+      return response.result;
+    } finally { signal?.removeEventListener('abort', cancel); }
+  }
+
+  async publish(event: SignedEvent): Promise<RuntimePublishResult | undefined> {
+    if (!isValidSignedNostrEvent(event)) throw new Error('Worker publication requires a valid signed Nostr event');
+    const id = generateRequestId();
+    const response = await this.request<{ error?: string; receipt?: RuntimePublishResult }>({
       type: 'publish',
       id,
       event,
     });
     if (response.error) throw new Error(response.error);
+    return response.receipt;
   }
 
   // ============================================================================
@@ -248,28 +264,4 @@ export class WorkerAdapterNostr extends WorkerAdapterStorage {
   }
 
   // ============================================================================
-}
-
-export interface WorkerNostrSubscriptionLifecycle {
-  on(event: 'close', listener: () => void): unknown;
-}
-
-/**
- * Attach the worker as an opportunistic event source, never as a snapshot
- * authority. Its local NDK cache can omit signatures, so forwarding its EOSE
- * would allow a verified main-thread query to finish empty before the direct
- * relay delivers the signed copy.
- */
-export function attachNonAuthoritativeWorkerNostrSubscription(
-  adapter: Pick<WorkerAdapterNostr, 'subscribe' | 'unsubscribe'>,
-  subscription: WorkerNostrSubscriptionLifecycle,
-  filters: NostrFilter[],
-  onDetached?: () => void,
-): string {
-  const subId = adapter.subscribe(filters);
-  subscription.on('close', () => {
-    adapter.unsubscribe(subId);
-    onDetached?.();
-  });
-  return subId;
 }

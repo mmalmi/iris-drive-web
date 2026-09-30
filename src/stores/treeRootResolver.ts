@@ -1,6 +1,6 @@
 import { get } from 'svelte/store';
 import { toHex, type Hash, type RefResolverSubscriptionMetadata, type SubscribeVisibilityInfo, type TreeVisibility } from '@hashtree/core';
-import { NDKEvent, type NDKFilter, type NDKSubscriptionOptions, NDKSubscriptionCacheUsage } from 'ndk';
+import type { Event, Filter } from 'nostr-tools';
 import type { Event as NostrToolsEvent } from 'nostr-tools';
 import { routeStore } from './route';
 import { getRefResolver, getResolverKey } from '../refResolver';
@@ -27,7 +27,7 @@ import { shouldWaitForLinkVisibleMetadata } from '../lib/treeRootRoutePolicy';
 import {
   getCurrentNostrIdentitySession,
   getSecretKey,
-  ndk,
+  nostr,
   useNostrStore,
   type NostrState,
 } from '../nostr';
@@ -382,8 +382,8 @@ async function rebuildDriveRootProjection(
   }
 }
 
-function rawNdkEvent(event: NDKEvent): NostrToolsEvent | null {
-  const rawEvent = event.rawEvent() as Partial<NostrToolsEvent>;
+function rawSignedEvent(event: Event): NostrToolsEvent | null {
+  const rawEvent = event as Partial<NostrToolsEvent>;
   if (!rawEvent.id || !rawEvent.sig || !rawEvent.pubkey || !rawEvent.tags || typeof rawEvent.kind !== 'number') {
     return null;
   }
@@ -404,10 +404,10 @@ async function backfillDriveRootScope(
     driveId,
     initial.authorization.appKeys,
   );
-  const events = filters.length > 0 ? await ndk.fetchEvents(filters) : new Set<NDKEvent>();
+  const events = filters.length > 0 ? await nostr.fetchEvents(filters) : new Set<Event>();
   let accepted = false;
   for (const event of events) {
-    const rawEvent = rawNdkEvent(event);
+    const rawEvent = rawSignedEvent(event);
     if (rawEvent) {
       accepted = applyDriveRootEvent(key, rootScopeId, driveId, rawEvent, { rebuild: false }) || accepted;
     }
@@ -578,19 +578,19 @@ export async function resolveDriveRootProjectionNow(
 }
 
 function subscribeToDriveRootScope(key: string, rootScopeId: string, driveId: string): () => void {
-  const filter: NDKFilter = {
+  const filter: Filter = {
     kinds: [KIND_DRIVE_ROOT],
     '#d': [driveRootDTag(rootScopeId, driveId)],
   };
-  const opts: NDKSubscriptionOptions = {
-    closeOnEose: false,
-    cacheUsage: NDKSubscriptionCacheUsage.ONLY_RELAY,
+  const opts = {
+    closeAfterHistory: false,
+
   };
 
   const attachSub = () => {
-    const sub = ndk.subscribe(filter, opts);
-    sub.on('event', (event: NDKEvent) => {
-      const rawEvent = rawNdkEvent(event);
+    const sub = nostr.subscribe(filter, opts);
+    sub.on('event', (event: Event) => {
+      const rawEvent = rawSignedEvent(event);
       if (rawEvent) void applyDriveRootEvent(key, rootScopeId, driveId, rawEvent);
     });
     return sub;
@@ -629,7 +629,7 @@ function subscribeToDriveRootScope(key: string, rootScopeId: string, driveId: st
 
 /**
  * Start the resolver subscription after worker is ready
- * This is called asynchronously to ensure NDK transport plugin is registered
+ * This is called asynchronously after the worker event backend is ready
  */
 async function startResolverSubscription(
   key: string,

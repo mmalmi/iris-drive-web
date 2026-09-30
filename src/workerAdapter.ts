@@ -8,13 +8,16 @@ import type {
   WorkerBlossomBandwidthStats as BlossomBandwidthStats,
   WorkerBlossomUploadProgress as BlossomUploadProgress,
 } from '@hashtree/core';
+import { nostr } from './nostr/client';
 import { WorkerAdapterSocial } from './workerAdapterSocial';
 import type { WorkerAdapterConfig, WorkerConstructor } from './workerAdapterCore';
 
 export class WorkerAdapter extends WorkerAdapterSocial {}
 
-export type BackendAdapter = Omit<WorkerAdapter, 'setP2PProvider' | 'onIdentityChange'> & {
+export type BackendAdapter = Omit<WorkerAdapter, 'setP2PProvider' | 'setNostrSource' | 'queryEvents' | 'onIdentityChange'> & {
   setP2PProvider?: WorkerAdapter['setP2PProvider'];
+  setNostrSource?: WorkerAdapter['setNostrSource'];
+  queryEvents?: WorkerAdapter['queryEvents'];
   onIdentityChange?: WorkerAdapter['onIdentityChange'];
 };
 
@@ -59,6 +62,7 @@ export async function initWorkerAdapter(
 }
 
 export function closeWorkerAdapter(): void {
+  nostr.setBackend(undefined);
   if (instance) {
     instance.setP2PProvider?.(null);
     instance.close();

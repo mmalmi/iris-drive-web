@@ -10,7 +10,7 @@ import {
   type WorkerBlossomServerConfig,
   type WorkerDirEntry,
 } from '@hashtree/core';
-import type { NDKSubscription } from 'ndk';
+import type { RuntimeSubscription } from 'nostr-pubsub';
 
 export type RelayConfig = {
   relays: string[];
@@ -42,7 +42,7 @@ export type ResolveRootResponse = {
 };
 
 export type SubscriptionRecord = {
-  sub: NDKSubscription;
+  sub: RuntimeSubscription;
 };
 
 export type FollowsSubscription = {

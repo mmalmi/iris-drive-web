@@ -5,10 +5,9 @@
  * to merkle root hashes (refs), with subscription support for live updates.
  */
 import { nip19 } from 'nostr-tools';
-import { NDKEvent, type NDKFilter, type NDKSubscriptionOptions, NDKSubscriptionCacheUsage } from 'ndk';
 import { fromHex, toHex, type RefResolver } from '@hashtree/core';
 import { HASHTREE_ROOT_KIND, createNostrRefResolver, type NostrFilter, type NostrEvent, type VisibilityCallbacks } from '@hashtree/nostr';
-import { ndk, useNostrStore, encrypt, decrypt, type NostrState } from './nostr';
+import { decrypt, encrypt, nostr, useNostrStore, type NostrState } from './nostr';
 import { parseRoute } from './utils/route';
 import { cacheTreeEventSnapshot } from './lib/treeEventSnapshots';
 
@@ -63,26 +62,21 @@ export function getRefResolver(): RefResolver {
 
   const resolver = createNostrRefResolver({
       subscribe: (filter: NostrFilter, onEvent: (event: NostrEvent) => void) => {
-        const ndkFilter: NDKFilter = {
+        const eventFilter: NostrFilter = {
           kinds: filter.kinds,
           authors: filter.authors,
         };
         if (filter['#d']) {
-          ndkFilter['#d'] = filter['#d'];
+          eventFilter['#d'] = filter['#d'];
         }
         if (filter['#l']) {
-          ndkFilter['#l'] = filter['#l'];
+          eventFilter['#l'] = filter['#l'];
         }
-        const opts: NDKSubscriptionOptions = {
-          closeOnEose: false,
-          // Use ONLY_RELAY to ensure we get fresh data, not stale cache
-          // CACHE_FIRST can return outdated tree roots after updates
-          cacheUsage: NDKSubscriptionCacheUsage.ONLY_RELAY,
-        };
+        const opts = { closeAfterHistory: false };
 
         const attachSub = () => {
-          const sub = ndk.subscribe(ndkFilter, opts);
-          sub.on('event', (e: NDKEvent) => {
+          const sub = nostr.subscribe(eventFilter as import('nostr-tools').Filter, opts);
+          sub.on('event', (e: NostrEvent) => {
             onEvent({
               id: e.id,
               pubkey: e.pubkey,
@@ -95,7 +89,7 @@ export function getRefResolver(): RefResolver {
           return sub;
         };
 
-        // Subscribe immediately - worker NDK handles relay connections
+        // Subscribe immediately - worker owns relay connections
         let sub = attachSub();
         let lastConnectedRelays = useNostrStore.getState().connectedRelays;
         const relayUnsub = useNostrStore.subscribe((state: NostrState) => {
@@ -117,19 +111,8 @@ export function getRefResolver(): RefResolver {
       },
       publish: async (event) => {
         try {
-          const ndkEvent = new NDKEvent(ndk);
-          ndkEvent.kind = event.kind;
-          ndkEvent.content = event.content;
-          ndkEvent.tags = event.tags;
-          // Pass through created_at if set (important for delete events to have higher timestamp)
-          if (event.created_at) {
-            ndkEvent.created_at = event.created_at;
-          }
-          await ndkEvent.sign();
-          const rawEvent = ndkEvent.rawEvent() as NostrEvent & { sig?: string };
-          void ndkEvent.publish().catch((error) => {
-            console.warn('[refResolver] Background publish failed', error);
-          });
+          const rawEvent = await nostr.signEvent(event);
+          await nostr.publish(rawEvent);
           if (rawEvent.sig) {
             await cacheTreeEventSnapshot({
               id: rawEvent.id ?? '',

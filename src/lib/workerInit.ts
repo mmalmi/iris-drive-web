@@ -1,3 +1,4 @@
+import { localIndexSource, verifyNostrEvent } from 'nostr-pubsub';
 /**
  * Backend Initialization
  *
@@ -19,7 +20,7 @@ import {
 import { refreshFipsStats, setBlossomBandwidth } from '../store';
 import { get } from 'svelte/store';
 import { setupVersionCallback } from '../utils/socialGraph';
-import { configureNdkRelays, ndk } from '../nostr/ndk';
+import { nostr } from '../nostr/client';
 import { initRelayTracking } from '../nostr/relays';
 import { getAppType } from '../appType';
 import { logHtreeDebug } from './htreeDebug';
@@ -28,12 +29,7 @@ import { getEffectiveBlossomServers, getEffectiveNostrRelays } from './runtimeNe
 import { setupTreeRootRegistryBridge } from './workerTreeRootBridge';
 import { initializePublishFn } from '../treeRootCache';
 import { setupMediaStreaming } from './mediaStreamingSetup';
-import {
-  NDKSubscriptionCacheUsage,
-  type NDKFilter,
-  type NDKSubscription,
-} from 'ndk';
-import type { WorkerNostrFilter, WorkerSignedEvent } from '@hashtree/core';
+import type { WorkerNostrFilter } from '@hashtree/core';
 import {
   attachDriveFipsProvider,
   startDriveFipsRuntime,
@@ -45,10 +41,6 @@ import {
   type ResolvedDriveFipsIdentity,
 } from './driveFipsIdentity';
 import { accountsStore } from '../accounts';
-import {
-  attachNonAuthoritativeWorkerNostrSubscription,
-  isValidSignedNostrEvent,
-} from '../workerAdapterNostr';
 
 const isTestMode = !!import.meta.env.VITE_TEST_MODE;
 
@@ -86,7 +78,6 @@ let fipsSyncVersion = 0;
 let fipsSyncTail: Promise<void> = Promise.resolve();
 let fipsRetryTimer: ReturnType<typeof setTimeout> | null = null;
 let fipsRetryDelayMs = 1_000;
-const workerSubscriptionIds = new WeakMap<object, string>();
 
 function clearFipsRetry(): void {
   if (fipsRetryTimer) clearTimeout(fipsRetryTimer);
@@ -117,6 +108,7 @@ function startFipsForAdapter(
 
     fipsRuntimeReadyFor = null;
     adapter.setP2PProvider?.(null);
+    await adapter.setNostrSource?.(null);
     await stopDriveFipsRuntime();
     if (version !== fipsSyncVersion || getWorkerAdapter() !== adapter) return;
     if (!identity) {
@@ -132,6 +124,14 @@ function startFipsForAdapter(
         deviceSecretKey: identity.deviceSecretKey,
         profileId: identity.profileId,
         authorizedAppKeyPubkeys,
+        retainedEventReader: {
+          query: async (filters, options) => {
+            const report = await adapter.queryEvents?.(filters, { ...options, cache: 'cache-only', relays: [], sources: [] });
+            return { complete: report?.complete ?? false, events: (report?.events ?? []).map(event => ({
+              event: verifyNostrEvent(event), source: localIndexSource('drive-cache'), priority: 0,
+            })) };
+          },
+        },
         log: isTestMode,
       });
       if (version !== fipsSyncVersion || getWorkerAdapter() !== adapter) {
@@ -139,6 +139,7 @@ function startFipsForAdapter(
         return;
       }
       attachDriveFipsProvider(adapter, runtime);
+      await adapter.setNostrSource?.(runtime.getNostrSource());
       fipsActiveKey = desiredKey;
       fipsRuntimeReadyFor = adapter;
       fipsRetryDelayMs = 1_000;
@@ -146,6 +147,7 @@ function startFipsForAdapter(
     } catch (error) {
       if (version !== fipsSyncVersion) return;
       adapter.setP2PProvider?.(null);
+      await adapter.setNostrSource?.(null);
       await stopDriveFipsRuntime().catch(() => undefined);
       fipsDesiredKey = '';
       console.warn('[WorkerInit] FIPS runtime failed to start:', error);
@@ -231,9 +233,6 @@ function syncRelays(): void {
 
   console.log('[WorkerInit] Syncing relays to worker:', relays.length, 'relays');
   (adapter as { setRelays: (relays: string[]) => void }).setRelays(relays);
-  void configureNdkRelays(relays, isTestMode ? 5000 : 3000).catch((error) => {
-    console.warn('[WorkerInit] Failed to sync relays to main NDK:', error);
-  });
   if (fipsStoreName) {
     void startFipsForAdapter(adapter, relays, fipsStoreName, fipsIdentity);
   }
@@ -398,64 +397,12 @@ export async function initHashtreeBackend(identity: WorkerInitIdentity): Promise
             fipsIdentity,
           );
 
-          // Set up event dispatch from worker to NDK subscriptions
-          adapter.onEvent((event: WorkerSignedEvent) => {
-            if (!isValidSignedNostrEvent(event)) {
-              console.warn('[WorkerInit] Ignoring unsigned or invalid worker-cache Nostr event');
-              return;
-            }
-            ndk.subManager.dispatchEvent(event as Parameters<typeof ndk.subManager.dispatchEvent>[0], undefined, false);
-          });
-
-          const attachWorkerSubscription = (subscription: NDKSubscription, filters: NDKFilter[]) => {
-            // A relay-only security snapshot must not be preempted by the
-            // worker's local NDK cache. That cache intentionally omits event
-            // signatures, and NDK de-duplicates the later signed relay copy.
-            if (subscription.opts.cacheUsage === NDKSubscriptionCacheUsage.ONLY_RELAY) return;
-            if (workerSubscriptionIds.has(subscription)) return;
-            const subId = attachNonAuthoritativeWorkerNostrSubscription(
-              adapter,
-              subscription,
-              filters as unknown as WorkerNostrFilter[],
-              () => {
-                workerSubscriptionIds.delete(subscription);
-              },
-            );
-            workerSubscriptionIds.set(subscription, subId);
-          };
-
-          ndk.transportPlugins.push({
-            name: 'worker',
-            onPublish: async (event) => {
-              try {
-                await adapter.publish({
-                  id: event.id!,
-                  pubkey: event.pubkey,
-                  kind: event.kind!,
-                  content: event.content,
-                  tags: event.tags,
-                  created_at: event.created_at!,
-                  sig: event.sig!,
-                });
-              } catch (err) {
-                console.warn('[WorkerInit] Publish failed:', err);
-              }
-            },
-            onSubscribe: (subscription, filters) => {
-              attachWorkerSubscription(subscription, filters);
-            },
-          });
-          console.log('[WorkerInit] Registered worker transport plugin for NDK');
-
-          let attachedCount = 0;
-          for (const subscription of ndk.subManager.subscriptions.values()) {
-            attachWorkerSubscription(subscription, subscription.filters);
-            attachedCount += 1;
-          }
-          if (attachedCount > 0) {
-            console.log('[WorkerInit] Attached existing NDK subscriptions to worker:', attachedCount);
-          }
         }
+        nostr.setBackend({
+          subscribe: (filters, onEvent, onHistory) => adapter!.subscribe(filters as WorkerNostrFilter[], onEvent, onHistory),
+          unsubscribe: id => adapter!.unsubscribe(id),
+          publish: event => adapter!.publish(event),
+        });
 
         // Signal that the backend is ready for tree root subscriptions
         import('../stores/treeRoot').then(({ signalWorkerReady }) => {

@@ -3,7 +3,7 @@
   import { settingsStore, DEFAULT_NETWORK_SETTINGS } from '../../stores/settings';
   import { blossomLogStore } from '../../stores/blossomLog';
   import { appStore, formatBytes } from '../../store';
-  import { getNativeDaemonRelayUrl } from '../../nostr/ndk';
+  import { getNativeDaemonRelayUrl } from '../../nostr/client';
   import {
     getEmbeddedDaemonBlossomServer,
     normalizeRuntimeServerUrl,

@@ -2,8 +2,7 @@ import { writable, type Readable } from 'svelte/store';
 import { nip19 } from 'nostr-tools';
 import { LRUCache } from '../utils/lruCache';
 import { KeyedEventEmitter } from '../utils/keyedEventEmitter';
-import { DEFAULT_PUBLIC_RELAYS } from '@iris/hashtree-app/defaultRelays';
-import { configureNdkRelays, ndk } from '../nostr/ndk';
+import { nostr } from '../nostr/client';
 
 export interface Profile {
   pubkey: string;
@@ -27,22 +26,6 @@ const pendingFetches = new Set<string>();
 
 // Event emitter for profile updates
 const profileEmitter = new KeyedEventEmitter<string, Profile>();
-let profileRelayConnectPromise: Promise<void> | null = null;
-
-function ensureProfileRelays(): Promise<void> {
-  if (ndk.explicitRelayUrls.length > 0 || ndk.pool.relays.size > 0) {
-    return Promise.resolve();
-  }
-  profileRelayConnectPromise ??= configureNdkRelays(DEFAULT_PUBLIC_RELAYS, 3000)
-    .catch((error) => {
-      console.warn('[profile] Failed to connect profile relays', error);
-    })
-    .finally(() => {
-      profileRelayConnectPromise = null;
-    });
-  return profileRelayConnectPromise;
-}
-
 function fetchProfile(pubkey: string): void {
   // Skip if fetch already in progress
   if (pendingFetches.has(pubkey)) {
@@ -52,11 +35,9 @@ function fetchProfile(pubkey: string): void {
   pendingFetches.add(pubkey);
 
   void (async () => {
-    await ensureProfileRelays();
-
     let bestEvent: { created_at: number; content: string; pubkey: string } | null = null;
 
-    const sub = ndk.subscribe({ kinds: [0], authors: [pubkey], limit: 1 }, { closeOnEose: true });
+    const sub = nostr.subscribe({ kinds: [0], authors: [pubkey], limit: 1 }, { closeAfterHistory: true });
 
     sub.on('event', (event) => {
       // Keep most recent
@@ -74,7 +55,7 @@ function fetchProfile(pubkey: string): void {
       }
     });
 
-    sub.on('eose', () => {
+    sub.on('history', () => {
       pendingFetches.delete(pubkey);
     });
   })().catch(() => {

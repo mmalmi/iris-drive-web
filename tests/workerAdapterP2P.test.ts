@@ -2,7 +2,6 @@ import { describe, expect, test, vi } from 'vitest';
 import { finalizeEvent, generateSecretKey } from 'nostr-tools';
 import { WorkerAdapter } from '../src/workerAdapter';
 import {
-  attachNonAuthoritativeWorkerNostrSubscription,
   isValidSignedNostrEvent,
 } from '../src/workerAdapterNostr';
 
@@ -46,49 +45,36 @@ async function initializedAdapter(): Promise<{ adapter: WorkerAdapter; worker: F
 }
 
 describe('WorkerAdapter external P2P bridge', () => {
-  test('does not let sigless worker cache EOSE complete a verified query before a signed event', () => {
-    const adapterPromise = initializedAdapter();
-    return adapterPromise.then(({ adapter, worker }) => {
-      let workerEoseForwarded = 0;
-      let closeListener: (() => void) | undefined;
-      const ndkSubscription = {
-        on(event: 'close', listener: () => void) {
-          if (event === 'close') closeListener = listener;
-        },
-        emit(event: 'eose') {
-          if (event === 'eose') workerEoseForwarded += 1;
-        },
-      };
-      const acceptedEvents: Array<{ id: string }> = [];
-      adapter.onEvent((event) => {
-        if (isValidSignedNostrEvent(event)) acceptedEvents.push(event);
-      });
-      const subId = attachNonAuthoritativeWorkerNostrSubscription(
-        adapter,
-        ndkSubscription,
-        [{ kinds: [7368] }],
-      );
-      const signed = finalizeEvent({
-        kind: 7368,
-        created_at: 1_787_000_000,
-        tags: [],
-        content: '',
-      }, generateSecretKey());
+  test('keeps partial history distinct from completion while later signed events remain live', async () => {
+    const { adapter, worker } = await initializedAdapter();
+    const history = vi.fn();
+    const acceptedEvents: Array<{ id: string }> = [];
+    const subId = adapter.subscribe([{ kinds: [7368] }], event => {
+      if (isValidSignedNostrEvent(event)) acceptedEvents.push(event);
+    }, history);
+    const signed = finalizeEvent({ kind: 7368, created_at: 1_787_000_000, tags: [], content: '' }, generateSecretKey());
+    worker.emit({ type: 'event', subId, event: { ...signed, sig: '' } });
+    worker.emit({ type: 'nostrStatus', subId, status: { complete: false, reason: 'timeout' } });
+    expect(acceptedEvents).toEqual([]);
+    expect(history).toHaveBeenCalledWith({ complete: false, reason: 'timeout' });
+    worker.emit({ type: 'event', subId, event: signed });
+    expect(acceptedEvents).toEqual([signed]);
+    adapter.unsubscribe(subId); adapter.close();
+  });
 
-      worker.emit({ type: 'event', subId, event: { ...signed, sig: '' } });
-      worker.emit({ type: 'eose', subId });
-      expect(acceptedEvents).toEqual([]);
-      expect(workerEoseForwarded).toBe(0);
-
-      // A signed relay copy arriving after the worker-cache EOSE is still
-      // eligible for the open NDK query.
-      worker.emit({ type: 'event', subId, event: signed });
-      expect(acceptedEvents).toEqual([signed]);
-      expect(workerEoseForwarded).toBe(0);
-
-      closeListener?.();
-      adapter.close();
-    });
+  test('cancels remote history work and reports worker query failures', async () => {
+    const { adapter, worker } = await initializedAdapter();
+    const controller = new AbortController();
+    const pending = adapter.queryEvents([{ kinds: [1] }], { signal: controller.signal });
+    const request = worker.posted.at(-1)!.message;
+    controller.abort();
+    expect(worker.posted.at(-1)!.message).toMatchObject({ type: 'cancelNostrQuery', requestId: request.id });
+    worker.emit({ type: 'nostrQuery', id: request.id, error: 'Nostr operation cancelled' });
+    await expect(pending).rejects.toThrow('Query cancelled');
+    const failed = adapter.queryEvents([{ kinds: [1] }]);
+    worker.emit({ type: 'nostrQuery', id: worker.posted.at(-1)!.message.id, error: 'Index unavailable' });
+    await expect(failed).rejects.toThrow('Index unavailable');
+    adapter.close();
   });
 
   test('forwards the complete signed Nostr event to the relay-facing worker unchanged', async () => {

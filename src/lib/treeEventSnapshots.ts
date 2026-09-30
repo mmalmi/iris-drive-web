@@ -1,9 +1,9 @@
-import { nip19, SimplePool } from 'nostr-tools';
+import { nip19 } from 'nostr-tools';
 import {
   toHex,
   type CID,
 } from '@hashtree/core';
-import type { NDKEvent, NDKKind } from 'ndk';
+import type { Event as NostrEvent } from 'nostr-tools';
 import {
   HASHTREE_ROOT_KINDS,
   buildTreeEventSnapshotPermalink,
@@ -18,9 +18,8 @@ import {
   type TreeEventSnapshotInfo,
 } from '@hashtree/nostr';
 import { getTree } from '../store';
-import { ndk } from '../nostr';
+import { nostr } from '../nostr';
 
-const SNAPSHOT_FETCH_TIMEOUT_MS = 5000;
 const SNAPSHOT_FETCH_LIMIT = 20;
 
 const snapshotsByTreeKey = new Map<string, TreeEventSnapshotInfo>();
@@ -67,8 +66,8 @@ function normalizeRawEvent(event: Pick<StoredNostrEvent, 'id' | 'pubkey' | 'crea
   };
 }
 
-function normalizeNdkEvent(event: NDKEvent): StoredNostrEvent | null {
-  const raw = event.rawEvent() as Partial<StoredNostrEvent>;
+function normalizeNostrEvent(event: NostrEvent): StoredNostrEvent | null {
+  const raw = event as Partial<StoredNostrEvent>;
   if (
     typeof raw.id !== 'string' ||
     typeof raw.pubkey !== 'string' ||
@@ -114,8 +113,8 @@ export async function cacheTreeEventSnapshot(event: StoredNostrEvent): Promise<T
   return registerSnapshot(snapshot, { updateTreeKey: true });
 }
 
-export async function cacheTreeEventSnapshotFromNdkEvent(event: NDKEvent): Promise<TreeEventSnapshotInfo | null> {
-  const normalized = normalizeNdkEvent(event);
+export async function cacheTreeEventSnapshotFromNostrEvent(event: NostrEvent): Promise<TreeEventSnapshotInfo | null> {
+  const normalized = normalizeNostrEvent(event);
   if (!normalized) return null;
   return cacheTreeEventSnapshot(normalized);
 }
@@ -158,51 +157,21 @@ export async function readTreeEventSnapshot(snapshotCid: CID): Promise<TreeEvent
 }
 
 async function fetchTreeEvents(pubkey: string, treeName: string): Promise<StoredNostrEvent[]> {
-  const ndkEvents = await ndk.fetchEvents({
-    kinds: [...HASHTREE_ROOT_KINDS] as NDKKind[],
+  const events = await nostr.fetchEvents({
+    kinds: [...HASHTREE_ROOT_KINDS] as number[],
     authors: [pubkey],
     '#d': [treeName],
     limit: SNAPSHOT_FETCH_LIMIT,
   }).catch(() => null);
 
   const candidates: StoredNostrEvent[] = [];
-  for (const event of ndkEvents ?? []) {
-    const normalized = normalizeNdkEvent(event);
+  for (const event of events ?? []) {
+    const normalized = normalizeNostrEvent(event);
     if (!normalized) continue;
     candidates.push(normalized);
   }
 
-  if (candidates.length > 0) {
-    return candidates;
-  }
-
-  const relayUrls = typeof ndk.pool?.urls === 'function' ? ndk.pool.urls() : [];
-  if (relayUrls.length === 0) {
-    return [];
-  }
-
-  const pool = new SimplePool();
-  try {
-    const rawEvents = await pool.querySync(relayUrls, {
-      kinds: [...HASHTREE_ROOT_KINDS],
-      authors: [pubkey],
-      '#d': [treeName],
-      limit: SNAPSHOT_FETCH_LIMIT,
-    }, {
-      maxWait: SNAPSHOT_FETCH_TIMEOUT_MS,
-    });
-    for (const raw of rawEvents) {
-      const normalized = normalizeRawEvent(raw as StoredNostrEvent);
-      candidates.push(normalized);
-    }
-    return candidates;
-  } catch {
-    return [];
-  } finally {
-    try {
-      pool.destroy();
-    } catch {}
-  }
+  return candidates;
 }
 
 async function fetchLatestTreeEventSnapshot(npub: string, treeName: string): Promise<TreeEventSnapshotInfo | null> {

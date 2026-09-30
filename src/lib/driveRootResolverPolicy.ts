@@ -1,4 +1,4 @@
-import type { NDKFilter } from 'ndk';
+import type { Filter } from 'nostr-tools';
 import {
   driveRootDTag,
   KIND_DRIVE_ROOT,
@@ -62,7 +62,7 @@ export function driveRootBackfillFilters(
   rootScopeId: string,
   driveId: string,
   authorizedAppKeys: ReadonlySet<string>,
-): NDKFilter[] {
+): Filter[] {
   const dTag = driveRootDTag(rootScopeId, driveId);
   return [...authorizedAppKeys]
     .sort()

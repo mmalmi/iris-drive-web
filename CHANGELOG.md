@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.16 - 2026-09-30
+
+- Share event and file connections through the common Nostr pubsub and Hashtree runtime.
+- Keep existing accounts, device approvals, remote signing, and queued offline changes.
+- Scope device verification to the selected message servers and preserve partial query results.
+
 ## 0.1.15 - 2026-09-07
 
 - Upgrade to Hashtree runtime 0.5.7, which validates remote content hashes and

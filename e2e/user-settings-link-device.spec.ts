@@ -178,14 +178,14 @@ async function activateApprovedDevice(page: Page, profileId: string): Promise<vo
 
 async function expectAppliedApprovalAck(page: Page): Promise<void> {
   await expect.poll(async () => page.evaluate(async () => {
-    const { getCurrentNostrIdentitySession, ndk } = await import('/src/nostr');
+    const { getCurrentNostrIdentitySession, nostr } = await import('/src/nostr');
     const {
       KIND_NOSTR_IDENTITY_DEVICE_APPROVAL_APPLIED_ACK,
       NOSTR_IDENTITY_DEVICE_APPROVAL_APPLIED_ACK_TYPE,
     } = await import('/src/drive/deviceLink');
     const session = getCurrentNostrIdentitySession();
     if (!session) return null;
-    const events = Array.from(await ndk.fetchEvents({
+    const events = Array.from(await nostr.fetchEvents({
       authors: [session.appKeyPubkey],
       kinds: [KIND_NOSTR_IDENTITY_DEVICE_APPROVAL_APPLIED_ACK],
       '#type': [NOSTR_IDENTITY_DEVICE_APPROVAL_APPLIED_ACK_TYPE],
@@ -284,11 +284,11 @@ async function fetchRelayDriveRootHashes(page: Page, relayUrl: string): Promise<
 async function waitForPublishedProfileRoot(page: Page, relayUrl: string, expectedRootHash: string): Promise<void> {
   const hasRoot = async () => page.evaluate(async (expectedHash: string) => {
     const { driveRootDTag, KIND_DRIVE_ROOT } = await import('/src/drive/protocol');
-    const { ndk } = await import('/src/nostr');
+    const { nostr } = await import('/src/nostr');
     const stored = JSON.parse(localStorage.getItem('iris:identity:session') ?? 'null');
     const profileId = stored?.profileId ?? '';
     if (!profileId) return false;
-    const events = Array.from(await ndk.fetchEvents({
+    const events = Array.from(await nostr.fetchEvents({
       kinds: [KIND_DRIVE_ROOT],
       '#d': [driveRootDTag(profileId, 'main')],
       limit: 50,
@@ -314,7 +314,7 @@ async function waitForPublishedProfileRoot(page: Page, relayUrl: string, expecte
     }]);
     const diagnostics = await page.evaluate(async (expectedHash: string) => {
       const { driveRootDTag, KIND_DRIVE_ROOT } = await import('/src/drive/protocol');
-      const { getCurrentNostrIdentitySession, isOwnTree, ndk } = await import('/src/nostr');
+      const { getCurrentNostrIdentitySession, isOwnTree, nostr } = await import('/src/nostr');
       const { parseRoute } = await import('/src/utils/route.ts');
       const { treeRootRegistry } = await import('/src/TreeRootRegistry');
       const { toHex } = await import('/src/lib/nhash.ts');
@@ -325,7 +325,7 @@ async function waitForPublishedProfileRoot(page: Page, relayUrl: string, expecte
       const profileId = stored?.profileId ?? session?.profileId ?? '';
       const record = profileId ? treeRootRegistry.getByKey(`${profileId}/main`) : null;
       const events = profileId
-        ? Array.from(await ndk.fetchEvents({
+        ? Array.from(await nostr.fetchEvents({
           kinds: [KIND_DRIVE_ROOT],
           '#d': [driveRootDTag(profileId, 'main')],
           limit: 50,
@@ -347,10 +347,7 @@ async function waitForPublishedProfileRoot(page: Page, relayUrl: string, expecte
           isLoggedIn: state.isLoggedIn,
           connectedRelays: state.connectedRelays,
         } : null,
-        mainNdkRelays: Array.from(ndk.pool.relays.values()).map((relay: any) => ({
-          url: relay.url,
-          connected: relay.connectivity?.connected === true,
-        })),
+        mainNdkRelays: await (window as any).__getWorkerAdapter?.()?.getRelayStats?.() ?? [],
         workerRelayStats: await (window as any).__getWorkerAdapter?.()?.getRelayStats?.().catch((workerError: unknown) => ({
           error: String(workerError),
         })),
@@ -463,7 +460,7 @@ async function profileDriveRootDiagnostics(page: Page, relayUrl: string): Promis
   return page.evaluate(async () => {
     const { getTreeRootSync } = await import('/src/stores');
     const { driveRootDTag, KIND_DRIVE_ROOT, parseDriveRootEventForDevice, parseDriveRootEventPreview } = await import('/src/drive/protocol');
-    const { getSecretKey, ndk } = await import('/src/nostr');
+    const { getSecretKey, nostr } = await import('/src/nostr');
     const { treeRootRegistry } = await import('/src/TreeRootRegistry');
     const toHex = (bytes?: Uint8Array): string | undefined => bytes
       ? Array.from(bytes).map((byte) => byte.toString(16).padStart(2, '0')).join('')
@@ -476,7 +473,7 @@ async function profileDriveRootDiagnostics(page: Page, relayUrl: string): Promis
     const record = treeRootRegistry.getByKey(key);
     const currentRoot = getTreeRootSync(profileId, driveId);
     const events = profileId
-      ? Array.from(await ndk.fetchEvents({
+      ? Array.from(await nostr.fetchEvents({
         kinds: [KIND_DRIVE_ROOT],
         '#d': [driveRootDTag(profileId, driveId)],
         limit: 20,
@@ -498,7 +495,7 @@ async function profileDriveRootDiagnostics(page: Page, relayUrl: string): Promis
         key: toHex(currentRoot.key),
       } : null,
       events: events.map((event) => {
-        const raw = event.rawEvent();
+        const raw = event;
         let preview: unknown = null;
         let readable: unknown = null;
         try {

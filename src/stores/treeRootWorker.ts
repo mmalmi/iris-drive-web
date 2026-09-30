@@ -9,7 +9,7 @@ import {
 } from './treeRootShared';
 
 // Wait for worker to be ready before creating subscriptions
-// This ensures the NDK transport plugin is registered
+// This ensures the event backend is registered
 let workerReadyPromise: Promise<void> | null = null;
 let workerReadyResolve: (() => void) | null = null;
 export const WORKER_READY_TIMEOUT_MS = 10000;

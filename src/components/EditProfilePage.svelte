@@ -3,10 +3,9 @@
    * EditProfilePage - edit user profile
    * Port of React EditProfilePage
    */
-  import { nostrStore, ndk } from '../nostr';
+  import { nostrStore, nostr } from '../nostr';
   import { createProfileStore, invalidateProfile as invalidateProfileFn } from '../stores/profile';
   import { nip19 } from 'nostr-tools';
-  import { NDKEvent } from 'ndk';
   import { BackButton } from './ui';
 
   interface Props {
@@ -100,11 +99,11 @@
         Object.entries(profileData).filter(([, v]) => v)
       );
 
-      const event = new NDKEvent(ndk);
+      const event = { kind: 0, created_at: Math.floor(Date.now() / 1000), content: '', tags: [] as string[][] };
       event.kind = 0;
       event.content = JSON.stringify(cleanedProfile);
 
-      await event.publish();
+      await nostr.publishEvent(event);
 
       // Invalidate cache and refetch - small delay to let relays propagate
       setTimeout(() => {

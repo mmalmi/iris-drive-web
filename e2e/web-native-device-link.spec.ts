@@ -113,12 +113,12 @@ async function approvalAcks(page: Page): Promise<Array<{
   deviceAppKeyPubkey: string;
 }>> {
   return page.evaluate(async () => {
-    const { ndk } = await import('/src/nostr');
+    const { nostr } = await import('/src/nostr');
     const {
       KIND_NOSTR_IDENTITY_DEVICE_APPROVAL_APPLIED_ACK,
       NOSTR_IDENTITY_DEVICE_APPROVAL_APPLIED_ACK_TYPE,
     } = await import('/src/drive/deviceLink');
-    const events = await ndk.fetchEvents({
+    const events = await nostr.fetchEvents({
       kinds: [KIND_NOSTR_IDENTITY_DEVICE_APPROVAL_APPLIED_ACK],
       '#type': [NOSTR_IDENTITY_DEVICE_APPROVAL_APPLIED_ACK_TYPE],
       limit: 20,
@@ -141,8 +141,8 @@ async function driveRootEventIdsByAuthor(
 ): Promise<string[]> {
   return page.evaluate(async ({ profile, author }) => {
     const { driveRootDTag, KIND_DRIVE_ROOT } = await import('/src/drive/protocol');
-    const { ndk } = await import('/src/nostr');
-    const events = await ndk.fetchEvents({
+    const { nostr } = await import('/src/nostr');
+    const events = await nostr.fetchEvents({
       authors: [author],
       kinds: [KIND_DRIVE_ROOT],
       '#d': [driveRootDTag(profile, 'main')],

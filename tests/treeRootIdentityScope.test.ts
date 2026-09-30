@@ -27,7 +27,7 @@ const shared = vi.hoisted(() => ({
 vi.mock('../src/nostr', () => ({
   getCurrentNostrIdentitySession: () => shared.session,
   getSecretKey: () => shared.secretKey,
-  ndk: {
+  nostr: {
     fetchEvents: shared.fetchEvents,
     subscribe: vi.fn(() => ({ on: vi.fn(), stop: vi.fn() })),
   },
