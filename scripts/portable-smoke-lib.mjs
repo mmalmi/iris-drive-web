@@ -2,6 +2,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { readFile } from 'node:fs/promises';
 import { chromium } from '@playwright/test';
+import { generateSecretKey, getPublicKey, nip19 } from 'nostr-tools';
 
 const MIME_TYPES = new Map([
   ['.css', 'text/css; charset=utf-8'],
@@ -92,6 +93,17 @@ export async function runPortableSmoke({ distDir, title, appName, screenshotPath
   const { server, url } = await startServer(distDir, entryHtml);
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage();
+  const key = generateSecretKey();
+  const pubkey = getPublicKey(key);
+  const nsec = nip19.nsecEncode(key);
+  await page.addInitScript(({ pubkey, nsec }) => {
+    if (sessionStorage.getItem('portable-session-seeded')) return;
+    sessionStorage.setItem('portable-session-seeded', '1');
+    localStorage.setItem('hashtree:nsec', nsec);
+    localStorage.setItem('hashtree:loginType', 'nsec');
+    localStorage.setItem('hashtree:activeAccount', pubkey);
+    localStorage.setItem('hashtree:accounts', JSON.stringify([{ pubkey, nsec, type: 'nsec', addedAt: 100 }]));
+  }, { pubkey, nsec });
   const documentResponses = [];
   const localResponseFailures = [];
   const pageErrors = [];
@@ -117,6 +129,8 @@ export async function runPortableSmoke({ distDir, title, appName, screenshotPath
     if (responseUrl.pathname.startsWith('/htree/')) {
       return;
     }
+    // A static localhost host has no optional native Drive bridge.
+    if (response.status() === 404 && responseUrl.pathname === '/api/iris-drive/share-action') return;
     localResponseFailures.push(`${response.status()} ${response.request().resourceType()} ${response.url()}`);
   });
   page.on('pageerror', (error) => {
@@ -172,6 +186,34 @@ export async function runPortableSmoke({ distDir, title, appName, screenshotPath
 
     if (consoleErrors.length > 0) {
       throw new Error(`Portable build logged console errors:\n${consoleErrors.join('\n')}`);
+    }
+
+    await page.evaluate(async () => { await navigator.serviceWorker.ready; });
+    await page.waitForFunction(() => !!navigator.serviceWorker.controller);
+    const sessionBeforeOffline = await page.evaluate(() => ({
+      secretKey: localStorage.getItem('hashtree:nsec'),
+      loginType: localStorage.getItem('hashtree:loginType'),
+      activeAccount: localStorage.getItem('hashtree:activeAccount'),
+    }));
+    if (sessionBeforeOffline.secretKey !== nsec) throw new Error('Portable build lost the existing secret key');
+    await page.getByTestId('header-user-avatar').waitFor({ state: 'visible' });
+    await page.context().setOffline(true);
+    const offlineResponse = await page.reload({ waitUntil: 'load', timeout: 30000 });
+    if (!offlineResponse || offlineResponse.status() !== 200) {
+      throw new Error('Portable build could not reload its cached app shell offline');
+    }
+    await page.getByTestId('header-user-avatar').waitFor({ state: 'visible' });
+    if (await page.title() !== title) throw new Error('Offline reload lost the application title');
+    const restored = await page.evaluate(() => ({
+      secretKey: localStorage.getItem('hashtree:nsec'),
+      loginType: localStorage.getItem('hashtree:loginType'),
+      activeAccount: localStorage.getItem('hashtree:activeAccount'),
+    }));
+    if (JSON.stringify(restored) !== JSON.stringify(sessionBeforeOffline)) {
+      throw new Error('Offline reload changed the existing login session');
+    }
+    if (pageErrors.length > 0) {
+      throw new Error(`Offline portable build hit page errors:\n${pageErrors.join('\n')}`);
     }
 
     console.log(`Portable Iris ${appName} smoke passed: ${url}`);

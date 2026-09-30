@@ -10,7 +10,7 @@
 
 /// <reference lib="webworker" />
 import { getRawHtreePath, parseImmutableHtreePath, parseMutableHtreePath } from '@hashtree/worker/htree-path';
-import { precacheAndRoute } from 'workbox-precaching';
+import { matchPrecache, precache } from 'workbox-precaching';
 import { shouldInterceptHtreeRequestForWorker } from './lib/swRoutePolicy';
 import { getSameOriginResponseMode } from './lib/swSameOriginPolicy';
 import {
@@ -127,11 +127,22 @@ async function createNhashFileResponse(
 }
 
 async function fetchSameOriginWithCache(request: Request): Promise<Response> {
-  const cached = await caches.match(request);
+  const cached = await matchPrecache(request) ?? await caches.match(request);
   if (cached) {
     return cached;
   }
   return fetch(request);
+}
+
+async function fetchDocumentWithOfflineFallback(request: Request): Promise<Response> {
+  try {
+    return await fetch(request);
+  } catch (error) {
+    const cached = await matchPrecache(request)
+      ?? await matchPrecache(new URL('index.html', self.registration.scope).href);
+    if (cached) return cached;
+    throw error;
+  }
 }
 
 self.addEventListener('fetch', (event: FetchEvent) => {
@@ -205,7 +216,7 @@ self.addEventListener('fetch', (event: FetchEvent) => {
 
     const mode = getSameOriginResponseMode(event.request);
     if (mode === 'document-coi') {
-      event.respondWith(fetch(event.request).then(addCrossOriginHeaders));
+      event.respondWith(fetchDocumentWithOfflineFallback(event.request).then(addCrossOriginHeaders));
       return;
     }
 
@@ -231,5 +242,5 @@ if (!isLocalDevServer) {
 }
 
 if (!isTestMode && !isLocalDevServer) {
-  precacheAndRoute(self.__WB_MANIFEST);
+  precache(self.__WB_MANIFEST);
 }

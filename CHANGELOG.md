@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.17 - 2026-09-30
+
+- Wait for received events to finish saving before completing history queries.
+- Return exact event lookups as soon as the verified event is available.
+- Reload the cached app while offline without changing the signed-in account.
+
 ## 0.1.16 - 2026-09-30
 
 - Share event and file connections through the common Nostr pubsub and Hashtree runtime.
