@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.20 - 2026-09-30
+
+- Recover peer connections sooner when handshake messages or connection answers are lost.
+
 ## 0.1.19 - 2026-09-30
 
 - Restore file sharing when a background worker restarts during startup.
