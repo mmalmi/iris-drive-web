@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.18 - 2026-09-30
+
+- Keep message-server requests within common filter limits while preserving
+  exact subscription matching and offline history.
+
 ## 0.1.17 - 2026-09-30
 
 - Wait for received events to finish saving before completing history queries.
