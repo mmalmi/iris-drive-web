@@ -33,3 +33,6 @@ id_ed25519.pub
 *.p12
 *.mobileprovision
 *.provisionprofile
+
+# Local verification artifacts
+work/

@@ -180,7 +180,7 @@ async function authorizationDiagnostics(page: Page): Promise<unknown> {
       getCurrentNostrIdentitySession,
       refreshCurrentDriveRosterOps,
     } = await import('/src/nostr/auth.ts');
-    const { ndk } = await import('/src/nostr');
+    const { nostr } = await import('/src/nostr');
     const session = getCurrentNostrIdentitySession();
     let refresh: unknown;
     try {
@@ -197,16 +197,13 @@ async function authorizationDiagnostics(page: Page): Promise<unknown> {
         rosterOps: session.rosterOps.map((op) => ({ id: op.op_id, op: op.content.op.op })),
       } : null,
       refresh,
-      relays: Array.from(ndk.pool.relays.values()).map((relay) => ({
-        url: relay.url,
-        connected: relay.connectivity?.connected === true,
-      })),
+      relays: await (window as any).__getWorkerAdapter?.()?.getRelayStats?.() ?? [],
       fips: getDriveFipsRuntime()?.getStats() ?? null,
     };
   });
 }
 
-test('linked Drive AppKeys fetch remote-only blocks and live revocation denies later service', async ({
+test('linked Drive AppKeys share events and remote-only blocks with live revocation', async ({
   browser,
   page: ownerPage,
   relayUrl,
@@ -264,6 +261,26 @@ test('linked Drive AppKeys fetch remote-only blocks and live revocation denies l
       true,
       true,
     ]);
+
+    // Events use the very same authorized node that serves the file block below.
+    // Publish directly to its peer source so a relay cannot satisfy this assertion.
+    const peerEvent = await ownerPage.evaluate(async () => {
+      const { nostr } = await import('/src/nostr');
+      return nostr.signEvent({ kind: 1, tags: [['t', 'drive-peer-proof']], content: crypto.randomUUID() });
+    });
+    await devicePage.evaluate(async id => {
+      const { nostr } = await import('/src/nostr');
+      const win = window as typeof window & { __drivePeerEvents?: string[] };
+      win.__drivePeerEvents = [];
+      nostr.subscribe({ ids: [id] }).on('event', event => win.__drivePeerEvents!.push(event.id));
+    }, peerEvent.id);
+    await expect.poll(async () => {
+      await ownerPage.evaluate(async event => {
+        const { publishThroughDrivePeers } = await import('/e2e/drive-peer-test-helpers.ts');
+        await publishThroughDrivePeers(event);
+      }, peerEvent);
+      return devicePage.evaluate(() => (window as typeof window & { __drivePeerEvents?: string[] }).__drivePeerEvents ?? []);
+    }, { timeout: 15000, intervals: [200, 500] }).toEqual([peerEvent.id]);
 
     const first = await putWorkerOnlyBlock(ownerPage, 'authorized-remote-only');
     expect(await workerHasBlock(devicePage, first.hashHex)).toBe(false);

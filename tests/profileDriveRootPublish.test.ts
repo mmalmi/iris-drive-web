@@ -26,14 +26,8 @@ const shared = vi.hoisted(() => ({
 }));
 
 vi.mock('../src/nostr', () => ({
-  NDKEvent: class MockNDKEvent {
-    constructor(_ndk: unknown, raw: Record<string, unknown>) {
-      Object.assign(this, raw);
-    }
-  },
   getCurrentNostrIdentitySession: () => shared.session,
   getSecretKey: () => shared.secretKey,
-  ndk: {},
 }));
 
 vi.mock('../src/store', () => ({
@@ -45,7 +39,7 @@ vi.mock('../src/workerAdapter', () => ({
 }));
 
 vi.mock('../src/lib/nostrPublish', () => ({
-  publishEventWithFallback: (event: unknown) => shared.publish(event),
+  publishEvent: (event: unknown) => shared.publish(event),
 }));
 
 const PROFILE_ID = '89f3d04f-41fb-437b-9339-75df537bf291';

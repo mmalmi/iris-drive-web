@@ -1,6 +1,6 @@
 /**
  * Nostr integration for HashTree Explorer
- * Uses NDK with Dexie cache for IndexedDB persistence
+ * Uses the shared pubsub worker and persistent Hashtree indexes
  */
 
 // Re-export TreeVisibility from hashtree lib
@@ -16,16 +16,7 @@ export {
   type RelayInfo,
 } from './store';
 
-// NDK exports
-export {
-  ndk,
-  signEvent,
-  NDKEvent,
-  NDKNip46Signer,
-  NDKPrivateKeySigner,
-  NDKNip07Signer,
-  type NostrEvent,
-} from './ndk';
+export { nostr, signEvent, type NostrEvent } from './client';
 
 // Relay management exports
 export {

@@ -7,7 +7,7 @@
    */
   import { appStore } from '../store';
   import { nostrStore } from '../nostr';
-  import { getNativeDaemonRelayUrl } from '../nostr/ndk';
+  import { getNativeDaemonRelayUrl } from '../nostr/client';
   import {
     HEADER_CONNECTIVITY_WARNING_STARTUP_GRACE_MS,
     shouldShowHeaderConnectivityIndicator,

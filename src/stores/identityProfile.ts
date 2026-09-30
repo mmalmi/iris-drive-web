@@ -4,7 +4,7 @@ import {
   selectLatestRepresentativeProfileEvent,
   type NostrMetadataEventLike,
 } from '@iris/identity';
-import type { NDKKind } from 'ndk';
+
 import { verifyEvent, type Event as NostrToolsEvent } from 'nostr-tools';
 import { writable, type Readable } from 'svelte/store';
 import {
@@ -13,9 +13,9 @@ import {
   projectNostrIdentityRoster,
   type SignedNostrIdentityRosterOp,
 } from '../drive/protocol';
-import { configureNdkRelays, ndk } from '../nostr/ndk';
+import { nostr } from '../nostr/client';
+import { waitForWorkerAdapter } from '../lib/workerInit';
 import { getStoredNostrIdentitySessionForAccount } from '../nostr/auth';
-import { DEFAULT_PUBLIC_RELAYS } from '@iris/hashtree-app/defaultRelays';
 import { getProfileName, type Profile } from './profile';
 
 export interface IdentityProfileNameState {
@@ -26,7 +26,6 @@ export interface IdentityProfileNameState {
 }
 
 const nameStores = new Map<string, Readable<IdentityProfileNameState>>();
-let identityProfileRelayConnectPromise: Promise<void> | null = null;
 const HEX_IDENTIFIER_RE = /^[0-9a-f]{64}$/i;
 const SHORT_HEX_IDENTIFIER_RE = /^[0-9a-f]{6,}\.{3}[0-9a-f]{4,}$/i;
 const UUID_IDENTIFIER_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -97,15 +96,15 @@ async function fetchIdentityRosterOps(
       sub.stop();
       resolve();
     };
-    const sub = ndk.subscribe(
-      { kinds: [KIND_NOSTR_IDENTITY_ROSTER_OP as NDKKind], '#i': [profileId], limit: 500 },
-      { closeOnEose: true },
+    const sub = nostr.subscribe(
+      { kinds: [KIND_NOSTR_IDENTITY_ROSTER_OP], '#i': [profileId], limit: 500 },
+      { closeAfterHistory: true },
     );
     const timer = setTimeout(finish, timeoutMs);
 
     sub.on('event', (event) => {
       try {
-        const raw = event.rawEvent() as NostrToolsEvent;
+        const raw = event as NostrToolsEvent;
         if (!verifyEvent(raw)) {
           console.warn('[identityProfile] Ignoring roster event with invalid signature');
           return;
@@ -118,7 +117,7 @@ async function fetchIdentityRosterOps(
         console.warn('[identityProfile] Ignoring invalid roster event:', error);
       }
     });
-    sub.on('eose', finish);
+    sub.on('history', finish);
   });
 
   return Array.from(byId.values())
@@ -143,14 +142,14 @@ async function fetchIdentityProfileName(
       sub.stop();
       resolve();
     };
-    const sub = ndk.subscribe(
+    const sub = nostr.subscribe(
       { kinds: [0], authors, limit: Math.max(20, authors.length) },
-      { closeOnEose: true },
+      { closeAfterHistory: true },
     );
     const timer = setTimeout(finish, 5000);
 
     sub.on('event', (event) => {
-      const raw = event.rawEvent() as NostrToolsEvent;
+      const raw = event as NostrToolsEvent;
       if (!verifyEvent(raw)) {
         console.warn('[identityProfile] Ignoring profile event with invalid signature');
         return;
@@ -165,7 +164,7 @@ async function fetchIdentityProfileName(
       const next = identityNameFromEvents(projection, events, fallbackName);
       store.set(next);
     });
-    sub.on('eose', finish);
+    sub.on('history', finish);
   });
 
   store.set(identityNameFromEvents(projection, events, fallbackName, false));
@@ -204,15 +203,5 @@ function isMachineIdentifier(value: string): boolean {
 }
 
 function ensureIdentityProfileRelays(): Promise<void> {
-  if (ndk.explicitRelayUrls.length > 0 || ndk.pool.relays.size > 0) {
-    return Promise.resolve();
-  }
-  identityProfileRelayConnectPromise ??= configureNdkRelays(DEFAULT_PUBLIC_RELAYS, 3000)
-    .catch((error) => {
-      console.warn('[identityProfile] Failed to connect profile relays', error);
-    })
-    .finally(() => {
-      identityProfileRelayConnectPromise = null;
-    });
-  return identityProfileRelayConnectPromise;
+  return waitForWorkerAdapter(3000).then(() => undefined);
 }

@@ -169,7 +169,7 @@ async function fetchSearchIndex(npub: string): Promise<CID | null> {
 
 /**
  * Merge bootstrap search index on app start.
- * Called after NDK is ready.
+ * Called after the event backend is ready.
  */
 export async function mergeBootstrapIndex(): Promise<void> {
   try {

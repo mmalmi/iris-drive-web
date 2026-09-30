@@ -8,7 +8,6 @@ import {
   buildDeviceApprovalReceiptEvent,
   createAttachedNostrIdentitySession,
   createNostrIdentitySignerFromNip07,
-  createNostrIdentitySignerFromNip46,
   createNostrIdentitySignerFromNsec,
   createNostrIdentitySignerFromSeedPhrase,
   NOSTR_IDENTITY_DEVICE_APPROVAL_LABEL_MAX_BYTES,
@@ -23,8 +22,9 @@ import {
   APP_KEY_WRITER_CAPABILITIES,
   normalizeHexPubkey,
 } from 'nostr-social-graph';
-import { NDKSubscriptionCacheUsage, type NDKFilter } from 'ndk';
-import { ndk, NDKNip46Signer, NDKPrivateKeySigner, NDKNip07Signer, NDKEvent } from './ndk';
+import type { Filter } from 'nostr-tools';
+import { nostr, createNsecSigner, createExtensionSigner, getNostrRelayUrls } from './client';
+import { createRemoteRecoverySigner } from './remoteRecovery';
 import { nostrStore } from './store';
 import { initHashtreeBackend, getWorkerAdapter, waitForWorkerAdapter } from '../lib/workerInit';
 import {
@@ -372,11 +372,10 @@ export async function loginWithExtension(): Promise<boolean> {
       throw new Error('No nostr extension found');
     }
 
-    const signer = new NDKNip07Signer();
-    ndk.signer = signer;
+    const signer = createExtensionSigner();
+    nostr.signer = signer;
 
-    const user = await signer.user();
-    const pk = user.pubkey;
+    const pk = await signer.getPublicKey();
 
     nostrStore.setPubkey(pk);
     nostrStore.setNpub(nip19.npubEncode(pk));
@@ -422,8 +421,8 @@ export async function loginWithNsec(nsec: string, save = true): Promise<boolean>
     secretKey = decoded.data as Uint8Array;
     const pk = getPublicKey(secretKey);
 
-    const signer = new NDKPrivateKeySigner(nsec);
-    ndk.signer = signer;
+    const signer = createNsecSigner(nsec);
+    nostr.signer = signer;
 
     nostrStore.setPubkey(pk);
     nostrStore.setNpub(nip19.npubEncode(pk));
@@ -477,8 +476,8 @@ async function applySecretKey(
   const pk = getPublicKey(nextKey);
   const nsec = nip19.nsecEncode(nextKey);
 
-  const signer = new NDKPrivateKeySigner(nsec);
-  ndk.signer = signer;
+  const signer = createNsecSigner(nsec);
+  nostr.signer = signer;
 
   nostrStore.setPubkey(pk);
   const npubStr = nip19.npubEncode(pk);
@@ -928,6 +927,7 @@ export async function recoverDriveProfileWithAppKey(
   options: DriveRecoveryAppKeyOptions,
 ): Promise<{ nsec: string; npub: string; session: NostrIdentitySession }> {
   const signer = await createRecoverySigner(options.recovery);
+  try {
   const explicitProfileId = options.profileId ? normalizeProfileId(options.profileId) : null;
   const { profileId, rosterOps } = explicitProfileId
     ? {
@@ -995,6 +995,7 @@ export async function recoverDriveProfileWithAppKey(
     })),
     session: activeSession,
   };
+  } finally { await (signer as NostrIdentityEventSigner & { close?(): Promise<void> }).close?.(); }
 }
 
 export async function removeDriveProfileAppKeyWithRecovery(
@@ -1002,6 +1003,7 @@ export async function removeDriveProfileAppKeyWithRecovery(
 ): Promise<DriveRecoveryRemoveAppKeyResult> {
   const profileId = normalizeProfileId(options.profileId);
   const signer = await createRecoverySigner(options.recovery);
+  try {
   const rosterOps = await fetchNostrIdentityRosterOps(profileId, options.rosterFetchTimeoutMs);
   if (rosterOps.length === 0) {
     throw new Error('No Drive user found for that profile');
@@ -1051,6 +1053,7 @@ export async function removeDriveProfileAppKeyWithRecovery(
     removal.appKeyPubkey,
   );
   return { removal, dckRotationOp, session };
+  } finally { await (signer as NostrIdentityEventSigner & { close?(): Promise<void> }).close?.(); }
 }
 
 /**
@@ -1133,13 +1136,7 @@ async function ensureTestDefaultFolders(): Promise<void> {
 async function publishInitialProfile(npub: string) {
   const lud16 = `${npub}@npub.cash`;
 
-  const event = new NDKEvent(ndk);
-  event.kind = 0;
-  event.content = JSON.stringify({
-    lud16,
-  });
-
-  await event.publish();
+  await nostr.publishEvent({ kind: 0, content: JSON.stringify({ lud16 }) });
   console.log('[auth] Published initial profile with lud16:', lud16);
 }
 
@@ -1180,7 +1177,7 @@ export function logout() {
   nostrStore.setIsLoggedIn(false);
   nostrStore.setSelectedTree(null);
   secretKey = null;
-  ndk.signer = undefined;
+  nostr.signer = undefined;
 
   // Keep the initialized backend reusable for a same-page login, but detach it
   // from the logged-out AppKey. This also stops the AppKey-scoped FIPS runtime.
@@ -1357,18 +1354,17 @@ function syncActiveDriveRosterSubscription(session: NostrIdentitySession | null)
 
   const profileId = session.profileId;
   const appKeyPubkey = session.appKeyPubkey;
-  const filter: NDKFilter<number> = {
+  const filter: Filter = {
     kinds: [KIND_NOSTR_IDENTITY_ROSTER_OP],
     '#i': [profileId],
   };
-  const sub = ndk.subscribe(filter, {
-    closeOnEose: false,
-    cacheUsage: NDKSubscriptionCacheUsage.ONLY_RELAY,
-  }, false);
+  const sub = nostr.subscribe(filter, {
+    closeAfterHistory: false,
+  });
   sub.on('event', (event) => {
     if (activeDriveRosterSubscriptionKey !== `${profileId}:${appKeyPubkey}`) return;
     try {
-      const raw = event.rawEvent() as NostrToolsEvent;
+      const raw = event as NostrToolsEvent;
       if (!verifyEvent(raw)) return;
       const signed = parseNostrIdentityRosterOpEvent(raw);
       if (signed.content.profile_id !== profileId) return;
@@ -1384,7 +1380,7 @@ function syncActiveDriveRosterSubscription(session: NostrIdentitySession | null)
       console.warn('[auth] Ignoring invalid live Drive roster event:', error);
     }
   });
-  sub.start();
+
   activeDriveRosterSubscription = sub;
 }
 
@@ -1639,20 +1635,19 @@ async function fetchDriveDeviceApprovalReceipt(
       sub.stop();
       resolve();
     };
-    const filter: NDKFilter<number> = {
+    const filter: Filter = {
       kinds: [KIND_NOSTR_IDENTITY_ROSTER_OP],
       '#p': [requestPubkey],
       limit: 50,
     };
-    const sub = ndk.subscribe(filter, {
-      closeOnEose: false,
-      cacheUsage: NDKSubscriptionCacheUsage.ONLY_RELAY,
-    }, false);
+    const sub = nostr.subscribe(filter, {
+      closeAfterHistory: false,
+    });
     const timer = setTimeout(finish, timeoutMs);
 
     sub.on('event', (event) => {
       try {
-        const raw = event.rawEvent() as NostrToolsEvent;
+        const raw = event as NostrToolsEvent;
         if (!verifyEvent(raw)) return;
         const parsed = parseDeviceApprovalReceiptEvent(raw, {
           requestSecretKey,
@@ -1664,7 +1659,7 @@ async function fetchDriveDeviceApprovalReceipt(
         // Other fact events can share the request pubkey tag; ignore them.
       }
     });
-    sub.start();
+
   });
 
   return approval;
@@ -1691,37 +1686,7 @@ async function createRecoverySigner(recovery: DriveRecoveryRequest): Promise<Nos
 
   const connection = recovery.nip46Connection?.trim();
   if (!connection) throw new Error('Enter a remote signer');
-  const relay = recovery.nip46Relay?.trim();
-  const remoteSigner = new NDKNip46Signer(
-    ndk,
-    connection,
-    undefined,
-    relay ? [relay] : undefined,
-  );
-  remoteSigner.timeout = 30_000;
-  await remoteSigner.blockUntilReady();
-  return createNostrIdentitySignerFromNip46({
-    getPublicKey: async () => (await remoteSigner.user()).pubkey,
-    signEvent: async (draft) => {
-      const event = new NDKEvent(ndk);
-      event.kind = draft.kind;
-      event.content = draft.content;
-      event.tags = draft.tags.map((tag: string[]) => tag.slice());
-      event.created_at = draft.created_at;
-      await event.sign(remoteSigner);
-      return event.rawEvent() as NostrToolsEvent;
-    },
-    nip44Encrypt: (recipientPubkey, plaintext) => remoteSigner.encrypt(
-      ndk.getUser({ pubkey: recipientPubkey }),
-      plaintext,
-      'nip44',
-    ),
-    nip44Decrypt: (senderPubkey, ciphertext) => remoteSigner.decrypt(
-      ndk.getUser({ pubkey: senderPubkey }),
-      ciphertext,
-      'nip44',
-    ),
-  });
+  return createRemoteRecoverySigner(connection, recovery.nip46Relay?.trim());
 }
 
 async function fetchNostrIdentityRosterOps(
@@ -1777,47 +1742,22 @@ async function fetchDriveRosterAuthorBatch(
   authors: readonly string[],
   timeoutMs: number,
 ): Promise<DriveRosterAuthorSnapshot> {
+  const adapter = getWorkerAdapter() ?? await waitForWorkerAdapter(timeoutMs);
+  if (!adapter?.queryEvents) return { rosterOps: [], complete: false };
+  const report = await adapter.queryEvents([rosterAuthorFilter(profileId, authors)], {
+    cache: 'network-only', localEcho: false, relays: getNostrRelayUrls(), sources: [], deadline: Date.now() + timeoutMs,
+  });
   const expectedAuthors = new Set(authors);
   const byId = new Map<string, SignedNostrIdentityRosterOp>();
-  return new Promise<DriveRosterAuthorSnapshot>((resolve) => {
-    let resolved = false;
-    let eoseSeen = false;
-    let eoseDrainTimer: ReturnType<typeof setTimeout> | null = null;
-    const finish = (complete: boolean) => {
-      if (resolved) return;
-      resolved = true;
-      clearTimeout(timeoutTimer);
-      if (eoseDrainTimer) clearTimeout(eoseDrainTimer);
-      sub.stop();
-      resolve({ rosterOps: [...byId.values()], complete });
-    };
-    const scheduleEoseDrain = () => {
-      if (eoseDrainTimer) clearTimeout(eoseDrainTimer);
-      eoseDrainTimer = setTimeout(() => finish(true), DRIVE_ROSTER_EOSE_DRAIN_MS);
-    };
-    const filter = rosterAuthorFilter(profileId, authors) as NDKFilter<number>;
-    const sub = ndk.subscribe(filter, {
-      closeOnEose: false,
-      cacheUsage: NDKSubscriptionCacheUsage.ONLY_RELAY,
-    }, false);
-    const timeoutTimer = setTimeout(() => finish(false), timeoutMs);
-    sub.on('event', (event) => {
-      try {
-        const raw = event.rawEvent() as NostrToolsEvent;
-        if (!verifyEvent(raw) || !expectedAuthors.has(raw.pubkey)) return;
-        const signed = parseNostrIdentityRosterOpEvent(raw);
-        if (signed.content.profile_id === profileId) byId.set(signed.op_id, signed);
-        if (eoseSeen) scheduleEoseDrain();
-      } catch (error) {
-        console.warn('[auth] Ignoring invalid Iris identity roster event:', error);
-      }
-    });
-    sub.on('eose', () => {
-      eoseSeen = true;
-      scheduleEoseDrain();
-    });
-    sub.start();
-  });
+  for (const raw of report.events) {
+    try {
+      if (!verifyEvent(raw) || !expectedAuthors.has(raw.pubkey)) continue;
+      const signed = parseNostrIdentityRosterOpEvent(raw);
+      if (signed.content.profile_id === profileId) byId.set(signed.op_id, signed);
+    } catch { /* Unrelated or invalid signed events cannot authorize a device. */ }
+  }
+  return { rosterOps: [...byId.values()], complete: report.complete };
+
 }
 
 async function fetchUnanchoredNostrIdentityRosterOps(
@@ -1841,24 +1781,22 @@ async function fetchUnanchoredNostrIdentityRosterOps(
     };
     const scheduleEoseDrain = () => {
       if (eoseDrainTimer) clearTimeout(eoseDrainTimer);
-      // NDK can emit EOSE before its already-received event callbacks have
-      // drained. Keep the subscription open for one short quiet window so a
-      // valid relay snapshot is not mistaken for an empty authorization set.
+      // This discovery subscription collects signed candidates. Authorization
+      // is checked separately against a complete relay roster snapshot.
       eoseDrainTimer = setTimeout(finish, DRIVE_ROSTER_EOSE_DRAIN_MS);
     };
-    const filter: NDKFilter<number> = {
+    const filter: Filter = {
       kinds: [KIND_NOSTR_IDENTITY_ROSTER_OP],
       '#i': [profileId],
     };
-    const sub = ndk.subscribe(filter, {
-      closeOnEose: false,
-      cacheUsage: NDKSubscriptionCacheUsage.ONLY_RELAY,
-    }, false);
+    const sub = nostr.subscribe(filter, {
+      closeAfterHistory: false,
+    });
     const timer = setTimeout(finish, timeoutMs);
 
     sub.on('event', (event) => {
       try {
-        const raw = event.rawEvent() as NostrToolsEvent;
+        const raw = event as NostrToolsEvent;
         if (!verifyEvent(raw)) {
           console.warn('[auth] Ignoring Iris identity roster event with invalid signature');
           return;
@@ -1872,11 +1810,11 @@ async function fetchUnanchoredNostrIdentityRosterOps(
         console.warn('[auth] Ignoring invalid Iris identity roster event:', error);
       }
     });
-    sub.on('eose', () => {
+    sub.on('history', () => {
       eoseSeen = true;
       scheduleEoseDrain();
     });
-    sub.start();
+
   });
 
   return Array.from(byId.values())
@@ -1925,20 +1863,19 @@ async function fetchNostrIdentityIdsSelfReferencedByPubkey(
       sub.stop();
       resolve();
     };
-    const filter: NDKFilter<number> = {
+    const filter: Filter = {
       authors: [pubkey],
       kinds: [KIND_NOSTR_IDENTITY_ROSTER_OP, KIND_NOSTR_IDENTITY_FACET_ACCEPTANCE],
       '#p': [pubkey],
       limit: 500,
     };
-    const sub = ndk.subscribe(filter, {
-      closeOnEose: true,
-      cacheUsage: NDKSubscriptionCacheUsage.ONLY_RELAY,
+    const sub = nostr.subscribe(filter, {
+      closeAfterHistory: true,
     });
     const timer = setTimeout(finish, timeoutMs);
 
     sub.on('event', (event) => {
-      const raw = event.rawEvent() as NostrToolsEvent;
+      const raw = event as NostrToolsEvent;
       if (!verifyEvent(raw)) {
         console.warn('[auth] Ignoring Iris identity self-reference event with invalid signature');
         return;
@@ -1948,7 +1885,7 @@ async function fetchNostrIdentityIdsSelfReferencedByPubkey(
         profileIds.add(profileId);
       }
     });
-    sub.on('eose', finish);
+    sub.on('history', finish);
   });
 
   return Array.from(profileIds).sort();
@@ -1982,30 +1919,7 @@ async function publishSignedIdentityEventJson(eventJson: string): Promise<void> 
 }
 
 async function publishRawNostrEvent(event: NostrToolsEvent): Promise<void> {
-  ndk.subManager.dispatchEvent(event as Parameters<typeof ndk.subManager.dispatchEvent>[0], undefined, true);
-  const hasDirectRelays = ndk.pool.relays.size > 0 || (ndk.explicitRelayUrls?.length ?? 0) > 0;
-  let directError: unknown = null;
-  let directPublished = false;
-  if (hasDirectRelays) {
-    try {
-      const ndkEvent = new NDKEvent(ndk, event);
-      await ndkEvent.publish();
-      directPublished = true;
-    } catch (error) {
-      directError = error;
-    }
-  }
-
-  const adapter = getWorkerAdapter() ?? await waitForWorkerAdapter(5000);
-  if (adapter) {
-    await adapter.publish(event as Parameters<typeof adapter.publish>[0]);
-    return;
-  }
-
-  if (directError && !directPublished) throw directError;
-  if (directPublished) return;
-  const ndkEvent = new NDKEvent(ndk, event);
-  await ndkEvent.publish();
+  await nostr.publish(event);
 }
 
 function normalizeProfileId(profileId: NostrIdentityId): NostrIdentityId {

@@ -13,7 +13,7 @@ let relayTrackingInitialized = false;
 
 /**
  * Update relay status by polling the current adapter. In native mode this is
- * the main-thread NDK transport; in web mode it is the worker relay pool.
+ * the pubsub connection to the native daemon; in web mode it is the worker relay pool.
  */
 export async function updateConnectedRelayCount(): Promise<void> {
   const adapter = getWorkerAdapter();

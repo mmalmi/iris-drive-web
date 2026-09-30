@@ -12,7 +12,6 @@ declare global {
   interface Window {
     // HMR singleton patterns
     __nostrStore?: NostrStore;
-    __ndk?: unknown;
 
     // Test helpers
     __testHelpers?: {

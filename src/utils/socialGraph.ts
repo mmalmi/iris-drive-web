@@ -361,7 +361,7 @@ export function getSocialGraph(): { getRoot: () => string } | null {
 
 export async function fetchFollowList(publicKey: string): Promise<void> {
   log('fetching own follow list for', publicKey);
-  // The worker's NDK subscription handles kind:3 events automatically
+  // The worker's event subscription handles kind:3 events automatically
   // This function is kept for API compatibility but is now a no-op
 }
 
@@ -407,7 +407,7 @@ async function crawlFollowLists(publicKey: string, depth = 2): Promise<void> {
       log('total users needing crawl:', toFetchSet.size);
     }
 
-    // Note: The worker's NDK subscription will fetch kind:3 events
+    // Note: The worker's event subscription will fetch kind:3 events
     // We just identified who needs fetching here
   } finally {
     socialGraphStore.setIsRecrawling(false);

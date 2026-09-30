@@ -44,7 +44,7 @@ export interface NostrState {
   connectedRelays: number;
   /** Actual transport relays the app currently has sockets to. */
   transportRelays: RelayInfo[];
-  /** Relays discovered by NDK (outbox model, etc) that aren't in configured list */
+  /** Additional active transport relays that aren't in configured list */
   discoveredRelays: RelayInfo[];
 }
 

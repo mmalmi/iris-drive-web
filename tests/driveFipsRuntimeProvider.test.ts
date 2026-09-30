@@ -11,12 +11,13 @@ vi.mock('@hashtree/dexie', () => ({
 }));
 
 vi.mock('@hashtree/fips-transport/browser', () => ({
-  createBrowserHashtreeFipsProvider: browserProviderFactory,
+  createBrowserHashtreeNostrProvider: browserProviderFactory,
 }));
 
 import { DriveFipsRuntime } from '../src/lib/driveFipsRuntime';
 
 type ProviderOptions = {
+  nostrPeers?: () => string[];
   providerRoutes?: () => Promise<Array<{ peerId: string; htl: number }>>;
   allowIncomingPeer?: (peerId: string) => boolean | Promise<boolean>;
 };
@@ -50,6 +51,8 @@ function installBrowserProviderFake(remoteBytes = new Uint8Array([7, 8, 9])) {
           return () => listeners.delete(event);
         }),
       },
+      nostrSource: { id: 'fips' },
+      refreshNostrPeers: vi.fn(),
       webRtcTransport: transport,
       webSocketTransport: {},
       stop: vi.fn(async () => undefined),
@@ -95,6 +98,7 @@ describe('Drive FIPS provider authorization', () => {
     });
 
     await runtime.start();
+    expect(runtime.getNostrSource()).toBe(runtime.getP2PProvider().nostrSource);
     const fetched = await runtime.getP2PProvider().fetch('ab'.repeat(32));
 
     expect(fetched).toEqual(new Uint8Array([7, 8, 9]));
@@ -126,6 +130,7 @@ describe('Drive FIPS provider authorization', () => {
     });
     await runtime.start();
 
+    expect(fake.providerOptions?.nostrPeers?.()).toEqual([]);
     await expect(fake.transport.connect({ transport: 'webrtc', addr: `02${deniedPubkey}` }))
       .rejects.toThrow(/not authorized/i);
     await expect(fake.transport.connect({ transport: 'webrtc', addr: `02${allowedPubkey}` }))
@@ -144,6 +149,10 @@ describe('Drive FIPS provider authorization', () => {
     });
     expect(runtime.getStats().connectedPeerIds).not.toContain(`02${deniedPubkey}`);
 
+    fake.emit('peer', { remotePubkey: `02${allowedPubkey}`, state: 'connected' });
+    await vi.waitFor(() => expect(fake.providerOptions?.nostrPeers?.()).toEqual([`02${allowedPubkey}`]));
+    expect(fake.providerOptions?.nostrPeers?.()).not.toContain(`02${deniedPubkey}`);
+
     authorized = [localPubkey];
     await expect(fake.providerOptions?.providerRoutes?.()).resolves.toEqual([]);
     fake.emit('peer', { remotePubkey: `02${allowedPubkey}`, state: 'connected' });
@@ -153,6 +162,7 @@ describe('Drive FIPS provider authorization', () => {
         addr: `02${allowedPubkey}`,
       });
     });
+    expect(fake.providerOptions?.nostrPeers?.()).toEqual([]);
     await runtime.stop();
   });
 });

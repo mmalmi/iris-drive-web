@@ -235,6 +235,9 @@ export class WorkerAdapterSocial extends WorkerAdapterNostr {
 
   close(): void {
     this.stopHeartbeat();
+    this.sourceBridge?.();
+    this.sourceBridge = null;
+    this.nostrSource = null;
 
     if (this.worker) {
       this.postMessage({ type: 'close', id: generateRequestId() });
@@ -242,6 +245,10 @@ export class WorkerAdapterSocial extends WorkerAdapterNostr {
       this.worker = null;
     }
     this.ready = false;
+    for (const pending of this.pendingRequests.values()) {
+      if (pending.timeoutId) clearTimeout(pending.timeoutId);
+      pending.reject(new Error('Worker closed'));
+    }
     this.pendingRequests.clear();
     this.subscriptions.clear();
     this.streamCallbacks.clear();

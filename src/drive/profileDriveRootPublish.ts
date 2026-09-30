@@ -1,8 +1,8 @@
 import { toHex, type CID } from '@hashtree/core';
 import { getPublicKey } from 'nostr-tools';
 import type { NostrIdentitySession } from './deviceLink';
-import { NDKEvent, getCurrentNostrIdentitySession, getSecretKey, ndk } from '../nostr';
-import { publishEventWithFallback } from '../lib/nostrPublish';
+import { getCurrentNostrIdentitySession, getSecretKey } from '../nostr';
+import { publishEvent } from '../lib/nostrPublish';
 import { profileDriveProjection } from './profileDriveProjection';
 import {
   buildDriveRootEvent,
@@ -152,8 +152,7 @@ export async function publishNostrIdentityDriveRootIfAvailable(
     rawEvent,
     parseDriveRootEventForDevice(rawEvent, secretKey),
   );
-  const event = new NDKEvent(ndk, rawEvent);
-  await publishEventWithFallback(event);
+  await publishEvent(rawEvent);
   if (retained) {
     // Run after this publish resolves so TreeRootRegistry can mark its local
     // record clean before the resolver replaces it with the merged view.

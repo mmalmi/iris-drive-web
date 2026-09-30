@@ -1,3 +1,6 @@
+import { serveNostrSource } from '@hashtree/worker/nostr-source-port';
+import type { RuntimeSource } from 'nostr-pubsub';
+import type { HistoryStatus } from '@iris/hashtree-app/nostr';
 /**
  * Worker Adapter
  *
@@ -10,6 +13,7 @@ import type {
   WorkerRequest,
   WorkerResponse,
   WorkerConfig as HashtreeWorkerConfig,
+  WorkerNostrFilter,
   WorkerSignedEvent as SignedEvent,
   WorkerUnsignedEvent as UnsignedEvent,
   WorkerBlossomBandwidthStats as BlossomBandwidthStats,
@@ -25,7 +29,7 @@ type PendingRequest = {
 };
 
 export type SubscriptionCallback = (event: SignedEvent) => void;
-export type EoseCallback = () => void;
+export type EoseCallback = (status?: HistoryStatus) => void;
 export type WorkerAdapterConfig = HashtreeWorkerConfig;
 export type ExtendedWorkerRequest = WorkerRequest | (Record<string, unknown> & {
   type: string;
@@ -47,6 +51,7 @@ export class WorkerAdapterCore {
   protected readyPromise: Promise<void> | null = null;
   protected readyResolve: (() => void) | null = null;
   protected restartAttempts = 0;
+  private recovering = false;
   protected maxRestartAttempts = 10;
 
   // Heartbeat monitoring - detects unresponsive workers (infinite loops, deadlocks)
@@ -61,7 +66,7 @@ export class WorkerAdapterCore {
   protected pendingRequests = new Map<string, PendingRequest>();
 
   // Nostr subscription callbacks
-  protected subscriptions = new Map<string, { callback?: SubscriptionCallback; eose?: EoseCallback }>();
+  protected subscriptions = new Map<string, { filters: WorkerNostrFilter[]; callback?: SubscriptionCallback; eose?: EoseCallback }>();
   protected globalEventCallback: ((event: SignedEvent) => void) | null = null;
 
   // Stream callbacks (for readFileStream)
@@ -86,6 +91,9 @@ export class WorkerAdapterCore {
 
   // FIPS-backed P2P provider owned by the main thread.
   protected p2pProvider: WorkerP2PProvider | null = null;
+  protected nostrSource: RuntimeSource | null = null;
+  protected sourceBridge: (() => void) | null = null;
+  private sourceRevision = 0;
 
   /**
    * Create a WorkerAdapter
@@ -151,7 +159,12 @@ export class WorkerAdapterCore {
           this.restartAttempts = 0;
           this.flushMessageQueue();
           this.startHeartbeat();
+          if (this.recovering) {
+            this.recovering = false;
+            for (const [id, { filters }] of this.subscriptions) this.postMessage({ type: 'subscribe', id, filters });
+          }
           this.readyResolve?.();
+          if (this.nostrSource) void this.attachNostrSource().catch(console.error);
           console.log('[WorkerAdapter] Worker ready');
           break;
 
@@ -174,6 +187,7 @@ export class WorkerAdapterCore {
         case 'dirListing':
         case 'peerStats':
         case 'relayStats':
+        case 'nostrQuery':
         case 'storageStats':
         case 'treeRootInfo':
           this.resolvePending(msg.id, msg);
@@ -187,8 +201,12 @@ export class WorkerAdapterCore {
           this.handleNostrEvent(msg.subId, msg.event);
           break;
 
+        case 'nostrStatus':
+          this.handleEose(msg.subId, msg.status);
+          break;
+
         case 'eose':
-          this.handleEose(msg.subId);
+          this.handleEose(msg.subId, msg.status);
           break;
 
         // NIP-07 requests from worker - delegate to main thread extension
@@ -315,13 +333,17 @@ export class WorkerAdapterCore {
   }
 
   protected async handleWorkerCrash() {
+    this.recovering = true;
     this.stopHeartbeat();
+    this.sourceBridge?.();
+    this.sourceBridge = null;
     this.ready = false;
     this.worker?.terminate();
     this.worker = null;
 
     // Reject all pending requests
     for (const pending of this.pendingRequests.values()) {
+      if (pending.timeoutId) clearTimeout(pending.timeoutId);
       pending.reject(new Error('Worker crashed'));
     }
     this.pendingRequests.clear();
@@ -358,6 +380,32 @@ export class WorkerAdapterCore {
       id: generateRequestId(),
       enabled: provider !== null,
     } as ExtendedWorkerRequest);
+  }
+
+  async setNostrSource(source: RuntimeSource | null): Promise<void> {
+    this.nostrSource = source;
+    await this.init();
+    await this.attachNostrSource();
+  }
+
+  private async attachNostrSource(): Promise<void> {
+    const revision = ++this.sourceRevision;
+    this.sourceBridge?.();
+    this.sourceBridge = null;
+    await this.request({ type: 'detachNostrSource', id: generateRequestId(), sourceId: 'fips' });
+    const source = this.nostrSource;
+    if (!source || revision !== this.sourceRevision || !this.ready) return;
+    const channel = new MessageChannel();
+    const close = serveNostrSource(channel.port1, source);
+    this.sourceBridge = close;
+    try {
+      await this.request({ type: 'attachNostrSource', id: generateRequestId(), sourceId: source.id,
+        port: channel.port2, publishAcceptance: source.publishAcceptance }, [channel.port2]);
+    } catch (error) {
+      close();
+      if (this.sourceBridge === close) this.sourceBridge = null;
+      throw error;
+    }
   }
 
   private async handleP2PFetch(
@@ -493,10 +541,10 @@ export class WorkerAdapterCore {
     }
   }
 
-  protected handleEose(subId: string) {
+  protected handleEose(subId: string, status?: HistoryStatus) {
     const sub = this.subscriptions.get(subId);
     if (sub?.eose) {
-      sub.eose();
+      sub.eose(status);
     }
   }
 
