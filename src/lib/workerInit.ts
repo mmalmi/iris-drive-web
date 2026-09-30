@@ -29,7 +29,7 @@ import { getEffectiveBlossomServers, getEffectiveNostrRelays } from './runtimeNe
 import { setupTreeRootRegistryBridge } from './workerTreeRootBridge';
 import { initializePublishFn } from '../treeRootCache';
 import { setupMediaStreaming } from './mediaStreamingSetup';
-import type { WorkerNostrFilter, WorkerSignedEvent } from '@hashtree/core';
+import type { WorkerNostrFilter } from '@hashtree/core';
 import {
   attachDriveFipsProvider,
   startDriveFipsRuntime,

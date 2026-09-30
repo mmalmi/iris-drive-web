@@ -6,7 +6,6 @@
   import { nostrStore, nostr } from '../nostr';
   import { createProfileStore, invalidateProfile as invalidateProfileFn } from '../stores/profile';
   import { nip19 } from 'nostr-tools';
-  import type { Event as NostrEvent } from 'nostr-tools';
   import { BackButton } from './ui';
 
   interface Props {

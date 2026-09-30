@@ -3,7 +3,6 @@ import { nip19 } from 'nostr-tools';
 import { LRUCache } from '../utils/lruCache';
 import { KeyedEventEmitter } from '../utils/keyedEventEmitter';
 import { nostr } from '../nostr/client';
-import { settingsStore } from './settings';
 
 export interface Profile {
   pubkey: string;

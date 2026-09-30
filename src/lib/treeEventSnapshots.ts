@@ -20,7 +20,6 @@ import {
 import { getTree } from '../store';
 import { nostr } from '../nostr';
 
-const SNAPSHOT_FETCH_TIMEOUT_MS = 5000;
 const SNAPSHOT_FETCH_LIMIT = 20;
 
 const snapshotsByTreeKey = new Map<string, TreeEventSnapshotInfo>();

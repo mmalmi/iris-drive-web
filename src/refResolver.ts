@@ -7,7 +7,7 @@
 import { nip19 } from 'nostr-tools';
 import { fromHex, toHex, type RefResolver } from '@hashtree/core';
 import { HASHTREE_ROOT_KIND, createNostrRefResolver, type NostrFilter, type NostrEvent, type VisibilityCallbacks } from '@hashtree/nostr';
-import { decrypt, encrypt, nostr, nostrStore, useNostrStore, type NostrState } from './nostr';
+import { decrypt, encrypt, nostr, useNostrStore, type NostrState } from './nostr';
 import { parseRoute } from './utils/route';
 import { cacheTreeEventSnapshot } from './lib/treeEventSnapshots';
 
