@@ -286,3 +286,50 @@ describe('WorkerAdapter external P2P bridge', () => {
     adapter.close();
   });
 });
+
+describe('WorkerAdapter startup recovery', () => {
+  test('resolves all startup callers when the first worker crashes before ready', async () => {
+    vi.useFakeTimers();
+    const adapter = new WorkerAdapter(FakeWorker as unknown as new () => Worker, { relays: [] });
+    try {
+      const firstReady = vi.fn();
+      const secondReady = vi.fn();
+      void adapter.init().then(firstReady);
+      const failedWorker = FakeWorker.latest!;
+      failedWorker.onerror?.({ message: 'startup failed' } as ErrorEvent);
+      void adapter.init().then(secondReady);
+      await vi.advanceTimersByTimeAsync(1000);
+      const recoveredWorker = FakeWorker.latest!;
+      expect(recoveredWorker).not.toBe(failedWorker);
+      expect(firstReady).not.toHaveBeenCalled();
+      expect(secondReady).not.toHaveBeenCalled();
+      recoveredWorker.emit({ type: 'ready' });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(firstReady).toHaveBeenCalledOnce();
+      expect(secondReady).toHaveBeenCalledOnce();
+    } finally {
+      adapter.close();
+      vi.useRealTimers();
+    }
+  });
+
+  test('new callers wait through recovery after an initialized worker crashes', async () => {
+    vi.useFakeTimers();
+    const { adapter, worker } = await initializedAdapter();
+    try {
+      worker.onerror?.({ message: 'worker failed' } as ErrorEvent);
+      const readyAgain = vi.fn();
+      void adapter.init().then(readyAgain);
+      await vi.advanceTimersByTimeAsync(999);
+      expect(readyAgain).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(FakeWorker.latest).not.toBe(worker);
+      FakeWorker.latest!.emit({ type: 'ready' });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(readyAgain).toHaveBeenCalledOnce();
+    } finally {
+      adapter.close();
+      vi.useRealTimers();
+    }
+  });
+});

@@ -5,12 +5,15 @@ test('worker reads a missing block through the external P2P provider', async ({ 
   await page.goto('/');
   await waitForAppReady(page);
   await waitForWorkerAdapter(page, 30_000);
-  await page.waitForFunction(async () => {
-    const { isFipsRuntimeReady } = await import('/src/lib/workerInit.ts');
-    return isFipsRuntimeReady();
-  }, undefined, { timeout: 30_000 });
-
   const result = await evaluateWithRetry(page, async () => {
+    // Account initialization may reload the page between evaluation attempts.
+    // Wait for this document's provider before temporarily substituting it.
+    const { isFipsRuntimeReady } = await import('/src/lib/workerInit.ts');
+    const deadline = Date.now() + 30_000;
+    while (!isFipsRuntimeReady()) {
+      if (Date.now() >= deadline) throw new Error('FIPS provider bridge is not ready');
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
     const win = window as typeof window & {
       __getWorkerAdapter?: () => {
         get(hash: Uint8Array): Promise<Uint8Array | null>;
