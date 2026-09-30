@@ -164,6 +164,8 @@ export class WorkerAdapterCore {
             for (const [id, { filters }] of this.subscriptions) this.postMessage({ type: 'subscribe', id, filters });
           }
           this.readyResolve?.();
+          this.readyResolve = null;
+          this.readyPromise = null;
           if (this.nostrSource) void this.attachNostrSource().catch(console.error);
           console.log('[WorkerAdapter] Worker ready');
           break;
@@ -338,6 +340,10 @@ export class WorkerAdapterCore {
     this.sourceBridge?.();
     this.sourceBridge = null;
     this.ready = false;
+    // Keep startup callers waiting on the same promise across a failed worker.
+    this.readyPromise ??= new Promise((resolve) => {
+      this.readyResolve = resolve;
+    });
     this.worker?.terminate();
     this.worker = null;
 
@@ -355,10 +361,6 @@ export class WorkerAdapterCore {
       console.log(`[WorkerAdapter] Restarting worker in ${delay}ms (attempt ${this.restartAttempts})`);
 
       await new Promise((resolve) => setTimeout(resolve, delay));
-
-      this.readyPromise = new Promise((resolve) => {
-        this.readyResolve = resolve;
-      });
 
       this.spawnWorker();
     } else {

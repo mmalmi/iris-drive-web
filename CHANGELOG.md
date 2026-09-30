@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.19 - 2026-09-30
+
+- Restore file sharing when a background worker restarts during startup.
+- Route larger peer connection offers over paths that can carry them.
+- Resume peer connections promptly after authenticated signaling recovers.
+
 ## 0.1.18 - 2026-09-30
 
 - Keep message-server requests within common filter limits while preserving
