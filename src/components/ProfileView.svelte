@@ -119,6 +119,8 @@
 
   let bannerError = $state(false);
   let followLoading = $state(false);
+  let followError = $state('');
+  $effect(() => { pubkeyHex; myPubkey; followError = ''; });
 
   function navigate(path: string) {
     window.location.hash = path;
@@ -126,11 +128,9 @@
 
   async function handleFollow() {
     followLoading = true;
-    if (isFollowing) {
-      await unfollowPubkey(pubkeyHex);
-    } else {
-      await followPubkey(pubkeyHex);
-    }
+    followError = '';
+    const updated = await (isFollowing ? unfollowPubkey(pubkeyHex) : followPubkey(pubkeyHex));
+    if (!updated) followError = 'Could not update follows. Try again when connected.';
     followLoading = false;
   }
 </script>
@@ -236,6 +236,7 @@
     {#if !isOwnProfile && pubkeyHex}
       <FollowedBy pubkey={pubkeyHex} class="mt-2" />
       <ContactPreferences pubkey={pubkeyHex} />
+      {#if followError}<p class="text-sm text-red-400 mt-2" role="alert">{followError}</p>{/if}
     {/if}
 
     <!-- About -->
