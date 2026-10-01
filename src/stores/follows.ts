@@ -10,6 +10,8 @@ import type { Event as NostrEvent } from 'nostr-tools';
 import { LRUCache } from '../utils/lruCache';
 import { KeyedEventEmitter } from '../utils/keyedEventEmitter';
 import { nostr, nostrStore } from '../nostr';
+import { getNostrRelayUrls } from '../nostr/client';
+import { getWorkerAdapter } from '../workerAdapter';
 
 export interface Follows {
   pubkey: string;
@@ -149,7 +151,28 @@ function newerHead(current: NostrEvent | null, event: NostrEvent): NostrEvent {
     (event.created_at === current.created_at && event.id < current.id) ? event : current;
 }
 
-function loadOwnFollowHead(pk: string): Promise<NostrEvent | null> {
+async function loadOwnFollowHead(pk: string): Promise<NostrEvent | null> {
+  const adapter = getWorkerAdapter();
+  if (adapter?.queryEvents) {
+    const relays = getNostrRelayUrls();
+    if (relays.length === 0) throw new Error('No follow history servers are configured.');
+    // Optional peer sources may have no complete history. Require all configured
+    // relays while retaining any newer signed head already stored locally.
+    const result = await adapter.queryEvents([{kinds: [3], authors: [pk]}], {
+      cache: 'cache-first', relays, deadline: Date.now() + 10_000,
+    });
+    if (adapter !== getWorkerAdapter() || !result.complete) {
+      throw new Error('Follow history is incomplete.');
+    }
+    let latest: NostrEvent | null = null;
+    for (const event of result.events) {
+      if (event.pubkey !== pk || event.kind !== 3) continue;
+      if (!verifyEvent(event)) throw new Error('Follow history is invalid.');
+      latest = newerHead(latest, event);
+    }
+    return latest;
+  }
+  // Native backends without the worker query API report their own completion.
   return new Promise((resolve, reject) => {
     let latest: NostrEvent | null = null;
     let invalidHead = false;

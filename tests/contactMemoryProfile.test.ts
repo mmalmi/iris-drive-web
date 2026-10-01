@@ -3,9 +3,12 @@ import { finalizeEvent, getPublicKey, type Event, type EventTemplate } from 'nos
 const fixture = vi.hoisted(() => ({
   requests: [] as Array<{kinds:number[], authors:string[], handlers:Record<string,(event?:unknown)=>void>}>,
   pubkey: '',
+  adapter: null as null | {queryEvents: ReturnType<typeof vi.fn>},
+  relays: ['wss://example.invalid'],
   nostr: {signer: {} as object | undefined, subscribe: vi.fn(), publishEvent: vi.fn()},
 }));
-vi.mock('../src/nostr/client', () => ({nostr: fixture.nostr}));
+vi.mock('../src/nostr/client', () => ({nostr: fixture.nostr, getNostrRelayUrls: () => fixture.relays}));
+vi.mock('../src/workerAdapter', () => ({getWorkerAdapter: () => fixture.adapter}));
 vi.mock('../src/nostr', () => ({nostr: fixture.nostr, nostrStore: {getState: () => ({pubkey:fixture.pubkey})}}));
 import { createProfileStore, getProfileSync } from '../src/stores/profile';
 import { followPubkey, unfollowPubkey } from '../src/stores/follows';
@@ -19,7 +22,7 @@ async function requestAfter(start:number) {
   return fixture.requests.slice(start).find(r=>r.kinds.includes(3))!;
 }
 beforeEach(() => {
-  vi.useRealTimers(); fixture.requests=[]; fixture.nostr.publishEvent.mockReset();
+  vi.useRealTimers(); fixture.requests=[]; fixture.adapter=null; fixture.relays=['wss://example.invalid']; fixture.nostr.publishEvent.mockReset();
   secret=new Uint8Array(32);secret[31]=++sequence;fixture.pubkey=getPublicKey(secret);fixture.nostr.signer={};
   const values = new Map<string,string>();
   vi.stubGlobal('localStorage', {getItem:(key:string)=>values.get(key)??null,setItem:(key:string,value:string)=>values.set(key,value)});
@@ -97,4 +100,36 @@ it('times out without publishing when history never completes', async () => {
     expect(await pending).toBe(false);
     expect(fixture.nostr.publishEvent).not.toHaveBeenCalled();
   } finally {vi.useRealTimers();}
+});
+
+it('uses completed relay-scoped worker history when optional peer history is unavailable', async () => {
+  let finish!: (result: unknown) => void;
+  const queryEvents=vi.fn(() => new Promise(resolve => {finish=resolve;}));
+  fixture.adapter={queryEvents};
+  const pending=followPubkey(contact);
+  await vi.waitFor(()=>expect(queryEvents).toHaveBeenCalledOnce());
+  expect(queryEvents.mock.calls[0]).toEqual([[{kinds:[3],authors:[fixture.pubkey]}], {
+    cache:'cache-first',relays:fixture.relays,deadline:expect.any(Number),
+  }]);
+  expect(fixture.nostr.publishEvent).not.toHaveBeenCalled();
+  const tags=[['p',existing,'wss://hint.invalid','friend'],['client','iris']];
+  finish({complete:true,reason:'eose',events:[head(tags)]});
+  expect(await pending).toBe(true);
+  expect(fixture.nostr.publishEvent.mock.calls[0][0]).toMatchObject({content:'{"keep":"this"}',tags:[...tags,['p',contact]]});
+});
+it('refuses unavailable, invalid, or unconfigured worker relay history', async () => {
+  const queryEvents=vi.fn().mockResolvedValue({complete:false,events:[head([['p',existing]])]});
+  fixture.adapter={queryEvents};
+  expect(await followPubkey(contact)).toBe(false);
+  queryEvents.mockResolvedValue({complete:true,events:[{...JSON.parse(JSON.stringify(head([['p',existing]]))),sig:'invalid'}]});
+  expect(await followPubkey(contact)).toBe(false);
+  queryEvents.mockClear();fixture.relays=[];
+  expect(await followPubkey(contact)).toBe(false);
+  expect(queryEvents).not.toHaveBeenCalled();
+  expect(fixture.nostr.publishEvent).not.toHaveBeenCalled();
+});
+it('refuses a replaced worker backend before publishing', async () => {
+  fixture.adapter={queryEvents:vi.fn(async()=>{fixture.adapter=null;return {complete:true,events:[head([])]};})};
+  expect(await followPubkey(contact)).toBe(false);
+  expect(fixture.nostr.publishEvent).not.toHaveBeenCalled();
 });
