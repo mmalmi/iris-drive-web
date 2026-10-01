@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { nostrStore } from '../../nostr';
+  import { contactMemory, contactKey } from '../../stores/contactMemory';
   import { coolName } from '@iris/svelte-ui/profile';
   import { createProfileStore, getProfileName } from '../../stores/profile';
   import Minidenticon from './Minidenticon.svelte';
@@ -16,6 +18,10 @@
 
   let profileStore = $derived(pubkey ? createProfileStore(pubkey) : null);
   let profile = $derived(profileStore ? $profileStore : undefined);
+  let rememberedName = $derived.by(() => {
+    $contactMemory;
+    return contactMemory.get($nostrStore.pubkey || '', contactKey(pubkey))?.accepted_name;
+  });
   let imgError = $state(false);
 
   // Reset error state when pubkey changes
@@ -24,7 +30,7 @@
     imgError = false;
   });
 
-  let name = $derived(getProfileName(profile ?? undefined, pubkey) || (pubkey ? coolName(pubkey) : ''));
+  let name = $derived(rememberedName || getProfileName(profile ?? undefined, pubkey) || (pubkey ? coolName(pubkey) : ''));
 
   // Auto-select badge size based on avatar size
   function getBadgeSize(avatarSize: number): 'sm' | 'md' | 'lg' {

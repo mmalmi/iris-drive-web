@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ContactPreferences from "./User/ContactPreferences.svelte";
   /**
    * ProfileView - displays user profile
    * Port of React ProfileView component
@@ -206,6 +207,7 @@
         {#if isLoggedIn && !isOwnProfile && pubkeyHex}
           <button
             onclick={handleFollow}
+            title="Your follow list is public"
             disabled={followLoading}
             class={isFollowing ? 'btn-ghost' : 'btn-success'}
           >
@@ -233,6 +235,7 @@
     <!-- Followed by friends -->
     {#if !isOwnProfile && pubkeyHex}
       <FollowedBy pubkey={pubkeyHex} class="mt-2" />
+      <ContactPreferences pubkey={pubkeyHex} />
     {/if}
 
     <!-- About -->

@@ -41,9 +41,8 @@ function fetchProfile(pubkey: string): void {
 
     sub.on('event', (event) => {
       // Keep most recent
-      if (!bestEvent || (event.created_at || 0) > bestEvent.created_at) {
-        bestEvent = { created_at: event.created_at || 0, content: event.content, pubkey: event.pubkey };
-      }
+      if (bestEvent && (event.created_at || 0) <= bestEvent.created_at) return;
+      bestEvent = { created_at: event.created_at || 0, content: event.content, pubkey: event.pubkey };
       // Update immediately with each event
       try {
         const profile = JSON.parse(event.content) as Profile;

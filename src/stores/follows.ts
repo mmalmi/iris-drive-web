@@ -3,6 +3,8 @@
  * Svelte version using writable stores
  */
 import { writable } from 'svelte/store';
+import { rememberContact } from './contactMemory';
+import { getProfileName, getProfileSync } from './profile';
 import { nip19 } from 'nostr-tools';
 import type { Event as NostrEvent } from 'nostr-tools';
 import { LRUCache } from '../utils/lruCache';
@@ -147,8 +149,11 @@ export async function followPubkey(targetPubkey: string): Promise<boolean> {
   const follows = currentFollows?.follows || [];
   if (follows.includes(targetPubkey)) return true; // Already following
 
+  const initialName = getProfileName(getProfileSync(targetPubkey), targetPubkey) ?? null;
   const newFollows = [...follows, targetPubkey];
-  return publishFollowList(pk, newFollows);
+  const published = await publishFollowList(pk, newFollows);
+  if (published) rememberContact(pk, targetPubkey, initialName);
+  return published;
 }
 
 /**
