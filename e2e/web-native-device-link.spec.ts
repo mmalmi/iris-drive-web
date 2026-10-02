@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { generateSecretKey, getPublicKey, nip19 } from 'nostr-tools';
+import { generateSecretKey, getPublicKey, nip19, verifyEvent } from 'nostr-tools';
 import { expect, test, type Page } from './fixtures';
 import {
   addFileViaTreeAPI,
@@ -134,22 +134,47 @@ async function approvalAcks(page: Page): Promise<Array<{
   });
 }
 
-async function driveRootEventIdsByAuthor(
+async function driveRootHistoryByAuthor(
   page: Page,
   profileId: string,
   appKeyPubkey: string,
-): Promise<string[]> {
-  return page.evaluate(async ({ profile, author }) => {
+  relayUrl: string,
+) {
+  const history = await page.evaluate(async ({ profile, author, relay }) => {
     const { driveRootDTag, KIND_DRIVE_ROOT } = await import('/src/drive/protocol');
-    const { nostr } = await import('/src/nostr');
-    const events = await nostr.fetchEvents({
-      authors: [author],
-      kinds: [KIND_DRIVE_ROOT],
-      '#d': [driveRootDTag(profile, 'main')],
-      limit: 20,
+    const { getWorkerAdapter } = await import('/src/lib/workerInit');
+    const adapter = getWorkerAdapter();
+    if (!adapter?.queryEvents) throw new Error('Worker event query is unavailable');
+    const dTag = driveRootDTag(profile, 'main');
+    const filters = [{ authors: [author], kinds: [KIND_DRIVE_ROOT], '#d': [dTag], limit: 20 }];
+    const deadline = Date.now() + 10_000;
+    // Read local publication evidence before the relay query can hydrate it.
+    // Production publication ingests signed events locally before any transport.
+    const local = await adapter.queryEvents(filters, {
+      cache: 'cache-only', relays: [], sources: [], deadline,
     });
-    return Array.from(events, (event) => event.id).sort();
-  }, { profile: profileId, author: appKeyPubkey });
+    const remote = await adapter.queryEvents(filters, {
+      cache: 'network-only', localEcho: false, relays: [relay], sources: [], deadline,
+    });
+    return { local, remote, kind: KIND_DRIVE_ROOT, dTag };
+  }, { profile: profileId, author: appKeyPubkey, relay: relayUrl });
+  expect(history.local.complete, 'Local history must be complete').toBe(true);
+  expect(history.local.reason).toBe('cache');
+  expect(history.remote.complete, 'Owned relay history must be complete').toBe(true);
+  expect(history.remote.reason).toBe('eose');
+  expect(history.remote.sources).toHaveLength(1);
+  expect(history.remote.sources[0]).toMatchObject({ id: new URL(relayUrl).toString(), complete: true });
+  expect(history.remote.sources[0].error).toBeUndefined();
+  for (const event of [...history.local.events, ...history.remote.events]) {
+    expect(verifyEvent(event), 'Root history must contain valid signed events').toBe(true);
+    expect(event.pubkey).toBe(appKeyPubkey);
+    expect(event.kind).toBe(history.kind);
+    expect(event.tags).toContainEqual(['d', history.dTag]);
+  }
+  return {
+    local: history.local.events.map(event => event.id).sort(),
+    remote: history.remote.events.map(event => event.id).sort(),
+  };
 }
 
 function configureNativeBlossom(configDir: string): void {
@@ -380,7 +405,7 @@ async function stopNativeDaemon(daemon: ReturnType<typeof spawn> | null): Promis
 test('native owner and restarted web device link quickly through a large roster with exact ACK replay', async ({
   page,
   relayUrl,
-}) => {
+}, testInfo) => {
   test.skip(!irisDriveAvailable(), 'iris-drive repo not available');
   test.setTimeout(300_000);
 
@@ -472,7 +497,9 @@ test('native owner and restarted web device link quickly through a large roster 
     // Joining an existing profile is adoption, not a write. In particular, the
     // browser must not race remote-root discovery by publishing a fresh empty root.
     await page.waitForTimeout(6_000);
-    expect(await driveRootEventIdsByAuthor(page, native.profile_id, link.appKeyPubkey)).toEqual([]);
+    const adoptionHistory = await driveRootHistoryByAuthor(page, native.profile_id, link.appKeyPubkey, relayUrl);
+    await testInfo.attach('adoption-root-history', { contentType: 'application/json', body: Buffer.from(JSON.stringify(adoptionHistory)) });
+    expect(adoptionHistory).toEqual({ local: [], remote: [] });
 
     // The inverse direction exercises the real linked-AppKey path: the browser
     // publishes a causally observed root and uploads its blocks, then the native
@@ -483,10 +510,16 @@ test('native owner and restarted web device link quickly through a large roster 
     const webRoot = await addFileViaTreeAPI(page, [], webFileName, webFileContent);
     expect(webRoot).toMatch(/^[0-9a-f]{64}$/);
     await flushPendingPublishes(page);
+    let writtenHistory = { local: [] as string[], remote: [] as string[] };
     await expect.poll(
-      () => driveRootEventIdsByAuthor(page, native.profile_id, link.appKeyPubkey),
+      async () => {
+        writtenHistory = await driveRootHistoryByAuthor(page, native.profile_id, link.appKeyPubkey, relayUrl);
+        return writtenHistory.local.filter(id => writtenHistory.remote.includes(id));
+      },
       { timeout: 30_000, intervals: [500, 1_000, 2_000] },
     ).not.toEqual([]);
+    await testInfo.attach('written-root-history', { contentType: 'application/json', body: Buffer.from(JSON.stringify(writtenHistory)) });
+    expect(writtenHistory.local.some(id => writtenHistory.remote.includes(id))).toBe(true);
     await expectNativeProfileFile(
       nativeConfig,
       relayUrl,
