@@ -51,6 +51,7 @@ export function getWorkerRootSignature(record: TreeRootRecord): string {
     toHex(record.hash),
     record.key ? toHex(record.key) : '',
     record.visibility,
+    record.updatedAt,
     labels,
   ].join(':');
 }
