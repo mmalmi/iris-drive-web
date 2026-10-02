@@ -10,8 +10,8 @@ test.describe('Permalink Navigation', () => {
     // Test mode creates an isolated account; "New" creates a folder.
     await ensureLoggedIn(page);
 
-    // Wait for login to complete - user should see their tree list
-    await expect(page.getByRole('link', { name: 'public' })).toBeVisible({ timeout: 10000 });
+    // Drive opens the current profile's main folder rather than a legacy tree list.
+    await expect(page.getByTestId('home-link')).toHaveAttribute('href', /#\/[^/]+\/main$/, { timeout: 10000 });
 
     // Close any modals
     const cancelButton = page.getByRole('button', { name: 'Cancel' });
@@ -22,12 +22,12 @@ test.describe('Permalink Navigation', () => {
 
   test('file permalink should display file content', async ({ page }) => {
     test.slow(); // File operations can be slow under parallel load
-    // Navigate to public folder
-    await page.getByRole('link', { name: 'public' }).first().click();
-    await expect(page.getByRole('button', { name: /New File/i })).toBeVisible({ timeout: 5000 });
+    // Create content in the current profile's actual home folder.
+    await page.getByTestId('home-link').click();
+    await expect(page.getByRole('button', { name: 'New File', exact: true })).toBeVisible({ timeout: 5000 });
 
     // Create a file
-    await page.getByRole('button', { name: /New File/i }).click();
+    await page.getByRole('button', { name: 'New File', exact: true }).click();
     await expect(page.locator('input[placeholder="File name..."]')).toBeVisible({ timeout: 3000 });
     await page.locator('input[placeholder="File name..."]').fill('permalink-test.txt');
     await page.getByRole('button', { name: 'Create' }).click();
@@ -56,7 +56,7 @@ test.describe('Permalink Navigation', () => {
     await expect(page.getByText('Hello from permalink test content!')).toBeVisible({ timeout: 30000 });
 
     // Find the Permalink link in viewer
-    const permalinkLink = page.getByRole('link', { name: 'Snapshot', exact: true });
+    const permalinkLink = page.getByTestId('viewer-permalink');
     await expect(permalinkLink).toBeVisible({ timeout: 10000 });
 
     // Get the href
@@ -64,6 +64,7 @@ test.describe('Permalink Navigation', () => {
     console.log('File Permalink href:', permalinkHref);
     expect(permalinkHref).toBeTruthy();
     expect(permalinkHref).toContain('#/nhash1');
+    expect(permalinkHref).toMatch(/\/permalink-test\.txt(?:\?|$)/);
 
     await permalinkLink.click();
     await page.waitForURL(/#\/nhash1/, { timeout: 15000 });

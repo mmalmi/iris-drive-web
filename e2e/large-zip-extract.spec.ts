@@ -38,9 +38,11 @@ test.describe('Large ZIP extraction', () => {
     console.log(`ZIP file size: ${stats.size} bytes`);
 
     // Upload the ZIP file using file path
+    const addFiles = page.locator('label[title="Add files"]:visible');
+    await expect(addFiles).toHaveCount(1);
     const [fileChooser] = await Promise.all([
       page.waitForEvent('filechooser'),
-      page.getByTitle('Add files', { exact: true }).click(),
+      addFiles.click(),
     ]);
 
     await fileChooser.setFiles(zipPath);
