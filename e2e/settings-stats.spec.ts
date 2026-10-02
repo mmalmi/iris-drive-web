@@ -26,7 +26,7 @@ test.describe('Settings Stats', () => {
 
     const section = page.getByTestId('settings-fips-peers');
     await expect(section).toBeVisible({ timeout: 10_000 });
-    await expect(section).toContainText('Nostr-discovered FIPS device peers');
+    await expect(section).toContainText('Device peers discovered over Nostr and connected through authenticated FIPS WebRTC.');
     await expect(section).not.toContainText('Connection Pools');
     await expect(section).not.toContainText('Follows');
   });

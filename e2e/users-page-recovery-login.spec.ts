@@ -156,6 +156,7 @@ test.describe('Users Page recovery login', () => {
     await expect(page.getByText('No existing Drive user found for that key')).toBeVisible();
     await expect(page.getByTestId('identity-create-name')).toBeVisible();
     await expect(page.getByTestId('create-new-after-recovery-miss')).toBeVisible();
-    await expect(page.getByTestId('create-new-after-recovery-miss')).toBeDisabled();
+    await expect(page.getByTestId('identity-create-name')).toHaveValue('');
+    await expect(page.getByTestId('create-new-after-recovery-miss')).toBeEnabled();
   });
 });
