@@ -2,7 +2,6 @@ import { test, expect } from './fixtures';
 import {
   createAndEnterTree,
   createAndOpenFile,
-  flushPendingPublishes,
   goToTreeList,
   prepareExplorerPage,
   safeReload,
