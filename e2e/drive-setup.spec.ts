@@ -43,7 +43,7 @@ test.describe('Drive setup', () => {
 
     await expect(page.getByRole('link', { name: 'Get native app' })).toHaveAttribute(
       'href',
-      'https://irisdrive.iris.to/',
+      'https://getdrive.iris.to/',
     );
     await expect(page.getByTestId('generate-new-account')).toHaveText(/Create Profile/);
     await expect(page.getByTestId('add-existing-profile')).toHaveText(/Sign in/);

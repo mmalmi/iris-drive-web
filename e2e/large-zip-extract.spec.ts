@@ -40,7 +40,7 @@ test.describe('Large ZIP extraction', () => {
     // Upload the ZIP file using file path
     const [fileChooser] = await Promise.all([
       page.waitForEvent('filechooser'),
-      page.getByRole('button', { name: 'Add' }).click(),
+      page.getByTitle('Add files', { exact: true }).click(),
     ]);
 
     await fileChooser.setFiles(zipPath);

@@ -1,6 +1,7 @@
 import { test, expect } from './fixtures';
 import type { Page } from '@playwright/test';
 import { setupPageErrorHandler, navigateToPublicFolder } from './test-utils.js';
+import { createAndEnterTree } from './explorer.helpers';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -45,17 +46,7 @@ test.describe('HTML file viewing', () => {
 </body>
 </html>`);
 
-      await page.getByTestId('home-link').click();
-      await page.waitForTimeout(300);
-      await page.getByRole('button', { name: 'New Folder' }).click();
-
-      const input = page.locator('input[placeholder="Folder name..."]');
-      await input.waitFor({ timeout: 5000 });
-      await input.fill('html-test');
-      await page.click('button:has-text("Create")');
-
-      await expect(page.locator('.fixed.inset-0.bg-black')).not.toBeVisible({ timeout: 10000 });
-      await expect(page.getByText(/Drop or click to add|Empty directory/).first()).toBeVisible({ timeout: 10000 });
+      await createAndEnterTree(page, 'html-test');
 
       const fileInput = page.locator('input[type="file"]').first();
       await fileInput.setInputFiles(cssPath);

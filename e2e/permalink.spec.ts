@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures';
-import { disableOthersPool, waitForAppReady } from './test-utils.js';
+import { disableOthersPool, ensureLoggedIn, waitForAppReady } from './test-utils.js';
 
 test.describe('Permalink Navigation', () => {
   test.beforeEach(async ({ page }) => {
@@ -7,8 +7,8 @@ test.describe('Permalink Navigation', () => {
     await waitForAppReady(page); // Wait for app to load before calling disableOthersPool
     await disableOthersPool(page); // Prevent WebRTC cross-talk from parallel tests
 
-    // Login with new user
-    await page.getByRole('button', { name: /New/i }).click();
+    // Test mode creates an isolated account; "New" creates a folder.
+    await ensureLoggedIn(page);
 
     // Wait for login to complete - user should see their tree list
     await expect(page.getByRole('link', { name: 'public' })).toBeVisible({ timeout: 10000 });

@@ -23,7 +23,7 @@ export async function ensureLoggedIn(page: any, timeoutMs: number = 15000) {
   await page.waitForFunction(() => {
     const nostrStore = (window as any).__nostrStore;
     return nostrStore?.getState()?.pubkey?.length === 64;
-  }, { timeout: timeoutMs });
+  }, undefined, { timeout: timeoutMs });
 }
 
 /**

@@ -18,15 +18,24 @@ export async function createAndEnterTree(page: any, name: string) {
 
   await page.getByRole('button', { name: 'New Folder' }).click();
   await page.locator('input[placeholder="Folder name..."]').fill(name);
+  // Creating a child folder leaves the current directory open.
+  const deadline = Date.now() + 10000;
+  const remaining = () => Math.max(1, deadline - Date.now());
+  await page.getByRole('button', { name: 'Create', exact: true }).click({ timeout: remaining() });
+  const folderLink = page.getByTestId('file-list').getByRole('link', { name, exact: true });
+  await expect(folderLink).toBeVisible({ timeout: remaining() });
+  const folderHref = await folderLink.getAttribute('href');
+  if (!folderHref) throw new Error(`Missing folder link for ${name}`);
+  const folderHash = new URL(folderHref, page.url()).hash;
   await Promise.all([
-    page.waitForURL(new RegExp(encodeURIComponent(name)), { timeout: 10000 }),
-    page.getByRole('button', { name: 'Create' }).click({ noWaitAfter: true }),
+    page.waitForURL((url: URL) => url.hash === folderHash, { timeout: remaining() }),
+    folderLink.click({ timeout: remaining() }),
   ]);
   await expect(page.getByText('Empty directory')).toBeVisible({ timeout: 10000 });
 }
 
 export async function createAndOpenFile(page: any, name: string) {
-  await page.getByRole('button', { name: /File/ }).first().click();
+  await page.getByRole('button', { name: 'New File', exact: true }).click();
   await page.locator('input[placeholder="File name..."]').fill(name);
   await Promise.all([
     page.waitForURL(new RegExp(encodeURIComponent(name)), { timeout: 10000 }),

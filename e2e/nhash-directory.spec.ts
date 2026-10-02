@@ -166,9 +166,13 @@ test.describe('nhash directory navigation', () => {
     console.log('[test] Directory nhash:', nhash);
 
     // Navigate to home first
-    await page.getByTestId('home-link').click();
+    const homeLink = page.getByTestId('home-link');
+    const homeHref = await homeLink.getAttribute('href');
+    expect(homeHref).toMatch(/^#\//);
+    await homeLink.click();
     await page.waitForFunction(
-      () => window.location.hash === '' || window.location.hash === '#/' || window.location.hash === '#',
+      (expectedHash) => window.location.hash === expectedHash,
+      homeHref,
       { timeout: 15000 }
     );
 
