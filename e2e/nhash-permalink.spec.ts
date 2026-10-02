@@ -94,6 +94,7 @@ test.describe('nhash file permalinks', () => {
     // Create a new tree for testing (more reliable than using public folder)
     await goToTreeList(page1);
     await createFolder(page1, 'permalink-test');
+    await page1.getByTestId('file-list').getByRole('link', { name: 'permalink-test', exact: true }).click();
     await expect(page1).toHaveURL(/permalink-test/, { timeout: 30000 });
     await expect(page1.getByRole('button', { name: 'New File' })).toBeVisible({ timeout: 30000 });
 
@@ -150,6 +151,7 @@ test.describe('nhash file permalinks', () => {
     // Create a new tree for testing
     await goToTreeList(page1);
     await createFolder(page1, 'dir-permalink-test');
+    await page1.getByTestId('file-list').getByRole('link', { name: 'dir-permalink-test', exact: true }).click();
     await expect(page1).toHaveURL(/dir-permalink-test/, { timeout: 30000 });
 
     // Upload a file
