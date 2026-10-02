@@ -2,6 +2,7 @@
 
 ## 0.1.22 - 2026-10-02
 
+- Show the latest shared files after a saved tree is loaded or the worker restarts.
 - Keep peer connections and transfers working when a delayed connection offer arrives.
 - Find connected file providers without waiting for unrelated peer discovery.
 
