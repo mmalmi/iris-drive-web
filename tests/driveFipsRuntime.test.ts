@@ -11,12 +11,12 @@ import {
 } from '../src/lib/driveFipsRuntime';
 
 describe('drive FIPS runtime helpers', () => {
-  test('uses the native-compatible profile discovery namespace', () => {
+  test('uses shared block discovery across profiles and applications', () => {
     const profileId = '89f3d04f-41fb-437b-9339-75df537bf291';
 
     expect(IRIS_DRIVE_FIPS_DISCOVERY_SCOPE).toBe('fips-overlay-v1');
     expect(irisDriveFipsDiscoveryScope()).toBe('fips-overlay-v1');
-    expect(irisDriveFipsDiscoveryScope(profileId)).toBe(`iris-drive:${profileId}`);
+    expect(irisDriveFipsDiscoveryScope(profileId)).toBe('fips-overlay-v1');
   });
 
   test('derives the FIPS identity from the active Drive AppKey', async () => {

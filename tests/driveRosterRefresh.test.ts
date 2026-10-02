@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { generateSecretKey, getPublicKey } from 'nostr-tools';
+import { generateSecretKey, getPublicKey, verifyEvent } from 'nostr-tools';
 import {
   parseNostrIdentityRosterOpEvent,
   signNostrIdentityRosterOp,
@@ -22,6 +22,47 @@ import { appFacet } from './driveProtocolInterop.helpers';
 const PROFILE_ID = '89f3d04f-41fb-437b-9339-75df537bf291';
 
 describe('authoritative Drive roster refresh', () => {
+  it('rejects a correctly signed private mutation from a revoked key with complete current parents', () => {
+    const ownerSecret = generateSecretKey();
+    const ownerPubkey = getPublicKey(ownerSecret);
+    const deviceSecret = generateSecretKey();
+    const devicePubkey = getPublicKey(deviceSecret);
+    const bootstrap = signNostrIdentityRosterOp({
+      signerSecretKey: ownerSecret, profileId: PROFILE_ID, createdAt: 100,
+      op: { op: 'add_facet', facet: appFacet(ownerPubkey, 100, 'Owner', true, true) },
+    });
+    const addDevice = signNostrIdentityRosterOp({
+      signerSecretKey: ownerSecret, profileId: PROFILE_ID, createdAt: 101,
+      parents: [bootstrap.op_id],
+      op: { op: 'add_facet', facet: appFacet(devicePubkey, 101, 'Device', true, true) },
+    });
+    const removeDevice = signNostrIdentityRosterOp({
+      signerSecretKey: ownerSecret, profileId: PROFILE_ID, createdAt: 102,
+      parents: [bootstrap.op_id, addDevice.op_id],
+      op: { op: 'tombstone_facet', pubkey: devicePubkey },
+    });
+    const baseline = [bootstrap, addDevice, removeDevice];
+    const mutation = {
+      profileId: PROFILE_ID, createdAt: 103,
+      parents: baseline.map((op) => op.op_id),
+      op: {
+        op: 'set_capabilities' as const,
+        pubkey: ownerPubkey,
+        capabilities: { can_admin_profile: true, can_write_roots: false },
+      },
+    };
+    const candidate = signNostrIdentityRosterOp({ ...mutation, signerSecretKey: deviceSecret });
+    expect(verifyEvent(JSON.parse(candidate.event_json))).toBe(true);
+    const rejected = new DriveRosterLiveCandidateBuffer().replay(PROFILE_ID, baseline, candidate);
+    expect(rejected.projection.accepted_op_ids).not.toContain(candidate.op_id);
+    expect(rejected.projection.active_facets[ownerPubkey].capabilities?.can_write_roots).toBe(true);
+
+    const control = signNostrIdentityRosterOp({ ...mutation, signerSecretKey: ownerSecret });
+    const accepted = new DriveRosterLiveCandidateBuffer().replay(PROFILE_ID, baseline, control);
+    expect(accepted.projection.accepted_op_ids).toContain(control.op_id);
+    expect(Boolean(accepted.projection.active_facets[ownerPubkey].capabilities?.can_write_roots)).toBe(false);
+  });
+
   it('replays a live DCK rotation that arrives before its add-facet parent', () => {
     const adminSecret = generateSecretKey();
     const adminPubkey = getPublicKey(adminSecret);

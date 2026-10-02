@@ -36,10 +36,10 @@ export interface DriveFipsRosterAuthorizationOptions {
 }
 
 /**
- * Keep FIPS route and serving authorization bounded to a recently refreshed
+ * Keep private FIPS event admission bounded to a recently refreshed
  * roster. Live session changes invalidate the snapshot immediately; relay
- * refresh failure after expiry removes every peer instead of trusting stale
- * authorization indefinitely.
+ * refresh failure after expiry removes event peers instead of trusting stale
+ * authorization indefinitely. Standard Hashtree block serving is independent.
  */
 export function createDriveFipsRosterAuthorizationSource(
   options: DriveFipsRosterAuthorizationOptions,
