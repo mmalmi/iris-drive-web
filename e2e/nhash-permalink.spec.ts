@@ -63,7 +63,11 @@ async function createTextFile(page: Page, fileName: string, content: string): Pr
   if (await saveButton.isEnabled().catch(() => false)) {
     await saveButton.click();
   }
-  await expect(saveButton).toBeDisabled({ timeout: 30000 });
+  // Disabled also means a save is still running. Close only once it is clean.
+  await expect.poll(async () => (
+    await saveButton.isDisabled()
+    && await saveButton.locator('span.absolute').textContent() !== 'Saving...'
+  ), { timeout: 30000 }).toBe(true);
 
   await page.getByRole('button', { name: 'Done' }).click();
   await expect(editor).not.toBeVisible({ timeout: 30000 });
