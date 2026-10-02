@@ -1,10 +1,10 @@
 import { test, expect } from './fixtures';
-import { spawn, type ChildProcess, execSync } from 'child_process';
+import { spawn, type ChildProcess, execFileSync } from 'child_process';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import WebSocket from 'ws';
 import { acquireRustLock, releaseRustLock } from './rust-lock.js';
-import { HASHTREE_RUST_DIR, rustTargetPath, withRustTargetEnv } from './rust-target.js';
 import {
   HTTP_URL,
   RUST_SERVER_PORT,
@@ -26,25 +26,18 @@ test.describe('rust WebSocket Integration', () => {
 
   test.beforeAll(async () => {
     test.setTimeout(300000);
-    // Check if rust binary exists (skip tests if not built)
-    const rustWorkspaceDir = HASHTREE_RUST_DIR;
-    const rustBinaryPath = rustTargetPath('release', 'htree');
-    try {
-      execSync(`cargo metadata --manifest-path ${path.resolve(rustWorkspaceDir, 'Cargo.toml')}`, { stdio: 'ignore' });
-    } catch {
-      console.log('rust not available, skipping ws-interop tests');
-      test.skip();
-      return;
-    }
+    const rustBinaryPath = process.env.HTREE_BIN || 'htree';
+    expect(execFileSync(rustBinaryPath, ['--version'], { encoding: 'utf8' }).trim())
+      .toBe('htree 0.2.142');
 
     lockFd = await acquireRustLock(240000);
 
     // Create temp directory for Rust server storage
-    tempDir = execSync('mktemp -d').toString().trim();
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'iris-drive-ws-data-'));
     console.log('Temp directory:', tempDir);
 
     // Create isolated config dir with auth disabled
-    configDir = execSync('mktemp -d').toString().trim();
+    configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'iris-drive-ws-config-'));
     const configPath = path.join(configDir, 'config.toml');
     const relayUrl = process.env.VITE_TEST_RELAY || 'ws://localhost:4736';
     fs.writeFileSync(configPath, [
@@ -59,20 +52,12 @@ test.describe('rust WebSocket Integration', () => {
       '',
     ].join('\n'), 'utf8');
 
-    console.log('Building rust server binary...');
-    execSync('cargo build -p hashtree-cli --release --bin htree', {
-      cwd: rustWorkspaceDir,
-      env: withRustTargetEnv({ ...process.env, CARGO_TERM_COLOR: 'never' }),
-      stdio: 'ignore',
-    });
-
     // Start rust server from the prebuilt binary so startup isn't blocked on compilation.
     console.log('Starting rust server...');
     rustProcess = spawn(
       rustBinaryPath,
       ['start', '--addr', `127.0.0.1:${RUST_SERVER_PORT}`, '--data-dir', tempDir],
       {
-        cwd: rustWorkspaceDir,
         env: { ...process.env, RUST_LOG: 'hashtree_cli=debug', HTREE_CONFIG_DIR: configDir },
         stdio: ['ignore', 'pipe', 'pipe'],
       }
@@ -119,14 +104,14 @@ test.describe('rust WebSocket Integration', () => {
     }
     if (tempDir) {
       try {
-        execSync(`rm -rf "${tempDir}"`);
+        fs.rmSync(tempDir, { recursive: true, force: true });
       } catch {
         // Ignore cleanup errors
       }
     }
     if (configDir) {
       try {
-        execSync(`rm -rf "${configDir}"`);
+        fs.rmSync(configDir, { recursive: true, force: true });
       } catch {
         // Ignore cleanup errors
       }
