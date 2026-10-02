@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.22 - 2026-10-02
+
+- Keep peer connections and transfers working when a delayed connection offer arrives.
+- Find connected file providers without waiting for unrelated peer discovery.
+
 ## 0.1.21 - 2026-09-30
 
 - Reduce unnecessary routing traffic and recover peer sessions reliably with the audited FIPS runtime.
