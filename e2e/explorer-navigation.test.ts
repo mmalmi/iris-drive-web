@@ -58,12 +58,11 @@ test.describe('Hashtree Explorer', () => {
   });
 
   test('should navigate to wallet page', async ({ page }) => {
-    // Click on the wallet link in header (HashRouter uses #/wallet)
-    await page.locator('a[href="#/wallet"]').first().click();
-    await page.waitForTimeout(300);
+    // The standalone Drive shell exposes the wallet through its direct route.
+    await page.goto('/#/wallet');
 
-    // Should be on wallet page
     expect(page.url()).toContain('/wallet');
+    await expect(page.getByRole('heading', { name: 'Wallet', exact: true })).toBeVisible();
   });
 
   test('should navigate to edit profile page', async ({ page }) => {
