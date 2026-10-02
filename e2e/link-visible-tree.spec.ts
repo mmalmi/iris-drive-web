@@ -1,3 +1,4 @@
+import { saveTextFile } from './test-utils.js';
 import { test, expect } from './fixtures';
 import { setupPageErrorHandler, navigateToPublicFolder, disableOthersPool, configureBlossomServers, waitForAppReady, goToTreeList, createFolder, clearAllStorage, ensureLoggedIn, waitForFipsConnection, waitForRelayConnected } from './test-utils.js';
 import {
@@ -408,11 +409,7 @@ test.describe('Link-visible Tree Visibility', () => {
     await expect(editor).toBeVisible({ timeout: 30000 });
     await editor.fill('Test file content for upload');
 
-    const saveButton = page.getByRole('button', { name: /Save|Saved|Saving/ });
-    if (await saveButton.isEnabled().catch(() => false)) {
-      await saveButton.click();
-    }
-    await expect(saveButton).toBeDisabled({ timeout: 30000 });
+    await saveTextFile(page, 30_000);
 
     // Check URL still has ?k= param after saving the file
     expect(page.url()).toContain(`?k=${kParam}`);

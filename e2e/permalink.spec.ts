@@ -1,3 +1,4 @@
+import { saveTextFile } from './test-utils.js';
 import { test, expect } from './fixtures';
 import { disableOthersPool, ensureLoggedIn, waitForAppReady } from './test-utils.js';
 
@@ -35,19 +36,10 @@ test.describe('Permalink Navigation', () => {
     // Wait for editor
     await expect(page.locator('textarea')).toBeVisible({ timeout: 5000 });
     await page.locator('textarea').fill('Hello from permalink test content!');
-    await page.getByRole('button', { name: 'Save' }).click();
-
-    // Wait for save to complete (Save button becomes disabled when saved)
-    await expect(page.getByRole('button', { name: 'Save' })).toBeDisabled({ timeout: 10000 });
+    await saveTextFile(page, 10_000);
 
     // Exit edit mode
     await page.getByRole('button', { name: 'Done' }).click();
-
-    // Handle "Unsaved Changes" dialog if it appears (race condition between autosave and manual save)
-    const unsavedDialog = page.getByRole('heading', { name: 'Unsaved Changes' });
-    if (await unsavedDialog.isVisible({ timeout: 500 }).catch(() => false)) {
-      await page.getByRole('button', { name: "Don't Save" }).click();
-    }
 
     // Wait for textarea to disappear (confirms we exited edit mode)
     await expect(page.locator('textarea')).not.toBeVisible({ timeout: 10000 });
@@ -88,19 +80,13 @@ test.describe('Permalink Navigation', () => {
     // Wait for editor and add content
     await expect(page.locator('textarea')).toBeVisible({ timeout: 5000 });
     await page.locator('textarea').fill('Test file content');
-    await page.getByRole('button', { name: 'Save' }).click();
+    await saveTextFile(page);
 
     // Exit edit mode
     await expect(page.getByRole('button', { name: 'Done' })).toBeVisible({ timeout: 3000 });
     await page.getByRole('button', { name: 'Done' }).click();
 
-    // Wait for modal backdrop to close before clicking links
-    // If modal is still visible after a short wait, press Escape to close it
-    const hasBackdrop = await page.locator('[data-modal-backdrop]').isVisible().catch(() => false);
-    if (hasBackdrop) {
-      await page.keyboard.press('Escape');
-      await expect(page.locator('[data-modal-backdrop]')).not.toBeVisible({ timeout: 5000 });
-    }
+    await expect(page.locator('[data-modal-backdrop]')).not.toBeVisible({ timeout: 5000 });
 
     // Click on "Back to folder" link to go back to directory
     const backLink = page.getByRole('link', { name: 'Back to folder' });
@@ -155,19 +141,13 @@ test.describe('Permalink Navigation', () => {
     // Wait for editor and add content
     await expect(page.locator('textarea')).toBeVisible({ timeout: 5000 });
     await page.locator('textarea').fill('Hello from encrypted file!');
-    await page.getByRole('button', { name: 'Save' }).click();
+    await saveTextFile(page);
 
     // Exit edit mode
     await expect(page.getByRole('button', { name: 'Done' })).toBeVisible({ timeout: 3000 });
     await page.getByRole('button', { name: 'Done' }).click();
 
-    // Wait for modal backdrop to close before clicking links
-    // If modal is still visible after a short wait, press Escape to close it
-    const hasBackdrop2 = await page.locator('[data-modal-backdrop]').isVisible().catch(() => false);
-    if (hasBackdrop2) {
-      await page.keyboard.press('Escape');
-      await expect(page.locator('[data-modal-backdrop]')).not.toBeVisible({ timeout: 5000 });
-    }
+    await expect(page.locator('[data-modal-backdrop]')).not.toBeVisible({ timeout: 5000 });
 
     // Go back to directory to get permalink
     const backLink = page.getByRole('link', { name: 'Back to folder' });

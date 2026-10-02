@@ -1,3 +1,4 @@
+import { saveTextFile } from './test-utils.js';
 import { test, expect } from './fixtures';
 import {
   createAndEnterTree,
@@ -161,7 +162,7 @@ test.describe('Hashtree Explorer', () => {
 
     // File opens in edit mode - add content
     await page.locator('textarea').fill('Hello Direct Nav');
-    await page.getByRole('button', { name: 'Save' }).click();
+    await saveTextFile(page);
     await page.waitForTimeout(300);
 
     // Exit edit mode
@@ -197,7 +198,7 @@ test.describe('Hashtree Explorer', () => {
 
     // File opens in edit mode - add content
     await page.locator('textarea').fill('Hello Mobile View');
-    await page.getByRole('button', { name: 'Save' }).click();
+    await saveTextFile(page);
     await page.waitForTimeout(300);
 
     // Exit edit mode

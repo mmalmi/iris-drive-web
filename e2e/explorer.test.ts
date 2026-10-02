@@ -1,3 +1,4 @@
+import { saveTextFile } from './test-utils.js';
 import { test, expect } from './fixtures';
 import {
   createAndEnterTree,
@@ -33,7 +34,7 @@ test.describe('Hashtree Explorer', () => {
 
     // File opens in edit mode - add content
     await page.locator('textarea').fill('Hello, World!');
-    await page.getByRole('button', { name: 'Save' }).click();
+    await saveTextFile(page);
 
     // Exit edit mode
     await expect(page.getByRole('button', { name: 'Done' })).toBeVisible({ timeout: 5000 });
@@ -79,7 +80,7 @@ test.describe('Hashtree Explorer', () => {
 
     // Type content and save
     await page.locator('textarea').fill('Hello, Hashtree!');
-    await page.getByRole('button', { name: 'Save' }).click();
+    await saveTextFile(page);
 
     // Click Done to exit edit mode
     await expect(page.getByRole('button', { name: 'Done' })).toBeVisible({ timeout: 5000 });
@@ -103,7 +104,7 @@ test.describe('Hashtree Explorer', () => {
 
     // Type initial content and save
     await page.locator('textarea').fill('Initial content');
-    await page.getByRole('button', { name: 'Save' }).click();
+    await saveTextFile(page);
 
     // Exit edit mode
     await expect(page.getByRole('button', { name: 'Done' })).toBeVisible({ timeout: 5000 });
@@ -121,11 +122,7 @@ test.describe('Hashtree Explorer', () => {
     await page.locator('textarea').clear();
     await page.locator('textarea').fill('Updated content');
 
-    await page.getByRole('button', { name: 'Save' }).click();
-
-    // Wait for save to complete by checking that Save button becomes disabled
-    // (disabled when content matches savedContent, meaning save completed)
-    await expect(page.getByRole('button', { name: /Save/ })).toBeDisabled({ timeout: 5000 });
+    await saveTextFile(page, 5_000);
 
     // Exit edit mode
     await page.getByRole('button', { name: 'Done' }).click();
@@ -164,7 +161,7 @@ test.describe('Hashtree Explorer', () => {
 
     // File opens in edit mode - add content
     await page.locator('textarea').fill('rename me');
-    await page.getByRole('button', { name: 'Save' }).click();
+    await saveTextFile(page);
 
     // Exit edit mode
     await expect(page.getByRole('button', { name: 'Done' })).toBeVisible({ timeout: 5000 });
@@ -201,7 +198,7 @@ test.describe('Hashtree Explorer', () => {
     // Create two files so we can verify specific file is deleted
     await createAndOpenFile(page, 'keep-me.txt');
     await page.locator('textarea').fill('keep this');
-    await page.getByRole('button', { name: 'Save' }).click();
+    await saveTextFile(page);
     await page.getByRole('button', { name: 'Done' }).click();
 
     // Go back to directory - wait for back button to be visible first
@@ -212,7 +209,7 @@ test.describe('Hashtree Explorer', () => {
     // Create file to delete
     await createAndOpenFile(page, 'to-delete.txt');
     await page.locator('textarea').fill('delete me');
-    await page.getByRole('button', { name: 'Save' }).click();
+    await saveTextFile(page);
     await page.getByRole('button', { name: 'Done' }).click();
 
     // Go back to directory to verify both files are visible
@@ -312,7 +309,7 @@ test.describe('Hashtree Explorer', () => {
     // Create a file
     await createAndOpenFile(page, 'test.txt');
     await page.locator('textarea').fill('content in slashed tree');
-    await page.getByRole('button', { name: 'Save' }).click();
+    await saveTextFile(page);
     await page.getByRole('button', { name: 'Done' }).click();
 
     // Go back to directory
@@ -415,7 +412,7 @@ test.describe('Hashtree Explorer', () => {
 
     // File opens in edit mode - add content
     await page.locator('textarea').fill('original');
-    await page.getByRole('button', { name: 'Save' }).click();
+    await saveTextFile(page);
     await page.waitForTimeout(500);
 
     // Exit edit mode

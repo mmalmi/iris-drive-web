@@ -1,3 +1,4 @@
+import { saveTextFile } from './test-utils.js';
 /**
  * E2E tests for linkvis (link-visible) trees
  *
@@ -119,15 +120,7 @@ export async function createFileWithContent(page: any, fileName: string, content
   await expect(editor).toBeVisible({ timeout: 30000 });
   await editor.fill(content);
 
-  const saveButton = page.getByRole('button', { name: /Save|Saved|Saving/ });
-  if (await saveButton.isEnabled().catch(() => false)) {
-    try {
-      await saveButton.click({ timeout: 10000 });
-    } catch (err) {
-      console.log('[test] Save click skipped:', err);
-    }
-  }
-  await expect(saveButton).toBeDisabled({ timeout: 30000 });
+  await saveTextFile(page, 30_000);
 
   await page.getByRole('button', { name: 'Done' }).click();
   await expect(editor).not.toBeVisible({ timeout: 30000 });

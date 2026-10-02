@@ -1,4 +1,4 @@
-import { expect } from '../fixtures';
+import { expect, type Page } from '../fixtures';
 
 /**
  * Filter out noisy errors from relays that are irrelevant to tests.
@@ -189,4 +189,20 @@ export async function safeReload(
       }
     }
   }
+}
+
+/** Save through the editor UI and wait for the clean, idle state before Done. */
+export async function saveTextFile(page: Page, timeoutMs = 20_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  const remaining = () => Math.max(1, deadline - Date.now());
+  const saveButton = page.getByRole('button', { name: /Save|Saved|Saving/ });
+  if (await saveButton.isEnabled()) {
+    await saveButton.click({ timeout: remaining() });
+  }
+  // Disabled alone also means an in-flight save. Read both flags atomically;
+  // the entire click-and-completion check shares the original action budget.
+  await expect.poll(async () => saveButton.evaluate((button) => {
+    const label = button.querySelector('span.absolute')?.textContent?.trim();
+    return (button as HTMLButtonElement).disabled && (label === 'Save' || label === 'Saved');
+  }), { timeout: remaining() }).toBe(true);
 }

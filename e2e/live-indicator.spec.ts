@@ -1,3 +1,4 @@
+import { saveTextFile } from './test-utils.js';
 import { test, expect } from './fixtures';
 import { setupPageErrorHandler, navigateToPublicFolder, goToTreeList, safeReload, waitForAppReady } from './test-utils.js';
 
@@ -19,7 +20,7 @@ async function createFile(page: any, name: string, content: string = '') {
   await expect(page.getByRole('button', { name: 'Done' })).toBeVisible({ timeout: 5000 });
   if (content) {
     await page.locator('textarea').fill(content);
-    await page.getByRole('button', { name: 'Save' }).click();
+    await saveTextFile(page);
     await page.waitForTimeout(500);
   }
   await page.getByRole('button', { name: 'Done' }).click();
@@ -59,7 +60,7 @@ test.describe('LIVE Indicator', () => {
     await page.getByRole('button', { name: 'Create' }).click();
     await expect(page.getByRole('button', { name: 'Done' })).toBeVisible({ timeout: 5000 });
     await page.locator('textarea').fill('Hello World');
-    await page.getByRole('button', { name: 'Save' }).click();
+    await saveTextFile(page);
     await page.waitForTimeout(300);
     await page.getByRole('button', { name: 'Done' }).click();
 
@@ -77,7 +78,7 @@ test.describe('LIVE Indicator', () => {
     await page.getByRole('button', { name: 'Create' }).click();
     await expect(page.getByRole('button', { name: 'Done' })).toBeVisible({ timeout: 5000 });
     await page.locator('textarea').fill('Test');
-    await page.getByRole('button', { name: 'Save' }).click();
+    await saveTextFile(page);
     await page.waitForTimeout(300);
     await page.getByRole('button', { name: 'Done' }).click();
 

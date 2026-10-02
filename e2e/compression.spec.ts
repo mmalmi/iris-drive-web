@@ -1,3 +1,4 @@
+import { saveTextFile } from './test-utils.js';
 import { test, expect } from './fixtures';
 import { setupPageErrorHandler, navigateToPublicFolder, disableOthersPool, goToTreeList } from './test-utils.js';
 import * as fs from 'fs';
@@ -194,7 +195,7 @@ test.describe('Compression features', () => {
     // Wait for editor and add content
     await expect(page.locator('textarea')).toBeVisible({ timeout: 5000 });
     await page.locator('textarea').fill('Test content for ZIP progress indicator');
-    await page.getByRole('button', { name: 'Save' }).click();
+    await saveTextFile(page);
 
     // Exit edit mode
     await expect(page.getByRole('button', { name: 'Done' })).toBeVisible({ timeout: 3000 });

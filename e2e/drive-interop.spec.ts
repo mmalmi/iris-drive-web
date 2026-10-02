@@ -1,3 +1,4 @@
+import { saveTextFile } from './test-utils.js';
 import { expect, test, type Browser, type Page } from './fixtures';
 import {
   addFileViaTreeAPI,
@@ -111,11 +112,7 @@ async function createFileWithContent(page: Page, fileName: string, content: stri
   await expect(editor).toBeVisible({ timeout: 30000 });
   await editor.fill(content);
 
-  const saveButton = page.getByRole('button', { name: /Save|Saved|Saving/ });
-  if (await saveButton.isEnabled().catch(() => false)) {
-    await saveButton.click();
-  }
-  await expect(saveButton).toBeDisabled({ timeout: 30000 });
+  await saveTextFile(page, 30_000);
   await page.getByRole('button', { name: 'Done' }).click();
   await expect(editor).not.toBeVisible({ timeout: 30000 });
 }
