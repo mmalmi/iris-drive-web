@@ -171,7 +171,7 @@ test.describe('Iris Drive VM interop', () => {
         running: true,
         enabled: true,
         webrtcEnabled: true,
-        discoveryScope: `iris-drive:${session.profileId}`,
+        discoveryScope: 'fips-overlay-v1',
         authorized: true,
       });
 
