@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.23 - 2026-10-04
+
+- Recover file-sharing connections after a browser reload or temporary route failure.
+- Preserve verified cached files for sharing and offline use after restarting the app.
+
 ## 0.1.22 - 2026-10-02
 
 - Show the latest shared files after a saved tree is loaded or the worker restarts.
