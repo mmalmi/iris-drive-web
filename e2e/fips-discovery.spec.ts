@@ -1,4 +1,5 @@
-import { expect, test, type Page } from './fixtures';
+import { expect, test as base, type Page } from './fixtures';
+import { startLocalFipsWebSocketSeed } from './fixtures/localFipsWebSocketSeed';
 import { verifyEvent } from 'nostr-tools';
 import {
   clearAllStorage,
@@ -9,6 +10,17 @@ import {
   waitForAppReady,
   waitForRelayConnected,
 } from './test-utils';
+
+const test = base.extend<{ fipsSeedUrl: string }>({
+  fipsSeedUrl: async ({}, use) => {
+    const seed = await startLocalFipsWebSocketSeed();
+    try {
+      await use(seed.url);
+    } finally {
+      await seed.close();
+    }
+  },
+});
 
 interface DriveDevice {
   profileId: string;
@@ -24,11 +36,12 @@ interface FipsState {
   providerPeerIds: string[];
 }
 
-async function prepareDrivePage(page: Page, relayUrl: string): Promise<void> {
+async function prepareDrivePage(page: Page, relayUrl: string, seedUrl: string): Promise<void> {
   setupPageErrorHandler(page);
-  await page.addInitScript(() => {
+  await page.addInitScript((url: string) => {
+    (window as typeof window & { __testFipsWebSocketSeedUrls?: string[] }).__testFipsWebSocketSeedUrls = [url];
     localStorage.setItem('hashtree:disableTestAutoCreate', '1');
-  });
+  }, seedUrl);
   await page.goto('/', { waitUntil: 'domcontentloaded' });
   await clearAllStorage(page);
   await page.evaluate(() => {
@@ -215,14 +228,15 @@ test('unrelated Drive profiles discover and serve remote-only ciphertext blocks'
   browser,
   page: ownerPage,
   relayUrl,
+  fipsSeedUrl,
 }) => {
   test.setTimeout(180_000);
-  await prepareDrivePage(ownerPage, relayUrl);
+  await prepareDrivePage(ownerPage, relayUrl, fipsSeedUrl);
   const owner = await createOwner(ownerPage);
   const readerContext = await browser.newContext();
   const readerPage = await readerContext.newPage();
   try {
-    await prepareDrivePage(readerPage, relayUrl);
+    await prepareDrivePage(readerPage, relayUrl, fipsSeedUrl);
     const reader = await createOwner(readerPage);
     expect(reader.profileId).not.toBe(owner.profileId);
     expect(reader.appKeyPubkey).not.toBe(owner.appKeyPubkey);
@@ -266,15 +280,16 @@ test('linked Drive AppKeys share events and remote-only blocks with live revocat
   browser,
   page: ownerPage,
   relayUrl,
+  fipsSeedUrl,
 }) => {
   test.setTimeout(240_000);
-  await prepareDrivePage(ownerPage, relayUrl);
+  await prepareDrivePage(ownerPage, relayUrl, fipsSeedUrl);
   const owner = await createOwner(ownerPage);
 
   const deviceContext = await browser.newContext();
   const devicePage = await deviceContext.newPage();
   try {
-    await prepareDrivePage(devicePage, relayUrl);
+    await prepareDrivePage(devicePage, relayUrl, fipsSeedUrl);
     const device = await linkBrowserDevice(ownerPage, devicePage);
     expect(device.profileId).toBe(owner.profileId);
 

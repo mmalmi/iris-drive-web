@@ -120,6 +120,9 @@ function startFipsForAdapter(
       const authorizedAppKeyPubkeys = await driveFipsAuthorizedAppKeySource(identity);
       const runtime = await startDriveFipsRuntime({
         relays,
+        websocketSeedUrls: isTestMode
+          ? (window as typeof window & { __testFipsWebSocketSeedUrls?: string[] }).__testFipsWebSocketSeedUrls
+          : undefined,
         storeName,
         deviceSecretKey: identity.deviceSecretKey,
         profileId: identity.profileId,

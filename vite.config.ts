@@ -134,6 +134,9 @@ export default defineConfig({
       'nostr-tools/nip49',
       'tseep',
       'typescript-lru-cache',
+      // The service worker loads after the page's dependency scan. Prebundle
+      // its imports too so a cold start cannot replace the worker mid-session.
+      'workbox-precaching',
     ],
     exclude: [
       '@hashtree/worker',

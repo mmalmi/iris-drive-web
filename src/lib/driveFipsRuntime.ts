@@ -38,6 +38,7 @@ export type DriveFipsAuthorizedAppKeySource = (
 
 export interface DriveFipsRuntimeOptions {
   relays: readonly string[];
+  websocketSeedUrls?: readonly string[];
   deviceSecretKey: string | Uint8Array;
   profileId?: string;
   storeName?: string;
@@ -239,6 +240,7 @@ export class DriveFipsRuntime {
         forwarding: true,
         logger: createLogger(this.options.log === true, 'drive-fips:node'),
         relays: this.relays,
+        websocketSeedUrls: this.options.websocketSeedUrls,
         stunServers: [...(this.options.stunServers ?? DEFAULT_STUN_SERVERS)],
         maxConnections: this.options.maxConnections ?? 8,
         connectTimeoutMs: this.options.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS,
