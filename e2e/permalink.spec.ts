@@ -1,5 +1,6 @@
+import { saveTextFile } from './test-utils.js';
 import { test, expect } from './fixtures';
-import { disableOthersPool, waitForAppReady } from './test-utils.js';
+import { disableOthersPool, ensureLoggedIn, waitForAppReady } from './test-utils.js';
 
 test.describe('Permalink Navigation', () => {
   test.beforeEach(async ({ page }) => {
@@ -7,11 +8,11 @@ test.describe('Permalink Navigation', () => {
     await waitForAppReady(page); // Wait for app to load before calling disableOthersPool
     await disableOthersPool(page); // Prevent WebRTC cross-talk from parallel tests
 
-    // Login with new user
-    await page.getByRole('button', { name: /New/i }).click();
+    // Test mode creates an isolated account; "New" creates a folder.
+    await ensureLoggedIn(page);
 
-    // Wait for login to complete - user should see their tree list
-    await expect(page.getByRole('link', { name: 'public' })).toBeVisible({ timeout: 10000 });
+    // Drive opens the current profile's main folder rather than a legacy tree list.
+    await expect(page.getByTestId('home-link')).toHaveAttribute('href', /#\/[^/]+\/main$/, { timeout: 10000 });
 
     // Close any modals
     const cancelButton = page.getByRole('button', { name: 'Cancel' });
@@ -22,12 +23,12 @@ test.describe('Permalink Navigation', () => {
 
   test('file permalink should display file content', async ({ page }) => {
     test.slow(); // File operations can be slow under parallel load
-    // Navigate to public folder
-    await page.getByRole('link', { name: 'public' }).first().click();
-    await expect(page.getByRole('button', { name: /New File/i })).toBeVisible({ timeout: 5000 });
+    // Create content in the current profile's actual home folder.
+    await page.getByTestId('home-link').click();
+    await expect(page.getByRole('button', { name: 'New File', exact: true })).toBeVisible({ timeout: 5000 });
 
     // Create a file
-    await page.getByRole('button', { name: /New File/i }).click();
+    await page.getByRole('button', { name: 'New File', exact: true }).click();
     await expect(page.locator('input[placeholder="File name..."]')).toBeVisible({ timeout: 3000 });
     await page.locator('input[placeholder="File name..."]').fill('permalink-test.txt');
     await page.getByRole('button', { name: 'Create' }).click();
@@ -35,19 +36,10 @@ test.describe('Permalink Navigation', () => {
     // Wait for editor
     await expect(page.locator('textarea')).toBeVisible({ timeout: 5000 });
     await page.locator('textarea').fill('Hello from permalink test content!');
-    await page.getByRole('button', { name: 'Save' }).click();
-
-    // Wait for save to complete (Save button becomes disabled when saved)
-    await expect(page.getByRole('button', { name: 'Save' })).toBeDisabled({ timeout: 10000 });
+    await saveTextFile(page, 10_000);
 
     // Exit edit mode
     await page.getByRole('button', { name: 'Done' }).click();
-
-    // Handle "Unsaved Changes" dialog if it appears (race condition between autosave and manual save)
-    const unsavedDialog = page.getByRole('heading', { name: 'Unsaved Changes' });
-    if (await unsavedDialog.isVisible({ timeout: 500 }).catch(() => false)) {
-      await page.getByRole('button', { name: "Don't Save" }).click();
-    }
 
     // Wait for textarea to disappear (confirms we exited edit mode)
     await expect(page.locator('textarea')).not.toBeVisible({ timeout: 10000 });
@@ -56,7 +48,7 @@ test.describe('Permalink Navigation', () => {
     await expect(page.getByText('Hello from permalink test content!')).toBeVisible({ timeout: 30000 });
 
     // Find the Permalink link in viewer
-    const permalinkLink = page.getByRole('link', { name: 'Snapshot', exact: true });
+    const permalinkLink = page.getByTestId('viewer-permalink');
     await expect(permalinkLink).toBeVisible({ timeout: 10000 });
 
     // Get the href
@@ -64,6 +56,7 @@ test.describe('Permalink Navigation', () => {
     console.log('File Permalink href:', permalinkHref);
     expect(permalinkHref).toBeTruthy();
     expect(permalinkHref).toContain('#/nhash1');
+    expect(permalinkHref).toMatch(/\/permalink-test\.txt(?:\?|$)/);
 
     await permalinkLink.click();
     await page.waitForURL(/#\/nhash1/, { timeout: 15000 });
@@ -87,19 +80,13 @@ test.describe('Permalink Navigation', () => {
     // Wait for editor and add content
     await expect(page.locator('textarea')).toBeVisible({ timeout: 5000 });
     await page.locator('textarea').fill('Test file content');
-    await page.getByRole('button', { name: 'Save' }).click();
+    await saveTextFile(page);
 
     // Exit edit mode
     await expect(page.getByRole('button', { name: 'Done' })).toBeVisible({ timeout: 3000 });
     await page.getByRole('button', { name: 'Done' }).click();
 
-    // Wait for modal backdrop to close before clicking links
-    // If modal is still visible after a short wait, press Escape to close it
-    const hasBackdrop = await page.locator('[data-modal-backdrop]').isVisible().catch(() => false);
-    if (hasBackdrop) {
-      await page.keyboard.press('Escape');
-      await expect(page.locator('[data-modal-backdrop]')).not.toBeVisible({ timeout: 5000 });
-    }
+    await expect(page.locator('[data-modal-backdrop]')).not.toBeVisible({ timeout: 5000 });
 
     // Click on "Back to folder" link to go back to directory
     const backLink = page.getByRole('link', { name: 'Back to folder' });
@@ -154,19 +141,13 @@ test.describe('Permalink Navigation', () => {
     // Wait for editor and add content
     await expect(page.locator('textarea')).toBeVisible({ timeout: 5000 });
     await page.locator('textarea').fill('Hello from encrypted file!');
-    await page.getByRole('button', { name: 'Save' }).click();
+    await saveTextFile(page);
 
     // Exit edit mode
     await expect(page.getByRole('button', { name: 'Done' })).toBeVisible({ timeout: 3000 });
     await page.getByRole('button', { name: 'Done' }).click();
 
-    // Wait for modal backdrop to close before clicking links
-    // If modal is still visible after a short wait, press Escape to close it
-    const hasBackdrop2 = await page.locator('[data-modal-backdrop]').isVisible().catch(() => false);
-    if (hasBackdrop2) {
-      await page.keyboard.press('Escape');
-      await expect(page.locator('[data-modal-backdrop]')).not.toBeVisible({ timeout: 5000 });
-    }
+    await expect(page.locator('[data-modal-backdrop]')).not.toBeVisible({ timeout: 5000 });
 
     // Go back to directory to get permalink
     const backLink = page.getByRole('link', { name: 'Back to folder' });

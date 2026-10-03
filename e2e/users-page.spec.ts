@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures';
+import { ensureLoggedIn, waitForAppReady } from './test-utils.js';
 import { getPublicKey, nip19 } from 'nostr-tools';
 import { BOOTSTRAP_SECKEY, FOLLOW_SECKEY } from './nostr-test-keys';
 
@@ -38,8 +39,9 @@ test.describe('Users Page', () => {
   }
 
   test('should show Create Profile button on users page', async ({ page }) => {
-    // First login to be able to access users page
-    await page.getByRole('button', { name: /New/i }).click();
+    // Wait for the isolated test account before visiting users.
+    await waitForAppReady(page);
+    await ensureLoggedIn(page);
     await page.waitForTimeout(1000);
 
     // Navigate to users page via double-click or URL
@@ -55,8 +57,9 @@ test.describe('Users Page', () => {
   });
 
   test('should show Drive recovery options on users page', async ({ page }) => {
-    // First login
-    await page.getByRole('button', { name: /New/i }).click();
+    // Wait for the isolated test account.
+    await waitForAppReady(page);
+    await ensureLoggedIn(page);
     await page.waitForTimeout(1000);
 
     // Navigate to users page
@@ -101,8 +104,9 @@ test.describe('Users Page', () => {
   });
 
   test('should create Drive profile when clicking Create Profile', async ({ page }) => {
-    // First login
-    await page.getByRole('button', { name: /New/i }).click();
+    // Wait for the isolated test account.
+    await waitForAppReady(page);
+    await ensureLoggedIn(page);
     await page.waitForTimeout(1500);
     await closeModals(page);
 
@@ -115,7 +119,7 @@ test.describe('Users Page', () => {
     await page.getByTestId('generate-new-account').click();
     await expect(page).toHaveURL(/#\/users\/create/);
     await expect(page.getByTestId('identity-create-name')).toBeVisible();
-    await expect(page.getByTestId('create-new-after-recovery-miss')).toBeDisabled();
+    await expect(page.getByTestId('create-new-after-recovery-miss')).toBeEnabled();
     await page.getByTestId('identity-create-name').fill('Drive User');
     await page.getByTestId('create-new-after-recovery-miss').click();
 
@@ -123,8 +127,9 @@ test.describe('Users Page', () => {
   });
 
   test('should show account list with avatar and name', async ({ page }) => {
-    // First login
-    await page.getByRole('button', { name: /New/i }).click();
+    // Wait for the isolated test account.
+    await waitForAppReady(page);
+    await ensureLoggedIn(page);
     await page.waitForTimeout(1500);
     await closeModals(page);
 
@@ -169,8 +174,9 @@ test.describe('Users Page', () => {
   });
 
   test('should show recovery nsec input without legacy nsec add flow', async ({ page }) => {
-    // First login
-    await page.getByRole('button', { name: /New/i }).click();
+    // Wait for the isolated test account.
+    await waitForAppReady(page);
+    await ensureLoggedIn(page);
     await page.waitForTimeout(1500);
     await closeModals(page);
 
@@ -190,8 +196,9 @@ test.describe('Users Page', () => {
   });
 
   test('should navigate back to home when clicking Back button', async ({ page }) => {
-    // First login
-    await page.getByRole('button', { name: /New/i }).click();
+    // Wait for the isolated test account.
+    await waitForAppReady(page);
+    await ensureLoggedIn(page);
     await page.waitForTimeout(1500);
     await closeModals(page);
 

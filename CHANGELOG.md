@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.22 - 2026-10-02
+
+- Show the latest shared files after a saved tree is loaded or the worker restarts.
+- Keep peer connections and transfers working when a delayed connection offer arrives.
+- Find connected file providers without waiting for unrelated peer discovery.
+
+## 0.1.21 - 2026-09-30
+
+- Reduce unnecessary routing traffic and recover peer sessions reliably with the audited FIPS runtime.
+- Close canceled peer connections promptly and preserve usable routes during retries.
+
 ## 0.1.20 - 2026-09-30
 
 - Recover peer connections sooner when handshake messages or connection answers are lost.

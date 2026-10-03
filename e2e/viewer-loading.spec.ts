@@ -1,3 +1,4 @@
+import { saveTextFile } from './test-utils.js';
 import { test, expect } from './fixtures';
 import { setupPageErrorHandler, navigateToPublicFolder, goToTreeList, disableOthersPool, configureBlossomServers } from './test-utils.js';
 
@@ -19,7 +20,7 @@ async function createFile(page: any, name: string, content: string = '') {
   await expect(page.getByRole('button', { name: 'Done' })).toBeVisible({ timeout: 30000 });
   if (content) {
     await page.locator('textarea').fill(content);
-    await page.getByRole('button', { name: 'Save' }).click();
+    await saveTextFile(page);
     await page.waitForTimeout(500);
   }
   await page.getByRole('button', { name: 'Done' }).click();

@@ -46,6 +46,8 @@ export function setupTreeRootRegistryBridge(getWorkerAdapter: () => BackendAdapt
             visibility?: 'public' | 'link-visible' | 'private',
             labels?: string[],
             metadata?: {
+              source?: 'local-write' | 'remote';
+              updatedAt?: number;
               encryptedKey?: string;
               keyId?: string;
               selfEncryptedKey?: string;
@@ -53,6 +55,8 @@ export function setupTreeRootRegistryBridge(getWorkerAdapter: () => BackendAdapt
             }
           ) => Promise<void>;
         }).setTreeRootCache(npub, treeName, record.hash, record.key, record.visibility, record.labels, {
+          source: 'local-write',
+          updatedAt: record.updatedAt,
           encryptedKey: record.encryptedKey,
           keyId: record.keyId,
           selfEncryptedKey: record.selfEncryptedKey,
@@ -82,6 +86,8 @@ export function setupTreeRootRegistryBridge(getWorkerAdapter: () => BackendAdapt
           visibility?: 'public' | 'link-visible' | 'private',
           labels?: string[],
           metadata?: {
+            source?: 'local-write' | 'remote';
+            updatedAt?: number;
             encryptedKey?: string;
             keyId?: string;
             selfEncryptedKey?: string;
@@ -90,6 +96,8 @@ export function setupTreeRootRegistryBridge(getWorkerAdapter: () => BackendAdapt
         ) => Promise<void>;
       })
         .setTreeRootCache(npub, treeName, record.hash, record.key, record.visibility, record.labels, {
+          source: record.source === 'local-write' && record.dirty ? 'local-write' : 'remote',
+          updatedAt: record.updatedAt,
           encryptedKey: record.encryptedKey,
           keyId: record.keyId,
           selfEncryptedKey: record.selfEncryptedKey,

@@ -1,3 +1,4 @@
+import { saveTextFile } from './test-utils.js';
 import { expect, test, type Browser, type Page } from './fixtures';
 import {
   addFileViaTreeAPI,
@@ -111,11 +112,7 @@ async function createFileWithContent(page: Page, fileName: string, content: stri
   await expect(editor).toBeVisible({ timeout: 30000 });
   await editor.fill(content);
 
-  const saveButton = page.getByRole('button', { name: /Save|Saved|Saving/ });
-  if (await saveButton.isEnabled().catch(() => false)) {
-    await saveButton.click();
-  }
-  await expect(saveButton).toBeDisabled({ timeout: 30000 });
+  await saveTextFile(page, 30_000);
   await page.getByRole('button', { name: 'Done' }).click();
   await expect(editor).not.toBeVisible({ timeout: 30000 });
 }
@@ -274,16 +271,93 @@ async function fetchRelayDriveRootHashes(
   }, { relay: relayUrl, profile: profileId, tree: treeName });
 }
 
+// Observe existing requests only: no cache reads, prefetch, provider changes, or retries.
+async function observeInteropReads(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const evidence = { messages: [] as Record<string, unknown>[], dropped: 0 };
+    (window as any).__interopReadEvidence = evidence;
+    const record = (value: Record<string, unknown>) => {
+      if (evidence.messages.length === 128) { evidence.messages.shift(); evidence.dropped += 1; }
+      evidence.messages.push({ at: Date.now(), ...value });
+    };
+    const hex = (bytes?: Uint8Array) => bytes ? Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('') : null;
+    const watched = new WeakSet<Worker>();
+    const requests = new Set<string>();
+    const original = Worker.prototype.postMessage;
+    Worker.prototype.postMessage = function(message: any, ...args: any[]) {
+      if (!message || typeof message !== 'object') return Reflect.apply(original, this, [message, ...args]);
+      if (!watched.has(this)) {
+        watched.add(this);
+        this.addEventListener('message', ({ data }) => {
+          if (!data || typeof data !== 'object') return;
+          if (data.type === 'treeRootUpdate' || data.type === 'treeRootInfo') {
+            const root = data.record ?? data;
+            record({ direction: 'from-worker', type: data.type, npub: root.npub, treeName: root.treeName,
+              hashHex: hex(root.hash), keyBytes: root.key?.byteLength ?? 0, updatedAt: root.updatedAt, visibility: root.visibility });
+          } else if (data.type === 'p2pFetch' || requests.delete(data.id)) {
+            record({ direction: 'from-worker', type: data.type, id: data.id, requestId: data.requestId,
+              hashHex: data.hashHex, peerId: data.peerId, error: data.error, bytes: data.data?.byteLength ?? null });
+          }
+        });
+      }
+      if (['get', 'getBlob', 'readFile', 'listDir', 'resolvePath'].includes(message.type)) {
+        if (requests.size >= 128) requests.delete(requests.values().next().value!);
+        requests.add(message.id);
+        record({ direction: 'to-worker', type: message.type, id: message.id,
+          hashHex: hex(message.hash ?? message.cid?.hash), keyBytes: message.cid?.key?.byteLength ?? 0, path: message.path });
+      } else if (message.type === 'p2pFetchResult') {
+        record({ direction: 'to-worker', type: message.type, requestId: message.requestId,
+          bytes: message.data?.byteLength ?? 0, error: message.error });
+      }
+      return Reflect.apply(original, this, [message, ...args]);
+    };
+  });
+}
+
+async function interopSnapshot(page: Page, owner: string, treeName: string) {
+  return page.evaluate(async ({ owner, treeName }) => {
+    const { getTreeRootSync } = await import('/src/stores');
+    const { treeRootRegistry } = await import('/src/TreeRootRegistry.ts');
+    const { directoryEntriesStore } = await import('/src/stores/directoryEntries.ts');
+    const { getDriveFipsRuntime } = await import('/src/lib/driveFipsRuntime.ts');
+    const { blossomLogStore } = await import('/src/stores/blossomLog.ts');
+    const hex = (bytes?: Uint8Array) => bytes ? Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('') : null;
+    const root = getTreeRootSync(owner, treeName);
+    const record = treeRootRegistry.get(owner, treeName);
+    let directory: unknown;
+    directoryEntriesStore.subscribe(state => { directory = {
+      loadedHashKey: state.loadedHashKey, loading: state.loading, isDirectory: state.isDirectory,
+      entries: state.entries.map(entry => entry.name),
+    }; })();
+    return { at: Date.now(), route: location.hash, rootHash: hex(root?.hash), keyBytes: root?.key?.byteLength ?? 0,
+      registry: record ? { hashHex: hex(record.hash), keyBytes: record.key?.byteLength ?? 0,
+        source: record.source, dirty: record.dirty, updatedAt: record.updatedAt, visibility: record.visibility } : null,
+      adapterPresent: !!(window as any).__getWorkerAdapter?.(), peers: getDriveFipsRuntime()?.getStats(),
+      directory, blossom: blossomLogStore.getAll(), reads: (window as any).__interopReadEvidence ?? null };
+  }, { owner, treeName });
+}
+
 async function readTreeFile(page: Page, npub: string, treeName: string, fileName: string): Promise<string | null> {
   return page.evaluate(async ({ owner, treeName: targetTree, fileName: targetFile }) => {
     const { getTreeRootSync } = await import('/src/stores');
     const { getTree } = await import('/src/store');
     const root = getTreeRootSync(owner, targetTree);
+    const evidence = (window as any).__interopReadEvidence;
+    const attempt = { at: Date.now(), rootHash: root?.hash ? Array.from(root.hash, b => b.toString(16).padStart(2, '0')).join('') : null,
+      keyBytes: root?.key?.byteLength ?? 0, stage: 'root', error: null as string | null, bytes: null as number | null };
+    if (evidence) {
+      if (evidence.messages.length === 128) { evidence.messages.shift(); evidence.dropped += 1; }
+      evidence.messages.push(attempt);
+    }
     if (!root?.hash) return null;
     const tree = getTree();
-    const entry = await tree.resolvePath(root, targetFile).catch(() => null);
-    if (!entry?.cid) return null;
-    const data = await tree.readFile(entry.cid).catch(() => null);
+    attempt.stage = 'resolvePath';
+    const entry = await tree.resolvePath(root, targetFile).catch(error => { attempt.error = String(error); return null; });
+    if (!entry?.cid) { attempt.stage = 'entry-missing'; return null; }
+    attempt.stage = 'readFile';
+    const data = await tree.readFile(entry.cid).catch(error => { attempt.error = String(error); return null; });
+    attempt.stage = data ? 'read-complete' : 'data-missing';
+    attempt.bytes = data?.byteLength ?? null;
     return data ? new TextDecoder().decode(data) : null;
   }, { owner: npub, treeName, fileName });
 }
@@ -409,24 +483,34 @@ test.describe('Iris Drive web interop', () => {
     }
   });
 
-  test('web publish is readable from a second web profile', async ({ page, browser, relayUrl }) => {
+  test('web publish is readable from a second web profile', async ({ page, browser, relayUrl }, testInfo) => {
     const owner = generateNsec();
     const fileName = 'web-web.txt';
     const content = `web to web ${Date.now()}`;
+    const diagnostics: Record<string, unknown> = {};
+    await observeInteropReads(page);
 
     await prepareFreshPage(page, relayUrl, owner.nsec);
     await navigateToPublicFolder(page, { timeoutMs: 60000 });
     await createFileWithContent(page, fileName, content);
     await flushPendingPublishes(page);
     await pushCurrentRootToBlossom(page, 'public');
+    diagnostics.ownerAfterPush = await interopSnapshot(page, owner.npub, 'public');
 
     const context = await (browser as Browser).newContext();
     const viewer = await context.newPage();
     try {
+      await observeInteropReads(viewer);
       await prepareFreshPage(viewer, relayUrl);
       await expectTreeFile(viewer, owner.npub, 'public', fileName, content);
     } finally {
-      await context.close();
+      try {
+        diagnostics.ownerFinal = await interopSnapshot(page, owner.npub, 'public').catch(error => ({ error: String(error) }));
+        diagnostics.viewerFinal = await interopSnapshot(viewer, owner.npub, 'public').catch(error => ({ error: String(error) }));
+        await testInfo.attach('cross-profile-read-path', { contentType: 'application/json', body: Buffer.from(JSON.stringify(diagnostics)) });
+      } finally {
+        await context.close();
+      }
     }
   });
 

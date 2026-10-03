@@ -3,11 +3,15 @@
  * Svelte version using writable stores
  */
 import { writable } from 'svelte/store';
-import { nip19 } from 'nostr-tools';
+import { rememberContact } from './contactMemory';
+import { getProfileName, getProfileSync } from './profile';
+import { nip19, verifyEvent } from 'nostr-tools';
 import type { Event as NostrEvent } from 'nostr-tools';
 import { LRUCache } from '../utils/lruCache';
 import { KeyedEventEmitter } from '../utils/keyedEventEmitter';
 import { nostr, nostrStore } from '../nostr';
+import { getNostrRelayUrls } from '../nostr/client';
+import { getWorkerAdapter } from '../workerAdapter';
 
 export interface Follows {
   pubkey: string;
@@ -49,7 +53,7 @@ function fetchFollows(pubkey: string): void {
     const eventTime = event.created_at || 0;
 
     // Only process if newer than what we have
-    if (eventTime <= latestTimestamp) return;
+    if (eventTime <= Math.max(latestTimestamp, followsCache.get(pubkey)?.followedAt ?? 0)) return;
     latestTimestamp = eventTime;
 
     const followPubkeys = event.tags
@@ -130,79 +134,114 @@ export function getFollowsSync(pubkey?: string): Follows | undefined {
   return followsCache.get(pubkeyHex);
 }
 
-/**
- * Follow a pubkey - publishes kind 3 event with updated follow list
- */
-export async function followPubkey(targetPubkey: string): Promise<boolean> {
-  const pk = nostrStore.getState().pubkey;
-  if (!pk || !nostr.signer) return false;
-
-  // Get current follows
-  let currentFollows = followsCache.get(pk);
-  if (!currentFollows) {
-    await fetchFollows(pk);
-    currentFollows = followsCache.get(pk);
-  }
-
-  const follows = currentFollows?.follows || [];
-  if (follows.includes(targetPubkey)) return true; // Already following
-
-  const newFollows = [...follows, targetPubkey];
-  return publishFollowList(pk, newFollows);
+/** Follow/unfollow only after the backend has completed the latest own history. */
+export function followPubkey(targetPubkey: string): Promise<boolean> {
+  return updateFollow(targetPubkey, true);
 }
 
-/**
- * Unfollow a pubkey - publishes kind 3 event with updated follow list
- */
-export async function unfollowPubkey(targetPubkey: string): Promise<boolean> {
-  const pk = nostrStore.getState().pubkey;
-  if (!pk || !nostr.signer) return false;
-
-  // Get current follows
-  let currentFollows = followsCache.get(pk);
-  if (!currentFollows) {
-    await fetchFollows(pk);
-    currentFollows = followsCache.get(pk);
-  }
-
-  const follows = currentFollows?.follows || [];
-  if (!follows.includes(targetPubkey)) return true; // Already not following
-
-  const newFollows = follows.filter(p => p !== targetPubkey);
-  return publishFollowList(pk, newFollows);
+export function unfollowPubkey(targetPubkey: string): Promise<boolean> {
+  return updateFollow(targetPubkey, false);
 }
 
-// Track the last used timestamp to ensure strictly increasing timestamps
-let lastFollowTimestamp = 0;
+let followUpdates: Promise<unknown> = Promise.resolve();
+const publishedHeads = new Map<string, NostrEvent>();
 
-async function publishFollowList(pk: string, follows: string[]): Promise<boolean> {
-  try {
-    const event = { kind: 0, created_at: Math.floor(Date.now() / 1000), content: '', tags: [] as string[][] };
-    event.kind = 3;
-    event.content = '';
-    event.tags = follows.map(p => ['p', p]);
+function newerHead(current: NostrEvent | null, event: NostrEvent): NostrEvent {
+  return !current || event.created_at > current.created_at ||
+    (event.created_at === current.created_at && event.id < current.id) ? event : current;
+}
 
-    // Ensure strictly increasing timestamp (nostr-social-graph rejects equal timestamps)
-    const now = Math.floor(Date.now() / 1000);
-    event.created_at = Math.max(now, lastFollowTimestamp + 1);
-    lastFollowTimestamp = event.created_at;
-
-    await nostr.publishEvent(event);
-
-    // Update cache
-    const newFollows: Follows = {
-      pubkey: pk,
-      follows,
-      followedAt: event.created_at || Math.floor(Date.now() / 1000),
+async function loadOwnFollowHead(pk: string): Promise<NostrEvent | null> {
+  const adapter = getWorkerAdapter();
+  if (adapter?.queryEvents) {
+    const relays = getNostrRelayUrls();
+    if (relays.length === 0) throw new Error('No follow history servers are configured.');
+    // Optional peer sources may have no complete history. Require all configured
+    // relays while retaining any newer signed head already stored locally.
+    const result = await adapter.queryEvents([{kinds: [3], authors: [pk]}], {
+      cache: 'cache-first', relays, deadline: Date.now() + 10_000,
+    });
+    if (adapter !== getWorkerAdapter() || !result.complete) {
+      throw new Error('Follow history is incomplete.');
+    }
+    let latest: NostrEvent | null = null;
+    for (const event of result.events) {
+      if (event.pubkey !== pk || event.kind !== 3) continue;
+      if (!verifyEvent(event)) throw new Error('Follow history is invalid.');
+      latest = newerHead(latest, event);
+    }
+    return latest;
+  }
+  // Native backends without the worker query API report their own completion.
+  return new Promise((resolve, reject) => {
+    let latest: NostrEvent | null = null;
+    let invalidHead = false;
+    let settled = false;
+    const sub = nostr.subscribe({kinds: [3], authors: [pk]}, {closeAfterHistory: true});
+    const finish = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      sub.stop();
+      if (error) reject(error); else resolve(latest);
     };
-    followsCache.set(pk, newFollows);
-    followsEmitter.notify(pk, newFollows);
+    const timer = setTimeout(() => finish(new Error('Follow history is incomplete.')), 10_000);
+    sub.on('event', event => {
+      if (event.pubkey !== pk || event.kind !== 3) return;
+      try {
+        if (!verifyEvent(event)) { invalidHead = true; return; }
+        latest = newerHead(latest, event);
+      } catch { invalidHead = true; }
+    });
+    sub.on('history', status => {
+      finish(status.complete && !invalidHead ? undefined : new Error('Follow history is incomplete or invalid.'));
+    });
+    sub.on('close', () => finish(new Error('Follow history closed before completion.')));
+  });
+}
 
+function updateFollow(targetPubkey: string, following: boolean): Promise<boolean> {
+  const pk = nostrStore.getState().pubkey;
+  const signer = nostr.signer;
+  if (!pk || !signer || !/^[a-f0-9]{64}$/.test(targetPubkey)) return Promise.resolve(false);
+  const initialName = getProfileName(getProfileSync(targetPubkey), targetPubkey) ?? null;
+  const operation = followUpdates.then(async () => {
+    if (nostrStore.getState().pubkey !== pk || nostr.signer !== signer) return false;
+    let head = await loadOwnFollowHead(pk);
+    if (nostrStore.getState().pubkey !== pk || nostr.signer !== signer) return false;
+    // Preserve a successful local update while relays are still catching up.
+    const publishedHead = publishedHeads.get(pk);
+    if (publishedHead) head = newerHead(head, publishedHead);
+    const tags = head?.tags.map(tag => [...tag]) ?? [];
+    const alreadyFollowing = tags.some(tag => tag[0] === 'p' && tag[1] === targetPubkey);
+    if (alreadyFollowing !== following) {
+      const nextTags = following ? [...tags, ['p', targetPubkey]] :
+        tags.filter(tag => !(tag[0] === 'p' && tag[1] === targetPubkey));
+      const event = await nostr.publishEvent({
+        kind: 3,
+        tags: nextTags,
+        content: head?.content ?? '',
+        created_at: Math.max(Math.floor(Date.now() / 1000), (head?.created_at ?? 0) + 1),
+      });
+      if (event.pubkey !== pk || !verifyEvent(event)) return false;
+      head = event;
+      publishedHeads.set(pk, event);
+    }
+    const saved: Follows = {
+      pubkey: pk,
+      follows: head?.tags.filter(tag => tag[0] === 'p' && tag[1]).map(tag => tag[1]) ?? [],
+      followedAt: head?.created_at ?? 0,
+    };
+    followsCache.set(pk, saved);
+    followsEmitter.notify(pk, saved);
+    if (following) rememberContact(pk, targetPubkey, initialName);
     return true;
-  } catch (e) {
-    console.error('[follows] publish error', e);
+  }).catch(error => {
+    console.error('[follows] Could not update the public follow list:', error);
     return false;
-  }
+  });
+  followUpdates = operation;
+  return operation;
 }
 
 /**

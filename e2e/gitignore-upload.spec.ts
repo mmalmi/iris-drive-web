@@ -59,7 +59,7 @@ dist/
 
     const result = await page.evaluate(async () => {
       // Import the gitignore utilities
-      const { parseGitignore, filterByGitignore } = await import('/src/utils/gitignore.ts');
+      const { parseGitignore, filterByGitignore } = await import('/node_modules/@iris/hashtree-app/src/gitignore.ts');
 
       const gitignoreContent = `
 node_modules/
@@ -113,7 +113,7 @@ dist/
     await waitForAppReady(page);
 
     const result = await page.evaluate(async () => {
-      const { parseGitignore, filterByGitignore } = await import('/src/utils/gitignore.ts');
+      const { parseGitignore, filterByGitignore } = await import('/node_modules/@iris/hashtree-app/src/gitignore.ts');
 
       const patterns = parseGitignore(`
 # Comment line

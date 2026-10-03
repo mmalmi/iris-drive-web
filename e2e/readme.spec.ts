@@ -1,3 +1,4 @@
+import { saveTextFile } from './test-utils.js';
 import { test, expect } from './fixtures';
 import type { Page } from '@playwright/test';
 import { navigateToPublicFolder, goToTreeList, setupFreshUser, waitForCurrentDirectoryEntries } from './test-utils.js';
@@ -32,11 +33,7 @@ async function createFile(page: Page, name: string, content: string = '') {
   await expect(editorTextarea).toBeVisible({ timeout: 5000 });
   if (content) {
     await editorTextarea.fill(content);
-    const saveButton = page.getByRole('button', { name: /Save|Saved|Saving/ }).first();
-    if (await saveButton.isEnabled().catch(() => false)) {
-      await saveButton.click();
-    }
-    await expect(saveButton).toBeDisabled({ timeout: 10000 });
+    await saveTextFile(page, 10_000);
   }
   await doneButton.click();
   await expect(doneButton).not.toBeVisible({ timeout: 10000 });

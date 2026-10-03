@@ -1,3 +1,4 @@
+import { saveTextFile } from './test-utils.js';
 import { test, expect } from './fixtures';
 import { setupPageErrorHandler, navigateToPublicFolder, goToTreeList, safeReload, waitForAppReady } from './test-utils.js';
 
@@ -9,21 +10,6 @@ async function createAndEnterTree(page: any, name: string) {
   await page.locator('input[placeholder="Folder name..."]').fill(name);
   await page.getByRole('button', { name: 'Create' }).click();
   await expect(page.getByText('Empty directory')).toBeVisible({ timeout: 10000 });
-}
-
-// Helper to create a file
-async function createFile(page: any, name: string, content: string = '') {
-  await page.getByRole('button', { name: /File/ }).first().click();
-  await page.locator('input[placeholder="File name..."]').fill(name);
-  await page.getByRole('button', { name: 'Create' }).click();
-  await expect(page.getByRole('button', { name: 'Done' })).toBeVisible({ timeout: 5000 });
-  if (content) {
-    await page.locator('textarea').fill(content);
-    await page.getByRole('button', { name: 'Save' }).click();
-    await page.waitForTimeout(500);
-  }
-  await page.getByRole('button', { name: 'Done' }).click();
-  await page.waitForTimeout(500);
 }
 
 test.describe('LIVE Indicator', () => {
@@ -59,7 +45,7 @@ test.describe('LIVE Indicator', () => {
     await page.getByRole('button', { name: 'Create' }).click();
     await expect(page.getByRole('button', { name: 'Done' })).toBeVisible({ timeout: 5000 });
     await page.locator('textarea').fill('Hello World');
-    await page.getByRole('button', { name: 'Save' }).click();
+    await saveTextFile(page);
     await page.waitForTimeout(300);
     await page.getByRole('button', { name: 'Done' }).click();
 
@@ -77,7 +63,7 @@ test.describe('LIVE Indicator', () => {
     await page.getByRole('button', { name: 'Create' }).click();
     await expect(page.getByRole('button', { name: 'Done' })).toBeVisible({ timeout: 5000 });
     await page.locator('textarea').fill('Test');
-    await page.getByRole('button', { name: 'Save' }).click();
+    await saveTextFile(page);
     await page.waitForTimeout(300);
     await page.getByRole('button', { name: 'Done' }).click();
 

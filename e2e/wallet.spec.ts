@@ -2,13 +2,13 @@ import { test, expect } from './fixtures';
 import { disableOthersPool, setupPageErrorHandler } from './test-utils.js';
 
 test.describe('Wallet', () => {
-  test('clicking wallet icon navigates to wallet page', async ({ page }) => {
+  test('wallet route displays available wallet actions', async ({ page }) => {
     setupPageErrorHandler(page);
     await page.goto('/');
     await disableOthersPool(page);
 
-    // Click the wallet icon in header
-    await page.click('a[href="#/wallet"]');
+    // The standalone Drive shell exposes the wallet through its direct route.
+    await page.goto('/#/wallet');
 
     // Wait for wallet page to load
     await expect(page.locator('h1:has-text("Wallet")')).toBeVisible();
@@ -35,12 +35,8 @@ test.describe('Wallet', () => {
     const balanceTab = page.getByRole('button', { name: 'Balance' });
     await expect(balanceTab).toHaveClass(/text-accent/);
 
-    // Should show one of: "Total Balance", "Initializing", "Wallet unavailable", or "Wallet not initialized"
-    const hasBalance = await page.getByText('Total Balance').isVisible().catch(() => false);
-    const hasInit = await page.getByText('Initializing wallet...').isVisible().catch(() => false);
-    const hasUnavailable = await page.getByText('Wallet unavailable').isVisible().catch(() => false);
-    const hasNotInit = await page.getByText('Wallet not initialized').isVisible().catch(() => false);
-    expect(hasBalance || hasInit || hasUnavailable || hasNotInit).toBe(true);
+    // Wait for the initialized wallet instead of racing its loading-state transition.
+    await expect(page.getByText('Total Balance', { exact: true })).toBeVisible();
   });
 
   test('wallet page tabs are clickable', async ({ page }) => {

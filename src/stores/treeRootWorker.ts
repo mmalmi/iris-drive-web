@@ -71,6 +71,8 @@ export async function syncResolvedTreeRootToWorker(key: string, record: TreeRoot
         visibility?: TreeVisibility,
         labels?: string[],
         metadata?: {
+          source?: 'local-write' | 'remote';
+          updatedAt?: number;
           encryptedKey?: string;
           keyId?: string;
           selfEncryptedKey?: string;
@@ -78,6 +80,8 @@ export async function syncResolvedTreeRootToWorker(key: string, record: TreeRoot
         }
       ) => Promise<void>;
     }).setTreeRootCache(npub, treeName, record.hash, record.key, record.visibility, record.labels, {
+      source: 'remote',
+      updatedAt: record.updatedAt,
       encryptedKey: record.encryptedKey,
       keyId: record.keyId,
       selfEncryptedKey: record.selfEncryptedKey,

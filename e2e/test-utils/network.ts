@@ -167,13 +167,14 @@ export async function configureExplicitFipsPair(
   ].map(async ([page, remotePeerId]) => {
     await (page as any).waitForFunction(async (peerId: string) => {
       const { getDriveFipsRuntime } = await import('/src/lib/driveFipsRuntime.ts');
-      return getDriveFipsRuntime()?.getStats().connectedPeerIds.includes(peerId) === true;
-    }, remotePeerId, { timeout: timeoutMs, polling: 500 });
-    await (page as any).evaluate(async (peerId: string) => {
-      const { getDriveFipsRuntime } = await import('/src/lib/driveFipsRuntime.ts');
       const runtime = getDriveFipsRuntime();
       const adapter = (window as any).__getWorkerAdapter?.() ?? (window as any).__workerAdapter;
-      if (!runtime || !adapter) throw new Error('FIPS runtime or worker adapter is not ready');
+      if (!runtime || !adapter || !runtime.getStats().connectedPeerIds.includes(peerId)) {
+        return false;
+      }
+      // Relay/session changes can restart the runtime after navigation. Bind the
+      // provider in the same readiness sample, before another browser call can
+      // observe a different runtime. This never starts or replaces app state.
       const provider = runtime.getP2PProvider();
       adapter.setP2PProvider({
         listPeerIds: () => [peerId],
@@ -185,7 +186,8 @@ export async function configureExplicitFipsPair(
         },
       });
       window.dispatchEvent(new HashChangeEvent('hashchange'));
-    }, remotePeerId);
+      return true;
+    }, remotePeerId, { timeout: timeoutMs, polling: 500 });
   }));
 }
 

@@ -25,13 +25,68 @@ const log = (...args: unknown[]) => DEBUG && console.log('[socialGraph]', ...arg
 const CACHE_MAX_SIZE = 1000;
 const FOLLOWING_CACHE_MAX_SIZE = 5000; // Larger since it's checked frequently
 
-const followDistanceCache = new LRUCache<string, number>(CACHE_MAX_SIZE);
-const isFollowingCache = new LRUCache<string, boolean>(FOLLOWING_CACHE_MAX_SIZE);
-const followsCache = new LRUCache<string, Set<string>>(CACHE_MAX_SIZE);
-const followersCache = new LRUCache<string, Set<string>>(CACHE_MAX_SIZE);
+type GraphAdapter = NonNullable<ReturnType<typeof getWorkerAdapter>>;
+let graphGeneration = 0;
+let cacheAdapter: GraphAdapter | null = null;
+let cachePubkey: string | null = null;
+const clearGraphCaches: Array<() => void> = [];
+
+function graphContext() {
+  const adapter = getWorkerAdapter();
+  const pubkey = nostrStore.getState().pubkey;
+  if (adapter !== cacheAdapter || pubkey !== cachePubkey) {
+    cacheAdapter = adapter;
+    cachePubkey = pubkey;
+    graphGeneration++;
+    for (const clear of clearGraphCaches) clear();
+  }
+  return { adapter, pubkey, generation: graphGeneration };
+}
+
+function sameMembers(a: Set<string>, b: Set<string>): boolean {
+  return a.size === b.size && [...a].every(value => b.has(value));
+}
+
+/** Keep old values during refresh, but never accept an old graph/account reply. */
+function createGraphCache<T>(capacity: number, equal: (a: T, b: T) => boolean = Object.is) {
+  const values = new LRUCache<string, { value: T; generation: number }>(capacity);
+  const pending = new Map<string, { generation: number }>();
+  clearGraphCaches.push(() => { values.clear(); pending.clear(); });
+  return {
+    invalidate(key: string) {
+      const cached = values.get(key);
+      if (cached) cached.generation = -1;
+    },
+    read(key: string, fallback: T, query: (adapter: GraphAdapter) => Promise<T>, refresh = true): T {
+      const { adapter, pubkey, generation } = graphContext();
+      const cached = values.get(key);
+      if (cached && (!refresh || cached.generation === generation)) return cached.value;
+      if (adapter && pending.get(key)?.generation !== generation) {
+        const request = { generation };
+        pending.set(key, request);
+        void query(adapter).then(value => {
+          if (adapter !== getWorkerAdapter() || pubkey !== nostrStore.getState().pubkey
+            || generation !== graphGeneration) return;
+          const previous = values.get(key);
+          values.set(key, { value, generation });
+          if (!previous || !equal(previous.value, value)) socialGraphStore.incrementVersion();
+        }).catch(() => {}).finally(() => {
+          if (pending.get(key) === request) pending.delete(key);
+        });
+      }
+      return cached ? cached.value : fallback;
+    },
+  };
+}
+
+const followDistanceCache = createGraphCache<number>(CACHE_MAX_SIZE);
+const isFollowingCache = createGraphCache<boolean>(FOLLOWING_CACHE_MAX_SIZE);
+const followsCache = createGraphCache<Set<string>>(CACHE_MAX_SIZE, sameMembers);
+const followersCache = createGraphCache<Set<string>>(CACHE_MAX_SIZE, sameMembers);
+const friendsFollowingCache = createGraphCache<Set<string>>(CACHE_MAX_SIZE, sameMembers);
+const graphSizeCache = createGraphCache<number>(1);
 
 // Track pending fetches to avoid duplicate requests and flickering
-const pendingFollowersFetches = new Set<string>();
 const pendingProfileFollows = new Set<string>();
 const pendingProfileFollowers = new Set<string>();
 
@@ -64,10 +119,10 @@ function createSocialGraphStore() {
 
   return {
     subscribe,
-    setVersion: (version: number) => {
-      update(state => ({ ...state, version }));
-      // Note: Don't clear caches here - they use LRU eviction and will be
-      // refreshed on access. Clearing on every version update causes flicker.
+    graphChanged: () => {
+      graphGeneration++;
+      // UI notifications and worker freshness are separate monotonic clocks.
+      update(state => ({ ...state, version: state.version + 1 }));
     },
     incrementVersion: () => {
       // Debounce: batch multiple increments into one update after 100ms idle
@@ -91,8 +146,11 @@ export const socialGraphStore = createSocialGraphStore();
 export function setupVersionCallback() {
   const adapter = getWorkerAdapter();
   if (adapter) {
-    adapter.onSocialGraphVersion((version) => {
-      socialGraphStore.setVersion(version);
+    graphContext();
+    adapter.onSocialGraphVersion(() => {
+      if (adapter !== getWorkerAdapter()) return;
+      graphContext();
+      socialGraphStore.graphChanged();
     });
     flushPendingProfileFetches();
   }
@@ -107,21 +165,7 @@ export function setupVersionCallback() {
  */
 export function getFollowDistance(pubkey: string | null | undefined): number {
   if (!pubkey) return 1000;
-
-  const cached = followDistanceCache.get(pubkey);
-  if (cached !== undefined) return cached;
-
-  // Trigger async fetch
-  const adapter = getWorkerAdapter();
-  if (adapter) {
-    adapter.getFollowDistance(pubkey)
-      .then(d => {
-        followDistanceCache.set(pubkey, d);
-        socialGraphStore.incrementVersion();
-      })
-      .catch(() => {});
-  }
-  return 1000;
+  return followDistanceCache.read(pubkey, 1000, adapter => adapter.getFollowDistance(pubkey));
 }
 
 /**
@@ -134,20 +178,7 @@ export function isFollowing(
   if (!follower || !followedUser) return false;
 
   const key = `${follower}:${followedUser}`;
-  const cached = isFollowingCache.get(key);
-  if (cached !== undefined) return cached;
-
-  // Trigger async fetch
-  const adapter = getWorkerAdapter();
-  if (adapter) {
-    adapter.isFollowing(follower, followedUser)
-      .then(r => {
-        isFollowingCache.set(key, r);
-        socialGraphStore.incrementVersion();
-      })
-      .catch(() => {});
-  }
-  return false;
+  return isFollowingCache.read(key, false, adapter => adapter.isFollowing(follower, followedUser));
 }
 
 /**
@@ -155,25 +186,9 @@ export function isFollowing(
  */
 export function getFollows(pubkey: string | null | undefined): Set<string> {
   if (!pubkey) return new Set();
-
-  const cached = followsCache.get(pubkey);
-  if (cached) return cached;
-
-  // Trigger async fetch
-  const adapter = getWorkerAdapter();
-  if (adapter) {
-    adapter.getFollows(pubkey)
-      .then(arr => {
-        followsCache.set(pubkey, new Set(arr));
-        socialGraphStore.incrementVersion();
-      })
-      .catch(() => {});
-  }
-  return new Set();
+  return followsCache.read(pubkey, new Set(), async adapter => new Set(await adapter.getFollows(pubkey)));
 }
 
-// Track version at which we last fetched followers for each pubkey
-const followersFetchedAtVersion = new LRUCache<string, number>(CACHE_MAX_SIZE);
 // Track pubkeys we're actively watching (profile views)
 const watchedFollowersPubkeys = new Set<string>();
 
@@ -184,44 +199,8 @@ const watchedFollowersPubkeys = new Set<string>();
  */
 export function getFollowers(pubkey: string | null | undefined): Set<string> {
   if (!pubkey) return new Set();
-
-  const cached = followersCache.get(pubkey);
-  const currentVersion = socialGraphStore.getState().version;
-  const lastFetchedVersion = followersFetchedAtVersion.get(pubkey) ?? -1;
-  const isWatched = watchedFollowersPubkeys.has(pubkey);
-
-  // If we have cache and (not watched OR version hasn't changed), use cache
-  if (cached && (!isWatched || lastFetchedVersion >= currentVersion)) {
-    return cached;
-  }
-
-  // Avoid duplicate fetches
-  if (pendingFollowersFetches.has(pubkey)) {
-    return cached || new Set();
-  }
-
-  // Trigger async fetch
-  const adapter = getWorkerAdapter();
-  if (adapter) {
-    const requestVersion = currentVersion;
-    pendingFollowersFetches.add(pubkey);
-    adapter.getFollowers(pubkey)
-      .then(arr => {
-        followersCache.set(pubkey, new Set(arr));
-        pendingFollowersFetches.delete(pubkey);
-        followersFetchedAtVersion.set(pubkey, requestVersion);
-        // Only increment version if data actually changed
-        const oldSize = cached?.size ?? 0;
-        const resolvedVersion = socialGraphStore.getState().version;
-        if (arr.length !== oldSize || requestVersion < resolvedVersion) {
-          socialGraphStore.incrementVersion();
-        }
-      })
-      .catch(() => {
-        pendingFollowersFetches.delete(pubkey);
-      });
-  }
-  return cached || new Set();
+  return followersCache.read(pubkey, new Set(), async adapter => new Set(await adapter.getFollowers(pubkey)),
+    watchedFollowersPubkeys.has(pubkey));
 }
 
 /**
@@ -229,20 +208,7 @@ export function getFollowers(pubkey: string | null | undefined): Set<string> {
  */
 export function getFollowedByFriends(pubkey: string | null | undefined): Set<string> {
   if (!pubkey) return new Set();
-
-  const cached = followersCache.get(pubkey);
-  if (cached) return cached;
-
-  const adapter = getWorkerAdapter();
-  if (adapter) {
-    adapter.getFollowedByFriends(pubkey)
-      .then(arr => {
-        followersCache.set(pubkey, new Set(arr));
-        socialGraphStore.incrementVersion();
-      })
-      .catch(() => {});
-  }
-  return new Set();
+  return friendsFollowingCache.read(pubkey, new Set(), async adapter => new Set(await adapter.getFollowedByFriends(pubkey)));
 }
 
 /**
@@ -281,12 +247,12 @@ export function fetchUserFollowers(pubkey: string | null | undefined): void {
     // Mark as watched so we re-fetch on version changes
     watchedFollowersPubkeys.add(pubkey);
     // Invalidate version tracking so next getFollowers call fetches fresh
-    followersFetchedAtVersion.delete(pubkey);
+    followersCache.invalidate(pubkey);
     adapter.fetchUserFollowers(pubkey);
   } else {
     // Track intent to fetch once worker is ready.
     watchedFollowersPubkeys.add(pubkey);
-    followersFetchedAtVersion.delete(pubkey);
+    followersCache.invalidate(pubkey);
     pendingProfileFollowers.add(pubkey);
   }
 }
@@ -313,26 +279,11 @@ export function unwatchUserFollowers(pubkey: string | null | undefined): void {
   watchedFollowersPubkeys.delete(pubkey);
 }
 
-// Cached graph size (updated async)
-let graphSizeCache = 0;
-
 /**
  * Get the graph size
  */
 export function getGraphSize(): number {
-  // Trigger async fetch to update cache
-  const adapter = getWorkerAdapter();
-  if (adapter) {
-    adapter.getSocialGraphSize()
-      .then(size => {
-        if (size !== graphSizeCache) {
-          graphSizeCache = size;
-          socialGraphStore.incrementVersion();
-        }
-      })
-      .catch(() => {});
-  }
-  return graphSizeCache;
+  return graphSizeCache.read('size', 0, adapter => adapter.getSocialGraphSize());
 }
 
 /**

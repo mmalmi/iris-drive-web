@@ -196,6 +196,8 @@ export class WorkerAdapterNostr extends WorkerAdapterStorage {
     visibility: 'public' | 'link-visible' | 'private' = 'public',
     labels?: string[],
     metadata?: {
+      source?: 'local-write' | 'remote';
+      updatedAt?: number;
       encryptedKey?: string;
       keyId?: string;
       selfEncryptedKey?: string;
@@ -212,6 +214,8 @@ export class WorkerAdapterNostr extends WorkerAdapterStorage {
       key,
       visibility,
       labels,
+      source: metadata?.source,
+      updatedAt: metadata?.updatedAt,
       encryptedKey: metadata?.encryptedKey,
       keyId: metadata?.keyId,
       selfEncryptedKey: metadata?.selfEncryptedKey,

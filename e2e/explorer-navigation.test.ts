@@ -1,8 +1,8 @@
+import { saveTextFile } from './test-utils.js';
 import { test, expect } from './fixtures';
 import {
   createAndEnterTree,
   createAndOpenFile,
-  flushPendingPublishes,
   goToTreeList,
   prepareExplorerPage,
   safeReload,
@@ -58,12 +58,11 @@ test.describe('Hashtree Explorer', () => {
   });
 
   test('should navigate to wallet page', async ({ page }) => {
-    // Click on the wallet link in header (HashRouter uses #/wallet)
-    await page.locator('a[href="#/wallet"]').first().click();
-    await page.waitForTimeout(300);
+    // The standalone Drive shell exposes the wallet through its direct route.
+    await page.goto('/#/wallet');
 
-    // Should be on wallet page
     expect(page.url()).toContain('/wallet');
+    await expect(page.getByRole('heading', { name: 'Wallet', exact: true })).toBeVisible();
   });
 
   test('should navigate to edit profile page', async ({ page }) => {
@@ -163,7 +162,7 @@ test.describe('Hashtree Explorer', () => {
 
     // File opens in edit mode - add content
     await page.locator('textarea').fill('Hello Direct Nav');
-    await page.getByRole('button', { name: 'Save' }).click();
+    await saveTextFile(page);
     await page.waitForTimeout(300);
 
     // Exit edit mode
@@ -199,7 +198,7 @@ test.describe('Hashtree Explorer', () => {
 
     // File opens in edit mode - add content
     await page.locator('textarea').fill('Hello Mobile View');
-    await page.getByRole('button', { name: 'Save' }).click();
+    await saveTextFile(page);
     await page.waitForTimeout(300);
 
     // Exit edit mode

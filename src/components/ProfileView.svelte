@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ContactPreferences from "./User/ContactPreferences.svelte";
   /**
    * ProfileView - displays user profile
    * Port of React ProfileView component
@@ -8,7 +9,7 @@
   import { createProfileStore } from '../stores/profile';
   import { createFollowsStore, followPubkey, unfollowPubkey } from '../stores/follows';
   import ShareButton from './ShareButton.svelte';
-  import { Avatar, Name, Badge, FollowedBy } from './User';
+  import { Avatar, Name, FollowedBy } from './User';
   import CopyText from '@iris/svelte-ui/CopyText.svelte';
   import ProxyImg from './ProxyImg.svelte';
   import { getFollowsMe, getFollowers, fetchUserFollows, fetchUserFollowers, socialGraphStore } from '../utils/socialGraph';
@@ -118,6 +119,8 @@
 
   let bannerError = $state(false);
   let followLoading = $state(false);
+  let followError = $state('');
+  $effect(() => { pubkeyHex; myPubkey; followError = ''; });
 
   function navigate(path: string) {
     window.location.hash = path;
@@ -125,11 +128,9 @@
 
   async function handleFollow() {
     followLoading = true;
-    if (isFollowing) {
-      await unfollowPubkey(pubkeyHex);
-    } else {
-      await followPubkey(pubkeyHex);
-    }
+    followError = '';
+    const updated = await (isFollowing ? unfollowPubkey(pubkeyHex) : followPubkey(pubkeyHex));
+    if (!updated) followError = 'Could not update follows. Try again when connected.';
     followLoading = false;
   }
 </script>
@@ -152,13 +153,13 @@
   <!-- Profile header -->
   <div class="px-4 pb-4 -mt-12 relative">
     <!-- Avatar -->
-    <div class="mb-3">
+    <div class="mb-3" data-testid="profile-avatar">
       {#if viewedNostrIdentityId}
         <div class="w-20 h-20 rounded-full border-4 border-surface-0 bg-surface-2 flex items-center justify-center">
           <span class="i-lucide-folder-root text-3xl text-text-3"></span>
         </div>
       {:else}
-        <Avatar pubkey={pubkeyHex} size={80} class="border-4 border-surface-0" />
+        <Avatar pubkey={pubkeyHex} showBadge={false} size={80} class="border-4 border-surface-0" />
       {/if}
     </div>
 
@@ -173,13 +174,7 @@
           {/if}
         </h1>
         {#if isOwnProfile}
-          <span class="shrink-0 text-xs text-blue-500 flex items-center gap-1">
-            <Badge pubKeyHex={pubkeyHex} size="sm" /> You
-          </span>
-        {:else if isFollowing}
-          <span class="shrink-0 text-xs text-blue-500 flex items-center gap-1">
-            <Badge pubKeyHex={pubkeyHex} size="sm" /> Following
-          </span>
+          <span class="shrink-0 text-xs text-text-2">You</span>
         {/if}
         {#if !isOwnProfile && followsMe}
           <span class="shrink-0 text-xs bg-surface-2 text-text-2 px-2 py-0.5 rounded">
@@ -206,6 +201,7 @@
         {#if isLoggedIn && !isOwnProfile && pubkeyHex}
           <button
             onclick={handleFollow}
+            title="Your follow list is public"
             disabled={followLoading}
             class={isFollowing ? 'btn-ghost' : 'btn-success'}
           >
@@ -233,6 +229,8 @@
     <!-- Followed by friends -->
     {#if !isOwnProfile && pubkeyHex}
       <FollowedBy pubkey={pubkeyHex} class="mt-2" />
+      <ContactPreferences pubkey={pubkeyHex} />
+      {#if followError}<p class="text-sm text-red-400 mt-2" role="alert">{followError}</p>{/if}
     {/if}
 
     <!-- About -->

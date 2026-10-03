@@ -3,9 +3,8 @@
    * FollowedBy component - shows which friends follow a user
    */
   import { nip19 } from 'nostr-tools';
-  import { Avatar } from './index';
-  import { Name } from './index';
-  import { followDistance, followedByFriends, socialGraphStore } from '../../utils/socialGraph';
+  import { Avatar, Name, Badge } from './index';
+  import { getFollowDistance, getFollowedByFriends, socialGraphStore } from '../../utils/socialGraph';
   import { nostrStore } from '../../nostr';
 
   const MAX_AVATARS = 3;
@@ -23,11 +22,11 @@
   // Re-derive when graph version changes
   let distance = $derived.by(() => {
     $socialGraphStore.version;
-    return followDistance(pubkey);
+    return getFollowDistance(pubkey);
   });
   let friends = $derived.by(() => {
     $socialGraphStore.version;
-    return followedByFriends(pubkey);
+    return getFollowedByFriends(pubkey);
   });
 
   let friendsArray = $derived(Array.from(friends).slice(0, MAX_AVATARS));
@@ -47,17 +46,19 @@
 
 {#if !isSelf}
   {#if total === 0}
-    {#if distance === 2}
-      <div class="text-sm text-text-2 {className}">
-        Not followed by anyone you follow
+    {#if distance === 1 || distance === 2}
+      <div data-testid="profile-follow-explanation" class="flex items-center gap-2 text-sm text-text-2 {className}">
+        <Badge pubKeyHex={pubkey} size="sm" />
+        {distance === 1 ? 'You follow them' : 'Followed by your network'}
       </div>
     {:else if distance === 3}
-      <div class="text-sm text-text-2 {className}">
+      <div data-testid="profile-follow-explanation" class="text-sm text-text-2 {className}">
         Followed by friends of friends
       </div>
     {/if}
   {:else}
-    <div class="flex items-center gap-2 {className}">
+    <div data-testid="profile-follow-explanation" class="flex items-center gap-2 {className}">
+      <Badge pubKeyHex={pubkey} size="sm" />
       <!-- Avatar stack -->
       <div class="flex -space-x-2">
         {#each friendsArray as pk (pk)}

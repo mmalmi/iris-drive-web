@@ -1,5 +1,6 @@
 import { test, expect } from './fixtures';
 import { waitForRelayConnected } from './test-utils.js';
+import { observeDirectNavigationHttp, takeDirectNavigationHttpObservations } from './direct-tree-nav.diagnostics';
 import {
   configureExplicitFipsPair,
   enableOthersPool,
@@ -20,6 +21,13 @@ import {
 } from './direct-tree-nav.helpers';
 
 test.describe.serial('Direct Tree Navigation', () => {
+  test.afterEach(async ({}, testInfo) => {
+    await testInfo.attach('direct-navigation-http', {
+      body: Buffer.from(JSON.stringify(takeDirectNavigationHttpObservations(), null, 2)),
+      contentType: 'application/json',
+    });
+  });
+
   test('can access file from second context via WebRTC', { timeout: 180000 }, async ({ browser }) => {
     test.slow();
     test.setTimeout(240000);
@@ -29,6 +37,7 @@ test.describe.serial('Direct Tree Navigation', () => {
 
     const context1 = await browser.newContext();
     const page1 = await context1.newPage();
+    observeDirectNavigationHttp(page1, 'page1');
     const user1 = await initUser(page1, relayUrl, { enableOthersPool: true });
 
     // Create a folder and file
@@ -81,6 +90,7 @@ test.describe.serial('Direct Tree Navigation', () => {
 
     const context2 = await browser.newContext();
     const page2 = await context2.newPage();
+    observeDirectNavigationHttp(page2, 'page2');
     const user2 = await initUser(page2, relayUrl, { enableOthersPool: true });
 
     // Follow each other without navigating away
@@ -222,6 +232,7 @@ test.describe.serial('Direct Tree Navigation', () => {
 
     const context1 = await browser.newContext();
     const page1 = await context1.newPage();
+    observeDirectNavigationHttp(page1, 'page1');
     const user1 = await initUser(page1, relayUrl, { enableOthersPool: true });
 
     // Create folder
@@ -267,6 +278,7 @@ test.describe.serial('Direct Tree Navigation', () => {
 
     const context2 = await browser.newContext();
     const page2 = await context2.newPage();
+    observeDirectNavigationHttp(page2, 'page2');
     const user2 = await initUser(page2, relayUrl, { enableOthersPool: true });
 
     await page1.waitForFunction(() => (window as any).__testHelpers?.followPubkey);

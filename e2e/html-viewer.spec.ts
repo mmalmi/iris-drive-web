@@ -1,6 +1,7 @@
 import { test, expect } from './fixtures';
 import type { Page } from '@playwright/test';
 import { setupPageErrorHandler, navigateToPublicFolder } from './test-utils.js';
+import { createAndEnterTree } from './explorer.helpers';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -45,17 +46,7 @@ test.describe('HTML file viewing', () => {
 </body>
 </html>`);
 
-      await page.getByTestId('home-link').click();
-      await page.waitForTimeout(300);
-      await page.getByRole('button', { name: 'New Folder' }).click();
-
-      const input = page.locator('input[placeholder="Folder name..."]');
-      await input.waitFor({ timeout: 5000 });
-      await input.fill('html-test');
-      await page.click('button:has-text("Create")');
-
-      await expect(page.locator('.fixed.inset-0.bg-black')).not.toBeVisible({ timeout: 10000 });
-      await expect(page.getByText(/Drop or click to add|Empty directory/).first()).toBeVisible({ timeout: 10000 });
+      await createAndEnterTree(page, 'html-test');
 
       const fileInput = page.locator('input[type="file"]').first();
       await fileInput.setInputFiles(cssPath);
@@ -67,9 +58,12 @@ test.describe('HTML file viewing', () => {
       await expect(page.locator('[data-testid="file-list"] a:has-text("index.html")')).toBeVisible({ timeout: 10000 });
 
       const directoryOpenSite = page.getByTestId('directory-open-site');
-      await expect(directoryOpenSite).toBeVisible({ timeout: 10000 });
+      // TreeRoute keeps the directory viewer hidden until a file is selected.
+      // Its site URL remains correct; the file viewer exposes the visible link.
+      await expect(directoryOpenSite).toBeHidden({ timeout: 10000 });
       await expect(directoryOpenSite).toHaveAttribute('href', /https:\/\/sites\.iris\.to\/#\//);
       await expect(directoryOpenSite).toHaveAttribute('href', /html-test\/index\.html\?reload=1$/);
+      const directoryHref = await directoryOpenSite.getAttribute('href');
 
       await page.locator('[data-testid="file-list"] a:has-text("index.html")').click();
 
@@ -78,6 +72,7 @@ test.describe('HTML file viewing', () => {
       const viewerHref = await viewerOpenSite.getAttribute('href');
       expect(viewerHref).toMatch(/https:\/\/sites\.iris\.to\/#\//);
       expect(viewerHref).toMatch(/html-test\/index\.html\?reload=1$/);
+      expect(viewerHref).toBe(directoryHref);
 
       const codeViewer = page.locator('pre.code-viewer');
       await expect(codeViewer).toBeVisible({ timeout: 10000 });

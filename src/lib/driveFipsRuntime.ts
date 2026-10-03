@@ -38,6 +38,7 @@ export type DriveFipsAuthorizedAppKeySource = (
 
 export interface DriveFipsRuntimeOptions {
   relays: readonly string[];
+  websocketSeedUrls?: readonly string[];
   deviceSecretKey: string | Uint8Array;
   profileId?: string;
   storeName?: string;
@@ -71,6 +72,7 @@ export interface DriveFipsRuntimeStats {
   localNpub: string;
   connectedPeerIds: string[];
   connectedNpubs: string[];
+  nostrPeerIds: string[];
   peers: DriveFipsPeerStats[];
 }
 
@@ -79,11 +81,9 @@ type MutablePeerStats = DriveFipsPeerStats;
 let activeRuntime: DriveFipsRuntime | null = null;
 let runtimeGeneration = 0;
 
-export function irisDriveFipsDiscoveryScope(profileId?: string): string {
-  const normalizedProfileId = profileId?.trim();
-  return normalizedProfileId
-    ? `iris-drive:${normalizedProfileId}`
-    : IRIS_DRIVE_FIPS_DISCOVERY_SCOPE;
+export function irisDriveFipsDiscoveryScope(_profileId?: string): string {
+  // Block service discovery is shared across profiles and applications.
+  return IRIS_DRIVE_FIPS_DISCOVERY_SCOPE;
 }
 
 export async function driveFipsIdentityFromAppKeySecret(
@@ -104,12 +104,6 @@ export function attachDriveFipsProvider<Provider>(
   return provider;
 }
 
-type DriveFipsWebRtcAddress = { transport: string; addr: string };
-type DriveFipsWebRtcTransport = {
-  connect(address: DriveFipsWebRtcAddress): Promise<void>;
-  close?(address: DriveFipsWebRtcAddress): Promise<void>;
-};
-
 export class DriveFipsPeerPolicy {
   private readonly localAppKeyPubkey: string;
 
@@ -123,6 +117,8 @@ export class DriveFipsPeerPolicy {
   }
 
   async providerRoutes(): Promise<FipsBlobRoute[]> {
+    // Roster peers are preferred routes, not a block-serving access list.
+    // The shared provider also discovers advertised Hashtree services.
     const authorized = await this.authorizedAppKeys();
     return [...authorized]
       .filter((pubkey) => pubkey !== this.localAppKeyPubkey)
@@ -133,9 +129,12 @@ export class DriveFipsPeerPolicy {
       })));
   }
 
-  async allowsPeer(peerId: string): Promise<boolean> {
-    const appKeyPubkey = fipsPeerAppKeyPubkey(peerId);
-    return appKeyPubkey !== null && (await this.authorizedAppKeys()).has(appKeyPubkey);
+  async nostrPeers(connectedPeerIds: readonly string[]): Promise<string[]> {
+    const authorized = await this.authorizedAppKeys();
+    return connectedPeerIds.filter((peerId) => {
+      const appKeyPubkey = fipsPeerAppKeyPubkey(peerId);
+      return appKeyPubkey !== null && authorized.has(appKeyPubkey);
+    }).sort();
   }
 
   private async authorizedAppKeys(): Promise<Set<string>> {
@@ -145,25 +144,6 @@ export class DriveFipsPeerPolicy {
       return normalized ? [normalized] : [];
     }));
   }
-}
-
-export function installDriveFipsOutgoingAdmission(
-  transport: DriveFipsWebRtcTransport,
-  policy: Pick<DriveFipsPeerPolicy, 'allowsPeer'>,
-): () => void {
-  const originalConnect = transport.connect.bind(transport);
-  const guardedConnect = async (address: DriveFipsWebRtcAddress): Promise<void> => {
-    if (address.transport === 'webrtc' && !await policy.allowsPeer(address.addr)) {
-      throw new Error('FIPS peer is not authorized by the active Drive AppKey roster');
-    }
-    await originalConnect(address);
-  };
-  transport.connect = guardedConnect;
-  return () => {
-    if (transport.connect === guardedConnect) {
-      transport.connect = originalConnect;
-    }
-  };
 }
 
 export function compressedPubkeyHexToXOnly(peerId: string): string {
@@ -219,7 +199,8 @@ export class DriveFipsRuntime {
   private localStore: DexieStore | null = null;
   private localIdentity: FipsIdentity | null = null;
   private peerPolicy: DriveFipsPeerPolicy | null = null;
-  private restoreOutgoingAdmission: (() => void) | null = null;
+  private nostrPeerIds: string[] = [];
+  private authorizationRefreshGeneration = 0;
   private authorizationRefreshTimer: ReturnType<typeof setInterval> | null = null;
   private readonly peerStats = new Map<string, MutablePeerStats>();
   private readonly unsubs: Array<() => void> = [];
@@ -251,12 +232,15 @@ export class DriveFipsRuntime {
       provider = await createBrowserHashtreeNostrProvider({
         identity,
         localStore,
-        nostrPeers: () => this.getStats().connectedPeerIds,
+        // Private event interests and retained replay keep roster admission;
+        // raw content-addressed blocks use the standard authenticated service.
+        nostrPeers: () => [...this.nostrPeerIds],
         retainedEventReader: this.options.retainedEventReader,
         discoveryApp: this.discoveryScope,
         forwarding: true,
         logger: createLogger(this.options.log === true, 'drive-fips:node'),
         relays: this.relays,
+        websocketSeedUrls: this.options.websocketSeedUrls,
         stunServers: [...(this.options.stunServers ?? DEFAULT_STUN_SERVERS)],
         maxConnections: this.options.maxConnections ?? 8,
         connectTimeoutMs: this.options.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS,
@@ -264,7 +248,6 @@ export class DriveFipsRuntime {
         iceGatherTimeoutMs: this.options.iceGatherTimeoutMs ?? DEFAULT_ICE_GATHER_TIMEOUT_MS,
         requestTimeoutMs: this.options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS,
         providerRoutes: () => peerPolicy.providerRoutes(),
-        allowIncomingPeer: (peerId) => peerPolicy.allowsPeer(peerId),
       });
     } catch (error) {
       localStore.close();
@@ -275,12 +258,8 @@ export class DriveFipsRuntime {
     this.peerPolicy = peerPolicy;
     this.provider = provider;
     this.localStore = localStore;
-    this.restoreOutgoingAdmission = installDriveFipsOutgoingAdmission(
-      provider.webRtcTransport,
-      peerPolicy,
-    );
     this.authorizationRefreshTimer = setInterval(() => {
-      void this.retireUnauthorizedPeers();
+      void this.refreshNostrPeerAuthorization();
     }, AUTHORIZATION_REFRESH_MS);
     this.unsubs.push(
       provider.node.on('peer', (event) => {
@@ -293,19 +272,25 @@ export class DriveFipsRuntime {
         }
       }),
     );
+    // A bootstrap link may already be connected before node.start returns.
+    for (const peerId of provider.listConnectedPeerIds()) {
+      const normalized = normalizeCompressedPeerId(peerId);
+      if (normalized) this.ensurePeerStats(normalized).connected = true;
+    }
+    await this.refreshNostrPeerAuthorization();
   }
 
   async stop(): Promise<void> {
     const provider = this.provider;
     this.provider = null;
+    this.authorizationRefreshGeneration += 1;
+    this.nostrPeerIds = [];
     for (const unsub of this.unsubs.splice(0)) {
       unsub();
     }
     if (provider) {
       await provider.stop().catch(() => undefined);
     }
-    this.restoreOutgoingAdmission?.();
-    this.restoreOutgoingAdmission = null;
     if (this.authorizationRefreshTimer) clearInterval(this.authorizationRefreshTimer);
     this.authorizationRefreshTimer = null;
     this.localStore?.close();
@@ -342,6 +327,7 @@ export class DriveFipsRuntime {
       localNpub: localXOnlyPubkey ? npubFromHex(localXOnlyPubkey) : '',
       connectedPeerIds: peers.filter((peer) => peer.connected).map((peer) => peer.peerId),
       connectedNpubs: peers.filter((peer) => peer.connected).map((peer) => peer.npub),
+      nostrPeerIds: [...this.nostrPeerIds],
       peers,
     };
   }
@@ -349,33 +335,21 @@ export class DriveFipsRuntime {
   private async handlePeerEvent(event: PeerEvent): Promise<void> {
     const remotePubkey = normalizeCompressedPeerId(event.remotePubkey);
     if (!remotePubkey) return;
-    if (!this.peerPolicy || !await this.peerPolicy.allowsPeer(remotePubkey)) {
-      this.peerStats.delete(remotePubkey);
-      this.provider?.refreshNostrPeers();
-      if (event.state === 'connected') {
-        await this.provider?.webRtcTransport.close?.({
-          transport: 'webrtc',
-          addr: remotePubkey,
-        }).catch(() => undefined);
-      }
-      return;
-    }
     const stats = this.ensurePeerStats(remotePubkey);
     stats.connected = event.state === 'connected';
     stats.lastStateAt = Date.now();
-    this.provider?.refreshNostrPeers();
+    await this.refreshNostrPeerAuthorization();
   }
 
-  private async retireUnauthorizedPeers(): Promise<void> {
+  private async refreshNostrPeerAuthorization(): Promise<void> {
     const policy = this.peerPolicy;
-    const transport = this.provider?.webRtcTransport;
-    if (!policy || !transport) return;
-    for (const peerId of [...this.peerStats.keys()]) {
-      if (await policy.allowsPeer(peerId)) continue;
-      this.peerStats.delete(peerId);
-      this.provider?.refreshNostrPeers();
-      await transport.close?.({ transport: 'webrtc', addr: peerId }).catch(() => undefined);
-    }
+    const provider = this.provider;
+    if (!policy || !provider) return;
+    const generation = ++this.authorizationRefreshGeneration;
+    const peers = await policy.nostrPeers(this.getStats().connectedPeerIds).catch(() => []);
+    if (generation !== this.authorizationRefreshGeneration || provider !== this.provider) return;
+    this.nostrPeerIds = peers;
+    provider.refreshNostrPeers();
   }
 
   private handleSessionEvent(event: SessionEvent): void {
