@@ -57,9 +57,9 @@ export function buildSelectedTreeForOwnRoute(
   state: SelectedTreeState,
   options: SelectedTreeRouteOptions
 ): HashTreeEvent | null {
-  const pubkey = decodeNpub(options.npub) ?? (
-    activeNostrIdentityRootScope(state) === options.npub ? state.pubkey : null
-  );
+  const isProfileRoute = activeNostrIdentityRootScope(state) === options.npub;
+  const pubkey = decodeNpub(options.npub) ?? (isProfileRoute ? state.pubkey : null);
+  const defaultVisibility = isProfileRoute ? 'private' : 'public';
   if (!pubkey || !state.isLoggedIn || state.pubkey !== pubkey) return null;
 
   const current = state.selectedTree?.pubkey === pubkey && state.selectedTree.name === options.treeName
@@ -73,7 +73,7 @@ export function buildSelectedTreeForOwnRoute(
       pubkey,
       name: options.treeName,
       rootHash: '',
-      visibility: 'public' as TreeVisibility,
+      visibility: defaultVisibility,
       created_at: createdAt,
     }),
     pubkey,
@@ -81,7 +81,7 @@ export function buildSelectedTreeForOwnRoute(
     labels: options.labels ?? current?.labels,
     rootHash: current?.rootHash ?? '',
     rootKey: current?.rootKey,
-    visibility: options.visibility ?? current?.visibility ?? 'public',
+    visibility: options.visibility ?? current?.visibility ?? defaultVisibility,
     created_at: createdAt,
   };
 }

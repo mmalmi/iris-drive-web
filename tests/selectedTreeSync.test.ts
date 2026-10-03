@@ -97,6 +97,18 @@ describe('buildSelectedTreeForOwnRoute', () => {
     expect(next?.labels).toEqual(['boards']);
   });
 
+
+  it('starts the active profile tree private before its metadata arrives', () => {
+    mocks.activeNostrIdentityRootScope.mockReturnValue(profileId);
+    const initial = buildSelectedTreeForOwnRoute(createState(), { npub: profileId, treeName: 'main' });
+    expect(initial?.visibility).toBe('private');
+    const resolved = buildSelectedTreeForOwnRoute(createState(initial), {
+      npub: profileId, treeName: 'main', visibility: 'private',
+    });
+    expect(resolved).toEqual(initial);
+    expect(buildSelectedTreeForOwnRoute(createState(), { npub, treeName: 'public' })?.visibility).toBe('public');
+  });
+
   it('treats the active Iris profile UUID as an own route scope', () => {
     mocks.activeNostrIdentityRootScope.mockReturnValue(profileId);
 
