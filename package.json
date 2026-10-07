@@ -46,7 +46,7 @@
   "dependencies": {
     "@fips/browser": "https://github.com/mmalmi/fips-ts/releases/download/runtime-v0.0.55/fips-browser-0.0.17.tgz",
     "@fips/core": "https://github.com/mmalmi/fips-ts/releases/download/runtime-v0.0.53/fips-core-0.0.51.tgz",
-    "@fips/tcp": "https://github.com/mmalmi/fips-tcp/releases/download/v0.2.0/fips-tcp-0.2.0.tgz",
+    "@fips/tcp": "https://github.com/mmalmi/fips-tcp/releases/download/fips-tcp-v0.2.4/fips-tcp-0.2.3.tgz",
     "@fips/transport-webrtc": "https://github.com/mmalmi/fips-ts/releases/download/runtime-v0.0.53/fips-transport-webrtc-0.0.54.tgz",
     "@hashtree/core": "https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.9/hashtree-core-0.3.2.tgz",
     "@hashtree/dexie": "https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.9/hashtree-dexie-0.1.11.tgz",
@@ -120,7 +120,7 @@
       "esbuild"
     ],
     "overrides": {
-      "@fips/tcp": "https://github.com/mmalmi/fips-tcp/releases/download/v0.2.0/fips-tcp-0.2.0.tgz",
+      "@fips/tcp": "https://github.com/mmalmi/fips-tcp/releases/download/fips-tcp-v0.2.4/fips-tcp-0.2.3.tgz",
       "@hashtree/core": "https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.9/hashtree-core-0.3.2.tgz",
       "@hashtree/dexie": "https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.9/hashtree-dexie-0.1.11.tgz",
       "@hashtree/fips-transport": "https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.20/hashtree-fips-transport-0.4.21.tgz",
