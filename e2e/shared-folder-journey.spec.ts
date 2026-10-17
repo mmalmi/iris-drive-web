@@ -87,6 +87,7 @@ test('reader and editor join short native invites, edit across apps, reload and 
     await readerPage.getByRole('link', { name: /^Plan\.txt\b/ }).click();
     await expect(readerPage.getByText('Meet at noon.', { exact: true })).toBeVisible();
     await expect(readerPage.getByTestId('viewer-edit')).toHaveCount(0);
+    await expect(readerPage.getByTestId('viewer-push')).toHaveCount(0);
     const downloadPromise = readerPage.waitForEvent('download');
     await readerPage.getByTestId('viewer-download').click();
     const downloaded = await downloadPromise;

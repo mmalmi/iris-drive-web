@@ -378,8 +378,8 @@
   <div class="flex-1 flex flex-col min-h-0 bg-surface-0">
     {#if !isFullscreen}
       <div class="shrink-0 px-3 py-2 border-b border-surface-2 flex flex-wrap items-center justify-between gap-2" data-testid="viewer-header">
-        <div class="mx-auto flex w-full items-center justify-between gap-2">
-          <div class="flex items-center gap-2 min-w-0">
+        <div class="mx-auto flex w-full flex-wrap items-center justify-between gap-2">
+          <div class="flex items-center gap-2 min-w-0 max-sm:w-full">
             <a href={backUrl} class="btn-circle btn-ghost h-8 w-8 min-h-8 min-w-8 no-underline" title="Back to folder" data-testid="viewer-back">
               <span class="i-lucide-chevron-left text-lg"></span>
             </a>
@@ -400,7 +400,7 @@
             </div>
           </div>
 
-          <div class="flex items-center gap-1 flex-wrap">
+          <div class="flex items-center gap-1 flex-wrap max-sm:w-full">
             <button onclick={handleDownload} class="btn-ghost" title="Download file" data-testid="viewer-download" disabled={loading && !isVideo}>Download</button>
             {#if permalinkUrl}
               <a href={permalinkUrl} class="btn-ghost no-underline" title={entry?.cid?.hash ? toHex(entry.cid.hash) : ''} data-testid="viewer-permalink">Snapshot</a>
@@ -423,7 +423,7 @@
             >
               <span class={shareLinks.length > 0 ? 'i-lucide-share text-base' : 'i-lucide-loader-2 animate-spin text-base'}></span>
             </button>
-            {#if entry?.cid}
+            {#if canEdit && entry?.cid}
               <button
                 onclick={() => openBlossomPushModal(entry.cid, entry.name, false, routeNpub ? (npubToPubkey(routeNpub) ?? undefined) : undefined, routeTreeName ?? undefined)}
                 class="btn-circle btn-ghost h-8 w-8 min-h-8 min-w-8"
