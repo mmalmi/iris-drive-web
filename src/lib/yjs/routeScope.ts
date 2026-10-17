@@ -1,4 +1,4 @@
-import { isActiveNostrIdentityRouteScope } from '../../drive/profileRoute';
+import { isEditableDriveRouteScope } from '../../drive/profileRoute';
 
 type EditableNostrState = {
   isLoggedIn: boolean;
@@ -22,7 +22,7 @@ export function resolveYjsRouteScopes(
   userNpub: string | null,
   state: EditableNostrState,
 ): YjsRouteScopes {
-  const isProfileDrive = isActiveNostrIdentityRouteScope(routeScope, state);
+  const isProfileDrive = isEditableDriveRouteScope(routeScope, state);
   const viewedRootScope = routeScope || userNpub;
   return {
     isOwnTree: !routeScope || routeScope === userNpub || isProfileDrive,

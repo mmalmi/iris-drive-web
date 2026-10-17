@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { resolveShareInvite } from '../drive/shareLinks';
   import CopyText from '@iris/svelte-ui/CopyText.svelte';
   import {
     SHARE_INVITE_PREFIX,
@@ -22,9 +23,7 @@
   } from '../drive/shareInviteActions';
   import {
     acceptedShares,
-    acceptShareInvite,
     acceptShareInviteForProfile,
-    addShareShortcut,
     projectAcceptedShareViews,
   } from '../drive/shareLibrary';
   import { toast } from '../stores/toast';
@@ -38,18 +37,28 @@
   let { payload }: Props = $props();
 
   let invite = $derived(`${SHARE_INVITE_PREFIX}${payload}`);
+  let webInvite = $derived(`https://drive.iris.to/#/share-invite/${payload}`);
   let nativeActionEndpoint = $derived(nativeShareActionEndpoint());
   let shareActionPending = $state(false);
-  let parsed = $derived.by((): { bundle: ShareInviteBundle; view: SharedFolderView } | null => {
-    try {
-      const bundle = parseShareInvite(payload);
-      return {
-        bundle,
-        view: projectSharedFolderView(bundle.shared_folder, [], ''),
-      };
-    } catch {
-      return null;
-    }
+  let resolvedInvite = $state('');
+  let loading = $state(true);
+  let loadError = $state('');
+  let parsed = $state<{ bundle: ShareInviteBundle; view: SharedFolderView } | null>(null);
+  $effect(() => {
+    const input = payload;
+    const controller = new AbortController();
+    loading = true;
+    loadError = '';
+    parsed = null;
+    void resolveShareInvite(input, controller.signal).then((resolved) => {
+      if (controller.signal.aborted) return;
+      resolvedInvite = resolved;
+      const bundle = parseShareInvite(resolved);
+      parsed = { bundle, view: projectSharedFolderView(bundle.shared_folder, [], '') };
+    }).catch((error) => {
+      if (!controller.signal.aborted) loadError = error instanceof Error ? error.message : 'Could not load invite';
+    }).finally(() => { if (!controller.signal.aborted) loading = false; });
+    return () => controller.abort();
   });
 
   let displayName = $derived(parsed?.view.display_name || 'Shared folder');
@@ -57,18 +66,18 @@
   let recipientMember = $derived.by(() => {
     if (!parsed) return null;
     return parsed.view.members.find((member) => (
-      member.profile_id === parsed.bundle.recipient_profile_id
+      member.profile_id === parsed?.bundle.recipient_profile_id
     )) ?? null;
   });
   let localAcceptedShare = $derived.by(() => {
     if (!parsed) return null;
-    return projectAcceptedShareViews($acceptedShares)
-      .find((share) => share.share_id === parsed.bundle.shared_folder.share_id) ?? null;
+    return projectAcceptedShareViews($acceptedShares.filter((record) => record.local_profile_id === activeNostrIdentityRootScope($nostrStore)), $nostrStore.pubkey ?? undefined)
+      .find((share) => share.share_id === parsed?.bundle.shared_folder.share_id) ?? null;
   });
   let acceptedView = $derived.by((): NativeSharedFolderView | SharedFolderView | null => {
     if (!parsed) return null;
     if (nativeActionEndpoint) {
-      return $nativeShareStore.find((share) => share.share_id === parsed.bundle.shared_folder.share_id) ?? null;
+      return $nativeShareStore.find((share) => share.share_id === parsed?.bundle.shared_folder.share_id) ?? null;
     }
     return localAcceptedShare?.view ?? null;
   });
@@ -97,9 +106,9 @@
       } else {
         const profileId = activeNostrIdentityRootScope($nostrStore);
         if (profileId) {
-          acceptShareInviteForProfile(invite, profileId);
+          acceptShareInviteForProfile(resolvedInvite, profileId);
         } else {
-          acceptShareInvite(invite);
+          throw new Error('Sign in to the invited profile to accept this folder.');
         }
       }
       toast.success('Share accepted');
@@ -120,8 +129,6 @@
       if (nativeActionEndpoint) {
         const result = await addShareShortcutThroughCore(parsed.bundle.shared_folder.share_id);
         applyNativeShareActionResult(result);
-      } else {
-        addShareShortcut(parsed.bundle.shared_folder.share_id);
       }
       toast.success('Shortcut added');
     } catch (error) {
@@ -147,12 +154,9 @@
         <div class="rounded-lg border border-surface-2 bg-surface-1 p-3 space-y-2">
           <div class="flex items-center justify-between gap-3">
             <span class="text-sm font-medium text-text-2">Invite</span>
-            <a class="btn-ghost text-sm no-underline" href={invite}>
-              <span class="i-lucide-external-link"></span>
-              Open
-            </a>
+
           </div>
-          <CopyText text={invite} truncate={96} class="text-sm" testId="share-invite-copy" />
+          <CopyText text={webInvite} truncate={96} class="text-sm" testId="share-invite-copy" />
         </div>
 
         <div class="rounded-lg border border-surface-2 bg-surface-1 p-3 flex items-center gap-3">
@@ -165,14 +169,17 @@
             </div>
           </div>
           {#if acceptedView}
-            {#if acceptedView.shortcut_paths.length === 0}
+            <a class="btn-primary text-sm no-underline" data-testid="share-invite-open" href={`#/${acceptedView.share_id}/main`}>Open folder</a>
+            {#if nativeActionEndpoint && acceptedView.shortcut_paths.length === 0}
               <button class="btn-primary text-sm" data-testid="share-invite-add-shortcut" disabled={shareActionPending} onclick={handleAddShortcut}>
                 <span class="i-lucide-plus"></span>
                 Shortcut
               </button>
-            {:else}
+            {:else if nativeActionEndpoint}
               <span class="i-lucide-check text-success" title="Shortcut added"></span>
             {/if}
+          {:else if !nativeActionEndpoint && !activeNostrIdentityRootScope($nostrStore)}
+            <a class="btn-primary text-sm no-underline" href="#/users/existing">Sign in to accept</a>
           {:else}
             <button class="btn-primary text-sm" data-testid="share-invite-accept" disabled={shareActionPending} onclick={handleAcceptInvite}>
               <span class="i-lucide-check"></span>
@@ -209,12 +216,15 @@
           </div>
         </div>
       </section>
+    {:else if loading}
+      <p class="text-text-3" role="status">Loading invite…</p>
     {:else}
       <section class="space-y-3">
         <div class="flex items-center gap-3">
           <span class="i-lucide-circle-alert text-3xl text-warning"></span>
-          <h1 class="text-xl font-semibold text-text-1">Invalid share invite</h1>
+          <h1 class="text-xl font-semibold text-text-1">Could not open invite</h1>
         </div>
+        <p class="text-sm text-text-3">{loadError}</p>
       </section>
     {/if}
   </div>

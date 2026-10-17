@@ -15,7 +15,8 @@ import { parseRoute } from '../utils/route';
 import { getRefResolver } from '../refResolver';
 import { resolvePublishLabels } from '@iris/hashtree-app/publishLabels';
 import { publishNostrIdentityDriveRootIfAvailable } from '../drive/profileDriveRootPublish';
-import { activeNostrIdentityRootScope, isActiveNostrIdentityRouteScope } from '../drive/profileRoute';
+import { isNostrIdentityId } from '../utils/route';
+import { activeNostrIdentityRootScope, isEditableDriveRouteScope } from '../drive/profileRoute';
 import { treeRootRegistry } from '../TreeRootRegistry';
 import { getWorkerAdapter } from '../workerAdapter';
 
@@ -138,10 +139,10 @@ function pushRootToBlossomInBackground(treeName: string, rootCid: CID): void {
 export function isOwnTree(): boolean {
   const state = nostrStore.getState();
   if (!state.isLoggedIn || !state.pubkey) return false;
-  if (state.selectedTree?.pubkey === state.pubkey) return true;
-
   const route = parseRoute();
-  return !!route.treeName && isActiveNostrIdentityRouteScope(route.npub, state);
+  if (route.npub && isNostrIdentityId(route.npub)) return isEditableDriveRouteScope(route.npub, state);
+  if (state.selectedTree?.pubkey === state.pubkey) return true;
+  return !!route.treeName && isEditableDriveRouteScope(route.npub, state);
 }
 
 /**
@@ -154,7 +155,7 @@ export function autosaveIfOwn(rootCid: CID): void {
   if (!isOwnTree()) return;
 
   const route = parseRoute();
-  const isProfileDriveRoute = !!route.treeName && isActiveNostrIdentityRouteScope(route.npub, state);
+  const isProfileDriveRoute = !!route.treeName && isEditableDriveRouteScope(route.npub, state);
   const treeName = isProfileDriveRoute ? route.treeName! : state.selectedTree?.name;
   const rootScope = isProfileDriveRoute ? route.npub! : state.npub;
   if (!treeName || !rootScope) return;

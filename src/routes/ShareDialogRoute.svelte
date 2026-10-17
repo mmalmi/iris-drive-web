@@ -37,6 +37,7 @@
   let shareActionPending = $state(false);
   let shareActionError = $state('');
   let createdShareId = $state('');
+  let inviteRole = $state<ShareRole>('reader');
   let handoffRequest = $derived(
     request
       ? shareDialogRequestWithRecipientHint(
@@ -123,6 +124,8 @@
         request,
         folderName,
         selectedRecipient,
+        undefined,
+        inviteRole,
       );
       applyNativeShareActionResult(mutation.result);
       createdShareId = mutation.share_id;
@@ -249,6 +252,13 @@
           </div>
 
           {#if selectedRecipient}
+            <label class="flex items-center gap-3 text-sm text-text-2">
+              Access
+              <select class="select select-sm" bind:value={inviteRole} aria-label="Invite access">
+                <option value="reader">Reader</option>
+                <option value="editor">Editor</option>
+              </select>
+            </label>
             <div class="flex items-center gap-3">
               <span class="i-lucide-user-round text-text-3"></span>
               <div class="min-w-0 flex-1">

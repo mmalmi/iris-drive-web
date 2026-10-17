@@ -19,6 +19,7 @@ export async function createShareWithOptionalRecipientEvidence(
   displayName: string,
   recipient: RankedShareContact | null,
   dispatch: ShareDialogDispatch = dispatchNativeShareAction,
+  role: ShareRole = 'reader',
 ): Promise<ShareDialogMutationResult> {
   let result = await dispatch({
     type: 'create_share',
@@ -32,7 +33,7 @@ export async function createShareWithOptionalRecipientEvidence(
       type: 'invite_share_member_from_evidence',
       share_id: shareId,
       evidence_json: evidenceJson,
-      role: 'reader',
+      role,
       display_name: recipient.display_name,
     });
   } else if (shareId && recipient?.representative_npub) {
@@ -40,7 +41,7 @@ export async function createShareWithOptionalRecipientEvidence(
       type: 'record_pending_share_invite',
       share_id: shareId,
       representative_npub_hint: recipient.representative_npub,
-      role: 'reader',
+      role,
       display_name: recipient.display_name,
     });
   }

@@ -66,6 +66,7 @@ export async function initializePublishFn(): Promise<void> {
     const rootCid = makeCid(record.hash, record.key);
     if (isNostrIdentityId(npub)) {
       return publishNostrIdentityDriveRootIfAvailable(treeName, rootCid, {
+        rootScopeId: npub,
         publishedAt: record.updatedAt,
         publishedAtMs: Math.max(Date.now(), record.updatedAt * 1000),
       });

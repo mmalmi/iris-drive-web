@@ -5,6 +5,7 @@ const SHARE_INVITE_PREFIXES = [
   'iris-drive://share-invite/',
   'iris-drive:/share-invite/',
   'https://drive.iris.to/share-invite/',
+  'https://drive.iris.to/#/share-invite/',
 ];
 
 export function driveRootPath(scope: string): string {

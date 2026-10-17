@@ -1,3 +1,6 @@
+import { applyShareAccessEvent } from '../drive/shareUpdates';
+import { acceptedShares } from '../drive/shareLibrary';
+import { activeShareScope } from '../drive/shareScope';
 import { get } from 'svelte/store';
 import { toHex, type Hash, type RefResolverSubscriptionMetadata, type SubscribeVisibilityInfo, type TreeVisibility } from '@hashtree/core';
 import type { Event, Filter } from 'nostr-tools';
@@ -136,6 +139,8 @@ export function updateSubscriptionCache(
 }
 
 function driveRootAuthorization(rootScopeId: string): DriveRootAuthorization {
+  const share = activeShareScope(rootScopeId);
+  if (share) return { active: true, appKeys: new Set(share.writers), fingerprint: JSON.stringify([share.record.local_profile_id, share.record.folder.access?.updated_at, share.writers]) };
   const session = getCurrentNostrIdentitySession();
   if (!isActiveDriveRootScopeSession(rootScopeId, session)) {
     return { active: false, appKeys: new Set(), fingerprint: 'inactive' };
@@ -221,6 +226,11 @@ function applyDriveRootEvent(
   event: NostrToolsEvent,
   options: { rebuild?: boolean } = {},
 ): boolean {
+  if (applyShareAccessEvent(rootScopeId, event)) {
+    syncDriveRootAuthorization(key, rootScopeId, driveId);
+    scheduleDriveRootProjection(key, rootScopeId, driveId);
+    return false;
+  }
   const secretKey = getSecretKey();
   if (!secretKey) return false;
 
@@ -396,6 +406,14 @@ async function backfillDriveRootScope(
   driveId: string,
   options: { forceRebuild?: boolean; awaitRebuild?: boolean } = {},
 ): Promise<boolean> {
+  if (get(acceptedShares).some((record) => record.share_id === rootScopeId)) {
+    const accessEvents = await nostr.fetchEvents({ kinds: [KIND_DRIVE_ROOT], '#d': [rootScopeId], '#l': ['iris-drive/share-access'] });
+    const sorted = Array.from(accessEvents).sort((a, b) => a.created_at - b.created_at);
+    for (const event of sorted) {
+      const raw = rawSignedEvent(event);
+      if (raw) applyShareAccessEvent(rootScopeId, raw);
+    }
+  }
   const initial = syncDriveRootAuthorization(key, rootScopeId, driveId);
   if (!initial.authorization.active) return false;
 
@@ -562,7 +580,7 @@ export async function resolveDriveRootProjectionNow(
     const retained = await publishNostrIdentityDriveRootIfAvailable(scope.driveId, {
       hash: currentLocal.hash,
       key: currentLocal.key,
-    });
+    }, { rootScopeId: scope.rootScopeId });
     if (!retained) {
       throw new Error('Could not retain the newest local Drive root before rebuilding');
     }
@@ -580,7 +598,7 @@ export async function resolveDriveRootProjectionNow(
 function subscribeToDriveRootScope(key: string, rootScopeId: string, driveId: string): () => void {
   const filter: Filter = {
     kinds: [KIND_DRIVE_ROOT],
-    '#d': [driveRootDTag(rootScopeId, driveId)],
+    '#d': [driveRootDTag(rootScopeId, driveId), rootScopeId],
   };
   const opts = {
     closeAfterHistory: false,

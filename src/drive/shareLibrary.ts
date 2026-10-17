@@ -69,10 +69,10 @@ export function addShareShortcut(shareId: NostrIdentityId, path?: string): Share
   return shortcut;
 }
 
-export function projectAcceptedShareViews(records: AcceptedShareRecord[]): AcceptedShareView[] {
+export function projectAcceptedShareViews(records: AcceptedShareRecord[], appKeyPubkey?: string): AcceptedShareView[] {
   return records
     .map((record) => {
-      const localAppKey = localAppKeyForShare(record.folder, record.local_profile_id) ?? '';
+      const localAppKey = appKeyPubkey ?? localAppKeyForShare(record.folder, record.local_profile_id) ?? '';
       return {
         ...record,
         local_app_key_pubkey: localAppKey,
@@ -91,7 +91,7 @@ export function acceptedShareRecordFromBundle(
   acceptedAt: number,
   localProfileId?: NostrIdentityId,
 ): AcceptedShareRecord {
-  const folder = bundle.shared_folder;
+  const folder = { ...bundle.shared_folder, app_key_roots: {} };
   const resolvedLocalProfileId = localProfileId ?? bundle.recipient_profile_id;
   if (!shareInviteBundleIncludesProfile(bundle, resolvedLocalProfileId)) {
     throw new Error(`share invite is not for NostrIdentity ${resolvedLocalProfileId}`);
@@ -110,13 +110,20 @@ export function upsertAcceptedShare(
   records: AcceptedShareRecord[],
   incoming: AcceptedShareRecord,
 ): AcceptedShareRecord[] {
-  const existing = records.find((record) => record.share_id === incoming.share_id);
+  const matches = (record: AcceptedShareRecord) => record.share_id === incoming.share_id
+    && record.local_profile_id === incoming.local_profile_id;
+  const existing = records.find(matches);
+  if (existing && existing.folder.owner_profile_id !== incoming.folder.owner_profile_id) {
+    throw new Error('Share owner changed');
+  }
   const next = {
     ...incoming,
+    folder: existing?.folder.access && (existing.folder.access.updated_at >= (incoming.folder.access?.updated_at ?? 0))
+      ? existing.folder : incoming.folder,
     shortcuts: existing?.shortcuts ?? incoming.shortcuts,
   };
   return [
-    ...records.filter((record) => record.share_id !== incoming.share_id),
+    ...records.filter((record) => !matches(record)),
     next,
   ].sort((a, b) => a.folder.display_name.localeCompare(b.folder.display_name) || a.share_id.localeCompare(b.share_id));
 }

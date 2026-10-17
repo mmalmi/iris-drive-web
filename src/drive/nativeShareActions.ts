@@ -6,6 +6,7 @@ import type {
   NostrIdentityId,
   ShareRole,
   ShareShortcut,
+  SharedFolder,
 } from './protocol';
 
 export type NativeShareAction =
@@ -99,6 +100,8 @@ export interface NativeSharedFolderView {
 }
 
 export interface NativeShareActionResult {
+  local_profile_id?: string;
+  shared_folders?: SharedFolder[];
   shares: NativeSharedFolderView[];
   share_id?: NostrIdentityId;
   profile_id?: NostrIdentityId;

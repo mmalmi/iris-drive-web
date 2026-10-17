@@ -82,7 +82,7 @@ describe('share dialog route', () => {
     expect(actions).toContain("type: 'revoke_share_member'");
     expect(actions).toContain("type: 'set_share_member_role'");
     expect(actions).toContain('recipient_evidence_json');
-    expect(actions).toContain("role: 'reader'");
+    expect(route).toContain('aria-label="Invite access"');
     expect(route).not.toContain('function createShare(');
     expect(route).not.toContain('function inviteShare(');
     expect(actions).not.toContain("type: 'invite_share_member'");

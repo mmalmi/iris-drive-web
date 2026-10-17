@@ -1,10 +1,24 @@
 import type { Event } from 'nostr-tools';
-import type { ShareAccessSnapshot, ShareInviteBundle } from './protocolTypes';
+import type { ShareAccessSnapshot, ShareInviteBundle, SharedFolder } from './protocolTypes';
 import {
   isRecord, isHex32, requireIdentifier, requireKind, requireValidSignature, stableStringify,
 } from './protocolJson';
 import { projectSharedFolderKeys } from './protocolShareSnapshot';
 import { sharedFolderAppKeyCanAdmin } from './protocolShareAccess';
+
+export function validateShareAccessUpdate(folder: SharedFolder, event: Event): ShareAccessSnapshot {
+  requireKind(event, 30078);
+  requireValidSignature(event);
+  if (!sharedFolderAppKeyCanAdmin(folder, projectSharedFolderKeys(folder), event.pubkey)
+    || requireIdentifier(event) !== folder.share_id
+    || !event.tags.some(([name, value]) => name === 'l' && value === 'iris-drive/share-access')) {
+    throw new Error('Unauthorized sharing update');
+  }
+  const access = JSON.parse(event.content) as ShareAccessSnapshot;
+  validateAccess(access, folder.share_id);
+  if (access.updated_at !== event.created_at) throw new Error('Invalid sharing update time');
+  return access;
+}
 
 export function validateNativeShareInvite(bundle: ShareInviteBundle): void {
   fields(bundle, 'schema shared_folder recipient_profile_id role representative_npub_hint access_snapshot created_at');

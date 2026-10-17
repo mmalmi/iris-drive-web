@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { nostrStore } from '../nostr';
+  import { activeNostrIdentityRootScope } from '../drive/profileRoute';
   import {
     nativeShareActionEndpoint,
     type NativeSharedFolderView,
@@ -12,7 +14,6 @@
   import { addShareShortcutThroughCore } from '../drive/shareInviteActions';
   import {
     acceptedShares,
-    addShareShortcut,
     projectAcceptedShareViews,
   } from '../drive/shareLibrary';
   import { toast } from '../stores/toast';
@@ -27,7 +28,7 @@
 
   let nativeActionEndpoint = $derived(nativeShareActionEndpoint());
   let shareActionPending = $state('');
-  let localShareViews = $derived(projectAcceptedShareViews($acceptedShares).map((share) => share.view));
+  let localShareViews = $derived(projectAcceptedShareViews($acceptedShares.filter((share) => share.local_profile_id === activeNostrIdentityRootScope($nostrStore)), $nostrStore.pubkey ?? undefined).map((share) => share.view));
   let shares = $derived.by((): SharedWithMeRow[] => (
     nativeActionEndpoint ? $nativeShareStore : localShareViews
   ));
@@ -43,8 +44,6 @@
     try {
       if (nativeActionEndpoint) {
         applyNativeShareActionResult(await addShareShortcutThroughCore(shareId));
-      } else if (!addShareShortcut(shareId)) {
-        return;
       }
       toast.success('Shortcut added');
     } catch (error) {
@@ -112,13 +111,14 @@
                 · {repairText(share)}
               {/if}
             </div>
-            {#if share.shortcut_paths.length > 0}
+            {#if nativeActionEndpoint && share.shortcut_paths.length > 0}
               <div class="text-xs text-text-3 truncate">
                 {share.shortcut_paths[0]}
               </div>
             {/if}
           </div>
-          {#if share.shortcut_paths.length === 0}
+          <a class="btn-ghost text-sm no-underline" data-testid="shared-with-me-open" href={`#/${share.share_id}/main`}>Open</a>
+          {#if nativeActionEndpoint && share.shortcut_paths.length === 0}
             <button
               class="btn-ghost h-8 w-8 min-h-8 min-w-8 p-0"
               title="Add shortcut to My Drive"

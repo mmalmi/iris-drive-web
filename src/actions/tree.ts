@@ -11,7 +11,7 @@ import { localStore, getTree } from '../store';
 import { autosaveIfOwn } from '../nostr';
 import { getCurrentRootCid, getCurrentPathFromUrl } from './route';
 import { getLocalRootCache, updateLocalRootCache } from '../treeRootCache';
-import { activeNostrIdentityRootScope, isActiveNostrIdentityRouteScope } from '../drive/profileRoute';
+import { activeNostrIdentityRootScope, isEditableDriveRouteScope } from '../drive/profileRoute';
 import { setEntryForDriveRoute } from '../drive/profileDriveRouteEntry';
 import { captureRouteWriteGuard } from '../lib/routeWriteGuard';
 export { forkTree } from './treeFork';
@@ -27,7 +27,7 @@ export async function initVirtualTree(entries: DirectoryEntryInput[]): Promise<C
   const tree = getTree();
   const nostrStore = useNostrStore.getState();
 
-  const isProfileDriveRoute = isActiveNostrIdentityRouteScope(route.npub, nostrStore);
+  const isProfileDriveRoute = isEditableDriveRouteScope(route.npub, nostrStore);
   let routePubkey: string;
   if (isProfileDriveRoute) {
     if (!nostrStore.pubkey) return null;
@@ -153,7 +153,7 @@ export async function createDocument(name: string) {
 
     // Update local cache for subsequent saves (visibility is preserved from selectedTree)
     const nostrStore = useNostrStore.getState();
-    const isProfileDriveRoute = isActiveNostrIdentityRouteScope(route.npub, nostrStore);
+    const isProfileDriveRoute = isEditableDriveRouteScope(route.npub, nostrStore);
     const rootScope = isProfileDriveRoute ? route.npub : nostrStore.npub;
     if (rootScope && route.treeName) {
       updateLocalRootCache(rootScope, route.treeName, newRootCid.hash, newRootCid.key, nostrStore.selectedTree?.visibility);

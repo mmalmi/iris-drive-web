@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { acceptedShares } from '../drive/shareLibrary';
   import { toHex, nhashEncode, LinkType } from '@hashtree/core';
   import { formatBytes } from '../store';
   import { deleteEntry, moveEntry, moveToParent } from '../actions';
@@ -17,7 +18,8 @@
     buildEntryHref as buildFileEntryHref,
     buildTreeHref,
   } from './fileBrowserHrefs';
-  import { isActiveNostrIdentityRouteScope } from '../drive/profileRoute';
+  import { activeShareScope } from '../drive/shareScope';
+  import { isEditableDriveRouteScope } from '../drive/profileRoute';
   import { isNostrIdentityId } from '../utils/route';
   import IdentityName from './User/IdentityName.svelte';
 
@@ -78,7 +80,9 @@
   let viewedNpub = $derived(currentNpub);
   let viewedNostrIdentityId = $derived(viewedNpub && isNostrIdentityId(viewedNpub) ? viewedNpub : null);
   let viewedIdentityAppKeyPubkey = $derived(npubToPubkey(userNpub || '') || '');
-  let isOwnDriveProfile = $derived(isActiveNostrIdentityRouteScope(viewedNpub, $nostrStore));
+  let knownShare = $derived($acceptedShares.find((record) => record.share_id === viewedNpub));
+  let sharedFolder = $derived(activeShareScope(viewedNpub, $nostrStore, $acceptedShares)?.record.folder);
+  let isOwnDriveProfile = $derived(isEditableDriveRouteScope(viewedNpub, $nostrStore, $acceptedShares));
   let isOwnTrees = $derived(!viewedNpub || viewedNpub === userNpub || isOwnDriveProfile);
   let canEdit = $derived(isLoggedIn && !route.isPermalink && isOwnTrees);
 
@@ -290,7 +294,7 @@
   let currentDirName = $derived(
     currentPath.length > 0
       ? currentPath[currentPath.length - 1]
-      : currentTreeName || (rootCid?.hash ? nhashEncode({ hash: toHex(rootCid.hash), decryptKey: rootCid.key ? toHex(rootCid.key) : undefined }).slice(0, 16) + '...' : '')
+      : sharedFolder?.display_name || currentTreeName || (rootCid?.hash ? nhashEncode({ hash: toHex(rootCid.hash), decryptKey: rootCid.key ? toHex(rootCid.key) : undefined }).slice(0, 16) + '...' : '')
   );
 
   let selectedFileName = $derived(isViewingFile && lastSegment ? lastSegment : null);
@@ -452,6 +456,8 @@
       {viewedIdentityAppKeyPubkey}
       onKeyDown={handleTreeListKeyDown}
     />
+  {:else if knownShare && !sharedFolder}
+    <div class="flex-1 flex items-center justify-center text-text-3 text-sm" role="status">You no longer have access to this folder.</div>
   {:else if !rootCid && currentTreeName && !isOwnTrees && !isProtectedTreeWithoutAccess}
     <div class="flex-1 flex items-center justify-center text-text-3 text-sm">
       <span class="i-lucide-loader-2 animate-spin mr-2"></span>
@@ -463,7 +469,7 @@
         {#if viewedNostrIdentityId}
           <div class="min-w-0 flex items-center gap-2 text-sm text-text-2" data-testid="drive-profile-root-scope">
             <span class="i-lucide-folder-root shrink-0 text-text-3"></span>
-            <IdentityName profileId={viewedNostrIdentityId} appKeyPubkey={viewedIdentityAppKeyPubkey} />
+            {#if sharedFolder}<span class="truncate">{sharedFolder.display_name}</span>{:else}<IdentityName profileId={viewedNostrIdentityId} appKeyPubkey={viewedIdentityAppKeyPubkey} />{/if}
           </div>
         {:else}
           <a href="#/{viewedNpub}/profile" class="no-underline min-w-0">
@@ -476,7 +482,7 @@
       <div class="hidden lg:flex min-h-16 shrink-0 px-5 py-3 border-b border-surface-2 items-center gap-4 bg-surface-0">
         <div class="min-w-0 flex items-center gap-2 mr-auto">
           <span class="i-lucide-folder-open text-xl text-warning shrink-0"></span>
-          <h1 class="text-xl font-medium text-text-1 truncate">{currentDirName || currentTreeName}</h1>
+          <h1 class="text-xl font-medium text-text-1 truncate">{currentDirName || sharedFolder?.display_name || currentTreeName}</h1>
         </div>
         <FolderActions dirCid={currentDirCid} dirName={currentDirName} {canEdit} />
       </div>
@@ -498,7 +504,7 @@
       {/if}
       <VisibilityIcon visibility={currentTreeVisibility} class="text-text-3 shrink-0" />
       <span class="i-lucide-folder-open text-warning shrink-0"></span>
-      <span class="font-medium text-text-1 truncate">{currentDirName || currentTreeName}</span>
+      <span class="font-medium text-text-1 truncate">{currentDirName || sharedFolder?.display_name || currentTreeName}</span>
     </div>
 
     {#if currentDirCid || canEdit}

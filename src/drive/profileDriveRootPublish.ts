@@ -1,3 +1,4 @@
+import { activeShareScope } from './shareScope';
 import { toHex, type CID } from '@hashtree/core';
 import { getPublicKey } from 'nostr-tools';
 import type { NostrIdentitySession } from './deviceLink';
@@ -67,7 +68,7 @@ function nextDriveRootPublishedAt(profileId: string, driveId: string, appKeyPubk
 export async function publishNostrIdentityDriveRootIfAvailable(
   driveId: string,
   rootCid: CID,
-  options: { publishedAt?: number; publishedAtMs?: number; appKeySeq?: number } = {},
+  options: { rootScopeId?: string; publishedAt?: number; publishedAtMs?: number; appKeySeq?: number } = {},
 ): Promise<boolean> {
   const session = getCurrentNostrIdentitySession();
   const secretKey = getSecretKey();
@@ -87,14 +88,18 @@ export async function publishNostrIdentityDriveRootIfAvailable(
     return false;
   }
 
-  const projected = projectSession(session);
+  const rootScopeId = options.rootScopeId ?? session.profileId;
+  const share = rootScopeId !== session.profileId ? activeShareScope(rootScopeId) : null;
+  if (rootScopeId !== session.profileId && (!share?.canWrite || driveId !== 'main')) return false;
+  const projected = share ? { projection: null, activeAppKeyPubkeys: share.recipients, keyEpoch: share.epoch } : projectSession(session);
+  const writers = share?.writers ?? projected.activeAppKeyPubkeys;
   if (projected.projection && !projected.projection.active_facets[appKeyPubkey]) {
     console.warn('[driveRoot] Skipping NostrIdentity Drive root publish because AppKey is not active in roster');
     return false;
   }
 
   const previousContribution = profileDriveProjection.contributionRoot(
-    session.profileId,
+    rootScopeId,
     driveId,
     appKeyPubkey,
   );
@@ -128,20 +133,26 @@ export async function publishNostrIdentityDriveRootIfAvailable(
     return false;
   }
 
+  if (share) {
+    const current = activeShareScope(rootScopeId);
+    if (!current?.canWrite || current.record.folder.access?.updated_at !== share.record.folder.access?.updated_at) {
+      return false;
+    }
+  }
   const rawEvent = buildDriveRootEvent({
     deviceSecretKey: secretKey,
-    rootScopeId: session.profileId,
+    rootScopeId,
     driveId,
     root: publishRoot,
     dckGeneration: projected.keyEpoch,
-    appKeySeq: options.appKeySeq ?? nextDriveRootSequence(session.profileId, driveId, appKeyPubkey),
-    publishedAt: options.publishedAt ?? nextDriveRootPublishedAt(session.profileId, driveId, appKeyPubkey),
+    appKeySeq: options.appKeySeq ?? nextDriveRootSequence(rootScopeId, driveId, appKeyPubkey),
+    publishedAt: options.publishedAt ?? nextDriveRootPublishedAt(rootScopeId, driveId, appKeyPubkey),
     publishedAtMs: options.publishedAtMs,
     authorizedAppKeyPubkeys: projected.activeAppKeyPubkeys,
     observed: profileDriveProjection.observations(
-      session.profileId,
+      rootScopeId,
       driveId,
-      new Set(projected.activeAppKeyPubkeys),
+      new Set(writers),
     ),
   });
 
@@ -159,7 +170,7 @@ export async function publishNostrIdentityDriveRootIfAvailable(
     globalThis.setTimeout(() => {
       void import('../stores/treeRootResolver')
         .then(({ rebuildRetainedDriveRootProjection }) => {
-          rebuildRetainedDriveRootProjection(`${session.profileId}/${driveId}`);
+          rebuildRetainedDriveRootProjection(`${rootScopeId}/${driveId}`);
         })
         .catch((error) => {
           console.warn('[driveRoot] Could not rebuild the retained local Drive projection:', error);

@@ -1,3 +1,4 @@
+import nativeInvite from './fixtures/native-share-invite.json';
 import { describe, expect, it } from 'vitest';
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools';
 import {
@@ -22,6 +23,17 @@ import {
 } from '../src/drive/protocol';
 
 describe('drive share library', () => {
+  it('keeps newer permissions and isolates accepted records by profile', () => {
+    const bundle = nativeInvite as ShareInviteBundle;
+    const old = acceptedShareRecordFromBundle(bundle, '', 1);
+    const newer = { ...old, folder: { ...old.folder, access: { ...old.folder.access!, updated_at: 100 } } };
+    const updated = upsertAcceptedShare([newer], { ...old, accepted_at: 2 });
+    expect(updated[0]!.folder.access!.updated_at).toBe(100);
+    const otherProfile = { ...old, local_profile_id: '123e4567-e89b-42d3-a456-426614174099' };
+    expect(upsertAcceptedShare(updated, otherProfile)).toHaveLength(2);
+    expect(old.folder.app_key_roots).toEqual({});
+  });
+
   it('accepts invite bundles as Shared with me records and projects shortcuts', () => {
     const shareId = '123e4567-e89b-42d3-a456-426614174101';
     const ownerProfile = '123e4567-e89b-42d3-a456-426614174102';

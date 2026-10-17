@@ -1,4 +1,7 @@
 <script lang="ts">
+  import { acceptedShares } from '../drive/shareLibrary';
+  import { activeShareScope } from '../drive/shareScope';
+  import { nostrStore } from '../nostr';
   import { open as openCreateModal } from './Modals/CreateModal.svelte';
 
   interface Props {
@@ -8,7 +11,10 @@
 
   let { currentPath, homeHref }: Props = $props();
 
-  let myDriveActive = $derived(
+  let shareScope = $derived(currentPath.split('/').filter(Boolean)[0]);
+  let sharedFolderRoute = $derived($acceptedShares.some((record) => record.share_id === shareScope));
+  let sharedFolderWritable = $derived(activeShareScope(shareScope, $nostrStore, $acceptedShares)?.canWrite ?? false);
+  let myDriveActive = $derived(!sharedFolderRoute &&
     currentPath !== '/recent'
       && currentPath !== '/shared-with-me'
       && !currentPath.startsWith('/settings')
@@ -25,6 +31,7 @@
   aria-label="Drive navigation"
   data-testid="drive-sidebar"
 >
+  {#if !sharedFolderRoute || sharedFolderWritable}
   <button
     type="button"
     class="mt-2 mb-4 ml-1 flex h-14 w-28 items-center gap-3 rounded-2xl bg-surface-0 px-4 text-sm font-medium text-text-1 shadow-sm ring-1 ring-surface-2 transition hover:bg-surface-2 hover:shadow"
@@ -34,6 +41,7 @@
     <span class="i-lucide-plus text-2xl"></span>
     <span>New</span>
   </button>
+  {/if}
 
   <nav class="flex flex-col gap-1">
     <a
@@ -47,8 +55,8 @@
     {#each navItems as item (item.href)}
       <a
         href={`#${item.href}`}
-        aria-current={currentPath === item.href ? 'page' : undefined}
-        class="flex h-10 items-center gap-3 rounded-full px-4 text-sm no-underline transition-colors {currentPath === item.href ? 'bg-accent/12 text-accent font-medium' : 'text-text-2 hover:bg-surface-2'}"
+        aria-current={(currentPath === item.href || (item.href === '/shared-with-me' && sharedFolderRoute)) ? 'page' : undefined}
+        class="flex h-10 items-center gap-3 rounded-full px-4 text-sm no-underline transition-colors {(currentPath === item.href || (item.href === '/shared-with-me' && sharedFolderRoute)) ? 'bg-accent/12 text-accent font-medium' : 'text-text-2 hover:bg-surface-2'}"
       >
         <span class={`${item.icon} text-lg`}></span>
         <span>{item.label}</span>

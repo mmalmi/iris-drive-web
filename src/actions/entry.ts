@@ -7,12 +7,12 @@ import { autosaveIfOwn, nostrStore } from '../nostr';
 import { getTree } from '../store';
 import { LinkType } from '@hashtree/core';
 import { getCurrentRootCid, getCurrentPathFromUrl, buildRouteUrl, updateRoute } from './route';
-import { isActiveNostrIdentityRouteScope } from '../drive/profileRoute';
+import { isEditableDriveRouteScope } from '../drive/profileRoute';
 import { mutateProfileDriveRoot } from '../drive/profileDriveMutation';
 
 function isProfileDriveMutation(): boolean {
   const route = parseRoute();
-  return !!route.treeName && isActiveNostrIdentityRouteScope(route.npub, nostrStore.getState());
+  return !!route.treeName && isEditableDriveRouteScope(route.npub, nostrStore.getState());
 }
 
 function pathString(parts: string[]): string {

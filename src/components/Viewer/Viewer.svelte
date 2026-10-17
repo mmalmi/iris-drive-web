@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { acceptedShares } from '../../drive/shareLibrary';
   import { toHex, nhashEncode, LinkType } from '@hashtree/core';
   import { routeStore, treeRootStore, currentDirCidStore, directoryEntriesStore, currentHash, createTreesStore, addRecent, isViewingFileStore, resolvingPathStore, permalinkSnapshotStore } from '../../stores';
   import { nostrStore } from '../../nostr';
@@ -16,7 +17,7 @@
     isNewerTreeEventSnapshot,
     snapshotMatchesRootCid,
   } from '../../lib/treeEventSnapshots';
-  import { isActiveNostrIdentityRouteScope } from '../../drive/profileRoute';
+  import { isEditableDriveRouteScope } from '../../drive/profileRoute';
   import { isNostrIdentityId } from '../../utils/route';
   import { buildDirHref } from '../fileBrowserHrefs';
 
@@ -37,7 +38,7 @@
   let userNpub = $derived($nostrStore.npub);
   let isLoggedIn = $derived($nostrStore.isLoggedIn);
   let viewedNpub = $derived(route.npub ?? permalinkSnapshot.snapshot?.npub ?? null);
-  let isOwnDriveProfile = $derived(isActiveNostrIdentityRouteScope(viewedNpub, $nostrStore));
+  let isOwnDriveProfile = $derived(isEditableDriveRouteScope(viewedNpub, $nostrStore, $acceptedShares));
   let canEdit = $derived(isLoggedIn && !route.isPermalink && (!viewedNpub || viewedNpub === userNpub || isOwnDriveProfile));
 
   // Get current tree for visibility info

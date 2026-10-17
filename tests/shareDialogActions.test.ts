@@ -8,7 +8,7 @@ import {
 import type { NativeShareActionResult } from '../src/drive/nativeShareActions';
 
 describe('share dialog actions', () => {
-  it('creates a share then invites selected recipients by passing evidence to Rust core', async () => {
+  it.each(['reader', 'editor'] as const)('creates a share with %s access through Rust core', async (role) => {
     const calls: unknown[] = [];
     const dispatch = vi.fn(async (action) => {
       calls.push(action);
@@ -61,6 +61,7 @@ describe('share dialog actions', () => {
         score: 1,
       },
       dispatch,
+      role,
     );
 
     expect(result.invited).toBe(true);
@@ -74,7 +75,7 @@ describe('share dialog actions', () => {
         type: 'invite_share_member_from_evidence',
         share_id: '123e4567-e89b-42d3-a456-426614174000',
         evidence_json: '{"profile_id":"123e4567-e89b-42d3-a456-426614174011"}',
-        role: 'reader',
+        role,
         display_name: 'Alice',
       },
     ]);

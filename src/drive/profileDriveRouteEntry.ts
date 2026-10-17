@@ -5,7 +5,7 @@ import {
   type TreeEntry,
 } from '@hashtree/core';
 import { mutateProfileDriveRoot } from './profileDriveMutation';
-import { isActiveNostrIdentityRouteScope } from './profileRoute';
+import { isEditableDriveRouteScope } from './profileRoute';
 
 type DriveRoute = {
   npub: string | null | undefined;
@@ -31,7 +31,7 @@ export async function setEntryForDriveRoute(
   route: DriveRoute,
   state: EditableNostrState,
 ): Promise<CID> {
-  if (route.treeName && isActiveNostrIdentityRouteScope(route.npub, state)) {
+  if (route.treeName && isEditableDriveRouteScope(route.npub, state)) {
     if (entry.type === LinkType.Dir) {
       const existing = await tree.resolvePath(root, [...parentPath, name]);
       // Directory-upload setup and document initialization are ensure-style

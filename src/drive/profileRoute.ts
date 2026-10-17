@@ -1,3 +1,5 @@
+import { activeShareScope } from './shareScope';
+import type { AcceptedShareRecord } from './shareLibrary';
 import type { NostrState } from '../nostr/store';
 import { nip19 } from 'nostr-tools';
 import { getCurrentNostrIdentitySession } from '../nostr/auth';
@@ -22,6 +24,12 @@ export function isActiveNostrIdentityRouteScope(
   return activeNostrIdentityRootScope(state) === scope;
 }
 
+export function isEditableDriveRouteScope(
+  scope: string | null | undefined, state?: EditableState, shares?: AcceptedShareRecord[],
+): boolean {
+  return isActiveNostrIdentityRouteScope(scope, state) || Boolean(activeShareScope(scope, state, shares)?.canWrite);
+}
+
 /**
  * Resolve an editable tree route to the current AppKey pubkey.
  *
@@ -34,7 +42,7 @@ export function editableTreeRoutePubkey(
   state: EditableState,
 ): string | null {
   if (!scope || !state.isLoggedIn || !state.pubkey) return null;
-  if (isActiveNostrIdentityRouteScope(scope, state)) return state.pubkey;
+  if (isEditableDriveRouteScope(scope, state)) return state.pubkey;
 
   try {
     const decoded = nip19.decode(scope);

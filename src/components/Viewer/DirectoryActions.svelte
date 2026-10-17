@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { acceptedShares } from '../../drive/shareLibrary';
   /**
    * DirectoryActions - empty state with upload zone and README display
    * Port of React DirectoryActions component
@@ -12,7 +13,7 @@
   import { LinkType, type TreeEntry as HashTreeEntry, type TreeVisibility } from '@hashtree/core';
   import ViewerHeader from './ViewerHeader.svelte';
   import { buildSitesHref, findDirectorySiteEntry } from '../../lib/siteHref';
-  import { isActiveNostrIdentityRouteScope } from '../../drive/profileRoute';
+  import { isEditableDriveRouteScope } from '../../drive/profileRoute';
   import { buildDirHref } from '../fileBrowserHrefs';
 
   let route = $derived($routeStore);
@@ -43,7 +44,7 @@
 
   let currentTree = $derived(currentTreeName ? trees.find(t => t.name === currentTreeName) : null);
 
-  let isOwnDriveProfile = $derived(isActiveNostrIdentityRouteScope(viewedNpub, $nostrStore));
+  let isOwnDriveProfile = $derived(isEditableDriveRouteScope(viewedNpub, $nostrStore, $acceptedShares));
   let canEdit = $derived(isLoggedIn && !route.isPermalink && (!viewedNpub || viewedNpub === userNpub || isOwnDriveProfile));
 
   // Use the actual current path/back URL during navigation so the breadcrumb
