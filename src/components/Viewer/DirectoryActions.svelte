@@ -12,8 +12,8 @@
   import { LinkType, type TreeEntry as HashTreeEntry, type TreeVisibility } from '@hashtree/core';
   import ViewerHeader from './ViewerHeader.svelte';
   import { buildSitesHref, findDirectorySiteEntry } from '../../lib/siteHref';
-  import { buildTreeEventPermalink } from '../../lib/treeEventSnapshots';
   import { isActiveNostrIdentityRouteScope } from '../../drive/profileRoute';
+  import { buildDirHref } from '../fileBrowserHrefs';
 
   let route = $derived($routeStore);
   let permalinkSnapshot = $derived($permalinkSnapshotStore);
@@ -44,7 +44,7 @@
   let currentTree = $derived(currentTreeName ? trees.find(t => t.name === currentTreeName) : null);
 
   let isOwnDriveProfile = $derived(isActiveNostrIdentityRouteScope(viewedNpub, $nostrStore));
-  let canEdit = $derived(!viewedNpub || viewedNpub === userNpub || isOwnDriveProfile || !isLoggedIn);
+  let canEdit = $derived(isLoggedIn && !route.isPermalink && (!viewedNpub || viewedNpub === userNpub || isOwnDriveProfile));
 
   // Use the actual current path/back URL during navigation so the breadcrumb
   // and back button reflect the user's chosen target immediately. Older code
@@ -130,10 +130,17 @@
 
   // Build back URL (parent directory or tree list)
   let backUrl = $derived.by(() => {
+    if (route.isPermalink && currentPath.length > 0) {
+      return buildDirHref({
+        path: currentPath.slice(0, -1),
+        currentNpub: null,
+        currentTreeName: null,
+        rootCid,
+        linkKey: route.params.get('k'),
+        snapshot: route.params.get('snapshot') === '1' ? permalinkSnapshot.snapshot : null,
+      });
+    }
     if (route.isPermalink && route.params.get('snapshot') === '1' && permalinkSnapshot.snapshot) {
-      if (currentPath.length > 0) {
-        return buildTreeEventPermalink(permalinkSnapshot.snapshot, currentPath.slice(0, -1), route.params.get('k'));
-      }
       return viewedNpub ? `#/${encodeURIComponent(viewedNpub)}` : '#/';
     }
     const parts: string[] = [];

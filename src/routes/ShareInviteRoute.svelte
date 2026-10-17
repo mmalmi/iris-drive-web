@@ -23,10 +23,13 @@
   import {
     acceptedShares,
     acceptShareInvite,
+    acceptShareInviteForProfile,
     addShareShortcut,
     projectAcceptedShareViews,
   } from '../drive/shareLibrary';
   import { toast } from '../stores/toast';
+  import { nostrStore } from '../nostr';
+  import { activeNostrIdentityRootScope } from '../drive/profileRoute';
 
   interface Props {
     payload: string;
@@ -92,11 +95,19 @@
         const result = await acceptShareInviteThroughCore(invite);
         applyNativeShareActionResult(result);
       } else {
-        acceptShareInvite(invite);
+        const profileId = activeNostrIdentityRootScope($nostrStore);
+        if (profileId) {
+          acceptShareInviteForProfile(invite, profileId);
+        } else {
+          acceptShareInvite(invite);
+        }
       }
       toast.success('Share accepted');
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Could not accept share invite');
+      const message = error instanceof Error ? error.message : 'Could not accept share invite';
+      toast.error(message.startsWith('share invite is not for NostrIdentity ')
+        ? 'This invite is for another profile. Switch profiles to accept it.'
+        : message);
     } finally {
       shareActionPending = false;
     }

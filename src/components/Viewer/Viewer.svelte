@@ -18,6 +18,7 @@
   } from '../../lib/treeEventSnapshots';
   import { isActiveNostrIdentityRouteScope } from '../../drive/profileRoute';
   import { isNostrIdentityId } from '../../utils/route';
+  import { buildDirHref } from '../fileBrowserHrefs';
 
   let route = $derived($routeStore);
   let rootCid = $derived($treeRootStore);
@@ -32,12 +33,12 @@
   let hash = $derived($currentHash);
   let permalinkSnapshot = $derived($permalinkSnapshotStore);
 
-  // Check if user can edit (owns the tree or is not viewing another user's tree)
+  // Immutable links and anonymous sessions are read-only, even without an owner scope.
   let userNpub = $derived($nostrStore.npub);
   let isLoggedIn = $derived($nostrStore.isLoggedIn);
   let viewedNpub = $derived(route.npub ?? permalinkSnapshot.snapshot?.npub ?? null);
   let isOwnDriveProfile = $derived(isActiveNostrIdentityRouteScope(viewedNpub, $nostrStore));
-  let canEdit = $derived(!viewedNpub || viewedNpub === userNpub || isOwnDriveProfile || !isLoggedIn);
+  let canEdit = $derived(isLoggedIn && !route.isPermalink && (!viewedNpub || viewedNpub === userNpub || isOwnDriveProfile));
 
   // Get current tree for visibility info
   let targetNpub = $derived(viewedNpub || userNpub);
@@ -59,7 +60,7 @@
     return getQueryParamsFromHash(hash);
   });
 
-  let isEditing = $derived(searchParams.get('edit') === '1');
+  let isEditing = $derived(canEdit && searchParams.get('edit') === '1');
 
   // Find entry in current entries list, or create synthetic entry for file permalinks
   // Use $state for caching previous entry to avoid flicker during store updates
@@ -256,12 +257,15 @@
   });
 
   let backUrl = $derived.by(() => {
-    if (route.isPermalink && route.params.get('snapshot') === '1' && permalinkSnapshot.snapshot) {
-      const parentPath = route.path.slice(0, -1);
-      if (parentPath.length > 0) {
-        return buildTreeEventPermalink(permalinkSnapshot.snapshot, parentPath, route.params.get('k'));
-      }
-      return viewedNpub ? `#/${encodeURIComponent(viewedNpub)}` : '#/';
+    if (route.isPermalink && !entryFromStore?.meta?.synthetic) {
+      return buildDirHref({
+        path: route.path.slice(0, -1),
+        currentNpub: null,
+        currentTreeName: null,
+        rootCid,
+        linkKey: route.params.get('k'),
+        snapshot: route.params.get('snapshot') === '1' ? permalinkSnapshot.snapshot : null,
+      });
     }
     const dirPath = route.path.slice(0, -1);
     const parts: string[] = [];

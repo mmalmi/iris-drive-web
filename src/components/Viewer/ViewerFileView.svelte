@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { toHex, type CID, type TreeEntry, type TreeVisibility } from '@hashtree/core';
+  import { LinkType, toHex, type CID, type TreeEntry, type TreeVisibility } from '@hashtree/core';
   import { SvelteURLSearchParams } from 'svelte/reactivity';
-  import { currentHash, recentlyChangedFiles } from '../../stores';
+  import { currentHash, recentlyChangedFiles, permalinkSnapshotStore } from '../../stores';
   import { decodeAsText, formatBytes, getTree } from '../../store';
   import { deleteEntry } from '../../actions';
   import { npubToPubkey } from '../../nostr';
@@ -17,6 +17,7 @@
   import MarkdownViewer from './MarkdownViewer.svelte';
   import MediaPlayer from './MediaPlayer.svelte';
   import ZipPreview from './ZipPreview.svelte';
+  import { buildEntryHref } from '../fileBrowserHrefs';
 
   const FILE_RETRY_DELAY_MS = 1500;
   const FILE_RETRY_MAX = 6;
@@ -270,11 +271,17 @@
   }
 
   function navigateToFile(fileName: string) {
-    const dirPath = routePath.slice(0, -1);
-    const parts: string[] = [];
-    if (routeNpub && routeTreeName) parts.push(routeNpub, routeTreeName, ...dirPath, fileName);
-    const linkKeySuffix = linkKey ? `?k=${linkKey}` : '';
-    window.location.hash = '/' + parts.map(encodeURIComponent).join('/') + linkKeySuffix;
+    window.location.hash = buildEntryHref({
+      entry: { name: fileName, type: LinkType.Blob },
+      currentNpub: routeNpub,
+      currentTreeName: routeTreeName,
+      currentPath: routePath.slice(0, -1),
+      rootCid,
+      linkKey,
+      gitRootPath: null,
+      snapshot: routeIsPermalink && getQueryParamsFromHash(hash).get('snapshot') === '1'
+        ? $permalinkSnapshotStore.snapshot : null,
+    });
   }
 
   function exitFullscreen() {

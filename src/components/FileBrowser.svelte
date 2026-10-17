@@ -80,7 +80,7 @@
   let viewedIdentityAppKeyPubkey = $derived(npubToPubkey(userNpub || '') || '');
   let isOwnDriveProfile = $derived(isActiveNostrIdentityRouteScope(viewedNpub, $nostrStore));
   let isOwnTrees = $derived(!viewedNpub || viewedNpub === userNpub || isOwnDriveProfile);
-  let canEdit = $derived(isOwnTrees || !isLoggedIn);
+  let canEdit = $derived(isLoggedIn && !route.isPermalink && isOwnTrees);
 
   let shareUrl = $derived.by(() => {
     const base = window.location.origin + window.location.pathname + '#';
