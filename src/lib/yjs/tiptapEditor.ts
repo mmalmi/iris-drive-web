@@ -28,7 +28,7 @@ export function createYjsTiptapEditor(options: CreateYjsTiptapEditorOptions): Yj
   const editor = new Editor({
     element: options.element,
     extensions: [
-      StarterKit.configure({ history: false }),
+      StarterKit.configure({ undoRedo: false }),
       Placeholder.configure({ placeholder: 'Start typing...' }),
       Collaboration.configure({ document: options.ydoc }),
       Image.configure({ inline: false, allowBase64: false }),

@@ -117,8 +117,12 @@
               </div>
             {/if}
           </div>
-          <a class="btn-ghost text-sm no-underline" data-testid="shared-with-me-open" href={`#/${share.share_id}/main`}>Open</a>
-          {#if nativeActionEndpoint && share.shortcut_paths.length === 0}
+          {#if share.key_status !== 'revoked'}
+            <a class="btn-ghost text-sm no-underline" data-testid="shared-with-me-open" href={`#/${share.share_id}/main`}>Open</a>
+          {/if}
+          {#if share.key_status === 'revoked'}
+            <span class="i-lucide-lock-keyhole text-text-3 shrink-0" aria-label="Access removed"></span>
+          {:else if nativeActionEndpoint && share.shortcut_paths.length === 0}
             <button
               class="btn-ghost h-8 w-8 min-h-8 min-w-8 p-0"
               title="Add shortcut to My Drive"

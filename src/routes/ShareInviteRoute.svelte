@@ -62,7 +62,6 @@
   });
 
   let displayName = $derived(parsed?.view.display_name || 'Shared folder');
-  let memberCount = $derived(parsed?.view.members.filter((member) => member.status === 'active').length ?? 0);
   let recipientMember = $derived.by(() => {
     if (!parsed) return null;
     return parsed.view.members.find((member) => (
@@ -81,6 +80,9 @@
     }
     return localAcceptedShare?.view ?? null;
   });
+  let currentView = $derived(acceptedView ?? parsed?.view);
+  let accessRevoked = $derived(acceptedView?.key_status === 'revoked');
+  let memberCount = $derived(currentView?.members.filter((member) => member.status === 'active').length ?? 0);
   let inviteDetail = $derived.by(() => {
     if (acceptedView?.shortcut_paths.length) {
       return acceptedView.shortcut_paths[0];
@@ -147,7 +149,7 @@
           <span class="i-lucide-folder-key text-3xl text-accent"></span>
           <div class="min-w-0">
             <h1 class="text-xl font-semibold text-text-1 truncate">{displayName}</h1>
-            <p class="text-sm text-text-3">{parsed.bundle.role} access · {memberCount} people</p>
+            <p class="text-sm text-text-3">{accessRevoked ? 'Access removed' : `${acceptedView?.local_role ?? parsed.bundle.role} access`} · {memberCount} people</p>
           </div>
         </div>
 
@@ -162,13 +164,13 @@
         <div class="rounded-lg border border-surface-2 bg-surface-1 p-3 flex items-center gap-3">
           <div class="min-w-0 flex-1">
             <div class="text-sm font-medium text-text-2">
-              {acceptedView ? 'Accepted' : 'Ready to accept'}
+              {accessRevoked ? 'You no longer have access to this folder.' : acceptedView ? 'Accepted' : 'Ready to accept'}
             </div>
             <div class="text-xs text-text-3 truncate">
               {inviteDetail}
             </div>
           </div>
-          {#if acceptedView}
+          {#if acceptedView && !accessRevoked}
             <a class="btn-primary text-sm no-underline" data-testid="share-invite-open" href={`#/${acceptedView.share_id}/main`}>Open folder</a>
             {#if nativeActionEndpoint && acceptedView.shortcut_paths.length === 0}
               <button class="btn-primary text-sm" data-testid="share-invite-add-shortcut" disabled={shareActionPending} onclick={handleAddShortcut}>
@@ -178,6 +180,8 @@
             {:else if nativeActionEndpoint}
               <span class="i-lucide-check text-success" title="Shortcut added"></span>
             {/if}
+          {:else if accessRevoked}
+            <span class="i-lucide-lock-keyhole text-text-3" aria-label="Access removed"></span>
           {:else if !nativeActionEndpoint && !activeNostrIdentityRootScope($nostrStore)}
             <a class="btn-primary text-sm no-underline" href="#/users/existing">Sign in to accept</a>
           {:else}
@@ -190,7 +194,7 @@
 
         <div class="space-y-2">
           <h2 class="text-sm font-semibold text-text-2">Members</h2>
-          {#each parsed.view.members as member (member.profile_id)}
+          {#each currentView?.members ?? [] as member (member.profile_id)}
             <div class="rounded-lg border border-surface-2 bg-surface-1 px-3 py-2 flex items-center gap-3">
               <span class="i-lucide-user-round text-text-3"></span>
               <div class="min-w-0 flex-1">
@@ -209,8 +213,8 @@
         <div class="rounded-lg border border-surface-2 bg-surface-1 p-3 space-y-2">
           <div class="text-sm font-medium text-text-2">Key status</div>
           <div class="text-sm text-text-3">
-            {parsed.view.key_status_label || parsed.view.key_status}
-            {#if parsed.view.repair_needed}
+            {currentView?.key_status_label || currentView?.key_status}
+            {#if currentView?.repair_needed}
               · repair needed
             {/if}
           </div>
