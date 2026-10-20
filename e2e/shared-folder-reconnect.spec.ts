@@ -33,6 +33,32 @@ test('trip collaborators add, rename and delete files while a reader reconnects 
   const editor = inviteFor('bob', 'editor');
   const reader = inviteFor('cara', 'reader');
   const readerContext = await browser.newContext();
+  let networkFailures = 0;
+  page.on('requestfailed', request => {
+    if (networkFailures++ < 12) console.log('editor request failed', request.method(), new URL(request.url()).origin, request.failure()?.errorText);
+  });
+  page.on('response', response => {
+    if (response.status() >= 400 && networkFailures++ < 12) console.log('editor HTTP failure', response.status(), new URL(response.url()).origin);
+  });
+  const uploadState = () => page.evaluate(async () => {
+    const { parseRoute } = await import('/src/utils/route.ts');
+    const { getTreeRootSync } = await import('/src/stores/treeRoot.ts');
+    const { nostrStore } = await import('/src/nostr.ts');
+    const { getUploadProgress } = await import('/src/stores/upload.ts');
+    const route = parseRoute();
+    const state = nostrStore.getState();
+    const selected = state.selectedTree;
+    const scopeBytes = new TextEncoder().encode(JSON.stringify([route.npub, route.treeName, route.path, selected?.pubkey, selected?.name, selected?.visibility]));
+    const scopeDigest = await crypto.subtle.digest('SHA-256', scopeBytes);
+    return {
+      route: { treeName: route.treeName, path: route.path },
+      rootAvailable: !!getTreeRootSync(route.npub, route.treeName)?.hash,
+      selected: selected && { name: selected.name, visibility: selected.visibility },
+      selectionMatchesSigner: selected?.pubkey === state.pubkey,
+      scopeFingerprint: Array.from(new Uint8Array(scopeDigest)).map(value => value.toString(16).padStart(2, '0')).join(''),
+      upload: getUploadProgress(),
+    };
+  });
   try {
     const readerPage = await readerContext.newPage();
     await openProfile(readerPage, profiles.cara!, relayUrl);
@@ -93,6 +119,10 @@ test('trip collaborators add, rename and delete files while a reader reconnects 
     await readerPage.goto(`${new URL(folderUrl).origin}/#/shared-with-me`);
     await expect(readerPage.getByTestId('shared-with-me-row')).toContainText('Revoked');
     await expect(readerPage.getByTestId('shared-with-me-open')).toHaveCount(0);
+  } catch (error) {
+    console.log('editor upload state', JSON.stringify(await uploadState().catch(String)));
+    await page.screenshot({ path: testInfo.outputPath('failed-editor.png') }).catch(() => {});
+    throw error;
   } finally {
     await readerContext.close();
   }
