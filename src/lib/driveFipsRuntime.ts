@@ -209,9 +209,6 @@ export class DriveFipsRuntime {
     this.options = options;
     this.discoveryScope = irisDriveFipsDiscoveryScope(options.profileId);
     this.relays = normalizeRelayUrls(options.relays);
-    if (this.relays.length === 0) {
-      throw new Error('drive FIPS runtime needs at least one relay');
-    }
   }
 
   async start(): Promise<void> {
