@@ -4,6 +4,7 @@
  * Svelte port - uses Svelte stores instead of React hooks.
  * The link key storage is framework-agnostic.
  */
+import { isTreeLinkKey } from '../lib/treeLinkKey';
 import { writable, get, type Readable } from 'svelte/store';
 import { getRefResolver } from '../refResolver';
 import { toHex, type Hash, type RefResolverListEntry, type TreeVisibility } from '@hashtree/core';
@@ -107,7 +108,7 @@ export async function recoverLinkKeyFromSelfEncrypted(
 
   try {
     const linkKey = await decrypt(state.pubkey, selfEncryptedLinkKey);
-    if (linkKey && linkKey.length === 64) {
+    if (isTreeLinkKey(linkKey)) {
       await storeLinkKey(npub, treeName, linkKey);
       return linkKey;
     }

@@ -349,7 +349,7 @@ test.describe('Link-visible Tree Visibility', () => {
       expect(viewerPubkey).not.toBe(ownerPubkey);
 
       // Navigate to tree WITHOUT ?k= param - should show locked indicator
-      const treeUrlWithoutKey = `http://localhost:5173/#/${npub}/${treeName}`;
+      const treeUrlWithoutKey = `/#/${npub}/${treeName}`;
       let linkRequiredVisible = false;
       for (let attempt = 0; attempt < 3 && !linkRequiredVisible; attempt++) {
         await page2.goto(treeUrlWithoutKey);
@@ -384,7 +384,7 @@ test.describe('Link-visible Tree Visibility', () => {
     const [, npub, treeName] = urlMatch!;
 
     // Navigate to tree WITHOUT ?k= param (owner should still have access via selfEncryptedKey)
-    const treeUrlWithoutKey = `http://localhost:5173/#/${npub}/${treeName}`;
+    const treeUrlWithoutKey = `/#/${npub}/${treeName}`;
     await page.goto(treeUrlWithoutKey);
 
     // Owner should still be able to access (via selfEncryptedKey decryption)
@@ -547,7 +547,7 @@ test.describe('Link-visible Tree Visibility', () => {
     // Snapshot permalinks keep the decrypt key in the shared URL query, not inside
     // the snapshot nhash itself.
     expect(permalinkHref).toContain('snapshot=1');
-    expect(permalinkHref).toMatch(/[?&]k=[a-f0-9]{64}\b/i);
+    expect(permalinkHref).toMatch(/[?&]k=[a-f0-9]{66}\b/i);
     expect(nhash.length).toBeGreaterThan(60);
   });
 

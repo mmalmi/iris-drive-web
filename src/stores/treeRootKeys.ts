@@ -1,4 +1,5 @@
-import { cid, fromHex, toHex, visibilityHex, type Hash, type SubscribeVisibilityInfo } from '@hashtree/core';
+import { isTreeLinkKey } from '../lib/treeLinkKey';
+import { cid, fromHex, objectKeyFromHex, toHex, visibilityHex, type Hash, type SubscribeVisibilityInfo } from '@hashtree/core';
 import { getRefResolver } from '../refResolver';
 import { decrypt } from '../nostr';
 import { logHtreeDebug } from '../lib/htreeDebug';
@@ -21,9 +22,9 @@ export async function decryptEncryptionKey(
 
   if (!visibilityInfo) {
     // Fallback: if linkKey is present but no visibility info, use linkKey directly
-    if (linkKey && linkKey.length === 64) {
+    if (isTreeLinkKey(linkKey)) {
       try {
-        return fromHex(linkKey);
+        return objectKeyFromHex(linkKey);
       } catch (e) {
         console.debug('Could not use linkKey directly:', e);
       }
@@ -66,7 +67,7 @@ export async function decryptEncryptionKey(
       const state = getNostrState();
       if (state.pubkey) {
         const decryptedLinkKey = await decrypt(state.pubkey, visibilityInfo.selfEncryptedLinkKey);
-        if (decryptedLinkKey && decryptedLinkKey.length === 64) {
+        if (isTreeLinkKey(decryptedLinkKey)) {
           const decryptedHex = await visibilityHex.decryptKeyFromLink(visibilityInfo.encryptedKey, decryptedLinkKey);
           if (decryptedHex) {
             return fromHex(decryptedHex);
@@ -85,7 +86,7 @@ export async function decryptEncryptionKey(
       if (state.pubkey) {
         // Use centralized decrypt (works with both nsec and extension login)
         const decrypted = await decrypt(state.pubkey, visibilityInfo.selfEncryptedKey);
-        return fromHex(decrypted);
+        return objectKeyFromHex(decrypted);
       }
     } catch (e) {
       console.debug('Could not decrypt selfEncryptedKey (not owner?):', e);
@@ -94,9 +95,9 @@ export async function decryptEncryptionKey(
 
   // Fallback: if linkKey is present but we have no visibility metadata at all,
   // try using it directly for legacy content.
-  if (linkKey && linkKey.length === 64) {
+  if (isTreeLinkKey(linkKey)) {
     try {
-      return fromHex(linkKey);
+      return objectKeyFromHex(linkKey);
     } catch (e) {
       console.debug('Could not use linkKey directly:', e);
     }
@@ -156,7 +157,7 @@ export async function recoverLinkKeyForUrl(resolverKey: string): Promise<void> {
 
     if (state.pubkey && treePubkey && state.pubkey === treePubkey) {
       const decryptedLinkKey = await decrypt(state.pubkey, selfEncryptedLinkKey);
-      if (decryptedLinkKey && decryptedLinkKey.length === 64) {
+      if (isTreeLinkKey(decryptedLinkKey)) {
         // Update URL with k= param (use replaceState to avoid history pollution)
         const currentHash = window.location.hash;
         if (!currentHash.includes('k=')) {
@@ -230,7 +231,7 @@ export async function recoverMissingLinkKeyForOwner(options: {
   if (selfEncryptedLinkKey) {
     try {
       const linkKeyHex = await decrypt(state.pubkey!, selfEncryptedLinkKey);
-      if (linkKeyHex && linkKeyHex.length === 64 && !window.location.hash.includes('k=')) {
+      if (isTreeLinkKey(linkKeyHex) && !window.location.hash.includes('k=')) {
         const separator = window.location.hash.includes('?') ? '&' : '?';
         window.history.replaceState(null, '', window.location.hash + separator + 'k=' + linkKeyHex);
       }
@@ -255,7 +256,7 @@ export async function recoverMissingLinkKeyForOwner(options: {
         contentKeyHex: contentKeyHex ? contentKeyHex.slice(0, 16) + '...' : null,
         length: contentKeyHex?.length ?? null,
       });
-      if (contentKeyHex && contentKeyHex.length === 64) {
+      if (contentKeyHex) {
         const linkKeyHex = visibilityHex.encryptKeyForLink(contentKeyHex, encryptedKeyHex);
         if (!window.location.hash.includes('k=')) {
           const separator = window.location.hash.includes('?') ? '&' : '?';
@@ -264,7 +265,7 @@ export async function recoverMissingLinkKeyForOwner(options: {
         try {
           const resolver = getRefResolver();
           if (!resolver.publish) throw new Error('Resolver does not support publish');
-          await resolver.publish(treeName, cid(hash, fromHex(contentKeyHex)), {
+          await resolver.publish(treeName, cid(hash, objectKeyFromHex(contentKeyHex)), {
             visibility: 'link-visible',
             linkKey: fromHex(linkKeyHex),
           });

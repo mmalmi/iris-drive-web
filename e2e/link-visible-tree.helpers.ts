@@ -9,7 +9,7 @@ import { saveTextFile } from './test-utils.js';
  * - Verifying visibility icons in tree list and inside tree view
  */
 import { expect } from './fixtures';
-import { goToTreeList, flushPendingPublishes, waitForRelayConnected } from './test-utils.js';
+import { flushPendingPublishes, waitForRelayConnected } from './test-utils.js';
 
 export async function waitForLinkKey(page: any): Promise<string> {
   await expect(page).toHaveURL(/\?k=[a-f0-9]+/i);
@@ -74,7 +74,13 @@ export async function waitForElapsed(page: any, minMs: number): Promise<void> {
 }
 
 export async function createTreeWithVisibility(page: any, name: string, visibility: 'public' | 'link-visible' | 'private'): Promise<string | undefined> {
-  await goToTreeList(page);
+  const home = await page.getByTestId('home-link').getAttribute('href');
+  const ownProfile = home?.match(/^#\/(npub1[a-z0-9]+)(?:\/|$)/i)?.[1];
+  if (!ownProfile) throw new Error('A signed-in profile is required to create a tree');
+  const previousViewport = page.viewportSize();
+  // The profile's mobile New Folder action creates a tree; the drive-home action creates a subfolder.
+  await page.setViewportSize({ width: 640, height: 900 });
+  await page.goto(`/#/${ownProfile}`);
   const newFolderButton = page.getByRole('button', { name: 'New Folder' });
   await expect(newFolderButton).toBeVisible({ timeout: 30000 });
   await newFolderButton.click();
@@ -96,6 +102,7 @@ export async function createTreeWithVisibility(page: any, name: string, visibili
     await input.press('Enter');
   });
   await expect(page).toHaveURL(new RegExp(`${name}`), { timeout: 30000 });
+  if (previousViewport) await page.setViewportSize(previousViewport);
   await expect(page.getByRole('button', { name: 'New File' })).toBeVisible({ timeout: 30000 });
 
   if (visibility === 'link-visible') {

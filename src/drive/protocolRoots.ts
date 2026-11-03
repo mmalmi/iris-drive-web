@@ -5,7 +5,7 @@ import {
   type Event,
   type EventTemplate,
 } from 'nostr-tools';
-import { fromHex, toHex, type CID } from '@hashtree/core';
+import { fromHex, objectKeyFromHex, toHex, type CID } from '@hashtree/core';
 import {
   D_TAG_APP_KEYS,
   KIND_APP_KEYS,
@@ -423,6 +423,6 @@ export function resolveRootCid(
   const keyHex = nip44.v2.decrypt(ciphertext, conversationKey);
   return {
     hash: fromHex(content.root_hash),
-    key: fromHex(keyHex),
+    key: objectKeyFromHex(keyHex),
   };
 }

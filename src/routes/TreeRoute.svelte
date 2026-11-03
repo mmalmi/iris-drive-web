@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { isTreeLinkKey } from '../lib/treeLinkKey';
   import { onDestroy } from 'svelte';
   import FileBrowser from '../components/FileBrowser.svelte';
   import Viewer from '../components/Viewer/Viewer.svelte';
@@ -129,7 +130,7 @@
                   // New format: directly decrypt linkKey
                   try {
                     const linkKey = await decrypt(state.pubkey, visibilityInfo.selfEncryptedLinkKey);
-                    if (linkKey && linkKey.length === 64) {
+                    if (isTreeLinkKey(linkKey)) {
                       const separator = currentHash.includes('?') ? '&' : '?';
                       window.history.replaceState(null, '', currentHash + separator + 'k=' + linkKey);
                     }
@@ -141,7 +142,7 @@
                   try {
                     const { visibilityHex } = await import('@hashtree/core');
                     const contentKeyHex = await decrypt(state.pubkey, visibilityInfo.selfEncryptedKey);
-                    if (contentKeyHex && contentKeyHex.length === 64) {
+                    if (contentKeyHex) {
                       // linkKey = XOR(encryptedKey, contentKey)
                       const linkKeyHex = visibilityHex.encryptKeyForLink(contentKeyHex, visibilityInfo.encryptedKey);
                       const separator = currentHash.includes('?') ? '&' : '?';
