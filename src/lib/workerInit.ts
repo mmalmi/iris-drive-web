@@ -1,4 +1,3 @@
-import { localIndexSource, verifyNostrEvent } from 'nostr-pubsub';
 /**
  * Backend Initialization
  *
@@ -127,14 +126,6 @@ function startFipsForAdapter(
         deviceSecretKey: identity.deviceSecretKey,
         profileId: identity.profileId,
         authorizedAppKeyPubkeys,
-        retainedEventReader: {
-          query: async (filters, options) => {
-            const report = await adapter.queryEvents?.(filters, { ...options, cache: 'cache-only', relays: [], sources: [] });
-            return { complete: report?.complete ?? false, events: (report?.events ?? []).map(event => ({
-              event: verifyNostrEvent(event), source: localIndexSource('drive-cache'), priority: 0,
-            })) };
-          },
-        },
         log: isTestMode,
       });
       if (version !== fipsSyncVersion || getWorkerAdapter() !== adapter) {

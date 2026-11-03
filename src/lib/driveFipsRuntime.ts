@@ -1,4 +1,4 @@
-import type { NostrEventReader, RuntimeSource } from 'nostr-pubsub';
+import type { RuntimeSource } from 'nostr-pubsub';
 import { DexieStore } from '@hashtree/dexie';
 import { BLOB_DEFAULT_HTL } from '@hashtree/core';
 import {
@@ -50,7 +50,6 @@ export interface DriveFipsRuntimeOptions {
   requestTimeoutMs?: number;
   authorizedAppKeyPubkeys: DriveFipsAuthorizedAppKeySource;
   log?: boolean;
-  retainedEventReader?: NostrEventReader;
 }
 
 export interface DriveFipsPeerStats {
@@ -229,10 +228,9 @@ export class DriveFipsRuntime {
       provider = await createBrowserHashtreeNostrProvider({
         identity,
         localStore,
-        // Private event interests and retained replay keep roster admission;
+        // Nostr traffic keeps roster admission;
         // raw content-addressed blocks use the standard authenticated service.
         nostrPeers: () => [...this.nostrPeerIds],
-        retainedEventReader: this.options.retainedEventReader,
         discoveryApp: this.discoveryScope,
         forwarding: true,
         logger: createLogger(this.options.log === true, 'drive-fips:node'),
