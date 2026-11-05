@@ -1,5 +1,4 @@
 import { DEFAULT_PUBLIC_RELAYS } from '@iris/hashtree-app/defaultRelays';
-import { canUseInjectedHtreeServerUrl } from '../lib/nativeHtree';
 
 export interface PoolSettings {
   showConnectivity: boolean;
@@ -82,46 +81,3 @@ export const DEFAULT_NETWORK_SETTINGS: NetworkSettings = {
       ],
   negentropyEnabled: false,
 };
-
-const LOCAL_HOSTNAMES = new Set(['localhost', '127.0.0.1', '[::1]']);
-
-function isLocalHostname(hostname: string | undefined): boolean {
-  return !!hostname && LOCAL_HOSTNAMES.has(hostname);
-}
-
-function isLocalRelay(url: string): boolean {
-  try {
-    const parsed = new URL(url);
-    return isLocalHostname(parsed.hostname);
-  } catch {
-    return false;
-  }
-}
-
-function shouldApplyProductionFallback(): boolean {
-  if (isTestMode) return false;
-  if (typeof window === 'undefined') return false;
-  if (canUseInjectedHtreeServerUrl()) return false;
-  return !isLocalHostname(window.location.hostname);
-}
-
-export function applyProductionNetworkFallback(network: NetworkSettings): NetworkSettings {
-  if (!shouldApplyProductionFallback()) return network;
-
-  const relays = network.relays ?? [];
-  const hasPublicRelay = relays.some(relay => !isLocalRelay(relay));
-  const effectiveRelays = hasPublicRelay ? relays : DEFAULT_NETWORK_SETTINGS.relays;
-
-  const blossomServers = network.blossomServers ?? [];
-  const effectiveBlossom = blossomServers.length > 0 ? blossomServers : DEFAULT_NETWORK_SETTINGS.blossomServers;
-
-  if (!hasPublicRelay || blossomServers.length === 0) {
-    console.warn('[settings] Using default network fallbacks for this session');
-  }
-
-  return {
-    ...network,
-    relays: effectiveRelays,
-    blossomServers: effectiveBlossom,
-  };
-}

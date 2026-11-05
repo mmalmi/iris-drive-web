@@ -49,4 +49,31 @@ describe('main native backend bootstrap', () => {
     expect(restoreSession).toHaveBeenCalledOnce();
     expect(waitForRelayConnection).toHaveBeenCalledOnce();
   });
+
+  it('mounts the UI while backend network settings are still loading', async () => {
+    let release!: () => void;
+    initServiceWorker.mockResolvedValue(undefined);
+    initReadonlyBackend.mockImplementation(() => new Promise<void>(resolve => { release = resolve; }));
+    restoreSession.mockResolvedValue(undefined);
+    initHtreeApi.mockResolvedValue(undefined);
+    waitForRelayConnection.mockResolvedValue(true);
+
+    vi.doMock('svelte', () => ({ mount }));
+    vi.doMock('../src/lib/swInit', () => ({ initServiceWorker }));
+    vi.doMock('../src/nostr/auth', () => ({ initReadonlyBackend, restoreSession }));
+    vi.doMock('../src/appType', () => ({ setAppType }));
+    vi.doMock('../src/lib/htreeApi', () => ({ initHtreeApi }));
+    vi.doMock('../src/lib/workerInit', () => ({ waitForRelayConnection }));
+    vi.doMock('../src/App.svelte', () => ({ default: {} }));
+
+    await import('../src/main');
+    try {
+      expect(mount).toHaveBeenCalledOnce();
+      expect(initReadonlyBackend).toHaveBeenCalledOnce();
+      expect(waitForRelayConnection).not.toHaveBeenCalled();
+    } finally {
+      release();
+    }
+    await vi.waitFor(() => expect(waitForRelayConnection).toHaveBeenCalledOnce());
+  });
 });

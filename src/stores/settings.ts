@@ -10,8 +10,6 @@ import {
   DEFAULT_POOL_SETTINGS,
   DEFAULT_STORAGE_SETTINGS,
   DEFAULT_UPLOAD_SETTINGS,
-  applyProductionNetworkFallback,
-  isTestMode,
 } from './settingsDefaults';
 import type {
   BlossomServerConfig,
@@ -258,22 +256,24 @@ async function loadSettings() {
       };
     }
 
-    if (networkRow?.value) {
+    if (networkRow) {
+      if (!networkRow.value || typeof networkRow.value !== 'object' || Array.isArray(networkRow.value)) {
+        throw new Error('Saved network settings are invalid');
+      }
       const network = networkRow.value as NetworkSettings;
       // Handle backwards compatibility: convert old string[] format to BlossomServerConfig[]
-      let blossomServers = DEFAULT_NETWORK_SETTINGS.blossomServers;
+      let blossomServers: BlossomServerConfig[] = [];
       if (network.blossomServers && Array.isArray(network.blossomServers)) {
         blossomServers = network.blossomServers.map(s =>
           typeof s === 'string' ? { url: s, read: true, write: false } : { ...s, read: s.read ?? true }
         );
       }
-      const nextNetwork = {
-        relays: network.relays ?? DEFAULT_NETWORK_SETTINGS.relays,
+      updates.network = {
+        relays: network.relays ?? [],
         blossomServers,
         negentropyEnabled: network.negentropyEnabled ?? DEFAULT_NETWORK_SETTINGS.negentropyEnabled,
       };
-      updates.network = isTestMode ? nextNetwork : applyProductionNetworkFallback(nextNetwork);
-    } else if (isTestMode) {
+    } else {
       updates.network = DEFAULT_NETWORK_SETTINGS;
     }
 
@@ -301,20 +301,16 @@ async function loadSettings() {
     settingsStore.setState(updates);
   } catch (err) {
     console.error('[settings] error loading:', err);
-    settingsStore.setState({ poolsLoaded: true, networkLoaded: true, storageLoaded: true });
+    settingsStore.setState({ poolsLoaded: true, networkLoaded: false, storageLoaded: true });
+    throw err;
   }
 }
 
-// Promise that resolves when settings are loaded
-let settingsLoadedResolve: (() => void) | null = null;
-const settingsLoadedPromise = new Promise<void>((resolve) => {
-  settingsLoadedResolve = resolve;
-});
-
 // Initialize on module load
-loadSettings().then(() => {
-  settingsLoadedResolve?.();
-});
+const settingsLoadedPromise = loadSettings();
+// Rendering may import settings before a networking caller awaits readiness.
+// Keep the original rejection available to that caller without an unhandled rejection.
+void settingsLoadedPromise.catch(() => undefined);
 
 /**
  * Wait for settings to be loaded from IndexedDB.

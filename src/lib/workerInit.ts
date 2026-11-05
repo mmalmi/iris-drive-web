@@ -317,21 +317,9 @@ export async function initHashtreeBackend(identity: WorkerInitIdentity): Promise
       });
 
       // Load settings before worker init so relays/blossom match persisted config.
-      const settingsReady = waitForSettingsLoaded().then(() => {
+      const settingsPromise = waitForSettingsLoaded().then(() => {
         logT('waitForSettingsLoaded done');
-        return true;
       });
-      const settingsPromise = isTestMode
-        ? settingsReady
-        : Promise.race([
-            settingsReady,
-            new Promise<boolean>((resolve) => {
-              setTimeout(() => {
-                logT('waitForSettingsLoaded timed out');
-                resolve(false);
-              }, 500);
-            }),
-          ]);
 
       await Promise.all([serviceWorkerPromise, settingsPromise]);
 
