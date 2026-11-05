@@ -11,7 +11,7 @@ overrides:
   '@hashtree/fips-transport': https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.31/hashtree-fips-transport-0.4.29.tgz
   '@hashtree/index': https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.27/hashtree-index-0.1.15.tgz
   '@hashtree/nostr': https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.27/hashtree-nostr-0.2.6.tgz
-  '@hashtree/worker': https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.29/hashtree-worker-0.4.19.tgz
+  '@hashtree/worker': https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.33/hashtree-worker-0.4.20.tgz
   nostr-social-graph: https://github.com/mmalmi/nostr-social-graph/releases/download/v4.0.0/nostr-social-graph-4.0.0.tgz
   '@hashtree/nostr-pubsub': https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.27/hashtree-nostr-pubsub-0.1.9.tgz
   '@hashtree/mesh': https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.27/hashtree-mesh-0.3.3.tgz
@@ -24,6 +24,7 @@ overrides:
   '@fips/transport-webrtc': https://github.com/mmalmi/fips-ts/releases/download/runtime-v0.0.57/fips-transport-webrtc-0.0.56.tgz
   '@fips/transport-websocket': https://github.com/mmalmi/fips-ts/releases/download/runtime-v0.0.56/fips-transport-websocket-0.0.10.tgz
   dexie: 4.4.6
+
 
 importers:
 
@@ -57,8 +58,8 @@ importers:
         specifier: https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.27/hashtree-nostr-0.2.6.tgz
         version: https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.27/hashtree-nostr-0.2.6.tgz(typescript@5.9.3)
       '@hashtree/worker':
-        specifier: https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.29/hashtree-worker-0.4.19.tgz
-        version: https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.29/hashtree-worker-0.4.19.tgz(nostr-social-graph@https://github.com/mmalmi/nostr-social-graph/releases/download/v4.0.0/nostr-social-graph-4.0.0.tgz(typescript@5.9.3))(typescript@5.9.3)
+        specifier: https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.33/hashtree-worker-0.4.20.tgz
+        version: https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.33/hashtree-worker-0.4.20.tgz(nostr-social-graph@https://github.com/mmalmi/nostr-social-graph/releases/download/v4.0.0/nostr-social-graph-4.0.0.tgz(typescript@5.9.3))(typescript@5.9.3)
       '@iris/hashtree-app':
         specifier: https://github.com/mmalmi/iris-kit/releases/download/runtime-v0.2.7/iris-hashtree-app-0.1.6.tgz
         version: https://github.com/mmalmi/iris-kit/releases/download/runtime-v0.2.7/iris-hashtree-app-0.1.6.tgz(@hashtree/core@https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.27/hashtree-core-0.4.0.tgz)(nostr-tools@2.25.2(typescript@5.9.3))(svelte@5.57.2(@typescript-eslint/types@8.71.2))
@@ -1006,11 +1007,11 @@ packages:
     resolution: {integrity: sha512-rLumTs98r1AFAaYu1bnY7MUiF7M5hsehjnjB4GV7b68OBcdGpyWqT6ccBULmH4VLstyCU6d/qYxqu3ctlZbjUg==, tarball: https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.27/hashtree-nostr-0.2.6.tgz}
     version: 0.2.6
 
-  '@hashtree/worker@https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.29/hashtree-worker-0.4.19.tgz':
-    resolution: {integrity: sha512-QeDh6rFNts5d7wvuPGIbdw7Nbyr5sjjo6503gw9JhOllyWdNmK/iLYdC5A0AQVXRaNjXBRpXnqgHsanLBghQbg==, tarball: https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.29/hashtree-worker-0.4.19.tgz}
-    version: 0.4.19
+  '@hashtree/worker@https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.33/hashtree-worker-0.4.20.tgz':
+    resolution: {integrity: sha512-rFYdFJ1b63HsSDXFffuBVS+INYWLTetsiusGwUjT5NldeOTo1exPmPIKhaUQin95aSw4V0q4XunzierJ7FWcgg==, tarball: https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.33/hashtree-worker-0.4.20.tgz}
+    version: 0.4.20
     peerDependencies:
-      nostr-social-graph: '*'
+      nostr-social-graph: '>=4.0.0'
     peerDependenciesMeta:
       nostr-social-graph:
         optional: true
@@ -4670,7 +4671,7 @@ snapshots:
     transitivePeerDependencies:
       - typescript
 
-  '@hashtree/worker@https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.29/hashtree-worker-0.4.19.tgz(nostr-social-graph@https://github.com/mmalmi/nostr-social-graph/releases/download/v4.0.0/nostr-social-graph-4.0.0.tgz(typescript@5.9.3))(typescript@5.9.3)':
+  '@hashtree/worker@https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.33/hashtree-worker-0.4.20.tgz(nostr-social-graph@https://github.com/mmalmi/nostr-social-graph/releases/download/v4.0.0/nostr-social-graph-4.0.0.tgz(typescript@5.9.3))(typescript@5.9.3)':
     dependencies:
       '@hashtree/core': https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.27/hashtree-core-0.4.0.tgz
       '@hashtree/dexie': https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.27/hashtree-dexie-0.1.13.tgz
