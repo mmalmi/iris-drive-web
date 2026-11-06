@@ -88,6 +88,7 @@ describe('release-site', () => {
       'test-4',
       'test-5',
       'test-6',
+      'test-7',
       'publish',
       'deploy',
     ]);
@@ -99,6 +100,9 @@ describe('release-site', () => {
       'pnpm',
       'run',
       'check',
+    ]);
+    expect(plan.steps.find((step) => step.id === 'test-6')?.command).toEqual([
+      'node', './scripts/check-graph-bootstrap-browser.mjs',
     ]);
     expect(plan.steps.at(-1)?.command).toEqual([
       'node',

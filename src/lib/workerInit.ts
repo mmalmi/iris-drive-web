@@ -40,6 +40,7 @@ import {
   type ResolvedDriveFipsIdentity,
 } from './driveFipsIdentity';
 import { accountsStore } from '../accounts';
+import { getFipsBootstrapOptions } from './graphBootstrapPolicy';
 
 const isTestMode = !!import.meta.env.VITE_TEST_MODE;
 
@@ -90,8 +91,12 @@ function startFipsForAdapter(
   identity: ResolvedDriveFipsIdentity | null,
   retry = false,
 ): Promise<void> {
+  const bootstrapOptions = getFipsBootstrapOptions(relays, isTestMode ? {
+    websocketSeedUrls: (window as typeof window & { __testFipsWebSocketSeedUrls?: string[] }).__testFipsWebSocketSeedUrls,
+  } : {});
   const desiredKey = JSON.stringify({
     relays,
+    bootstrapOptions,
     storeName,
     appKeyPubkey: identity?.appKeyPubkey ?? null,
     profileId: identity?.profileId ?? null,
@@ -119,9 +124,7 @@ function startFipsForAdapter(
       const authorizedAppKeyPubkeys = await driveFipsAuthorizedAppKeySource(identity);
       const runtime = await startDriveFipsRuntime({
         relays,
-        websocketSeedUrls: isTestMode
-          ? (window as typeof window & { __testFipsWebSocketSeedUrls?: string[] }).__testFipsWebSocketSeedUrls
-          : undefined,
+        ...bootstrapOptions,
         storeName,
         deviceSecretKey: identity.deviceSecretKey,
         profileId: identity.profileId,

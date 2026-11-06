@@ -31,6 +31,10 @@ describe('persisted network settings on a public host', () => {
     { name: 'local only', relays: ['ws://127.0.0.1:7777'] },
     { name: 'a shipped relay subset', relays: [DEFAULT_PUBLIC_RELAYS[0]] },
     { name: 'custom only', relays: ['wss://relay.example'] },
+    { name: 'the saved catalog before Ditto', relays: [
+      'wss://relay.damus.io', 'wss://relay.primal.net', 'wss://relay.nostr.band',
+      'wss://relay.snort.social', 'wss://temp.iris.to',
+    ] },
   ])('preserves $name choices and an empty file-server list', async ({ relays }) => {
     const saved = { relays, blossomServers: [], negentropyEnabled: true };
     persistence.get.mockImplementation(async key => key === 'network' ? { key, value: saved } : undefined);

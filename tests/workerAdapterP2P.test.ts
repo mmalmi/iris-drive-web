@@ -1,5 +1,6 @@
 import { describe, expect, test, vi } from 'vitest';
 import { finalizeEvent, generateSecretKey } from 'nostr-tools';
+import { DEFAULT_PUBLIC_RELAYS } from '@iris/hashtree-app/defaultRelays';
 import { WorkerAdapter } from '../src/workerAdapter';
 import {
   isValidSignedNostrEvent,
@@ -327,6 +328,56 @@ describe('WorkerAdapter startup recovery', () => {
       FakeWorker.latest!.emit({ type: 'ready' });
       await vi.advanceTimersByTimeAsync(0);
       expect(readyAgain).toHaveBeenCalledOnce();
+    } finally {
+      adapter.close();
+      vi.useRealTimers();
+    }
+  });
+});
+
+
+describe('WorkerAdapter public graph bootstrap policy', () => {
+  test.each([
+    [DEFAULT_PUBLIC_RELAYS, true],
+    [[DEFAULT_PUBLIC_RELAYS[0]], false],
+    [['wss://relay.example'], false],
+    [[], false],
+  ] as const)('sends an explicit init allowance for %j', async (relays, allowed) => {
+    const adapter = new WorkerAdapter(FakeWorker as unknown as new () => Worker, {
+      relays: [...relays],
+      pubkey: '11'.repeat(32),
+    });
+    try {
+      const initializing = adapter.init();
+      const worker = FakeWorker.latest!;
+      expect(worker.posted[0].message.config).toMatchObject({ relays, graphBootstrap: allowed });
+      worker.emit({ type: 'ready' });
+      await initializing;
+    } finally {
+      adapter.close();
+    }
+  });
+
+  test('updates settings and recovery config without disabling graph reconciliation', async () => {
+    vi.useFakeTimers();
+    const { adapter, worker } = await initializedAdapter();
+    try {
+      for (const relays of [DEFAULT_PUBLIC_RELAYS, [DEFAULT_PUBLIC_RELAYS[0]], ['wss://relay.example'], []]) {
+        const updating = adapter.setRelays(relays);
+        const request = worker.posted.at(-1)!.message;
+        expect(request).toMatchObject({
+          type: 'setRelays', relays, graphBootstrap: relays === DEFAULT_PUBLIC_RELAYS,
+        });
+        expect(request).not.toHaveProperty('graphReconciliation');
+        worker.emit({ type: 'void', id: request.id });
+        await updating;
+      }
+      worker.onerror?.({} as ErrorEvent);
+      await vi.advanceTimersByTimeAsync(1_000);
+      const replacement = FakeWorker.latest!;
+      expect(replacement).not.toBe(worker);
+      expect(replacement.posted[0].message.config).toMatchObject({ relays: [], graphBootstrap: false });
+      replacement.emit({ type: 'ready' });
     } finally {
       adapter.close();
       vi.useRealTimers();

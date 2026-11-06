@@ -21,6 +21,7 @@ import type {
 } from '@hashtree/core';
 import { generateRequestId } from '@hashtree/core';
 import { getErrorMessage } from './utils/errorMessage';
+import { allowsPublicGraphBootstrap } from './lib/graphBootstrapPolicy';
 
 type PendingRequest = {
   resolve: (value: unknown) => void;
@@ -46,7 +47,7 @@ export type WorkerConstructor = URL | string | (new () => Worker);
 export class WorkerAdapterCore {
   protected worker: Worker | null = null;
   protected workerFactory: WorkerConstructor;
-  protected config: WorkerAdapterConfig;
+  protected config: WorkerAdapterConfig & { graphBootstrap: boolean };
   protected ready = false;
   protected readyPromise: Promise<void> | null = null;
   protected readyResolve: (() => void) | null = null;
@@ -102,7 +103,7 @@ export class WorkerAdapterCore {
    */
   constructor(workerFactory: WorkerConstructor, config: WorkerAdapterConfig) {
     this.workerFactory = workerFactory;
-    this.config = config;
+    this.config = { ...config, graphBootstrap: allowsPublicGraphBootstrap(config.relays) };
   }
 
   /**

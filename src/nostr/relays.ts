@@ -1,5 +1,5 @@
 import { nostrStore } from './store';
-import { settingsStore, DEFAULT_NETWORK_SETTINGS } from '../stores/settings';
+import { settingsStore } from '../stores/settings';
 import { getWorkerAdapter } from '../lib/workerInit';
 import {
   buildRelayStatusSnapshot,
@@ -31,11 +31,8 @@ export async function updateConnectedRelayCount(): Promise<void> {
   try {
     const stats = await adapter.getRelayStats();
 
-    // Get configured relays from settings or use defaults
     const settings = settingsStore.getState();
-    const configuredRelays = settings.network?.relays?.length > 0
-      ? settings.network.relays
-      : DEFAULT_NETWORK_SETTINGS.relays;
+    const configuredRelays = settings.network.relays;
 
     const snapshot = buildRelayStatusSnapshot(configuredRelays, stats);
 

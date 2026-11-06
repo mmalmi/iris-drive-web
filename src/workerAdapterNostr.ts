@@ -1,3 +1,4 @@
+import { allowsPublicGraphBootstrap } from './lib/graphBootstrapPolicy';
 import type { RuntimePublishResult, RuntimeQueryOptions, RuntimeQueryResult, NostrFilter as PubsubFilter } from 'nostr-pubsub';
 import {
   generateRequestId,
@@ -176,11 +177,15 @@ export class WorkerAdapterNostr extends WorkerAdapterStorage {
    * Disconnects old relays and connects to new ones.
    */
   async setRelays(relays: string[]): Promise<void> {
+    const configuredRelays = [...relays];
+    const graphBootstrap = allowsPublicGraphBootstrap(configuredRelays);
+    this.config = { ...this.config, relays: configuredRelays, graphBootstrap };
     const id = generateRequestId();
     await this.request<{ error?: string }>({
       type: 'setRelays',
       id,
-      relays,
+      relays: configuredRelays,
+      graphBootstrap,
     } as ExtendedWorkerRequest);
   }
 
