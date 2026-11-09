@@ -162,7 +162,7 @@ async function fipsState(page: Page): Promise<FipsState> {
       localXOnlyPubkey: stats?.localXOnlyPubkey ?? '',
       connectedPeerIds: stats?.connectedPeerIds ?? [],
       nostrPeerIds: stats?.nostrPeerIds ?? [],
-      providerPeerIds: runtime
+      providerPeerIds: runtime && stats?.active
         ? await runtime.getP2PProvider().listPeerIds().catch(() => [])
         : [],
     };
