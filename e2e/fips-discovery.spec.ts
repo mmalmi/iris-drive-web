@@ -36,6 +36,102 @@ interface FipsState {
   providerPeerIds: string[];
 }
 
+type FipsReloadProof = {
+  reloadedEndpoint: 'first' | 'second';
+  localPeerId: string;
+  otherPeerId: string;
+  identityRetained: boolean;
+  bothConnected: boolean;
+  receiverCachedBefore: boolean;
+  blockHash: string;
+  verifiedBytes: number;
+};
+
+async function captureReloadProof(
+  reloaded: import('@playwright/test').Page,
+  other: import('@playwright/test').Page,
+  localPeerId: string,
+  otherPeerId: string,
+  reloadedEndpoint: 'first' | 'second',
+  blockHash: string,
+  verifiedBytes: number,
+  receiverCachedBefore: boolean,
+): Promise<FipsReloadProof> {
+  const [localState, otherState] = await Promise.all([fipsState(reloaded), fipsState(other)]);
+  const proof = {
+    reloadedEndpoint, localPeerId: localState.localPeerId, otherPeerId: otherState.localPeerId,
+    identityRetained: localState.localPeerId === localPeerId && otherState.localPeerId === otherPeerId,
+    bothConnected: localState.connectedPeerIds.includes(otherPeerId)
+      && otherState.connectedPeerIds.includes(localPeerId),
+    receiverCachedBefore, blockHash, verifiedBytes,
+  };
+  expect(proof.identityRetained).toBe(true);
+  expect(proof.bothConnected).toBe(true);
+  expect(proof.receiverCachedBefore).toBe(false);
+  return proof;
+}
+
+async function proveReloadedDrivePeer(
+  reloaded: Page,
+  other: Page,
+  localPeerId: string,
+  otherPeerId: string,
+  reloadedEndpoint: 'first' | 'second',
+): Promise<FipsReloadProof> {
+  return test.step(`recover ${reloadedEndpoint} Drive browser and transfer fresh ciphertext`, async () => {
+    await reloaded.reload({ waitUntil: 'domcontentloaded', timeout: 30_000 });
+    await waitForAppReady(reloaded, 30_000);
+    await expect.poll(async () => Promise.all(
+      [reloaded, other].map(async candidate => (await fipsState(candidate)).localPeerId),
+    ), { timeout: 30_000 }).toEqual([localPeerId, otherPeerId]);
+    await expect.poll(async () => {
+      const [localState, otherState] = await Promise.all([fipsState(reloaded), fipsState(other)]);
+      return [localState.connectedPeerIds.includes(otherPeerId), otherState.connectedPeerIds.includes(localPeerId)];
+    }, { timeout: 90_000, intervals: [500, 1_000, 2_000] }).toEqual([true, true]);
+
+    // Existing production encryption creates a fresh nonce-bearing block after reload.
+    // Its CID/root key and payload are never published or added to the proof log.
+    const source = await putWorkerOnlyBlock(reloaded, 'drive-fips-reload');
+    const receiverCachedBefore = await workerHasBlock(other, source.hashHex);
+    expect(receiverCachedBefore).toBe(false);
+    await expect.poll(async () => {
+      const received = await fetchBlock(other, source.hashHex, localPeerId);
+      return { fetched: received.ok, exactCiphertext: received.ciphertextHex === source.ciphertextHex };
+    }, { timeout: 30_000, intervals: [500, 1_000, 2_000] })
+      .toEqual({ fetched: true, exactCiphertext: true });
+    expect(await workerHasBlock(other, source.hashHex)).toBe(true);
+    return captureReloadProof(reloaded, other, localPeerId, otherPeerId,
+      reloadedEndpoint, source.hashHex, source.ciphertextHex.length / 2, receiverCachedBefore);
+  }, { timeout: 240_000 });
+}
+
+async function proveBothDriveReloadRoles(first: Page, second: Page): Promise<void> {
+  const [firstPeerId, secondPeerId] = await Promise.all(
+    [first, second].map(async candidate => (await fipsState(candidate)).localPeerId),
+  );
+  expect(firstPeerId).toMatch(/^(02|03)[0-9a-f]{64}$/);
+  expect(secondPeerId).toMatch(/^(02|03)[0-9a-f]{64}$/);
+  expect(firstPeerId).not.toBe(secondPeerId);
+  const proofs = [
+    await proveReloadedDrivePeer(first, second, firstPeerId, secondPeerId, 'first'),
+    await proveReloadedDrivePeer(second, first, secondPeerId, firstPeerId, 'second'),
+  ];
+  await retainReloadProof(proofs);
+}
+
+async function retainReloadProof(proofs: FipsReloadProof[]): Promise<void> {
+  expect(proofs.map(proof => proof.reloadedEndpoint)).toEqual(['first', 'second']);
+  expect(proofs[0].localPeerId).toBe(proofs[1].otherPeerId);
+  expect(proofs[1].localPeerId).toBe(proofs[0].otherPeerId);
+  expect(proofs[0].localPeerId).not.toBe(proofs[1].localPeerId);
+  expect(proofs[0].blockHash).not.toBe(proofs[1].blockHash);
+  // Only public endpoint identities, status booleans, hashes and sizes are retained.
+  console.log('FIPS_BROWSER_RELOAD_PROOF', JSON.stringify(proofs));
+  await test.info().attach('fips-browser-reload-proof.json', {
+    body: JSON.stringify(proofs, null, 2), contentType: 'application/json',
+  });
+}
+
 async function prepareDrivePage(page: Page, relayUrl: string, seedUrl: string): Promise<void> {
   setupPageErrorHandler(page);
   await page.addInitScript((url: string) => {
@@ -230,7 +326,7 @@ test('unrelated Drive profiles discover and serve remote-only ciphertext blocks'
   relayUrl,
   fipsSeedUrl,
 }) => {
-  test.setTimeout(180_000);
+  test.setTimeout(180_000 + 2 * 240_000); // Two additional bounded reload phases.
   await prepareDrivePage(ownerPage, relayUrl, fipsSeedUrl);
   const owner = await createOwner(ownerPage);
   const readerContext = await browser.newContext();
@@ -271,6 +367,13 @@ test('unrelated Drive profiles discover and serve remote-only ciphertext blocks'
       const { hasActiveDriveRootScope } = await import('/src/stores/treeRootResolver');
       return hasActiveDriveRootScope(profileId);
     }, owner.profileId)).toBe(false);
+    await proveBothDriveReloadRoles(ownerPage, readerPage);
+    expect((await fipsState(ownerPage)).nostrPeerIds).toEqual([]);
+    expect((await fipsState(readerPage)).nostrPeerIds).toEqual([]);
+    expect(await readerPage.evaluate(async (profileId) => {
+      const { hasActiveDriveRootScope } = await import('/src/stores/treeRootResolver');
+      return hasActiveDriveRootScope(profileId);
+    }, owner.profileId)).toBe(false);
   } finally {
     await readerContext.close();
   }
@@ -282,7 +385,7 @@ test('linked Drive AppKeys share events and remote-only blocks with live revocat
   relayUrl,
   fipsSeedUrl,
 }) => {
-  test.setTimeout(240_000);
+  test.setTimeout(240_000 + 2 * 240_000); // Two additional bounded reload phases.
   await prepareDrivePage(ownerPage, relayUrl, fipsSeedUrl);
   const owner = await createOwner(ownerPage);
 
@@ -363,6 +466,8 @@ test('linked Drive AppKeys share events and remote-only blocks with live revocat
       { timeout: 30_000, intervals: [500, 1_000, 2_000] },
     ).toEqual({ ok: true, ciphertextHex: first.ciphertextHex });
     expect(await workerHasBlock(devicePage, first.hashHex)).toBe(true);
+
+    await proveBothDriveReloadRoles(ownerPage, devicePage);
 
     const afterRevocation = await putWorkerOnlyBlock(ownerPage, 'revoked-remote-only');
     expect(await workerHasBlock(devicePage, afterRevocation.hashHex)).toBe(false);
