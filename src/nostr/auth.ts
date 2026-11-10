@@ -1,3 +1,4 @@
+import type { BrowserSignerSession } from '@iris/identity/browserSigner';
 /**
  * Nostr Authentication and Encryption
  */
@@ -121,6 +122,7 @@ export interface DriveRecoveryRequest {
   seedPassphrase?: string;
   nip46Connection?: string;
   nip46Relay?: string;
+  signerSession?: BrowserSignerSession;
 }
 
 export interface DriveRecoveryAppKeyOptions {
@@ -1684,6 +1686,9 @@ async function createRecoverySigner(recovery: DriveRecoveryRequest): Promise<Nos
     return createNostrIdentitySignerFromNip07(nostr);
   }
 
+  if (recovery.signerSession) {
+    return createRemoteRecoverySigner(recovery.signerSession);
+  }
   const connection = recovery.nip46Connection?.trim();
   if (!connection) throw new Error('Enter a remote signer');
   return createRemoteRecoverySigner(connection, recovery.nip46Relay?.trim());

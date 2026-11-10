@@ -3,6 +3,7 @@
    * UsersPage - manage saved accounts
    * Shows list of app accounts, allows Drive user recovery, switching, and removing accounts.
    */
+  import { requestBrowserSigner } from '@iris/identity/browserSigner';
   import { onMount } from 'svelte';
   import QRCode from 'qrcode';
   import { parseDeviceApprovalBootstrap } from '@iris/identity';
@@ -251,8 +252,13 @@
           return;
         }
       }
+      let signerSession;
+      if (request.method === 'nip46' && !linkInput) {
+        signerSession = await requestBrowserSigner({ name: 'Iris Drive', permissions: 'sign_event,nip44_encrypt,nip44_decrypt' });
+        if (!signerSession) return;
+      }
       const profile = await recoverDriveProfileWithAppKey({
-        recovery: request,
+        recovery: { ...request, signerSession },
       });
       navigate(driveRootPath(profile.session.profileId));
     } catch (error) {
@@ -405,6 +411,10 @@
         {/if}
       </section>
 
+      <button type="button" class="btn-ghost w-full justify-center border border-surface-3"
+        disabled={recoveryBusy || creatingProfile} onclick={() => handleRecovery({ method: 'nip46' })}>
+        Sign in with remote signer
+      </button>
       <IdentityRecoveryPanel
         methodLayout="column"
         methods={['nsec', 'seed_phrase', 'nip07']}

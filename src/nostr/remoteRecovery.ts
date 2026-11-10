@@ -1,33 +1,21 @@
-import { connectRemoteNostrIdentitySigner } from '@iris/identity/remoteSigner';
-import { NostrRuntime } from 'nostr-pubsub';
+import { pairBrowserSigner, restoreBrowserSigner, type BrowserSignerSession } from '@iris/identity/browserSigner';
+import { parseBunkerInput, toBunkerURL } from 'nostr-tools/nip46';
 
-/** Recovery signer traffic stays on its explicitly selected private relays. */
-export async function createRemoteRecoverySigner(connection: string, relay?: string) {
-  const runtime = new NostrRuntime({ relays: [], historyTimeoutMs: 30_000, publishTimeoutMs: 30_000 });
-  try {
-    const signer = await connectRemoteNostrIdentitySigner({
-      connection,
-      relays: relay ? [relay] : undefined,
-      timeoutMs: 30_000,
-      transport: {
-        subscribe: (relays, filters, receive) => runtime.subscribe(filters, { onEvent: receive }, {
-          relays, sources: [], cache: 'network-only', localEcho: false,
-        }),
-        publish: async (relays, event) => {
-          const result = await runtime.publish(event, { relays, sources: [], requireAck: true });
-          if (!result.remoteAccepted) throw new Error('Could not reach the remote signer.');
-        },
-      },
-      onAuth: url => {
-        const parsed = new URL(url);
-        if (parsed.protocol === 'https:' || parsed.protocol === 'http:') window.open(parsed.href, '_blank', 'noopener,noreferrer');
-      },
+/** The recovered account authorizes this device. Only the device key survives recovery. */
+export async function createRemoteRecoverySigner(connection: string | BrowserSignerSession, relay?: string) {
+  const controller = new AbortController();
+  let session: BrowserSignerSession;
+  if (typeof connection === 'string') {
+    const pointer = await parseBunkerInput(connection);
+    if (!pointer) throw new Error('Invalid signer connection.');
+    if (relay) pointer.relays = [relay];
+    session = await pairBrowserSigner(toBunkerURL(pointer), {
+      name: 'Iris Drive', permissions: 'sign_event,nip44_encrypt,nip44_decrypt', signal: controller.signal,
     });
-    return Object.assign(signer, {
-      close: (() => {
-        const closeSigner = signer.close.bind(signer);
-        return async () => { await closeSigner(); await runtime.close(); };
-      })(),
-    });
-  } catch (error) { await runtime.close(); throw error; }
+  } else {
+    session = connection;
+  }
+  return Object.assign(restoreBrowserSigner(session, { signal: controller.signal }), {
+    close: async () => { controller.abort(); },
+  });
 }

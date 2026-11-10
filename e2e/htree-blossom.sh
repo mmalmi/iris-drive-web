@@ -2,8 +2,8 @@
 set -euo pipefail
 
 ADDR="${HTREE_ADDR:-127.0.0.1:18780}"
-CONFIG_DIR="${HTREE_CONFIG_DIR:-/tmp/htree-e2e-blossom}"
-DATA_DIR="${HTREE_DATA_DIR:-/tmp/htree-e2e-blossom-data}"
+CONFIG_DIR="${HTREE_CONFIG_DIR:-/tmp/iris-drive-e2e-blossom-0.2.142}"
+DATA_DIR="${HTREE_DATA_DIR:-/tmp/iris-drive-e2e-blossom-0.2.142-data}"
 
 mkdir -p "${CONFIG_DIR}" "${DATA_DIR}"
 

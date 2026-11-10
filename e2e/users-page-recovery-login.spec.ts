@@ -7,7 +7,7 @@ import {
   waitForAppReady,
   waitForRelayConnected,
 } from './test-utils.js';
-import { generateSecretKey, getPublicKey, nip19, nip44, type Event } from 'nostr-tools';
+import { finalizeEvent, generateSecretKey, getPublicKey, nip19, nip44, type Event } from 'nostr-tools';
 import { privateKeyFromSeedWords } from 'nostr-tools/nip06';
 import type { NostrIdentityKeyPurpose } from '../src/drive/protocolTypes';
 import {
@@ -135,6 +135,53 @@ test.describe('Users Page recovery login', () => {
         await expect(targetPage.getByRole('button', { name: 'Browser extension' })).toBeVisible();
         await targetPage.getByRole('button', { name: 'Browser extension' }).click();
         await expect(targetPage.getByRole('button', { name: 'Continue' })).toHaveCount(0);
+      },
+    });
+  });
+
+  test('remote signer authorizes a new Drive device and discards its pairing credentials', async ({ page, relayUrl }) => {
+    const transportKey = generateSecretKey();
+    const link = `bunker://${getPublicKey(transportKey)}?relay=wss://signer.test&secret=single-use-test-secret`;
+    const requests: string[] = [];
+    await runRecoveryLogin(page, relayUrl, generateSecretKey(), {
+      purpose: 'nip46_signer',
+      beforePage: async (targetPage, profile) => {
+        await targetPage.routeWebSocket(/^wss:\/\/signer\.test(?:\/|$)/, socket => {
+          let subscription: string;
+          socket.onMessage(raw => {
+            const [type, value] = JSON.parse(raw.toString());
+            if (type === 'REQ') { subscription = value; return; }
+            if (type !== 'EVENT') return;
+            socket.send(JSON.stringify(['OK', value.id, true, '']));
+            const shared = nip44.v2.utils.getConversationKey(transportKey, value.pubkey);
+            const { id, method, params } = JSON.parse(nip44.v2.decrypt(value.content, shared));
+            requests.push(method);
+            let result: string;
+            switch (method) {
+              case 'connect': result = 'ack'; break;
+              case 'switch_relays': result = 'null'; break;
+              case 'get_public_key': result = profile.recoveryPubkey; break;
+              case 'sign_event': result = JSON.stringify(signWithRecoverySecret(profile, JSON.parse(params[0]))); break;
+              case 'nip44_encrypt':
+                result = nip44.v2.encrypt(params[1], nip44.v2.utils.getConversationKey(profile.recoverySecretKey, params[0])); break;
+              case 'nip44_decrypt':
+                result = nip44.v2.decrypt(params[1], nip44.v2.utils.getConversationKey(profile.recoverySecretKey, params[0])); break;
+              default: throw new Error('Unexpected signer method');
+            }
+            const response = finalizeEvent({ kind: 24133, created_at: Math.floor(Date.now() / 1000), tags: [['p', value.pubkey]],
+              content: nip44.v2.encrypt(JSON.stringify({ id, result }), shared) }, transportKey);
+            socket.send(JSON.stringify(['EVENT', subscription, response]));
+          });
+        });
+      },
+      exercise: async (targetPage, profile) => {
+        await targetPage.getByRole('button', { name: 'Sign in with remote signer' }).click();
+        await targetPage.getByLabel('Signer connection link').fill(link);
+        await targetPage.getByRole('button', { name: 'Connect', exact: true }).click();
+        await assertRecovered(targetPage, profile);
+        expect(requests.filter(method => method === 'connect')).toHaveLength(1);
+        expect(requests).toContain('sign_event');
+        expect(await targetPage.evaluate(() => Object.values(localStorage).some(value => value.includes('signer.test')))).toBe(false);
       },
     });
   });
