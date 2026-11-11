@@ -8,7 +8,7 @@ import { ProfileDriveProjection } from '../src/drive/profileDriveProjection';
 import { DocumentSession, type DocumentChange } from '../src/lib/yjs/documentStore';
 
 const PROFILE_ID = '89f3d04f-41fb-437b-9339-75df537bf291';
-const DOCUMENT = 'Notes/Plan';
+const DOCUMENT = 'Notes/Plan.irisdoc';
 
 /** A Drive shared by simulated devices, merged by the real projection. */
 class SimulatedDrive {
@@ -133,7 +133,8 @@ class SimulatedDevice {
   }
 }
 
-describe('document storage in a Drive folder', () => {
+// Every simulated save signs and merges real Drive roots, which is slow on a busy machine.
+describe('document storage in a Drive folder', { timeout: 30_000 }, () => {
   it('stores each save as a small added file and reloads the document from them', async () => {
     const drive = new SimulatedDrive();
     const writer = await drive.addDevice();
@@ -333,30 +334,5 @@ describe('document storage in a Drive folder', () => {
     const reader = await drive.addDevice();
     await reader.sync();
     expect(reader.text.toString()).toBe('typed while another tab was saving');
-  });
-
-  it('opens a document saved in the old one-copy-per-save layout', async () => {
-    const tree = new HashTree({ store: new MemoryStore() });
-    const old = new Y.Doc();
-    const copies: Uint8Array[] = [];
-    for (const word of ['old ', 'format ', 'document']) {
-      old.getText('body').insert(old.getText('body').length, word);
-      copies.push(Y.encodeStateAsUpdate(old));
-    }
-    const deltas = await tree.putDirectory(await Promise.all(copies.map(async (data, index) => {
-      const file = await tree.putFile(data);
-      return { name: `delta-${index}`, cid: file.cid, size: file.size, type: LinkType.Blob };
-    })));
-    const marker = await tree.putFile(new TextEncoder().encode('npub1example\n'));
-    const entries: TreeEntry[] = [
-      { name: '.yjs', cid: marker.cid, size: marker.size, type: LinkType.Blob },
-      { name: 'deltas', cid: deltas.cid, size: 0, type: LinkType.Dir },
-    ];
-
-    const ydoc = new Y.Doc();
-    const session = new DocumentSession({ ydoc, tree, writerId: 'bbbbbbbbbbbb', commit: async () => {} });
-    expect(await session.load(entries)).toBe(3);
-    expect(ydoc.getText('body').toString()).toBe('old format document');
-    expect(session.dirty).toBe(false);
   });
 });

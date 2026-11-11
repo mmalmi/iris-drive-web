@@ -14,10 +14,6 @@ export function isFilesApp(): boolean {
   return currentAppType === 'files';
 }
 
-export function supportsDocumentFeatures(): boolean {
-  return false;
-}
-
 export function shouldOpenSourceCodeLinkInNewTab(): boolean {
   return true;
 }

@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   shouldOpenSourceCodeLinkInNewTab,
   setAppType,
-  supportsDocumentFeatures,
 } from '../src/appType';
 
 afterEach(() => {
@@ -10,9 +9,8 @@ afterEach(() => {
 });
 
 describe('app capabilities', () => {
-  it('keeps the files app limited to generic file features', () => {
+  it('opens source links outside the files app', () => {
     setAppType('files');
-    expect(supportsDocumentFeatures()).toBe(false);
     expect(shouldOpenSourceCodeLinkInNewTab()).toBe(true);
   });
 

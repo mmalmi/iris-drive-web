@@ -1,20 +1,14 @@
 export {
-  createImageCache,
-  loadImageFromTree,
-  saveImageToTree,
-  preloadAttachments,
+  ATTACHMENTS_DIRECTORY,
+  ATTACHMENT_SCHEME,
+  attachmentFilename,
   generateImageFilename,
-  getMimeType,
-  parseAttachmentReference,
-  type ImageCache,
 } from './imageAttachments';
-export { resolveYjsRouteScopes, type YjsRouteScopes } from './routeScope';
-
+export { documentWriteScope } from './routeScope';
 export {
-  loadDeltasFromEntries,
-  loadDocumentTextFromEntries,
-  loadCollaboratorDeltas,
-  setupCollaboratorSubscriptions,
-} from './deltaLoader';
-
+  DocumentSession,
+  STORED_ORIGIN,
+  type DocumentChange,
+} from './documentStore';
+export { connectDocumentTabs } from './tabSync';
 export { createYjsTiptapEditor } from './tiptapEditor';

@@ -62,6 +62,7 @@ export {
   saveHashtree,
   deleteTree,
   autosaveIfOwn,
+  saveOwnTreeRoot,
   isOwnTree,
   pubkeyToNpub,
   npubToPubkey,

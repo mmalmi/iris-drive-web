@@ -65,6 +65,10 @@ export async function initializePublishFn(): Promise<void> {
 
     const rootCid = makeCid(record.hash, record.key);
     if (isNostrIdentityId(npub)) {
+      // Right after a page load the Drive session may not be restored yet. A
+      // change waiting from before the reload must stay queued until it is.
+      const { getCurrentNostrIdentitySession } = await import('./nostr/auth');
+      if (getCurrentNostrIdentitySession()?.status !== 'active') return false;
       return publishNostrIdentityDriveRootIfAvailable(treeName, rootCid, {
         rootScopeId: npub,
         publishedAt: record.updatedAt,

@@ -3,6 +3,7 @@
  * For encrypted trees, resolves through the path collecting keys at each level
  * Svelte version using stores
  */
+import { isDocumentFolderName } from '../lib/documentNames';
 import { writable, derived, get, type Readable } from 'svelte/store';
 import { toHex, LinkType } from '@hashtree/core';
 import { appStore, getTree } from '../store';
@@ -164,8 +165,9 @@ async function updateCurrentDirCid() {
       return;
     }
 
-    // Use type from resolvePath result (no extra store fetch needed)
-    const isDir = result.type === LinkType.Dir;
+    // Use type from resolvePath result (no extra store fetch needed).
+    // A document is a folder that the file list presents as one item.
+    const isDir = result.type === LinkType.Dir && !isDocumentFolderName(urlPath[urlPath.length - 1]);
 
     if (isDir) {
       // Path points to a directory

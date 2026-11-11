@@ -182,6 +182,28 @@ export function autosaveIfOwn(rootCid: CID): void {
 }
 
 /**
+ * Store a new root for one named tree the user may write, and queue its
+ * publication. Unlike autosaveIfOwn this does not depend on the page that is
+ * open, so a save that finishes after navigating away lands in the right tree.
+ */
+export function saveOwnTreeRoot(rootScope: string, treeName: string, rootCid: CID): boolean {
+  const state = nostrStore.getState();
+  if (!state.isLoggedIn || !state.pubkey) return false;
+  const isDriveScope = isEditableDriveRouteScope(rootScope, state);
+  if (!isDriveScope && rootScope !== state.npub) return false;
+  const selectedTree = !isDriveScope && state.selectedTree?.name === treeName ? state.selectedTree : null;
+  updateLocalRootCache(
+    rootScope,
+    treeName,
+    rootCid.hash,
+    rootCid.key,
+    treeRootRegistry.getVisibility(rootScope, treeName) ?? selectedTree?.visibility ?? (isDriveScope ? 'private' : undefined),
+    treeRootRegistry.getLabels(rootScope, treeName) ?? selectedTree?.labels,
+  );
+  return true;
+}
+
+/**
  * Delete a tree (publishes event without hash to nullify)
  * Tree will disappear from listings but can be re-created with same name
  */

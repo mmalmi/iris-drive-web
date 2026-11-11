@@ -200,7 +200,14 @@ function syncDriveRootAuthorization(
     // A registry snapshot has no author provenance. It must be re-proven on
     // the first authorization fingerprint after reload as well as after a
     // later identity/roster change.
-    if (treeRootRegistry.get(rootScopeId, driveId)) {
+    const record = treeRootRegistry.get(rootScopeId, driveId);
+    // A change this device made but has not published yet is its own work
+    // from its own storage, and its publication is already queued. Dropping it
+    // here, after a reload or a roster change, would silently lose the last
+    // edits. It stays unusable until the session is authorized again, and
+    // signing out removes it.
+    const unpublishedOwnWrite = record?.dirty === true && record.source === 'local-write';
+    if (record && !unpublishedOwnWrite) {
       treeRootRegistry.delete(rootScopeId, driveId);
     }
     const entry = subscriptionState.get(key);

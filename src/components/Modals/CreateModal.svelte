@@ -31,7 +31,6 @@
 <script lang="ts">
   import { createFile, createFolder, createTree, createDocument } from '../../actions';
   import { routeStore } from '../../stores';
-  import { navigate } from '../../lib/router.svelte';
   import VisibilityPicker from '@iris/hashtree-app/VisibilityPicker.svelte';
 
   let route = $derived($routeStore);
@@ -81,22 +80,12 @@
       close();
     } else if (isDocument) {
       isCreating = true;
-      if (route.npub && route.treeName) {
-        // Add document to existing tree
-        await createDocument(name);
-        close();
-        const newPath = [...route.path, name].map(encodeURIComponent).join('/');
+      const folderName = route.npub && route.treeName ? await createDocument(name) : null;
+      close();
+      if (folderName) {
+        const newPath = [...route.path, folderName].map(encodeURIComponent).join('/');
         const linkKeyParam = route.params.get('k') ? `?k=${route.params.get('k')}` : '';
         window.location.hash = `/${route.npub}/${route.treeName}/${newPath}${linkKeyParam}`;
-      } else {
-        // Create a standalone document tree.
-        const { createDocumentTree } = await import('../../actions/tree');
-        const result = await createDocumentTree(name, treeVisibility);
-        close();
-        if (result.npub && result.treeName) {
-          const linkKeyParam = result.linkKey ? `?k=${result.linkKey}` : '';
-          navigate(`/${result.npub}/${encodeURIComponent(result.treeName)}${linkKeyParam}`);
-        }
       }
       isCreating = false;
     } else if (isFolder) {

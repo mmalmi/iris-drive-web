@@ -19,9 +19,6 @@ import * as Y from 'yjs';
 
 export const UPDATES_DIRECTORY = 'updates';
 const BASE_FILE = 'base';
-// Documents written before this layout: one full copy per save.
-const LEGACY_STATE_FILE = 'state.yjs';
-const LEGACY_DELTAS_DIRECTORY = 'deltas';
 const READ_CONCURRENCY = 8;
 
 /** Transaction origin of updates that came from storage and need no saving. */
@@ -146,15 +143,6 @@ export class DocumentSession {
   async load(documentEntries: readonly TreeEntry[]): Promise<number> {
     const files: Array<{ cid: CID; own: boolean }> = [];
     const ownGenerations = new Map<number, number>();
-
-    const legacyState = documentEntries.find(entry => entry.name === LEGACY_STATE_FILE && isFile(entry));
-    if (legacyState) files.push({ cid: legacyState.cid, own: false });
-    const legacyDeltas = documentEntries.find(entry => entry.name === LEGACY_DELTAS_DIRECTORY && !isFile(entry));
-    if (legacyDeltas && this.markWalked(legacyDeltas.cid)) {
-      for (const entry of await this.tree.listDirectory(legacyDeltas.cid)) {
-        if (isFile(entry)) files.push({ cid: entry.cid, own: false });
-      }
-    }
 
     const updates = documentEntries.find(entry => entry.name === UPDATES_DIRECTORY && !isFile(entry));
     if (updates && this.markWalked(updates.cid)) {

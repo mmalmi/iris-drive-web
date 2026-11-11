@@ -22,7 +22,6 @@
   import ExtractModal from './components/Modals/ExtractModal.svelte';
   import GitignoreModal from './components/Modals/GitignoreModal.svelte';
   import ShareModal from './components/Modals/ShareModal.svelte';
-  import CollaboratorsModal from './components/Modals/CollaboratorsModal.svelte';
   import UnsavedChangesModal from './components/Modals/UnsavedChangesModal.svelte';
   import BlossomPushModal from './components/Modals/BlossomPushModal.svelte';
 
@@ -96,7 +95,6 @@
   <ExtractModal />
   <GitignoreModal />
   <ShareModal />
-  <CollaboratorsModal />
   <UnsavedChangesModal />
   <BlossomPushModal />
   <Toast />

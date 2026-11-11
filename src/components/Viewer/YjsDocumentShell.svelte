@@ -1,26 +1,19 @@
 <script lang="ts">
   import type { Editor } from '@tiptap/core';
-  import type { TreeVisibility } from '@hashtree/core';
   import type { CommentsStore } from '../../lib/comments';
   import type { CommentsState } from '../../lib/comments/types';
-  import { Avatar } from '../User';
-  import VisibilityIcon from '../VisibilityIcon.svelte';
   import { AddCommentModal, CommentsPanel } from '../Comments';
   import EditorToolbar from './EditorToolbar.svelte';
 
   interface Props {
-    dirName: string;
-    ownerNpub: string | null;
-    ownerPubkey: string | null;
-    visibility: TreeVisibility;
+    title: string;
+    backHref: string;
     canEdit: boolean;
-    isOwnTree: boolean;
-    isEditor: boolean;
-    saveStatus: 'idle' | 'saving' | 'saved' | 'error';
-    lastSaved: Date | null;
-    collaboratorsCount: number;
+    saveStatus: 'idle' | 'unsaved' | 'saving' | 'saved' | 'error' | 'other-tab';
+    notice: string;
     editor: Editor | undefined;
     loading: boolean;
+    missing: boolean;
     hasTextSelection: boolean;
     userNpub: string | null;
     commentsState: CommentsState;
@@ -29,9 +22,6 @@
     pendingCommentText: string;
     editorElement?: HTMLElement;
     onShare: () => void;
-    onPush: () => void;
-    onCollaborators: () => void;
-    onFork: () => void;
     onDelete: () => void;
     onAddComment: () => void;
     onToggleCommentsPanel: () => void;
@@ -44,18 +34,14 @@
   }
 
   let {
-    dirName,
-    ownerNpub,
-    ownerPubkey,
-    visibility,
+    title,
+    backHref,
     canEdit,
-    isOwnTree,
-    isEditor,
     saveStatus,
-    lastSaved,
-    collaboratorsCount,
+    notice,
     editor,
     loading,
+    missing,
     hasTextSelection,
     userNpub,
     commentsState,
@@ -64,9 +50,6 @@
     pendingCommentText,
     editorElement = $bindable(),
     onShare,
-    onPush,
-    onCollaborators,
-    onFork,
     onDelete,
     onAddComment,
     onToggleCommentsPanel,
@@ -80,10 +63,6 @@
 
   let imageFileInput: HTMLInputElement | undefined = $state();
 
-  function triggerImageUpload(): void {
-    imageFileInput?.click();
-  }
-
   function handleFileInputChange(event: Event): void {
     const input = event.target as HTMLInputElement;
     const file = input.files?.[0];
@@ -94,58 +73,41 @@
   }
 </script>
 
-<div class="flex-1 flex flex-col min-h-0 bg-surface-0">
-  <div class="shrink-0 px-4 py-2 border-b border-surface-3 flex flex-wrap items-center justify-between gap-2 bg-surface-1 text-sm">
-    <div class="flex items-center gap-2 min-w-0">
-      <a href="#/" class="btn-ghost p-1" title="Back to home">
-        <span class="i-lucide-chevron-left text-lg"></span>
-      </a>
-      {#if ownerPubkey && ownerNpub}
-        <a href="#/{ownerNpub}" class="shrink-0">
-          <Avatar pubkey={ownerPubkey} size={20} />
-        </a>
-      {/if}
-      <span class="i-lucide-file-text text-text-2 shrink-0"></span>
-      <span class="font-medium text-text-1 truncate">{dirName}</span>
-      <VisibilityIcon {visibility} class="text-text-2 text-sm" />
-      {#if canEdit}
-        <span class="i-lucide-pencil text-xs text-text-3" title={isOwnTree ? 'You can edit this document' : 'Editing as editor - saves to your tree'}></span>
-      {/if}
-      {#if !canEdit}
-        <span class="text-xs px-2 py-0.5 rounded bg-surface-2 text-text-3">Read-only</span>
-      {/if}
-      {#if isEditor && !isOwnTree}
-        <span class="text-xs px-2 py-0.5 rounded bg-success/20 text-success" title="You are an editor - edits save to your tree">Editor</span>
-      {/if}
-    </div>
+<div class="flex-1 flex flex-col min-h-0 bg-surface-0" data-testid="document-editor">
+  <div class="shrink-0 h-12 px-2 sm:px-4 border-b border-surface-2 flex items-center gap-2 bg-surface-1">
+    <a href={backHref} class="btn-circle btn-ghost shrink-0 no-underline" title="Back to folder" aria-label="Back to folder">
+      <span class="i-lucide-arrow-left text-base"></span>
+    </a>
+    <span class="i-lucide-file-text text-accent shrink-0"></span>
+    <h1 class="text-sm font-semibold text-text-1 truncate min-w-0" data-testid="document-title">{title}</h1>
+    {#if !canEdit && !loading}
+      <span class="shrink-0 text-xs px-2 py-0.5 rounded-full bg-surface-2 text-text-2" data-testid="document-view-only">View only</span>
+    {/if}
 
-    <div class="flex items-center gap-2 shrink-0">
-      <div class="flex items-center gap-2 text-text-3">
-        {#if saveStatus === 'saving'}
-          <span class="i-lucide-loader-2 animate-spin"></span>
-          <span>Saving...</span>
-        {:else if lastSaved}
-          <span class="text-xs">Saved {lastSaved.toLocaleTimeString()}</span>
+    <div class="ml-auto flex items-center gap-1 shrink-0">
+      <span class="text-xs text-text-3 flex items-center gap-1 mr-1" role="status" data-testid="document-save-status">
+        {#if saveStatus === 'saving' || saveStatus === 'unsaved'}
+          <span class="i-lucide-loader-2 animate-spin"></span>Saving
+        {:else if saveStatus === 'saved'}
+          <span class="i-lucide-check"></span>Saved
+        {:else if saveStatus === 'error'}
+          <span class="text-danger flex items-center gap-1"><span class="i-lucide-triangle-alert"></span>Not saved, retrying</span>
+        {:else if saveStatus === 'other-tab'}
+          Open in another tab
         {/if}
-      </div>
-      <button onclick={onShare} class="btn-ghost" title="Share document">
-        <span class="i-lucide-share"></span>
+      </span>
+      {#if !canEdit && commentsStore && commentsState.threads.size > 0}
+        <button onclick={onToggleCommentsPanel} class="btn-circle btn-ghost" title="Comments" aria-label="Comments">
+          <span class="i-lucide-message-square text-base"></span>
+        </button>
+      {/if}
+      <button onclick={onShare} class="btn-circle btn-ghost" title="Share" aria-label="Share" data-testid="document-share">
+        <span class="i-lucide-share text-base"></span>
       </button>
-      <button onclick={onPush} class="btn-ghost" title="Push to file servers">
-        <span class="i-lucide-upload-cloud"></span>
-      </button>
-      <button onclick={onCollaborators} class="btn-ghost flex items-center gap-1" title={isOwnTree ? 'Manage editors' : 'View editors'}>
-        <span class="i-lucide-users"></span>
-        {#if collaboratorsCount > 0}
-          <span class="text-xs bg-surface-2 px-1.5 rounded-full">{collaboratorsCount}</span>
-        {/if}
-      </button>
-      <button onclick={onFork} class="btn-ghost flex items-center gap-1" title="Fork document as new tree">
-        <span class="i-lucide-git-fork"></span>
-        Fork
-      </button>
-      {#if isOwnTree}
-        <button onclick={onDelete} class="btn-ghost text-danger" title="Delete document">Delete</button>
+      {#if canEdit}
+        <button onclick={onDelete} class="btn-circle btn-ghost" title="Delete document" aria-label="Delete document" data-testid="document-delete">
+          <span class="i-lucide-trash-2 text-base"></span>
+        </button>
       {/if}
     </div>
   </div>
@@ -159,28 +121,35 @@
       commentsPanelOpen={commentsState.panelOpen}
       onAddComment={onAddComment}
       onToggleCommentsPanel={onToggleCommentsPanel}
-      onImageUpload={triggerImageUpload}
+      onImageUpload={() => imageFileInput?.click()}
     />
+  {/if}
+
+  {#if notice}
+    <div class="shrink-0 px-4 py-1.5 text-xs text-text-1 bg-warning/20" role="alert">{notice}</div>
   {/if}
 
   <div class="flex-1 flex min-h-0">
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div class="flex-1 overflow-auto bg-[#0d0d14]" onclick={onEditorClick}>
-      <div class="a4-page bg-[#1a1a24]">
-        {#if loading}
-          <div class="flex items-center justify-center min-h-[400px] text-text-3 p-4 md:p-8">
-            <span class="i-lucide-loader-2 animate-spin mr-2"></span>
-            Loading document...
+    <div class="flex-1 overflow-auto" onclick={onEditorClick} data-scrollable>
+      <div class="document-page">
+        {#if loading && missing}
+          <div class="flex items-center justify-center min-h-[40vh] text-text-3 text-sm" data-testid="document-missing">
+            Document not found
+          </div>
+        {:else if loading}
+          <div class="flex items-center justify-center min-h-[40vh] text-text-3" data-testid="document-loading">
+            <span class="i-lucide-loader-2 animate-spin"></span>
           </div>
         {:else}
-          <div bind:this={editorElement} class="ProseMirror-container prose prose-sm max-w-none min-h-full"></div>
+          <div bind:this={editorElement} class="document-container" data-testid="document-content"></div>
         {/if}
       </div>
     </div>
 
-    {#if commentsStore}
-      <div class="w-80 shrink-0 border-l border-surface-3 {commentsState.panelOpen ? '' : 'hidden'}">
+    {#if commentsStore && commentsState.panelOpen}
+      <div class="w-80 max-w-[85vw] shrink-0 border-l border-surface-2 bg-surface-1">
         <CommentsPanel
           {commentsStore}
           {userNpub}
@@ -208,68 +177,151 @@
 />
 
 <style>
-  .a4-page {
+  .document-page {
     min-height: 100%;
+    background: rgb(var(--surface-0));
   }
 
   @media (min-width: 900px) {
-    .a4-page {
+    .document-page {
       max-width: 816px;
-      margin: 2rem auto;
-      min-height: calc(100% - 4rem);
-      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
-      border-radius: 4px;
+      margin: 1.5rem auto;
+      min-height: calc(100% - 3rem);
+      background: rgb(var(--surface-1));
+      border: 1px solid rgb(var(--surface-2));
+      border-radius: 6px;
     }
   }
 
-  :global(.ProseMirror-container .ProseMirror) {
-    min-height: 200px;
-    padding: 1rem;
+  .document-container :global(.ProseMirror) {
+    min-height: 60vh;
+    padding: 1.25rem 1rem 6rem;
+    color: rgb(var(--text-1));
+    font-size: 1rem;
+    line-height: 1.65;
+    overflow-wrap: anywhere;
   }
 
   @media (min-width: 900px) {
-    :global(.ProseMirror-container .ProseMirror) {
-      padding: 2rem 3rem;
+    .document-container :global(.ProseMirror) {
+      padding: 3rem 4rem 8rem;
     }
   }
 
-  :global(.ProseMirror-container .ProseMirror:focus) {
+  .document-container :global(.ProseMirror:focus) {
     outline: none;
   }
 
-  :global(.ProseMirror-container .ProseMirror p.is-editor-empty:first-child::before) {
-    color: var(--color-text-3);
+  .document-container :global(.ProseMirror > * + *) {
+    margin-top: 0.75em;
+  }
+
+  .document-container :global(.ProseMirror h1) {
+    font-size: 1.9rem;
+    line-height: 1.25;
+    font-weight: 700;
+    margin-top: 1.4em;
+  }
+
+  .document-container :global(.ProseMirror h2) {
+    font-size: 1.45rem;
+    line-height: 1.3;
+    font-weight: 650;
+    margin-top: 1.3em;
+  }
+
+  .document-container :global(.ProseMirror h3) {
+    font-size: 1.15rem;
+    line-height: 1.35;
+    font-weight: 650;
+    margin-top: 1.2em;
+  }
+
+  .document-container :global(.ProseMirror > :first-child) {
+    margin-top: 0;
+  }
+
+  .document-container :global(.ProseMirror ul),
+  .document-container :global(.ProseMirror ol) {
+    padding-left: 1.6em;
+  }
+
+  .document-container :global(.ProseMirror ul) {
+    list-style: disc;
+  }
+
+  .document-container :global(.ProseMirror ol) {
+    list-style: decimal;
+  }
+
+  .document-container :global(.ProseMirror li > p) {
+    margin: 0.2em 0;
+  }
+
+  .document-container :global(.ProseMirror blockquote) {
+    border-left: 3px solid rgb(var(--surface-3));
+    padding-left: 1em;
+    color: rgb(var(--text-2));
+  }
+
+  .document-container :global(.ProseMirror code) {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.9em;
+    background: rgb(var(--surface-2));
+    border-radius: 4px;
+    padding: 0.1em 0.3em;
+  }
+
+  .document-container :global(.ProseMirror pre) {
+    background: rgb(var(--surface-2));
+    border-radius: 6px;
+    padding: 0.8em 1em;
+    overflow-x: auto;
+  }
+
+  .document-container :global(.ProseMirror pre code) {
+    background: none;
+    padding: 0;
+  }
+
+  .document-container :global(.ProseMirror hr) {
+    border: none;
+    border-top: 1px solid rgb(var(--surface-3));
+    margin: 1.5em 0;
+  }
+
+  .document-container :global(.ProseMirror a) {
+    color: #916dfe;
+    text-decoration: underline;
+  }
+
+  .document-container :global(.ProseMirror p.is-editor-empty:first-child::before) {
+    color: rgb(var(--text-3));
     content: attr(data-placeholder);
     float: left;
     height: 0;
     pointer-events: none;
   }
 
-  :global(.ProseMirror-container .ProseMirror img) {
+  .document-container :global(.ProseMirror img) {
     max-width: 100%;
     height: auto;
-    margin: 1rem 0;
-    cursor: pointer;
+    border-radius: 4px;
   }
 
-  :global(.ProseMirror-container .ProseMirror img.ProseMirror-selectednode) {
-    outline: 3px solid var(--color-accent);
-    outline-offset: 3px;
-    box-shadow: 0 0 0 6px rgba(var(--color-accent-rgb, 99, 102, 241), 0.2);
-    cursor: grab;
+  .document-container :global(.ProseMirror img.ProseMirror-selectednode) {
+    outline: 2px solid #916dfe;
+    outline-offset: 2px;
   }
 
-  :global(.ProseMirror-container .comment-highlight) {
-    background-color: rgba(255, 213, 79, 0.3);
-    border-bottom: 2px solid rgba(255, 213, 79, 0.7);
-    padding: 0 2px;
-    margin: 0 -2px;
+  .document-container :global(.comment-highlight) {
+    background-color: rgb(255 204 0 / 0.28);
+    border-bottom: 2px solid rgb(255 204 0 / 0.75);
     border-radius: 2px;
     cursor: pointer;
-    transition: background-color 0.15s;
   }
 
-  :global(.ProseMirror-container .comment-highlight:hover) {
-    background-color: rgba(255, 213, 79, 0.5);
+  .document-container :global(.comment-highlight:hover) {
+    background-color: rgb(255 204 0 / 0.45);
   }
 </style>

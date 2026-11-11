@@ -19,7 +19,6 @@
   import { setUploadProgress } from '../stores/upload';
   import { readFilesFromWebkitDirectory, supportsDirectoryUpload } from '@iris/hashtree-app/directory';
   import { routeStore, createTreesStore, permalinkSnapshotStore } from '../stores';
-  import { supportsDocumentFeatures } from '../appType';
   import {
     buildTreeEventPermalink,
     ensureTreeEventSnapshotForRoot,
@@ -329,12 +328,10 @@
         New Folder
       </button>
 
-      {#if supportsDocumentFeatures()}
-        <button onclick={() => openCreateModal('document')} class="btn-ghost {btnClass}" title="New Document">
-          <span class="i-lucide-file-text"></span>
-          New Document
-        </button>
-      {/if}
+      <button onclick={() => openCreateModal('document')} class="btn-ghost {btnClass}" title="New Document" data-testid="new-document">
+        <span class="i-lucide-file-text"></span>
+        New Document
+      </button>
 
       {#if streamUrl}
         <a href={streamUrl} class="btn-ghost no-underline {btnClass}" title="Stream">

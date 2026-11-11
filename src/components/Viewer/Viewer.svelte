@@ -6,7 +6,7 @@
   import { getQueryParamsFromHash } from '../../lib/router.svelte';
   import DirectoryActions from './DirectoryActions.svelte';
   import ViewerFileView from './ViewerFileView.svelte';
-  import { supportsDocumentFeatures } from '../../appType';
+  import { isDocumentFolderName } from '../../lib/documentNames';
   import { buildSitesHref, isHtmlFilename } from '../../lib/siteHref';
   import {
     buildTreeEventPermalink,
@@ -127,14 +127,9 @@
   // Check if we have a tree context (for showing actions)
   let hasTreeContext = $derived(!!rootCid || !!route.treeName);
 
-  // Check if current directory is a Yjs document (contains .yjs file)
-  let isYjsDocument = $derived(supportsDocumentFeatures() && entries.some(e => e.name === '.yjs' && e.type !== LinkType.Dir));
+  // A folder named like a document opens in the editor instead of as a file list.
+  let isYjsDocument = $derived(isDocumentFolderName(route.path[route.path.length - 1]));
 
-  // Get current directory name from path
-  let currentDirName = $derived.by(() => {
-    const pathSegments = route.path;
-    return pathSegments.length > 0 ? pathSegments[pathSegments.length - 1] : route.treeName || 'Document';
-  });
   let yjsViewKey = $derived.by(() => {
     if (!route.npub || !route.treeName) return '';
     const pathKey = route.path.join('/');
@@ -288,7 +283,14 @@
 
 </script>
 
-{#if urlFileName && (isEditing || entryFromStore)}
+{#if hasTreeContext && isYjsDocument}
+  <!-- The editor and its libraries load only when a document is opened. -->
+  {#key yjsViewKey}
+    {#await import('./YjsDocumentEditor.svelte') then { default: YjsDocumentEditor }}
+      <YjsDocumentEditor dirName={route.path[route.path.length - 1]} />
+    {/await}
+  {/key}
+{:else if urlFileName && (isEditing || entryFromStore)}
   <ViewerFileView
     entry={entryFromStore}
     {urlFileName}
@@ -319,18 +321,6 @@
       <span>File not found</span>
     {/if}
   </div>
-{:else if hasTreeContext && isYjsDocument && currentDirCid}
-  <!-- Yjs Document view - show Tiptap editor -->
-  <!-- The editor and its libraries load only when a document is opened. -->
-  {#key yjsViewKey}
-    {#await import('./YjsDocumentEditor.svelte') then { default: YjsDocumentEditor }}
-      <YjsDocumentEditor
-        dirCid={currentDirCid}
-        dirName={currentDirName}
-        entries={entries}
-      />
-    {/await}
-  {/key}
 {:else if hasTreeContext && !resolvingPath}
   <!-- Directory view - show DirectoryActions -->
   <div class="flex-1 flex flex-col min-h-0 bg-surface-0">

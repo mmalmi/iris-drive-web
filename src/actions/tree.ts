@@ -2,10 +2,11 @@
  * Tree operations - create and fork trees
  */
 import { navigate } from '../utils/navigate';
+import { documentFolderName } from '../lib/documentNames';
 import { parseRoute } from '../utils/route';
 import { toHex, LinkType } from '@hashtree/core';
 import type { CID } from '@hashtree/core';
-import { linkKeyUtils, saveHashtree, useNostrStore } from '../nostr';
+import { saveHashtree, useNostrStore } from '../nostr';
 import { nip19 } from 'nostr-tools';
 import { getTree } from '../store';
 import { autosaveIfOwn } from '../nostr';
@@ -114,55 +115,12 @@ export async function createFolder(name: string) {
   }
 }
 
-// Create new Yjs document folder (folder with .yjs config file)
-export async function createDocument(name: string) {
-  const isCurrent = captureRouteWriteGuard();
-  if (!name) return;
-
-  const rootCid = getCurrentRootCid();
-  const tree = getTree();
-  const currentPath = getCurrentPathFromUrl();
-
-  // Create .yjs config file with owner's npub as first editor
-  const nostrState = useNostrStore.getState();
-  const ownerNpub = nostrState.npub || '';
-  const yjsContent = new TextEncoder().encode(ownerNpub ? ownerNpub + '\n' : '');
-  const { cid: yjsFileCid, size: yjsFileSize } = await tree.putFile(yjsContent);
-
-  // Create directory with .yjs file inside
-  const { cid: docDirCid } = await tree.putDirectory([
-    { name: '.yjs', cid: yjsFileCid, size: yjsFileSize, type: LinkType.Blob }
-  ]);
-
-  if (rootCid) {
-    // Add to existing tree
-    const route = parseRoute();
-    if (!isCurrent()) return;
-    const newRootCid = await setEntryForDriveRoute(
-      tree,
-      rootCid,
-      currentPath,
-      name,
-      { cid: docDirCid, size: 0, type: LinkType.Dir },
-      route,
-      nostrState,
-    );
-    // Publish to nostr
-    if (!isCurrent()) return;
-    autosaveIfOwn(newRootCid);
-
-    // Update local cache for subsequent saves (visibility is preserved from selectedTree)
-    const nostrStore = useNostrStore.getState();
-    const isProfileDriveRoute = isEditableDriveRouteScope(route.npub, nostrStore);
-    const rootScope = isProfileDriveRoute ? route.npub : nostrStore.npub;
-    if (rootScope && route.treeName) {
-      updateLocalRootCache(rootScope, route.treeName, newRootCid.hash, newRootCid.key, nostrStore.selectedTree?.visibility);
-    }
-  } else {
-    // Initialize virtual tree with this document folder
-    if (!isCurrent()) return;
-    await initVirtualTree([{ name, cid: docDirCid, size: 0, type: LinkType.Dir }]);
-  }
+/** A document is a folder named for it; the editor fills it on the first save. */
+export async function createDocument(title: string): Promise<string | null> {
+  const folderName = documentFolderName(title);
+  if (!title.trim()) return null;
+  await createFolder(folderName);
+  return folderName;
 }
 
 // Create a new tree (top-level folder on nostr or local)
@@ -221,63 +179,3 @@ export async function createTree(name: string, visibility: import('@hashtree/cor
   return { success: false };
 }
 
-// Create a new standalone document tree with a .yjs config file.
-export async function createDocumentTree(
-  name: string,
-  visibility: import('@hashtree/core').TreeVisibility = 'public'
-): Promise<{ success: boolean; npub?: string; treeName?: string; linkKey?: string }> {
-  if (!name) return { success: false };
-
-  const { saveHashtree } = await import('../nostr');
-  const { storeLinkKey } = await import('../stores/trees');
-
-  const tree = getTree();
-  const nostrState = useNostrStore.getState();
-
-  if (!nostrState.isLoggedIn || !nostrState.npub || !nostrState.pubkey) {
-    return { success: false };
-  }
-
-  const treeName = `docs/${name}`;
-  const linkKey = visibility === 'link-visible'
-    ? linkKeyUtils.generateLinkKey()
-    : undefined;
-
-  // Create .yjs config file with owner's npub as first editor
-  const yjsContent = new TextEncoder().encode(nostrState.npub + '\n');
-  const { cid: yjsFileCid, size: yjsFileSize } = await tree.putFile(yjsContent);
-
-  // Create root directory with .yjs file inside
-  const { cid: rootCid } = await tree.putDirectory([
-    { name: '.yjs', cid: yjsFileCid, size: yjsFileSize, type: LinkType.Blob }
-  ]);
-
-  // Set selectedTree for updates
-  useNostrStore.setSelectedTree({
-    id: '',
-    name: treeName,
-    pubkey: nostrState.pubkey,
-    labels: ['docs'],
-    rootHash: toHex(rootCid.hash),
-    rootKey: rootCid.key ? toHex(rootCid.key) : undefined,
-    visibility,
-    created_at: Math.floor(Date.now() / 1000),
-  });
-
-  // Save to Nostr with docs label (also updates local cache)
-  const publishPromise = saveHashtree(treeName, rootCid, { visibility, labels: ['docs'], linkKey });
-  let result: { success: boolean; linkKey?: string };
-  if (import.meta.env.VITE_TEST_MODE) {
-    void publishPromise;
-    result = { success: true, linkKey };
-  } else {
-    result = await publishPromise;
-  }
-
-  // Store link key for link-visible documents
-  if (result.linkKey) {
-    storeLinkKey(nostrState.npub, treeName, result.linkKey);
-  }
-
-  return { success: true, npub: nostrState.npub, treeName, linkKey: result.linkKey };
-}

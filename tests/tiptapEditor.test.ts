@@ -8,19 +8,19 @@ test('rich text survives a saved Yjs document reopening with collaboration enabl
   const restored = new Y.Doc();
   const elements = [document.createElement('div'), document.createElement('div')];
   elements.forEach(element => document.body.append(element));
-  let saves = 0;
+  let localUpdates = 0;
+  original.on('update', () => { localUpdates += 1; });
   const setup = (ydoc: Y.Doc, element: HTMLElement) => createYjsTiptapEditor({
     element, ydoc, canEdit: true,
     handleImageUpload: () => {},
     resolveImageSrc: () => {},
-    scheduleSave: () => { saves++; },
     onCommentsState: () => {},
   });
   const first = setup(original, elements[0]!);
   let second: ReturnType<typeof setup> | undefined;
   try {
     first.editor.commands.setContent('<h2>Trip notes</h2><p>Bring <strong>sandwiches</strong>.</p>');
-    expect(saves).toBeGreaterThan(0);
+    expect(localUpdates).toBeGreaterThan(0);
     Y.applyUpdate(restored, Y.encodeStateAsUpdate(original));
     second = setup(restored, elements[1]!);
     expect(second.editor.getHTML()).toBe(first.editor.getHTML());

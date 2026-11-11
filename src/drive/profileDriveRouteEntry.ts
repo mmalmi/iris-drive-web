@@ -45,6 +45,13 @@ export async function setEntryForDriveRoute(
       entry,
     });
   }
+  // The profile-Drive mutation creates missing parents itself; a plain tree needs them first.
+  for (let depth = 1; depth <= parentPath.length; depth += 1) {
+    const prefix = parentPath.slice(0, depth);
+    if (await tree.resolvePath(root, prefix)) continue;
+    const empty = await tree.putDirectory([]);
+    root = await tree.setEntry(root, prefix.slice(0, -1), prefix[prefix.length - 1], empty.cid, 0, LinkType.Dir);
+  }
   return tree.setEntry(
     root,
     parentPath,
@@ -54,4 +61,23 @@ export async function setEntryForDriveRoute(
     entry.type ?? LinkType.Blob,
     entry.meta,
   );
+}
+
+/**
+ * Remove a folder that only this device wrote. On a profile Drive a single
+ * marker on the folder covers its contents; a plain tree just drops the entry.
+ */
+export async function removeOwnDirectoryForDriveRoute(
+  tree: HashTree,
+  root: CID,
+  path: string[],
+  route: DriveRoute,
+  state: EditableNostrState,
+): Promise<CID> {
+  if (path.length === 0) return root;
+  if (route.treeName && isEditableDriveRouteScope(route.npub, state)) {
+    return mutateProfileDriveRoot(tree, root, { type: 'delete', path: path.join('/'), markContents: false });
+  }
+  if (!await tree.resolvePath(root, path)) return root;
+  return tree.removeEntry(root, path.slice(0, -1), path[path.length - 1]);
 }

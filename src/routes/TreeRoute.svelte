@@ -5,13 +5,12 @@
   import Viewer from '../components/Viewer/Viewer.svelte';
   import StreamView from '../components/stream/StreamView.svelte';
   import { nostrStore } from '../nostr';
-  import { routeStore, addRecent, isViewingFileStore, currentHash, directoryEntriesStore } from '../stores';
-  import { LinkType } from '@hashtree/core';
+  import { routeStore, addRecent, isViewingFileStore, currentHash } from '../stores';
   import { updateRecentVisibility } from '../stores/recents';
   import { nip19 } from 'nostr-tools';
   import { getQueryParamsFromHash } from '../lib/router.svelte';
   import { buildSelectedTreeForOwnRoute, syncSelectedTreeForOwnRoute } from '../lib/selectedTree';
-  import { supportsDocumentFeatures } from '../appType';
+  import { isDocumentFolderName } from '../lib/documentNames';
   import { treeRootRegistry } from '../TreeRootRegistry';
 
   interface Props {
@@ -40,10 +39,9 @@
   let isStreaming = $derived(route.params.get('stream') === '1' && isOwnTree);
   // Check if a file is selected (actual check from hashtree, not heuristic)
   let isViewingFile = $derived($isViewingFileStore);
-  let dirEntries = $derived($directoryEntriesStore);
 
-  // Check if current directory is a Yjs document (contains .yjs file)
-  let isYjsDocument = $derived(supportsDocumentFeatures() && dirEntries.entries.some(e => e.name === '.yjs' && e.type !== LinkType.Dir));
+  // A document folder shows the editor, also on a narrow screen.
+  let isYjsDocument = $derived(isDocumentFolderName(route.path[route.path.length - 1]));
 
   // On mobile, show viewer for Yjs docs or when file/stream selected
   let hasFileSelected = $derived(isViewingFile || isStreaming || isYjsDocument);

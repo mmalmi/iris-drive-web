@@ -5,31 +5,17 @@ type EditableNostrState = {
   pubkey: string | null;
 };
 
-export type YjsRouteScopes = {
-  isOwnTree: boolean;
-  ownerNpub: string | null;
-  viewedRootScope: string | null;
-  writeRootScope: string | null;
-};
-
 /**
- * Keep storage addressing separate from collaborator identity. An active Drive
- * is stored under its stable profile UUID even though its local signer and
- * collaborator identity remain the AppKey npub.
+ * The root a document on this route is written to, or null when the account
+ * may only read it. A Drive or shared folder is addressed by its stable id; an
+ * editor of a shared folder writes into that folder, where Drive merges every
+ * writer's files.
  */
-export function resolveYjsRouteScopes(
-  routeScope: string | null,
+export function documentWriteScope(
+  routeScope: string | null | undefined,
   userNpub: string | null,
   state: EditableNostrState,
-): YjsRouteScopes {
-  const isProfileDrive = isEditableDriveRouteScope(routeScope, state);
-  const viewedRootScope = routeScope || userNpub;
-  return {
-    isOwnTree: !routeScope || routeScope === userNpub || isProfileDrive,
-    ownerNpub: isProfileDrive ? userNpub : (routeScope || userNpub),
-    viewedRootScope,
-    // Collaborators deliberately publish their deltas/attachments to their
-    // own npub tree; only the active profile owner writes to the UUID root.
-    writeRootScope: isProfileDrive ? routeScope : userNpub,
-  };
+): string | null {
+  if (!routeScope || !state.isLoggedIn || !state.pubkey) return null;
+  return routeScope === userNpub || isEditableDriveRouteScope(routeScope, state) ? routeScope : null;
 }

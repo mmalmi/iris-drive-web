@@ -13,7 +13,6 @@ interface CreateYjsTiptapEditorOptions {
   canEdit: boolean;
   handleImageUpload: (file: File) => void | Promise<void>;
   resolveImageSrc: (img: HTMLImageElement) => void;
-  scheduleSave: () => void;
   onCommentsState: (state: CommentsState) => void;
 }
 
@@ -29,7 +28,7 @@ export function createYjsTiptapEditor(options: CreateYjsTiptapEditorOptions): Yj
     element: options.element,
     extensions: [
       StarterKit.configure({ undoRedo: false }),
-      Placeholder.configure({ placeholder: 'Start typing...' }),
+      Placeholder.configure({ placeholder: options.canEdit ? 'Start writing…' : '' }),
       Collaboration.configure({ document: options.ydoc }),
       Image.configure({ inline: false, allowBase64: false }),
       CommentMark.configure({
@@ -41,7 +40,7 @@ export function createYjsTiptapEditor(options: CreateYjsTiptapEditorOptions): Yj
     editable: options.canEdit,
     editorProps: {
       attributes: {
-        class: 'prose prose-invert max-w-none focus:outline-none min-h-[200px] p-4',
+        class: 'document-body focus:outline-none',
       },
       handlePaste: (_view, event) => {
         const items = event.clipboardData?.items;
@@ -70,12 +69,6 @@ export function createYjsTiptapEditor(options: CreateYjsTiptapEditorOptions): Yj
         return false;
       },
     },
-  });
-
-  options.ydoc.on('update', (_update: Uint8Array, origin: unknown) => {
-    if (origin !== 'remote') {
-      options.scheduleSave();
-    }
   });
 
   const observer = new MutationObserver((mutations) => {

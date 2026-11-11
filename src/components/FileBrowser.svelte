@@ -24,6 +24,7 @@
   import IdentityName from './User/IdentityName.svelte';
 
   import { getFileIcon } from '@iris/hashtree-app/fileIcon';
+  import { documentTitle, isDocumentFolderName } from '../lib/documentNames';
   import { BREAKPOINTS } from '@iris/hashtree-app/breakpoints';
 
   interface Props {
@@ -581,18 +582,21 @@
           </div>
         {:else}
           {#each entries as entry, idx (entry.name)}
+            {@const isDocument = entry.type === LinkType.Dir && isDocumentFolderName(entry.name)}
+            {@const isFolder = entry.type === LinkType.Dir && !isDocument}
             <a
               href={buildEntryHref(entry, currentNpub, currentTreeName, currentPath, rootCid, linkKey, null)}
               class="p-3 pl-9 border-b border-surface-2 flex items-center gap-3 no-underline text-text-1 hover:bg-surface-2/50 {selectedEntry?.name === entry.name && focusedIndex < 0 ? 'bg-surface-2' : ''} {focusedIndex === idx + specialItemCount ? 'ring-2 ring-inset ring-accent' : ''} {recentlyChanged.has(entry.name) && selectedEntry?.name !== entry.name ? 'animate-pulse-live' : ''} {draggingEntry === entry.name ? 'opacity-50' : ''} {dropTargetDir === entry.name ? 'bg-accent/20' : ''}"
               draggable={canEdit}
               ondragstart={(e) => handleEntryDragStart(e, entry.name)}
               ondragend={handleEntryDragEnd}
-              ondragover={entry.type === LinkType.Dir ? (e) => handleDirDragOver(e, entry.name) : undefined}
-              ondragleave={entry.type === LinkType.Dir ? handleDirDragLeave : undefined}
-              ondrop={entry.type === LinkType.Dir ? (e) => handleDirDrop(e, entry.name) : undefined}
+              ondragover={isFolder ? (e) => handleDirDragOver(e, entry.name) : undefined}
+              ondragleave={isFolder ? handleDirDragLeave : undefined}
+              ondrop={isFolder ? (e) => handleDirDrop(e, entry.name) : undefined}
+              data-testid={isDocument ? 'document-entry' : undefined}
             >
-              <span class="shrink-0 {entry.type === LinkType.Dir ? 'i-lucide-folder text-warning' : `${getFileIcon(entry.name)} text-text-2`}"></span>
-              <span class="truncate flex-1 min-w-0" title={entry.name}>{entry.name}</span>
+              <span class="shrink-0 {isDocument ? 'i-lucide-file-text text-accent' : isFolder ? 'i-lucide-folder text-warning' : `${getFileIcon(entry.name)} text-text-2`}"></span>
+              <span class="truncate flex-1 min-w-0" title={entry.name}>{isDocument ? documentTitle(entry.name) : entry.name}</span>
               <span class="shrink-0 text-muted text-sm min-w-12 text-right">
                 {entry.type !== LinkType.Dir && entry.size !== undefined ? formatBytes(entry.size) : ''}
               </span>

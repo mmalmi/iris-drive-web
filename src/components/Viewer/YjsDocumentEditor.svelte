@@ -2,541 +2,445 @@
   import { onMount, onDestroy, tick } from 'svelte';
   import type { Editor } from '@tiptap/core';
   import * as Y from 'yjs';
-  import { toHex, LinkType } from '@hashtree/core';
-  import type { CID, TreeEntry, TreeVisibility } from '@hashtree/core';
+  import { LinkType, toHex } from '@hashtree/core';
+  import type { CID, TreeEntry } from '@hashtree/core';
   import { getTree } from '../../store';
-  import { routeStore, createTreesStore, getTreeRootSync } from '../../stores';
-  import { open as openForkModal } from '../Modals/ForkModal.svelte';
+  import { routeStore, getTreeRootSync, treeRootStore } from '../../stores';
   import { open as openShareModal } from '../Modals/ShareModal.svelte';
-  import { open as openCollaboratorsModal } from '../Modals/CollaboratorsModal.svelte';
-  import { open as openBlossomPushModal } from '../Modals/BlossomPushModal.svelte';
-  import { autosaveIfOwn, nostrStore, npubToPubkey, deleteTree } from '../../nostr';
-  import { updateLocalRootCacheHex } from '../../treeRootCache';
-  import { getCurrentRootCid, deleteCurrentFolder } from '../../actions';
+  import { nostrStore, saveOwnTreeRoot } from '../../nostr';
+  import { deleteCurrentFolder } from '../../actions';
   import type { CommentsStore } from '../../lib/comments';
   import type { CommentsState } from '../../lib/comments/types';
   import YjsDocumentShell from './YjsDocumentShell.svelte';
   import {
-    saveImageToTree,
-    generateImageFilename,
-    loadDeltasFromEntries,
-    loadCollaboratorDeltas,
-    setupCollaboratorSubscriptions,
+    ATTACHMENTS_DIRECTORY,
+    ATTACHMENT_SCHEME,
+    DocumentSession,
+    STORED_ORIGIN,
+    attachmentFilename,
+    connectDocumentTabs,
     createYjsTiptapEditor,
-    resolveYjsRouteScopes,
-    parseAttachmentReference,
+    generateImageFilename,
+    documentWriteScope,
+    type DocumentChange,
   } from '../../lib/yjs';
-  import { createThrottledCapture, getThumbnailFilename } from '../../lib/yjs/thumbnail';
+  import { documentTitle } from '../../lib/documentNames';
   import { getNpubFileUrl } from '../../lib/mediaUrl';
-  import { setEntryForDriveRoute } from '../../drive/profileDriveRouteEntry';
-  import { captureRouteWriteGuard } from '../../lib/routeWriteGuard';
+  import { removeOwnDirectoryForDriveRoute, setEntryForDriveRoute } from '../../drive/profileDriveRouteEntry';
+
+  // Edits are stored after a short pause, and at least this often while typing without one.
+  const SAVE_IDLE_MS = 800;
+  const SAVE_MAX_WAIT_MS = 4000;
+  const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
+  // About half a minute of looking for the document before saying it is not there.
+  const MAX_MISSED_LOADS = 60;
+
+  type SaveStatus = 'idle' | 'unsaved' | 'saving' | 'saved' | 'error' | 'other-tab';
+
   interface Props {
-    dirCid: CID;
     dirName: string;
-    entries: TreeEntry[];
   }
-  let { dirCid, dirName, entries }: Props = $props();
+  let { dirName }: Props = $props();
+
   let route = $derived($routeStore);
   let userNpub = $derived($nostrStore.npub);
-  let routeScopes = $derived(resolveYjsRouteScopes(route.npub, userNpub, $nostrStore));
-  let writeRootScope = $derived(routeScopes.writeRootScope);
+  let writeScope = $derived(documentWriteScope(route.npub, userNpub, $nostrStore));
+  let canEdit = $derived(!!writeScope && !!route.treeName && !route.isPermalink);
+  let title = $derived(documentTitle(dirName));
+  let backHref = $derived.by(() => {
+    if (!route.npub || !route.treeName) return '#/';
+    const parent = route.path.slice(0, -1).map(encodeURIComponent).join('/');
+    const key = route.params.get('k');
+    return `#/${route.npub}/${encodeURIComponent(route.treeName)}${parent ? `/${parent}` : ''}${key ? `?k=${key}` : ''}`;
+  });
+
   let editorElement: HTMLElement | undefined = $state();
   let editor: Editor | undefined = $state();
-  let ydoc: Y.Doc | undefined = $state();
-  let saveStatus = $state<'idle' | 'saving' | 'saved' | 'error'>('idle');
-  let lastSaved = $state<Date | null>(null);
-  let saveTimer: ReturnType<typeof setTimeout> | undefined;
   let loading = $state(true);
-  const captureThrottled = createThrottledCapture(30000);
-  if (typeof window !== 'undefined') {
-    window.__thumbnailCaptureReset = () => captureThrottled.reset();
-  }
+  let saveStatus = $state<SaveStatus>('idle');
   let commentsStore: CommentsStore | undefined = $state();
   let commentsState = $state<CommentsState>({ threads: new Map(), activeThreadId: null, panelOpen: false });
   let hasTextSelection = $state(false);
   let showAddCommentModal = $state(false);
   let pendingCommentSelection = $state<{ from: number; to: number; text: string } | null>(null);
-  let collaborators = $state<string[]>([]);
-  let isOwnTree = $derived(routeScopes.isOwnTree);
-  let isEditor = $derived(userNpub ? collaborators.includes(userNpub) : false);
-  let canEdit = $derived(isOwnTree || isEditor);
-  let ownerNpub = $derived(routeScopes.ownerNpub);
-  let ownerPubkey = $derived(ownerNpub ? npubToPubkey(ownerNpub) : null);
-  let targetRootScope = $derived(routeScopes.viewedRootScope);
-  let treesStore = $derived(createTreesStore(targetRootScope));
-  let trees = $state<Array<{ name: string; visibility?: TreeVisibility }>>([]);
-  $effect(() => {
-    const store = treesStore;
-    const unsub = store.subscribe(value => {
-      trees = value;
-    });
-    return unsub;
-  });
-  let currentTree = $derived(route.treeName ? trees.find(t => t.name === route.treeName) : null);
-  let visibility = $derived(currentTree?.visibility || 'public');
-  let yjsEntry = $derived(entries.find(e => e.name === '.yjs'));
-  let prevCollaboratorsKey = '';
-  let prevYjsEntryCid = '';
-  let prevDirCid = '';
-  $effect(() => {
-    const cidKey = yjsEntry
-      ? `${toHex(yjsEntry.cid.hash)}:${yjsEntry.cid.key ? toHex(yjsEntry.cid.key) : ''}`
-      : '';
-    if (!cidKey || cidKey === prevYjsEntryCid) return;
-    prevYjsEntryCid = cidKey;
-    void loadEditors();
-  });
-  $effect(() => {
-    const cidKey = dirCid
-      ? `${toHex(dirCid.hash)}:${dirCid.key ? toHex(dirCid.key) : ''}`
-      : '';
-    if (!cidKey || cidKey === prevDirCid) return;
-    prevDirCid = cidKey;
-    void loadEditors();
-  });
-  $effect(() => {
-    const currentKey = collaborators.join(',');
-    if (currentKey !== prevCollaboratorsKey && ydoc && collaborators.length > 0) {
-      prevCollaboratorsKey = currentKey;
-      setupCollabSubscriptions(collaborators);
-    }
-  });
-  let prevEntriesCids = '';
-  $effect(() => {
-    const deltasEntry = entries.find(e => e.name === 'deltas' && e.type === LinkType.Dir);
-    const stateEntry = entries.find(e => e.name === 'state.yjs' && e.type !== LinkType.Dir);
-    const currentCids = [
-      deltasEntry ? toHex(deltasEntry.cid.hash) : '',
-      stateEntry ? toHex(stateEntry.cid.hash) : ''
-    ].join(',');
-    if (currentCids !== prevEntriesCids && ydoc && prevEntriesCids !== '') {
-      prevEntriesCids = currentCids;
-      loadDeltasFromEntries(entries).then(deltas => {
-        for (const delta of deltas) {
-          Y.applyUpdate(ydoc!, delta, 'remote');
-        }
-      });
-    } else if (prevEntriesCids === '') {
-      prevEntriesCids = currentCids;
-    }
-  });
-  $effect(() => {
-    if (editor && editor.isEditable !== canEdit) {
-      editor.setEditable(canEdit);
-    }
-  });
-  async function saveImage(data: Uint8Array, filename: string): Promise<string | null> {
-    if (!userNpub || !writeRootScope || !route.treeName) {
-      console.warn('[YjsDoc] Missing user identity, root scope, or tree name; cannot save image');
-      return null;
-    }
-    return saveImageToTree(
-      data,
-      filename,
-      route.path,
-      writeRootScope,
-      route.treeName,
-      isOwnTree,
-      isOwnTree ? undefined : visibility,
-    );
+  let notice = $state('');
+  let missing = $state(false);
+
+  let ydoc: Y.Doc | undefined;
+  let session: DocumentSession | undefined;
+  let disconnectTabs: (() => void) | undefined;
+  let isSaver = false;
+  let saveTimer: ReturnType<typeof setTimeout> | undefined;
+  let firstUnsavedAt = 0;
+  let failedSaves = 0;
+  let loadQueue: Promise<unknown> = Promise.resolve();
+  let retryLoadTimer: ReturnType<typeof setTimeout> | undefined;
+  let missedLoads = 0;
+  let documentFound: () => void = () => {};
+  // The route can change before this component is torn down; the document's place does not.
+  let documentPath: string[] = [];
+  let destroyed = false;
+
+  function sameCid(left: CID | null, right: CID | null): boolean {
+    if (!left || !right) return left === right;
+    return toHex(left.hash) === toHex(right.hash)
+      && (left.key ? toHex(left.key) : '') === (right.key ? toHex(right.key) : '');
   }
-  async function handleImageUpload(file: File): Promise<void> {
-    const isCurrent = captureRouteWriteGuard();
-    if (!file.type.startsWith('image/')) return;
-    const data = new Uint8Array(await file.arrayBuffer());
-    const filename = generateImageFilename(file);
-    if (!isCurrent()) return;
-    const savedFilename = await saveImage(data, filename);
-    if (!isCurrent()) return;
-    if (savedFilename && editor) {
-      editor.chain().focus().setImage({ src: `attachments:${writeRootScope}/${savedFilename}` }).run();
-      scheduleSave();
-    }
+
+  /**
+   * Where this document lives, fixed when it is opened. A save can finish
+   * after the user has moved to another page, and must still land here.
+   */
+  let opened: { npub: string; treeName: string; path: string[]; scope: string; pubkey: string } | null = null;
+
+  /** Whether the account that opened the document can still write to it. */
+  function canWriteOpened(): boolean {
+    const state = nostrStore.getState();
+    return !!opened && state.pubkey === opened.pubkey
+      && documentWriteScope(opened.npub, state.npub, state) === opened.scope;
   }
-  let cleanupCollabSubscriptions: (() => void) | null = null;
-  function setupCollabSubscriptions(collaboratorNpubs: string[]) {
-    if (cleanupCollabSubscriptions) {
-      cleanupCollabSubscriptions();
-    }
-    if (!ydoc) return;
-    cleanupCollabSubscriptions = setupCollaboratorSubscriptions(
-      collaboratorNpubs,
-      route.treeName,
-      route.path,
-      ownerNpub,
-      userNpub,
-      ydoc,
-      () => collaborators,
-      (npubs) => { collaborators = npubs; }
-    );
-  }
-  async function saveStateSnapshot(): Promise<void> {
-    const isCurrent = captureRouteWriteGuard();
+
+  /** Stores document files in the Drive as one root update. */
+  async function commitChange(change: DocumentChange): Promise<void> {
+    if (!opened || !canWriteOpened()) throw new Error('This document cannot be edited here');
+    const { scope, treeName, path: documentPath } = opened;
+    const target = { npub: opened.npub, treeName };
     const tree = getTree();
-    if (!ydoc || !userNpub || !writeRootScope || !route.treeName) {
-      console.warn('[YjsDoc] Missing ydoc, user identity, root scope, or tree name; cannot save');
+    const files = await Promise.all(change.writes.map(async write => ({
+      path: write.path,
+      ...(await tree.putFile(write.data)),
+    })));
+
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const base = getTreeRootSync(scope, treeName);
+      let root = base ?? (await tree.putDirectory([])).cid;
+      for (const file of files) {
+        root = await setEntryForDriveRoute(
+          tree,
+          root,
+          [...documentPath, ...file.path.slice(0, -1)],
+          file.path[file.path.length - 1],
+          { cid: file.cid, size: file.size, type: LinkType.Blob },
+          target,
+          nostrStore.getState(),
+        );
+      }
+      for (const directory of change.removeDirectories) {
+        root = await removeOwnDirectoryForDriveRoute(
+          tree, root, [...documentPath, ...directory], target, nostrStore.getState(),
+        );
+      }
+      if (!canWriteOpened()) throw new Error('The account changed before the document could be saved');
+      // Another write landed while this one was prepared: redo it on the newer Drive.
+      if (!sameCid(getTreeRootSync(scope, treeName), base)) continue;
+      if (!saveOwnTreeRoot(scope, treeName, root)) throw new Error('This document cannot be edited here');
       return;
     }
-    let rootCid = getTreeRootSync(writeRootScope, route.treeName);
-    if (!rootCid) {
-      const { cid: emptyDirCid } = await tree.putDirectory([]);
-      rootCid = emptyDirCid;
+    throw new Error('The Drive kept changing while saving');
+  }
+
+  /**
+   * Applies what the Drive now holds for this document. Loads run one after
+   * another. Right after a page load the Drive may not be readable yet, so a
+   * folder that cannot be found is looked for again.
+   */
+  function loadStored(root: CID | null): Promise<unknown> {
+    const path = documentPath;
+    if (retryLoadTimer) clearTimeout(retryLoadTimer);
+    retryLoadTimer = undefined;
+    loadQueue = loadQueue.then(async () => {
+      if (!session || destroyed) return;
+      let found = false;
+      try {
+        const folder = root ? await getTree().resolvePath(root, path) : null;
+        if (folder?.type === LinkType.Dir) {
+          const list: TreeEntry[] = await getTree().listDirectory(folder.cid);
+          await session.load(list);
+          found = true;
+        }
+      } catch (error) {
+        console.error('[Document] Could not read stored updates:', error);
+      }
+      if (destroyed) return;
+      if (found) {
+        missedLoads = 0;
+        documentFound();
+      } else if (missedLoads < MAX_MISSED_LOADS) {
+        missedLoads += 1;
+        retryLoadTimer = setTimeout(() => void loadStored($treeRootStore), 500);
+      } else if (loading) {
+        missing = true;
+      }
+    });
+    return loadQueue;
+  }
+
+  $effect(() => {
+    const root = $treeRootStore;
+    if (session) void loadStored(root);
+  });
+
+  $effect(() => {
+    if (editor && editor.isEditable !== canEdit) editor.setEditable(canEdit);
+  });
+
+  function scheduleSave(): void {
+    if (!isCurrentSaver()) return;
+    const now = Date.now();
+    firstUnsavedAt ||= now;
+    saveStatus = 'unsaved';
+    if (saveTimer) clearTimeout(saveTimer);
+    const wait = Math.max(0, Math.min(SAVE_IDLE_MS, firstUnsavedAt + SAVE_MAX_WAIT_MS - now));
+    saveTimer = setTimeout(() => void saveNow(), wait);
+  }
+
+  async function saveNow(): Promise<void> {
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = undefined;
+    firstUnsavedAt = 0;
+    if (!session || !isCurrentSaver()) return;
+    if (!session.dirty) {
+      if (saveStatus === 'unsaved') saveStatus = 'saved';
+      return;
     }
     saveStatus = 'saving';
     try {
-      const stateUpdate = Y.encodeStateAsUpdate(ydoc);
-      const timestamp = Date.now().toString(36);
-      const random = Math.random().toString(36).slice(2, 6);
-      const deltaName = `${timestamp}-${random}`;
-      const currentPath = route.path;
-      const deltasPath = [...currentPath, 'deltas'];
-      for (let i = 0; i < currentPath.length; i++) {
-        const parentPath = currentPath.slice(0, i);
-        const dirName = currentPath[i];
-        const fullPath = currentPath.slice(0, i + 1).join('/');
-        const pathExists = await tree.resolvePath(rootCid, fullPath);
-        if (!pathExists) {
-          const { cid: emptyDirCid } = await tree.putDirectory([]);
-          if (!isCurrent()) return;
-          rootCid = await setEntryForDriveRoute(
-            tree,
-            rootCid,
-            parentPath,
-            dirName,
-            { cid: emptyDirCid, size: 0, type: LinkType.Dir },
-            route,
-            $nostrStore,
-          );
-        }
-      }
-      const docResult = await tree.resolvePath(rootCid, currentPath.join('/'));
-      if (docResult) {
-        const docEntries = await tree.listDirectory(docResult.cid);
-        const hasYjsFile = docEntries.some(e => e.name === '.yjs' && e.type !== LinkType.Dir);
-        if (!hasYjsFile) {
-          const yjsContent = collaborators.join('\n') + '\n';
-          const yjsData = new TextEncoder().encode(yjsContent);
-          const { cid: yjsCid, size: yjsSize } = await tree.putFile(yjsData);
-          if (!isCurrent()) return;
-          rootCid = await setEntryForDriveRoute(
-            tree,
-            rootCid,
-            currentPath,
-            '.yjs',
-            { cid: yjsCid, size: yjsSize, type: LinkType.Blob },
-            route,
-            $nostrStore,
-          );
-        }
-      }
-      const deltasResult = await tree.resolvePath(rootCid, deltasPath.join('/'));
-      if (!deltasResult) {
-        const { cid: emptyDirCid } = await tree.putDirectory([]);
-        if (!isCurrent()) return;
-        rootCid = await setEntryForDriveRoute(
-          tree,
-          rootCid,
-          currentPath,
-          'deltas',
-          { cid: emptyDirCid, size: 0, type: LinkType.Dir },
-          route,
-          $nostrStore,
-        );
-      }
-      const { cid: deltaCid, size: deltaSize } = await tree.putFile(stateUpdate);
-      if (!isCurrent()) return;
-      const newRootCid = await setEntryForDriveRoute(
-        tree,
-        rootCid,
-        deltasPath,
-        deltaName,
-        { cid: deltaCid, size: deltaSize, type: LinkType.Blob },
-        route,
-        $nostrStore,
-      );
-      if (!isCurrent()) return;
-      if (isOwnTree) {
-        autosaveIfOwn(newRootCid);
-      } else {
-        updateLocalRootCacheHex(
-          writeRootScope,
-          route.treeName,
-          toHex(newRootCid.hash),
-          newRootCid.key ? toHex(newRootCid.key) : undefined,
-          visibility,
-        );
-      }
-      saveStatus = 'saved';
-      lastSaved = new Date();
-      if (editorElement && isOwnTree) {
-        captureThumbnail(newRootCid);
-      }
-    } catch (e) {
-      console.error('[YjsDoc] Failed to save state snapshot:', e);
+      await session.save();
+      failedSaves = 0;
+      if (destroyed) return;
+      if (session.dirty) scheduleSave();
+      else saveStatus = 'saved';
+    } catch (error) {
+      if (destroyed) return;
+      console.error('[Document] Save failed:', error);
+      failedSaves += 1;
       saveStatus = 'error';
-    } finally {
-      if (!isCurrent()) saveStatus = 'error';
+      saveTimer = setTimeout(() => void saveNow(), Math.min(30_000, 1000 * 2 ** failedSaves));
     }
   }
-  async function captureThumbnail(currentRootCid: CID) {
-    const isCurrent = captureRouteWriteGuard();
-    if (!editorElement || !writeRootScope || !route.treeName) return;
-    try {
-      const thumbnailData = await captureThrottled(editorElement);
-      if (!thumbnailData) return; // Throttled or failed
-      const tree = getTree();
-      const currentPath = route.path;
-      const { cid: thumbCid, size: thumbSize } = await tree.putFile(thumbnailData);
-      if (!isCurrent()) return;
-      const newRootCid = await setEntryForDriveRoute(
-        tree,
-        currentRootCid,
-        currentPath,
-        getThumbnailFilename(),
-        { cid: thumbCid, size: thumbSize, type: LinkType.Blob },
-        route,
-        $nostrStore,
-      );
-      if (!isCurrent()) return;
-      autosaveIfOwn(newRootCid);
-    } catch {
-    }
+
+  /** Leaving the page must not wait for the pause that normally precedes a save. */
+  function saveBeforeLeaving(): void {
+    if (session?.dirty) void saveNow();
   }
-  function scheduleSave() {
-    if (saveTimer) clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => saveStateSnapshot(), 1000);
+
+  function handleVisibilityChange(): void {
+    if (document.visibilityState === 'hidden') saveBeforeLeaving();
   }
-  async function loadEditors() {
-    try {
-      const tree = getTree();
-      const docEntries = await tree.listDirectory(dirCid);
-      const yjsConfigEntry = docEntries.find(e => e.name === '.yjs' && e.type !== LinkType.Dir);
-      if (!yjsConfigEntry) {
-        collaborators = [];
-        return;
-      }
-      const data = await tree.readFile(yjsConfigEntry.cid);
-      if (data) {
-        const text = new TextDecoder().decode(data);
-        collaborators = text.split('\n').filter(line => line.trim().startsWith('npub1'));
-      } else {
-        collaborators = [];
-      }
-    } catch (e) {
-      console.error('[YjsDoc] Failed to load editors:', e);
-      collaborators = [];
-    }
+
+  function attachmentUrl(filename: string): string | null {
+    if (!route.npub || !route.treeName) return null;
+    return getNpubFileUrl(route.npub, route.treeName, [...route.path, ATTACHMENTS_DIRECTORY, filename].join('/'));
   }
-  async function saveCollaborators(npubs: string[]) {
-    const isCurrent = captureRouteWriteGuard();
-    const tree = getTree();
-    let currentRootCid = getCurrentRootCid();
-    if (!currentRootCid) {
-      console.warn('[YjsDoc] No rootCid, cannot save editors');
+
+  function isCurrentSaver(): boolean {
+    return isSaver && !!opened && canWriteOpened();
+  }
+
+  function resolveImageSrc(img: HTMLImageElement): void {
+    const filename = attachmentFilename(img.getAttribute('src'));
+    if (!filename) return;
+    const url = attachmentUrl(filename);
+    if (url) img.src = url;
+  }
+
+  async function handleImageUpload(file: File): Promise<void> {
+    if (!canEdit || !editor || !file.type.startsWith('image/')) return;
+    if (file.size > MAX_IMAGE_BYTES) {
+      notice = 'Images can be up to 20 MB.';
       return;
     }
+    notice = '';
+    const filename = generateImageFilename(file);
     try {
-      const content = npubs.join('\n') + '\n';
-      const data = new TextEncoder().encode(content);
-      const { cid: yjsCid, size: yjsSize } = await tree.putFile(data);
-      if (!isCurrent()) return;
-      const newRootCid = await setEntryForDriveRoute(
-        tree,
-        currentRootCid,
-        route.path,
-        '.yjs',
-        { cid: yjsCid, size: yjsSize, type: LinkType.Blob },
-        route,
-        $nostrStore,
-      );
-      if (!isCurrent()) return;
-      autosaveIfOwn(newRootCid);
-      collaborators = npubs;
-    } catch (e) {
-      console.error('[YjsDoc] Failed to save editors:', e);
+      const data = new Uint8Array(await file.arrayBuffer());
+      await commitChange({ writes: [{ path: [ATTACHMENTS_DIRECTORY, filename], data }], removeDirectories: [] });
+      editor.chain().focus().setImage({ src: `${ATTACHMENT_SCHEME}${filename}`, alt: file.name }).run();
+    } catch (error) {
+      console.error('[Document] Could not add image:', error);
+      notice = 'Could not add the image.';
     }
   }
-  function handleShare() {
+
+  function handleShare(): void {
     openShareModal(window.location.href);
   }
-  function handlePush() {
-    openBlossomPushModal(
-      dirCid,
-      dirName,
-      true,
-      route.npub ? (npubToPubkey(route.npub) ?? undefined) : undefined,
-      route.treeName ?? undefined,
-    );
-  }
-  function handleFork() {
-    if (!dirCid) return;
-    openForkModal(dirCid, dirName);
-  }
-  function handleCollaborators() {
-    if (isOwnTree) {
-      openCollaboratorsModal({ npubs: collaborators, onSave: saveCollaborators });
-    } else {
-      openCollaboratorsModal({ npubs: collaborators });
-    }
-  }
-  async function handleDelete() {
-    if (confirm(`Delete document "${dirName}" and all its contents?`)) {
-      if (route.path.length === 0 && route.treeName) {
-        await deleteTree(route.treeName);
-        window.location.hash = '/';
-      } else {
-        deleteCurrentFolder();
-      }
-    }
-  }
-  onMount(async () => {
-    if (import.meta.env.VITE_TEST_MODE) {
-      const testWindow = window as Window & { __reloadYjsEditors?: () => void };
-      testWindow.__reloadYjsEditors = () => loadEditors();
-    }
-    ydoc = new Y.Doc();
-    const initPromise = (async () => {
-      await loadEditors();
-      const localDeltas = await loadDeltasFromEntries(entries);
-      for (const delta of localDeltas) {
-        Y.applyUpdate(ydoc, delta, 'remote');
-      }
-      if (collaborators.length > 0) {
-        await loadCollaboratorDeltas(collaborators, ownerNpub, route.path, route.treeName, ydoc);
-      }
-    })().catch((err) => {
-      console.error('[YjsDoc] Init failed:', err);
-    });
-    loading = false;
-    await tick();
-    if (!editorElement || !ydoc) return;
-    const editorSetup = createYjsTiptapEditor({
-      element: editorElement,
-      ydoc,
-      canEdit,
-      handleImageUpload,
-      resolveImageSrc,
-      scheduleSave,
-      onCommentsState: (state) => {
-        commentsState = state;
-      },
-    });
-    editor = editorSetup.editor;
-    commentsStore = editorSetup.commentsStore;
-    if (collaborators.length > 0) {
-      setupCollabSubscriptions(collaborators);
-    }
-    void initPromise;
-  });
-  function resolveImageSrc(img: HTMLImageElement): void {
-    const src = img.getAttribute('src');
-    if (!src || !src.startsWith('attachments:')) return;
-    const attachmentPath = src.replace('attachments:', '');
-    const reference = parseAttachmentReference(attachmentPath, routeScopes.viewedRootScope);
-    const treeName = route.treeName;
-    if (!reference || !treeName) {
-      img.dataset.pendingResolve = 'true';
-      return;
-    }
-    const pathParts = [...route.path, 'attachments', reference.filename];
-    img.src = getNpubFileUrl(reference.rootScope, treeName, pathParts.join('/'));
-  }
-  onDestroy(() => {
+
+  async function handleDelete(): Promise<void> {
+    if (!confirm(`Delete "${title}"?`)) return;
     if (saveTimer) clearTimeout(saveTimer);
-    if (cleanupCollabSubscriptions) {
-      cleanupCollabSubscriptions();
-      cleanupCollabSubscriptions = null;
+    isSaver = false;
+    session?.setSaver(false);
+    await deleteCurrentFolder();
+  }
+
+  onMount(() => {
+    const doc = new Y.Doc();
+    ydoc = doc;
+    documentPath = [...route.path];
+    const pubkey = $nostrStore.pubkey;
+    if (canEdit && pubkey && route.npub && route.treeName && writeScope) {
+      opened = {
+        npub: route.npub,
+        treeName: route.treeName,
+        path: [...route.path],
+        scope: writeScope,
+        pubkey,
+      };
     }
+    const activeSession = new DocumentSession({
+      ydoc: doc,
+      tree: getTree(),
+      // Each device has its own key, so its folder is its alone.
+      writerId: (pubkey ?? 'viewer').slice(0, 12),
+      commit: commitChange,
+    });
+    // Until this tab is known to be the one that saves, it only shows edits.
+    activeSession.setSaver(false);
+    session = activeSession;
+    doc.on('update', (_update: Uint8Array, origin: unknown) => {
+      if (origin !== STORED_ORIGIN) scheduleSave();
+    });
+
+    if (opened) {
+      disconnectTabs = connectDocumentTabs({
+        key: `${opened.npub}/${opened.treeName}/${opened.path.join('/')}`,
+        ydoc: doc,
+        onSaver: () => {
+          isSaver = true;
+          activeSession.setSaver(true);
+          if (activeSession.dirty) scheduleSave();
+          else if (saveStatus === 'other-tab') saveStatus = 'idle';
+        },
+      });
+      if (!isSaver) saveStatus = 'other-tab';
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('pagehide', saveBeforeLeaving);
+
+    void (async () => {
+      // The editor opens once the document has been read, never on a blank page that is still loading.
+      await new Promise<void>((resolve) => {
+        documentFound = resolve;
+        void loadStored($treeRootStore);
+      });
+      if (destroyed) return;
+      missing = false;
+      loading = false;
+      await tick();
+      if (destroyed || !editorElement) return;
+      const setup = createYjsTiptapEditor({
+        element: editorElement,
+        ydoc: doc,
+        canEdit,
+        handleImageUpload,
+        resolveImageSrc,
+        onCommentsState: (state) => {
+          commentsState = state;
+        },
+      });
+      editor = setup.editor;
+      commentsStore = setup.commentsStore;
+      if (canEdit && doc.getXmlFragment('default').length === 0) editor.commands.focus();
+    })();
+  });
+
+  onDestroy(() => {
+    saveBeforeLeaving();
+    destroyed = true;
+    if (saveTimer) clearTimeout(saveTimer);
+    if (retryLoadTimer) clearTimeout(retryLoadTimer);
+    document.removeEventListener('visibilitychange', handleVisibilityChange);
+    window.removeEventListener('pagehide', saveBeforeLeaving);
+    disconnectTabs?.();
     commentsStore?.destroy();
     editor?.destroy();
-    ydoc?.destroy();
+    // The last save may still be reading the document.
+    const closing = { session, ydoc };
+    void loadQueue.then(() => session?.save()).catch(() => {}).finally(() => {
+      closing.session?.destroy();
+      closing.ydoc?.destroy();
+    });
   });
+
   function addComment() {
     if (!editor || !commentsStore || !userNpub) return;
     const { from, to } = editor.state.selection;
-    if (from === to) return; // No selection
+    if (from === to) return;
     const selectedText = editor.state.doc.textBetween(from, to, ' ');
     if (!selectedText.trim()) return;
     pendingCommentSelection = { from, to, text: selectedText };
     showAddCommentModal = true;
   }
+
   function handleAddCommentSubmit(commentText: string) {
     if (!editor || !commentsStore || !userNpub || !pendingCommentSelection) return;
     const { from, to, text } = pendingCommentSelection;
     const threadId = commentsStore.createThread(text, commentText, userNpub);
-    editor.chain()
-      .focus()
-      .setTextSelection({ from, to })
-      .setComment(threadId)
-      .run();
+    editor.chain().focus().setTextSelection({ from, to }).setComment(threadId).run();
+    commentsStore.setPanelOpen(true);
+    commentsStore.setActiveThread(threadId);
     showAddCommentModal = false;
     pendingCommentSelection = null;
   }
+
   function handleAddCommentCancel() {
     showAddCommentModal = false;
     pendingCommentSelection = null;
     editor?.chain().focus().run();
   }
+
   function handleCommentThreadClick(threadId: string) {
     if (!editor) return;
-    const { doc } = editor.state;
     let found = false;
-    doc.descendants((node, pos) => {
+    editor.state.doc.descendants((node, pos) => {
       if (found) return false;
-      const commentMark = node.marks.find(
-        mark => mark.type.name === 'comment' && mark.attrs.commentId === threadId
-      );
-      if (commentMark) {
-        editor?.chain().focus().setTextSelection({ from: pos, to: pos + node.nodeSize }).run();
-        found = true;
-        return false;
-      }
+      const marked = node.marks.some(mark => mark.type.name === 'comment' && mark.attrs.commentId === threadId);
+      if (!marked) return undefined;
+      editor?.chain().focus().setTextSelection({ from: pos, to: pos + node.nodeSize }).scrollIntoView().run();
+      found = true;
+      return false;
     });
   }
+
   function handleDeleteThread(threadId: string) {
-    if (!editor) return;
-    editor.chain().removeCommentById(threadId).run();
+    editor?.chain().removeCommentById(threadId).run();
   }
+
   function handleEditorClick(event: MouseEvent) {
-    const target = event.target as HTMLElement;
-    const commentHighlight = target.closest('.comment-highlight');
-    if (commentHighlight) {
-      const commentId = commentHighlight.getAttribute('data-comment-id');
-      if (commentId && commentsStore) {
-        commentsStore.setPanelOpen(true);
-        commentsStore.setActiveThread(commentId);
-      }
+    const highlight = (event.target as HTMLElement).closest('.comment-highlight');
+    const commentId = highlight?.getAttribute('data-comment-id');
+    if (commentId && commentsStore) {
+      commentsStore.setPanelOpen(true);
+      commentsStore.setActiveThread(commentId);
     }
   }
-  function toggleCommentsPanel() {
-    commentsStore?.togglePanel();
-  }
+
   $effect(() => {
-    if (!editor) return;
+    const current = editor;
+    if (!current) return;
     const updateSelection = () => {
-      const { from, to } = editor!.state.selection;
+      const { from, to } = current.state.selection;
       hasTextSelection = from !== to;
     };
-    editor.on('selectionUpdate', updateSelection);
+    current.on('selectionUpdate', updateSelection);
     return () => {
-      editor?.off('selectionUpdate', updateSelection);
+      current.off('selectionUpdate', updateSelection);
     };
   });
 </script>
+
 <YjsDocumentShell
   bind:editorElement
-  {dirName}
-  {ownerNpub}
-  {ownerPubkey}
-  {visibility}
+  {title}
+  {backHref}
   {canEdit}
-  {isOwnTree}
-  {isEditor}
   {saveStatus}
-  {lastSaved}
-  collaboratorsCount={collaborators.length}
+  {notice}
   {editor}
   {loading}
+  {missing}
   {hasTextSelection}
   {userNpub}
   {commentsState}
@@ -544,12 +448,9 @@
   {showAddCommentModal}
   pendingCommentText={pendingCommentSelection?.text || ''}
   onShare={handleShare}
-  onPush={handlePush}
-  onCollaborators={handleCollaborators}
-  onFork={handleFork}
   onDelete={handleDelete}
   onAddComment={addComment}
-  onToggleCommentsPanel={toggleCommentsPanel}
+  onToggleCommentsPanel={() => commentsStore?.togglePanel()}
   onEditorClick={handleEditorClick}
   onClickThread={handleCommentThreadClick}
   onDeleteThread={handleDeleteThread}
