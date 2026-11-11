@@ -91,8 +91,8 @@ import {
 } from './driveRosterRefresh';
 import {
   publishDriveRosterHistory,
-  publishDriveRosterThenActivate,
 } from './driveRosterPublish';
+import { showToast } from '../stores/toast';
 
 // Storage keys
 const STORAGE_KEY_NSEC = 'hashtree:nsec';
@@ -210,10 +210,18 @@ export function getCurrentNostrIdentitySession(): NostrIdentitySession | null {
   return currentNostrIdentitySession;
 }
 
-export async function loadDriveDeviceLabels(): Promise<Record<string, string>> {
+/**
+ * Device names from the roster. With `refresh: false` only what this device
+ * already holds is read, so names can be shown before any relay answers.
+ */
+export async function loadDriveDeviceLabels(
+  options: { refresh?: boolean } = {},
+): Promise<Record<string, string>> {
   const session = currentNostrIdentitySession;
   if (!session || session.status !== 'active') return {};
-  const rosterOps = await currentDriveRosterOps(session).catch(() => session.rosterOps);
+  const rosterOps = options.refresh === false
+    ? session.rosterOps
+    : await currentDriveRosterOps(session).catch(() => session.rosterOps);
   const labels = await collectDriveDeviceLabels(session, rosterOps);
   saveStoredDeviceLabels(session.profileId, labels);
   appendCurrentNostrIdentitySessionRosterOps(session.profileId, rosterOps);
@@ -588,21 +596,16 @@ export async function createDriveProfile(
     ...session,
     rosterOps: [...session.rosterOps, dckRotationOp],
   };
-  // The local session is the trust anchor for later author-filtered refreshes.
-  // Do not expose a usable profile until every operation in that exact trusted
-  // baseline is durably available from the relay/worker publication path.
-  const applied = await publishDriveRosterThenActivate(
-    activeSession.rosterOps,
-    publishSignedIdentityEventJson,
-    async () => {
-      saveStoredDeviceLabel(activeSession.profileId, activeSession.appKeyPubkey, label);
-      saveNostrIdentitySession(activeSession);
-      return applySecretKey(appKeySecretKey, DRIVE_DEFAULT_TREES, {
-        nostrIdentityId: activeSession.profileId,
-        name: options.name?.trim() || undefined,
-      });
-    },
-  );
+  // The profile is usable at once: this session is its own trust anchor. The
+  // signed roster reaches relays in the background and is sent again in full
+  // before every later roster change.
+  saveStoredDeviceLabel(activeSession.profileId, activeSession.appKeyPubkey, label);
+  saveNostrIdentitySession(activeSession);
+  publishIdentityInBackground(() => publishDriveIdentityRosterOps(activeSession.rosterOps));
+  const applied = await applySecretKey(appKeySecretKey, DRIVE_DEFAULT_TREES, {
+    nostrIdentityId: activeSession.profileId,
+    name: options.name?.trim() || undefined,
+  });
   return {
     ...applied,
     profileId: activeSession.profileId,
@@ -764,7 +767,7 @@ async function republishCurrentDriveRootForApproval(
   const published = await publishNostrIdentityDriveRootIfAvailable(DRIVE_ROOT_NAME, {
     hash: current.hash,
     key: current.key,
-  });
+  }, { awaitRelay: true });
   if (!published) {
     throw new Error('Could not hand the current Drive root to the approved device');
   }
@@ -840,7 +843,8 @@ export async function activateDriveDeviceApprovalIfApproved(
     approvalEventId: approval.event.id,
     appliedAt: currentUnixSeconds(),
   });
-  await publishRawNostrEvent(ack);
+  // The device is already active here; the approver learns of it in the background.
+  publishIdentityInBackground(() => publishRawNostrEvent(ack));
   return {
     nsec: appKeyNsec,
     npub: session.appKeyNpub,
@@ -859,7 +863,9 @@ export async function setDriveProfileAppKeyAdmin(
   const target = normalizeHexPubkey(appKeyPubkey);
   if (!target) throw new Error('Invalid Drive key');
 
-  const rosterOps = await currentDriveRosterOps(session);
+  // The session roster is kept current by its open subscription; the change
+  // is signed on top of it without asking relays first.
+  const rosterOps = session.rosterOps;
   const projection = projectNostrIdentityRoster(session.profileId, rosterOps);
   const facet = projection.active_facets[target];
   if (!facet) throw new Error('Drive key is not active');
@@ -883,10 +889,9 @@ export async function setDriveProfileAppKeyAdmin(
     },
   });
 
-  await publishDriveIdentityRosterOps(rosterOps);
-  await publishSignedIdentityEventJson(signed.event_json);
   const updated = appendCurrentNostrIdentitySessionRosterOps(session.profileId, [...rosterOps, signed]);
   if (!updated) throw new Error('Drive user session is no longer active');
+  publishIdentityInBackground(() => publishDriveIdentityRosterOps([...rosterOps, signed]));
   return updated;
 }
 
@@ -900,7 +905,7 @@ export async function removeDriveProfileAppKeyWithAdmin(
   if (!target) throw new Error('Invalid Drive key');
   if (target === session.appKeyPubkey) throw new Error('Use account removal to remove this device');
 
-  const rosterOps = await currentDriveRosterOps(session);
+  const rosterOps = session.rosterOps;
   const projection = projectNostrIdentityRoster(session.profileId, rosterOps);
   if (!projection.active_facets[target]) throw new Error('Drive key is not active');
   const signed = signNostrIdentityRosterOp({
@@ -916,9 +921,9 @@ export async function removeDriveProfileAppKeyWithAdmin(
     },
   });
 
-  await publishDriveIdentityRosterOps(rosterOps);
-  await publishSignedIdentityEventJson(signed.event_json);
-  return appendCurrentNostrIdentitySessionRosterOps(session.profileId, [...rosterOps, signed], target);
+  const updated = appendCurrentNostrIdentitySessionRosterOps(session.profileId, [...rosterOps, signed], target);
+  publishIdentityInBackground(() => publishDriveIdentityRosterOps([...rosterOps, signed]));
+  return updated;
 }
 
 export async function recoverDriveProfileWithAppKey(
@@ -974,11 +979,15 @@ export async function recoverDriveProfileWithAppKey(
     rosterOps: dckRewrapOp ? [...session.rosterOps, dckRewrapOp] : session.rosterOps,
   };
 
-  await publishSignedIdentityEventJson(attachment.rosterOp.event_json);
-  await publishSignedIdentityEventJson(attachment.facetAcceptance.event_json);
-  if (dckRewrapOp) {
-    await publishSignedIdentityEventJson(dckRewrapOp.event_json);
-  }
+  // Everything is signed, so the device is usable now; relays get it in order
+  // in the background.
+  publishIdentityInBackground(async () => {
+    await publishSignedIdentityEventJson(attachment.rosterOp.event_json);
+    await publishSignedIdentityEventJson(attachment.facetAcceptance.event_json);
+    if (dckRewrapOp) {
+      await publishSignedIdentityEventJson(dckRewrapOp.event_json);
+    }
+  });
   saveNostrIdentitySession(activeSession);
   saveStoredDeviceLabel(activeSession.profileId, activeSession.appKeyPubkey, activeSession.label);
 
@@ -1039,11 +1048,13 @@ export async function removeDriveProfileAppKeyWithRecovery(
     },
   });
 
-  await publishSignedIdentityEventJson(removal.rosterOp.event_json);
   const dckRotationOp = dckRotation.op;
-  if (dckRotationOp) {
-    await publishSignedIdentityEventJson(dckRotationOp.event_json);
-  }
+  publishIdentityInBackground(async () => {
+    await publishSignedIdentityEventJson(removal.rosterOp.event_json);
+    if (dckRotationOp) {
+      await publishSignedIdentityEventJson(dckRotationOp.event_json);
+    }
+  });
 
   const session = appendCurrentNostrIdentitySessionRosterOps(
     profileId,
@@ -1612,6 +1623,26 @@ async function currentDriveDckPlaintext(
   } catch {
     return null;
   }
+}
+
+const IDENTITY_PUBLISH_ATTEMPTS = 5;
+const IDENTITY_PUBLISH_RETRY_MS = 5000;
+
+/**
+ * Send already-signed identity events without making anyone wait for a relay.
+ * The change is saved on this device first. The worker keeps what it is handed
+ * in its outbox and retries delivery itself, so only a failed hand-over is
+ * tried again here and, if it keeps failing, reported.
+ */
+function publishIdentityInBackground(publish: () => Promise<void>, attempt = 1): void {
+  void publish().catch((error) => {
+    if (attempt < IDENTITY_PUBLISH_ATTEMPTS) {
+      setTimeout(() => publishIdentityInBackground(publish, attempt + 1), IDENTITY_PUBLISH_RETRY_MS);
+      return;
+    }
+    console.error('[auth] Could not publish a Drive user change:', error);
+    showToast('error', 'Could not send your change to the network. It is saved on this device.');
+  });
 }
 
 async function publishDriveIdentityRosterOps(rosterOps: SignedNostrIdentityRosterOp[]): Promise<void> {

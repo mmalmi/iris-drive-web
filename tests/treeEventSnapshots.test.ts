@@ -13,7 +13,6 @@ vi.mock('../src/lib/workerInit', () => ({
 }));
 
 import {
-  buildPreferredTreeEventHref,
   buildTreeRouteHref,
   buildTreeEventPermalink,
   isNewerTreeEventSnapshot,
@@ -23,7 +22,6 @@ import {
 } from '../src/lib/treeEventSnapshots';
 
 const SNAPSHOT_NHASH = nhashEncode(new Uint8Array(32).fill(6));
-const WORKER_SNAPSHOT_NHASH = nhashEncode(new Uint8Array(32).fill(7));
 
 function makeSnapshot(overrides: Partial<TreeEventSnapshotInfo> = {}): TreeEventSnapshotInfo {
   const rootCid = cid(fromHex('1'.repeat(64)), fromHex('2'.repeat(64)));
@@ -74,25 +72,6 @@ describe('tree event snapshots', () => {
   it('builds mutable user-tree hrefs as a fallback', () => {
     expect(buildTreeRouteHref('npub1example', 'videos/demo', ['nested folder', 'video.mp4'], 'a'.repeat(64)))
       .toBe('#/npub1example/videos%2Fdemo/nested%20folder/video.mp4?k=' + 'a'.repeat(64));
-  });
-
-  it('prefers worker snapshot nhashes before fetching relay snapshots', async () => {
-    getTreeRootInfoMock.mockResolvedValue({
-      snapshotNhash: WORKER_SNAPSHOT_NHASH,
-    });
-    getWorkerAdapterMock.mockReturnValue({
-      getTreeRootInfo: getTreeRootInfoMock,
-    });
-
-    const href = await buildPreferredTreeEventHref(
-      'npub1example',
-      'videos/demo',
-      ['nested folder', 'video.mp4'],
-      'a'.repeat(64),
-    );
-
-    expect(href).toBe(`#/${WORKER_SNAPSHOT_NHASH}/nested%20folder/video.mp4?snapshot=1&k=${'a'.repeat(64)}`);
-    expect(getTreeRootInfoMock).toHaveBeenCalledWith('npub1example', 'videos/demo');
   });
 
   it('derives the public root CID directly from the snapshot', async () => {

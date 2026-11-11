@@ -68,7 +68,14 @@ function nextDriveRootPublishedAt(profileId: string, driveId: string, appKeyPubk
 export async function publishNostrIdentityDriveRootIfAvailable(
   driveId: string,
   rootCid: CID,
-  options: { rootScopeId?: string; publishedAt?: number; publishedAtMs?: number; appKeySeq?: number } = {},
+  options: {
+    rootScopeId?: string;
+    publishedAt?: number;
+    publishedAtMs?: number;
+    appKeySeq?: number;
+    /** Wait until a relay has the root: only for handing a Drive to a device being approved. */
+    awaitRelay?: boolean;
+  } = {},
 ): Promise<boolean> {
   const session = getCurrentNostrIdentitySession();
   const secretKey = getSecretKey();
@@ -163,7 +170,16 @@ export async function publishNostrIdentityDriveRootIfAvailable(
     rawEvent,
     parseDriveRootEventForDevice(rawEvent, secretKey),
   );
-  await publishEvent(rawEvent);
+  // The signed root is already retained above and the worker keeps it in its
+  // outbox, so saving does not wait for a relay to accept it.
+  const publishing = publishEvent(rawEvent);
+  if (options.awaitRelay) {
+    await publishing;
+  } else {
+    void publishing.catch((error) => {
+      console.warn('[driveRoot] Could not hand the Drive root to the publisher:', error);
+    });
+  }
   if (retained) {
     // Run after this publish resolves so TreeRootRegistry can mark its local
     // record clean before the resolver replaces it with the merged view.

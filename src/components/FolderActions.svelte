@@ -23,7 +23,7 @@
   import {
     buildTreeEventPermalink,
     ensureTreeEventSnapshotForRoot,
-    ensureLatestTreeEventSnapshot,
+    watchLatestTreeEventSnapshot,
     getCachedTreeEventSnapshot,
     isNewerTreeEventSnapshot,
     snapshotMatchesRootCid,
@@ -114,7 +114,8 @@
       return;
     }
 
-    permalinkHref = null;
+    // The immutable link works at once; the signed snapshot replaces it when seen.
+    permalinkHref = fallbackHref;
     let cancelled = false;
     ensureTreeEventSnapshotForRoot(npub, treeName, currentRootCid).then((snapshot) => {
       if (!cancelled) {
@@ -148,13 +149,11 @@
     }
 
     latestVersionHref = null;
-    let cancelled = false;
-    ensureLatestTreeEventSnapshot(snapshot.npub, snapshot.treeName).then((latest) => {
-      if (!cancelled && latest && isNewerTreeEventSnapshot(latest, snapshot)) {
+    return watchLatestTreeEventSnapshot(snapshot.npub, snapshot.treeName, (latest) => {
+      if (isNewerTreeEventSnapshot(latest, snapshot)) {
         latestVersionHref = buildTreeEventPermalink(latest, path, linkKey);
       }
-    }).catch(() => {});
-    return () => { cancelled = true; };
+    });
   });
 
   // Check if we're in a subdirectory (not root)

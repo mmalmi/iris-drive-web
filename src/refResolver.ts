@@ -112,7 +112,6 @@ export function getRefResolver(): RefResolver {
       publish: async (event) => {
         try {
           const rawEvent = await nostr.signEvent(event);
-          await nostr.publish(rawEvent);
           if (rawEvent.sig) {
             await cacheTreeEventSnapshot({
               id: rawEvent.id ?? '',
@@ -124,6 +123,11 @@ export function getRefResolver(): RefResolver {
               sig: rawEvent.sig,
             }).catch(() => {});
           }
+          // The signed root is handed to the worker, which keeps it in its
+          // outbox and retries. Saving does not wait for a relay to accept it.
+          void nostr.publish(rawEvent).catch((error) => {
+            console.warn('[refResolver] Could not hand a tree root to the publisher:', error);
+          });
           return true;
         } catch {
           return false;

@@ -11,7 +11,7 @@
   import {
     buildTreeEventPermalink,
     ensureTreeEventSnapshotForRoot,
-    ensureLatestTreeEventSnapshot,
+    watchLatestTreeEventSnapshot,
     getCachedTreeEventSnapshot,
     isNewerTreeEventSnapshot,
     snapshotMatchesRootCid,
@@ -213,7 +213,8 @@
       return;
     }
 
-    permalinkUrl = null;
+    // The immutable link works at once; the signed snapshot replaces it when seen.
+    permalinkUrl = fallbackUrl;
     let cancelled = false;
     ensureTreeEventSnapshotForRoot(npub, treeName, currentRootCid).then((resolved) => {
       if (!cancelled) {
@@ -247,13 +248,11 @@
     }
 
     latestVersionUrl = null;
-    let cancelled = false;
-    ensureLatestTreeEventSnapshot(snapshot.npub, snapshot.treeName).then((latest) => {
-      if (!cancelled && latest && isNewerTreeEventSnapshot(latest, snapshot)) {
+    return watchLatestTreeEventSnapshot(snapshot.npub, snapshot.treeName, (latest) => {
+      if (isNewerTreeEventSnapshot(latest, snapshot)) {
         latestVersionUrl = buildTreeEventPermalink(latest, path, linkKey);
       }
-    }).catch(() => {});
-    return () => { cancelled = true; };
+    });
   });
 
   let backUrl = $derived.by(() => {

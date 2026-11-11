@@ -15,7 +15,6 @@ import {
 } from '../src/nostr/driveRosterRefresh';
 import {
   publishDriveRosterHistory,
-  publishDriveRosterThenActivate,
 } from '../src/nostr/driveRosterPublish';
 import { appFacet } from './driveProtocolInterop.helpers';
 
@@ -401,31 +400,6 @@ describe('authoritative Drive roster refresh', () => {
     expect(published.map((op) => op.op_id)).toEqual([bootstrap.op_id, initialDck.op_id]);
     expect(refreshed.rosterOps.map((op) => op.op_id)).toEqual([bootstrap.op_id, initialDck.op_id]);
     expect(refreshed.projection.secret_epochs).toHaveProperty('1');
-  });
-
-  it('does not activate a newly created profile when baseline publication fails', async () => {
-    const adminSecret = generateSecretKey();
-    const adminPubkey = getPublicKey(adminSecret);
-    const bootstrap = signNostrIdentityRosterOp({
-      signerSecretKey: adminSecret,
-      profileId: PROFILE_ID,
-      createdAt: 100,
-      op: {
-        op: 'add_facet',
-        facet: appFacet(adminPubkey, 100, 'Admin', true, true),
-      },
-    });
-    const activate = vi.fn(async () => 'active');
-
-    await expect(publishDriveRosterThenActivate(
-      [bootstrap],
-      async () => {
-        throw new Error('relay unavailable');
-      },
-      activate,
-    )).rejects.toThrow('relay unavailable');
-
-    expect(activate).not.toHaveBeenCalled();
   });
 
   it('queries only trusted authority authors and follows a newly granted admin iteratively', async () => {

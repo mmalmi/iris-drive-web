@@ -7,7 +7,7 @@
   import { nip19 } from 'nostr-tools';
   import { nostrStore } from '../nostr';
   import { createProfileStore } from '../stores/profile';
-  import { createFollowsStore, followPubkey, unfollowPubkey } from '../stores/follows';
+  import { createFollowsStore, followPubkey, followSaveError, unfollowPubkey } from '../stores/follows';
   import ShareButton from './ShareButton.svelte';
   import { Avatar, Name, FollowedBy } from './User';
   import CopyText from '@iris/svelte-ui/CopyText.svelte';
@@ -118,20 +118,20 @@
   });
 
   let bannerError = $state(false);
-  let followLoading = $state(false);
   let followError = $state('');
   $effect(() => { pubkeyHex; myPubkey; followError = ''; });
+  let followNotice = $derived(followError || $followSaveError);
 
   function navigate(path: string) {
     window.location.hash = path;
   }
 
-  async function handleFollow() {
-    followLoading = true;
+  function handleFollow() {
+    // The list changes on screen at once; it is published in the background.
     followError = '';
-    const updated = await (isFollowing ? unfollowPubkey(pubkeyHex) : followPubkey(pubkeyHex));
-    if (!updated) followError = 'Could not update follows. Try again when connected.';
-    followLoading = false;
+    void (isFollowing ? unfollowPubkey(pubkeyHex) : followPubkey(pubkeyHex)).then((updated) => {
+      if (!updated) followError = 'Could not update follows.';
+    });
   }
 </script>
 
@@ -202,10 +202,9 @@
           <button
             onclick={handleFollow}
             title="Your follow list is public"
-            disabled={followLoading}
             class={isFollowing ? 'btn-ghost' : 'btn-success'}
           >
-            {followLoading ? '...' : isFollowing ? 'Unfollow' : 'Follow'}
+            {isFollowing ? 'Unfollow' : 'Follow'}
           </button>
         {/if}
         <ShareButton url={window.location.href} />
@@ -230,7 +229,7 @@
     {#if !isOwnProfile && pubkeyHex}
       <FollowedBy pubkey={pubkeyHex} class="mt-2" />
       <ContactPreferences pubkey={pubkeyHex} />
-      {#if followError}<p class="text-sm text-red-400 mt-2" role="alert">{followError}</p>{/if}
+      {#if followNotice}<p class="text-sm text-red-400 mt-2" role="alert">{followNotice}</p>{/if}
     {/if}
 
     <!-- About -->

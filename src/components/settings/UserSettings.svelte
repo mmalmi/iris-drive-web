@@ -85,10 +85,19 @@
   async function refreshDeviceLabels(labelSession: NostrIdentitySession): Promise<void> {
     const profileId = labelSession.profileId;
     const appKeyPubkey = labelSession.appKeyPubkey;
+    const isCurrent = () => session?.profileId === profileId && session.appKeyPubkey === appKeyPubkey;
     try {
+      // Names this device already holds are shown at once; relays only add to them.
+      const stored = await loadDriveDeviceLabels({ refresh: false });
+      if (isCurrent()) deviceLabels = stored;
       const labels = await loadDriveDeviceLabels();
-      if (session?.profileId === profileId && session.appKeyPubkey === appKeyPubkey) {
+      if (isCurrent()) {
         deviceLabels = labels;
+        const refreshed = getCurrentNostrIdentitySession();
+        if (refreshed?.status === 'active' && refreshed.profileId === profileId) {
+          session = refreshed;
+          projection = projectNostrIdentityRoster(refreshed.profileId, refreshed.rosterOps);
+        }
       }
     } catch (labelError) {
       console.warn('[UserSettings] Could not load encrypted Drive device labels:', labelError);

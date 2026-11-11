@@ -22,6 +22,7 @@ const shared = vi.hoisted(() => ({
   secretKey: null as Uint8Array | null,
   tree: null as HashTree | null,
   fetchEvents: vi.fn(async () => new Set()),
+  subscribe: vi.fn((_filters: unknown, _options?: unknown) => ({ on: vi.fn(), stop: vi.fn() })),
 }));
 
 vi.mock('../src/nostr', () => ({
@@ -29,7 +30,7 @@ vi.mock('../src/nostr', () => ({
   getSecretKey: () => shared.secretKey,
   nostr: {
     fetchEvents: shared.fetchEvents,
-    subscribe: vi.fn(() => ({ on: vi.fn(), stop: vi.fn() })),
+    subscribe: shared.subscribe,
   },
   useNostrStore: {
     getState: () => ({ connectedRelays: 1 }),
@@ -127,6 +128,7 @@ describe('NostrIdentity tree-root scope', () => {
     shared.secretKey = null;
     shared.tree = null;
     shared.fetchEvents.mockClear();
+    shared.subscribe.mockClear();
   });
 
   afterEach(() => {
@@ -263,6 +265,52 @@ describe('NostrIdentity tree-root scope', () => {
     expect(current!.updatedAt).toBe(100);
     const entries = await tree.listDirectory({ hash: current!.hash, key: current!.key });
     expect(entries.map((entry) => entry.name)).toEqual(['current.txt']);
+  });
+
+  it('uses each backfilled root as it arrives without waiting for relays to finish', async () => {
+    const { appSecret, appPubkey } = activateProfile();
+    const tree = new HashTree({ store: new MemoryStore() });
+    shared.tree = tree;
+    const file = await tree.putFile(new TextEncoder().encode('arrived'));
+    const sourceRoot = (await tree.putDirectory([{
+      name: 'arrived.txt',
+      cid: file.cid,
+      size: file.size,
+      type: LinkType.Blob,
+    }])).cid;
+    const event = buildDriveRootEvent({
+      deviceSecretKey: appSecret,
+      rootScopeId: PROFILE_ID,
+      driveId: 'main',
+      root: sourceRoot,
+      dckGeneration: 1,
+      appKeySeq: 1,
+      publishedAt: 100,
+      authorizedAppKeyPubkeys: [appPubkey],
+    });
+    const { refreshDriveRootResolverKey } = await import('../src/stores/treeRootResolver');
+
+    refreshDriveRootResolverKey(`${PROFILE_ID}/main`);
+    await vi.waitFor(() => expect(shared.subscribe).toHaveBeenCalled());
+
+    // The request stays open: no relay has said it is finished.
+    expect(shared.subscribe.mock.calls[0]).toEqual([[{
+      kinds: [30078],
+      authors: [appPubkey],
+      '#d': [`iris-drive/${PROFILE_ID}/main/root`],
+      limit: 1,
+    }], { closeAfterHistory: true }]);
+    expect(shared.fetchEvents).not.toHaveBeenCalled();
+    const request = shared.subscribe.mock.results[0].value as { on: ReturnType<typeof vi.fn> };
+    const onEvent = request.on.mock.calls.find(([type]) => type === 'event')![1] as (event: unknown) => void;
+    onEvent(event);
+
+    await vi.waitFor(() => {
+      expect(treeRootRegistry.get(PROFILE_ID, 'main')).not.toBeNull();
+    });
+    const current = treeRootRegistry.get(PROFILE_ID, 'main')!;
+    expect((await tree.listDirectory({ hash: current.hash, key: current.key }))
+      .map((entry) => entry.name)).toEqual(['arrived.txt']);
   });
 
   it('rebuilds a locally retained root even when its relay echo is deduplicated', async () => {

@@ -3,15 +3,13 @@ import { finalizeEvent, getPublicKey, type Event, type EventTemplate } from 'nos
 const fixture = vi.hoisted(() => ({
   requests: [] as Array<{kinds:number[], authors:string[], handlers:Record<string,(event?:unknown)=>void>}>,
   pubkey: '',
-  adapter: null as null | {queryEvents: ReturnType<typeof vi.fn>},
-  relays: ['wss://example.invalid'],
-  nostr: {signer: {} as object | undefined, subscribe: vi.fn(), publishEvent: vi.fn()},
+  nostr: {signer: {} as object | undefined, subscribe: vi.fn(), signEvent: vi.fn(), publish: vi.fn()},
 }));
-vi.mock('../src/nostr/client', () => ({nostr: fixture.nostr, getNostrRelayUrls: () => fixture.relays}));
-vi.mock('../src/workerAdapter', () => ({getWorkerAdapter: () => fixture.adapter}));
+vi.mock('../src/nostr/client', () => ({nostr: fixture.nostr}));
 vi.mock('../src/nostr', () => ({nostr: fixture.nostr, nostrStore: {getState: () => ({pubkey:fixture.pubkey})}}));
 import { createProfileStore, getProfileSync } from '../src/stores/profile';
-import { followPubkey, unfollowPubkey } from '../src/stores/follows';
+import { get } from 'svelte/store';
+import { followPubkey, followSaveError, getFollowsSync, unfollowPubkey } from '../src/stores/follows';
 import { contactMemory } from '../src/stores/contactMemory';
 let secret: Uint8Array;
 let sequence = 0;
@@ -22,7 +20,7 @@ async function requestAfter(start:number) {
   return fixture.requests.slice(start).find(r=>r.kinds.includes(3))!;
 }
 beforeEach(() => {
-  vi.useRealTimers(); fixture.requests=[]; fixture.adapter=null; fixture.relays=['wss://example.invalid']; fixture.nostr.publishEvent.mockReset();
+  vi.useRealTimers(); fixture.requests=[]; fixture.nostr.signEvent.mockReset(); fixture.nostr.publish.mockReset();
   secret=new Uint8Array(32);secret[31]=++sequence;fixture.pubkey=getPublicKey(secret);fixture.nostr.signer={};
   const values = new Map<string,string>();
   vi.stubGlobal('localStorage', {getItem:(key:string)=>values.get(key)??null,setItem:(key:string,value:string)=>values.set(key,value)});
@@ -30,107 +28,129 @@ beforeEach(() => {
     const request={...filter,handlers:{}};fixture.requests.push(request);
     return {on:(type:string,callback:(event:unknown)=>void) => {request.handlers[type]=callback;},stop:()=>{request.handlers.close?.();}};
   });
-  fixture.nostr.publishEvent.mockImplementation(async (draft:EventTemplate) => finalizeEvent(draft,secret));
+  fixture.nostr.signEvent.mockImplementation(async (draft:EventTemplate) => finalizeEvent(draft,secret));
+  fixture.nostr.publish.mockResolvedValue(undefined);
 });
-it('waits for latest signed history, preserves all tags/content, and saves the name seen before follow', async () => {
+const signed = (call=0) => fixture.nostr.signEvent.mock.calls[call][0];
+it('shows a follow at once, then signs it onto the complete signed list and saves the name seen before follow', async () => {
   const unsubscribe=createProfileStore(contact).subscribe(()=>{});
   // Profile lookups are batched, so the request follows a moment later.
   const profile=await vi.waitFor(() => { const request=fixture.requests.find(r=>r.kinds.includes(0)); expect(request).toBeDefined(); return request!; });
   profile.handlers.event({pubkey:contact,created_at:20,content:JSON.stringify({name:'Bob'})});
   profile.handlers.event({pubkey:contact,created_at:10,content:JSON.stringify({name:'Outdated'})});
   expect(getProfileSync(contact)?.name).toBe('Bob');
-  const started=fixture.requests.length, pending=followPubkey(contact);
+  const started=fixture.requests.length;
+  expect(await followPubkey(contact)).toBe(true);
+  // Nothing has answered yet: the change is on screen, nothing is signed.
+  expect(getFollowsSync(fixture.pubkey)?.follows).toEqual([contact]);
+  expect(contactMemory.get(fixture.pubkey,contact)?.accepted_name).toBe('Bob');
+  expect(fixture.nostr.signEvent).not.toHaveBeenCalled();
   const own=await requestAfter(started);
   const tags=[['p',existing,'wss://example.invalid','friend'],['t','music'],['client','iris']];
   own.handlers.event(head([['p','d'.repeat(64)]],10));
   own.handlers.event(head(tags));
   own.handlers.event(head([['p','d'.repeat(64)]],15));
-  expect(fixture.nostr.publishEvent).not.toHaveBeenCalled();
+  expect(getFollowsSync(fixture.pubkey)?.follows).toEqual([existing,contact]);
   profile.handlers.event({pubkey:contact,created_at:30,content:JSON.stringify({name:'Robert'})});
   own.handlers.history({complete:true,reason:'eose'});
-  expect(await pending).toBe(true);
-  expect(fixture.nostr.publishEvent.mock.calls[0][0]).toMatchObject({content:'{"keep":"this"}',tags:[...tags,['p',contact]]});
+  await vi.waitFor(()=>expect(fixture.nostr.publish).toHaveBeenCalledOnce());
+  expect(signed()).toMatchObject({content:'{"keep":"this"}',tags:[...tags,['p',contact]]});
   expect(contactMemory.get(fixture.pubkey,contact)?.accepted_name).toBe('Bob');
   expect(getProfileSync(contact)?.name).toBe('Robert');
-  const nextStart=fixture.requests.length, removing=unfollowPubkey(contact), next=await requestAfter(nextStart);
-  next.handlers.event(head(tags)); // A stale relay cannot erase the locally published head.
-  next.handlers.history({complete:true,reason:'eose'});
-  expect(await removing).toBe(true);
-  expect(fixture.nostr.publishEvent.mock.calls[1][0]).toMatchObject({content:'{"keep":"this"}',tags});
+  // History is complete now, so the next change is signed without asking again.
+  own.handlers.event(head(tags)); // A stale relay cannot erase the locally published list.
+  expect(await unfollowPubkey(contact)).toBe(true);
+  expect(getFollowsSync(fixture.pubkey)?.follows).toEqual([existing]);
+  await vi.waitFor(()=>expect(fixture.nostr.publish).toHaveBeenCalledTimes(2));
+  expect(signed(1)).toMatchObject({content:'{"keep":"this"}',tags});
+  expect(get(followSaveError)).toBe('');
   unsubscribe();
 });
-it('refuses partial history even after receiving a valid event', async () => {
-  const pending=followPubkey(contact), own=await requestAfter(0);
-  own.handlers.event(head([['p',existing]]));
-  own.handlers.history({complete:false,reason:'unavailable'});
-  expect(await pending).toBe(false);expect(fixture.nostr.publishEvent).not.toHaveBeenCalled();
-  expect(contactMemory.get(fixture.pubkey,contact)).toBeNull();
+it('does not wait for a relay to accept the list', async () => {
+  fixture.nostr.publish.mockReturnValue(new Promise(()=>{}));
+  expect(await followPubkey(contact)).toBe(true);
+  const own=await requestAfter(0);
+  own.handlers.event(head([['p',existing]]));own.handlers.history({complete:true,reason:'eose'});
+  await vi.waitFor(()=>expect(fixture.nostr.publish).toHaveBeenCalledOnce());
+  expect(getFollowsSync(fixture.pubkey)?.follows).toEqual([existing,contact]);
+  // The next change builds on the list just signed, not on what relays hold.
+  const other='e'.repeat(64);
+  expect(await followPubkey(other)).toBe(true);
+  await vi.waitFor(()=>expect(fixture.nostr.publish).toHaveBeenCalledTimes(2));
+  expect(signed(1).tags).toEqual([['p',existing],['p',contact],['p',other]]);
 });
-it('refuses unsigned heads and account changes while fetching history', async () => {
-  const pending=followPubkey(contact), own=await requestAfter(0);
-  own.handlers.event({...JSON.parse(JSON.stringify(head([['p',existing]]))),sig:'invalid'});
-  own.handlers.history({complete:true,reason:'eose'});
-  expect(await pending).toBe(false);
-  const start=fixture.requests.length, second=followPubkey(contact), next=await requestAfter(start);
-  next.handlers.event(head([['p',existing]]));fixture.pubkey='d'.repeat(64);
-  next.handlers.history({complete:true,reason:'eose'});
-  expect(await second).toBe(false);expect(fixture.nostr.publishEvent).not.toHaveBeenCalled();
-});
-it('refuses a backend closing before history completes', async () => {
-  const pending=followPubkey(contact);await requestAfter(0);
-  // Closing a backend before history is complete must fail just like a timeout.
-  fixture.requests.find(r=>r.kinds.includes(3))!.handlers.close();
-  expect(await pending).toBe(false);expect(fixture.nostr.publishEvent).not.toHaveBeenCalled();
-});
-it('serializes concurrent edits and keeps a newer local head while relays lag', async () => {
-  const other='e'.repeat(64), initial=head([['p',existing],['client','iris']]);
-  const first=followPubkey(contact), second=followPubkey(other), own=await requestAfter(0);
-  expect(fixture.requests.filter(r=>r.kinds.includes(3))).toHaveLength(1);
-  own.handlers.event(initial);own.handlers.history({complete:true,reason:'eose'});
-  expect(await first).toBe(true);
-  const next=await requestAfter(1);
-  next.handlers.event(initial);next.handlers.history({complete:true,reason:'eose'});
-  expect(await second).toBe(true);
-  expect(fixture.nostr.publishEvent.mock.calls[1][0].tags).toEqual([['p',existing],['client','iris'],['p',contact],['p',other]]);
-});
-it('times out without publishing when history never completes', async () => {
+it('builds on a known list after a short wait when a relay never finishes', async () => {
   vi.useFakeTimers();
   try {
-    const pending=followPubkey(contact);
-    await vi.advanceTimersByTimeAsync(10_001);
-    expect(await pending).toBe(false);
-    expect(fixture.nostr.publishEvent).not.toHaveBeenCalled();
+    expect(await followPubkey(contact)).toBe(true);
+    const own=fixture.requests.find(r=>r.kinds.includes(3))!;
+    own.handlers.event(head([['p',existing]]));
+    await vi.advanceTimersByTimeAsync(999);
+    expect(fixture.nostr.signEvent).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(2);
+    expect(signed().tags).toEqual([['p',existing],['p',contact]]);
+    expect(fixture.nostr.publish).toHaveBeenCalledOnce();
   } finally {vi.useRealTimers();}
 });
-
-it('uses completed relay-scoped worker history when optional peer history is unavailable', async () => {
-  let finish!: (result: unknown) => void;
-  const queryEvents=vi.fn(() => new Promise(resolve => {finish=resolve;}));
-  fixture.adapter={queryEvents};
-  const pending=followPubkey(contact);
-  await vi.waitFor(()=>expect(queryEvents).toHaveBeenCalledOnce());
-  expect(queryEvents.mock.calls[0]).toEqual([[{kinds:[3],authors:[fixture.pubkey]}], {
-    cache:'cache-first',relays:fixture.relays,deadline:expect.any(Number),
-  }]);
-  expect(fixture.nostr.publishEvent).not.toHaveBeenCalled();
-  const tags=[['p',existing,'wss://hint.invalid','friend'],['client','iris']];
-  finish({complete:true,reason:'eose',events:[head(tags)]});
-  expect(await pending).toBe(true);
-  expect(fixture.nostr.publishEvent.mock.calls[0][0]).toMatchObject({content:'{"keep":"this"}',tags:[...tags,['p',contact]]});
+it('keeps a change queued, and says so, while no relay can tell whether a list exists', async () => {
+  vi.useFakeTimers();
+  try {
+    expect(await followPubkey(contact)).toBe(true);
+    const first=fixture.requests.find(r=>r.kinds.includes(3))!;
+    first.handlers.history({complete:false,reason:'unavailable'});
+    await vi.advanceTimersByTimeAsync(10_001);
+    // Publishing now could replace a list this device has never seen.
+    expect(fixture.nostr.signEvent).not.toHaveBeenCalled();
+    expect(getFollowsSync(fixture.pubkey)?.follows).toEqual([contact]);
+    expect(get(followSaveError)).toMatch(/Not saved yet/);
+    // Relays are asked again; the queued change is saved once one answers.
+    const asked=fixture.requests.filter(r=>r.kinds.includes(3));
+    expect(asked.length).toBeGreaterThan(1);
+    asked.at(-1)!.handlers.event(head([['p',existing]]));
+    asked.at(-1)!.handlers.history({complete:true,reason:'eose'});
+    await vi.advanceTimersByTimeAsync(1);
+    expect(signed().tags).toEqual([['p',existing],['p',contact]]);
+    expect(get(followSaveError)).toBe('');
+  } finally {vi.useRealTimers();}
 });
-it('refuses unavailable, invalid, or unconfigured worker relay history', async () => {
-  const queryEvents=vi.fn().mockResolvedValue({complete:false,events:[head([['p',existing]])]});
-  fixture.adapter={queryEvents};
-  expect(await followPubkey(contact)).toBe(false);
-  queryEvents.mockResolvedValue({complete:true,events:[{...JSON.parse(JSON.stringify(head([['p',existing]]))),sig:'invalid'}]});
-  expect(await followPubkey(contact)).toBe(false);
-  queryEvents.mockClear();fixture.relays=[];
-  expect(await followPubkey(contact)).toBe(false);
-  expect(queryEvents).not.toHaveBeenCalled();
-  expect(fixture.nostr.publishEvent).not.toHaveBeenCalled();
+it('starts an empty list only when relays have finished and hold none', async () => {
+  expect(await followPubkey(contact)).toBe(true);
+  const own=await requestAfter(0);
+  expect(fixture.nostr.signEvent).not.toHaveBeenCalled();
+  own.handlers.history({complete:true,reason:'eose'});
+  await vi.waitFor(()=>expect(fixture.nostr.publish).toHaveBeenCalledOnce());
+  expect(signed().tags).toEqual([['p',contact]]);
 });
-it('refuses a replaced worker backend before publishing', async () => {
-  fixture.adapter={queryEvents:vi.fn(async()=>{fixture.adapter=null;return {complete:true,events:[head([])]};})};
+it('ignores unsigned lists and drops queued changes when the account changes', async () => {
+  expect(await followPubkey(contact)).toBe(true);
+  const own=await requestAfter(0);
+  own.handlers.event({...JSON.parse(JSON.stringify(head([['p',existing]]))),sig:'invalid'});
+  expect(getFollowsSync(fixture.pubkey)?.follows).toEqual([contact]);
+  fixture.pubkey='d'.repeat(64);
+  own.handlers.history({complete:true,reason:'eose'});
+  await Promise.resolve();
+  expect(fixture.nostr.signEvent).not.toHaveBeenCalled();
+});
+it('undoes the change on screen and reports it when signing is refused', async () => {
+  fixture.nostr.signEvent.mockRejectedValue(new Error('refused'));
+  expect(await followPubkey(contact)).toBe(true);
+  const own=await requestAfter(0);
+  own.handlers.event(head([['p',existing]]));own.handlers.history({complete:true,reason:'eose'});
+  await vi.waitFor(()=>expect(get(followSaveError)).toBe('Could not update follows.'));
+  expect(getFollowsSync(fixture.pubkey)?.follows).toEqual([existing]);
+  expect(fixture.nostr.publish).not.toHaveBeenCalled();
+});
+it('keeps the signed change and reports it when it cannot be handed to the publisher', async () => {
+  fixture.nostr.publish.mockRejectedValue(new Error('no backend'));
+  expect(await followPubkey(contact)).toBe(true);
+  const own=await requestAfter(0);
+  own.handlers.event(head([['p',existing]]));own.handlers.history({complete:true,reason:'eose'});
+  await vi.waitFor(()=>expect(get(followSaveError)).toMatch(/Could not send/));
+  expect(getFollowsSync(fixture.pubkey)?.follows).toEqual([existing,contact]);
+});
+it('refuses without an account or a valid key', async () => {
+  expect(await followPubkey('not-a-key')).toBe(false);
+  fixture.nostr.signer=undefined;
   expect(await followPubkey(contact)).toBe(false);
-  expect(fixture.nostr.publishEvent).not.toHaveBeenCalled();
+  expect(fixture.requests.filter(r=>r.kinds.includes(3))).toHaveLength(0);
 });

@@ -532,6 +532,8 @@ test.describe('Link-visible Tree Visibility', () => {
     // Look for the file's snapshot link (the one with visible text, not just icon)
     const permalinkLink = page.getByRole('link', { name: 'Snapshot' });
     await expect(permalinkLink).toBeVisible({ timeout: 15000 });
+    // The link starts as the plain immutable one and becomes the signed snapshot.
+    await expect(permalinkLink).toHaveAttribute('href', /snapshot=1/, { timeout: 15000 });
 
     // Get the href of the permalink
     const permalinkHref = await permalinkLink.getAttribute('href');

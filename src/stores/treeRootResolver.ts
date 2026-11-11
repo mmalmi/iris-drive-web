@@ -7,6 +7,7 @@ import type { Event, Filter } from 'nostr-tools';
 import type { Event as NostrToolsEvent } from 'nostr-tools';
 import { routeStore } from './route';
 import { getRefResolver, getResolverKey } from '../refResolver';
+import { openBackfill, stopOpenBackfill } from './driveRootBackfill';
 import {
   driveRootDTag,
   KIND_DRIVE_ROOT,
@@ -403,13 +404,32 @@ function rawSignedEvent(event: Event): NostrToolsEvent | null {
   return rawEvent as NostrToolsEvent;
 }
 
+/**
+ * Ask relays for the roots and share access of this scope and use each answer
+ * as it arrives. Nothing waits for the relays to finish.
+ */
+function requestDriveRootBackfill(key: string, rootScopeId: string, driveId: string, filters: Filter[]): void {
+  const requests: Filter[][] = [];
+  if (get(acceptedShares).some((record) => record.share_id === rootScopeId)) {
+    requests.push([{ kinds: [KIND_DRIVE_ROOT], '#d': [rootScopeId], '#l': ['iris-drive/share-access'] }]);
+  }
+  if (filters.length > 0) requests.push(filters);
+  openBackfill(key, requests, (event) => {
+    const raw = rawSignedEvent(event);
+    if (raw) applyDriveRootEvent(key, rootScopeId, driveId, raw);
+  });
+}
+
 async function backfillDriveRootScope(
   key: string,
   rootScopeId: string,
   driveId: string,
   options: { forceRebuild?: boolean; awaitRebuild?: boolean } = {},
 ): Promise<boolean> {
-  if (get(acceptedShares).some((record) => record.share_id === rootScopeId)) {
+  // Only a caller that must hand a complete Drive to another device waits for
+  // the relays' stored roots. Everything on screen is fed as answers arrive.
+  const complete = options.awaitRebuild === true;
+  if (complete && get(acceptedShares).some((record) => record.share_id === rootScopeId)) {
     const accessEvents = await nostr.fetchEvents({ kinds: [KIND_DRIVE_ROOT], '#d': [rootScopeId], '#l': ['iris-drive/share-access'] });
     const sorted = Array.from(accessEvents).sort((a, b) => a.created_at - b.created_at);
     for (const event of sorted) {
@@ -418,20 +438,27 @@ async function backfillDriveRootScope(
     }
   }
   const initial = syncDriveRootAuthorization(key, rootScopeId, driveId);
-  if (!initial.authorization.active) return false;
+  if (!initial.authorization.active) {
+    stopOpenBackfill(key);
+    return false;
+  }
 
   const filters = driveRootBackfillFilters(
     rootScopeId,
     driveId,
     initial.authorization.appKeys,
   );
-  const events = filters.length > 0 ? await nostr.fetchEvents(filters) : new Set<Event>();
   let accepted = false;
-  for (const event of events) {
-    const rawEvent = rawSignedEvent(event);
-    if (rawEvent) {
-      accepted = applyDriveRootEvent(key, rootScopeId, driveId, rawEvent, { rebuild: false }) || accepted;
+  if (complete) {
+    const events = filters.length > 0 ? await nostr.fetchEvents(filters) : new Set<Event>();
+    for (const event of events) {
+      const rawEvent = rawSignedEvent(event);
+      if (rawEvent) {
+        accepted = applyDriveRootEvent(key, rootScopeId, driveId, rawEvent, { rebuild: false }) || accepted;
+      }
     }
+  } else {
+    requestDriveRootBackfill(key, rootScopeId, driveId, filters);
   }
 
   const current = syncDriveRootAuthorization(key, rootScopeId, driveId);
@@ -644,6 +671,7 @@ function subscribeToDriveRootScope(key: string, rootScopeId: string, driveId: st
     window.clearInterval(backfillTimer);
     relayUnsub?.();
     sub.stop();
+    stopOpenBackfill(key);
   };
 }
 

@@ -2,7 +2,7 @@ import type { SignedNostrIdentityRosterOp } from '../drive/protocol';
 
 const DEFAULT_PUBLISH_CONCURRENCY = 32;
 
-/** Await durable publication of every signed operation in a roster history. */
+/** Publish every signed operation of a roster history, a batch at a time. */
 export async function publishDriveRosterHistory(
   rosterOps: readonly SignedNostrIdentityRosterOp[],
   publishEventJson: (eventJson: string) => Promise<void>,
@@ -15,14 +15,4 @@ export async function publishDriveRosterHistory(
         .map((op) => publishEventJson(op.event_json)),
     );
   }
-}
-
-/** Do not expose local profile state until its complete trust anchor is published. */
-export async function publishDriveRosterThenActivate<T>(
-  rosterOps: readonly SignedNostrIdentityRosterOp[],
-  publishEventJson: (eventJson: string) => Promise<void>,
-  activate: () => T | Promise<T>,
-): Promise<T> {
-  await publishDriveRosterHistory(rosterOps, publishEventJson);
-  return activate();
 }
