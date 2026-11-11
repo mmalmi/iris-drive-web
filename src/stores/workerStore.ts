@@ -6,24 +6,32 @@
  */
 
 import type { Store, Hash } from '@hashtree/core';
-import { getWorkerAdapter } from '../lib/workerInit';
+import { getWorkerAdapter, waitForWorkerAdapter } from '../lib/workerInit';
+
+/** How long a read or write waits for a worker that is still starting. */
+const WORKER_START_WAIT_MS = 30_000;
 
 /**
  * Store implementation that proxies all operations to the hashtree worker.
- * Falls back to returning null/false if worker is not ready.
+ * Operations that arrive while the worker is still starting wait for it: a
+ * write dropped at that point would leave a tree pointing at data that was
+ * never stored.
  */
 export class WorkerStore implements Store {
+  constructor(private readonly startWaitMs = WORKER_START_WAIT_MS) {}
+
+  private async adapter() {
+    return getWorkerAdapter() ?? await waitForWorkerAdapter(this.startWaitMs);
+  }
+
   async put(hash: Hash, data: Uint8Array): Promise<boolean> {
-    const adapter = getWorkerAdapter();
-    if (!adapter) {
-      console.warn('[WorkerStore] Worker not ready, put failed');
-      return false;
-    }
+    const adapter = await this.adapter();
+    if (!adapter) throw new Error('Storage is not available');
     return adapter.put(hash, data);
   }
 
   async get(hash: Hash): Promise<Uint8Array | null> {
-    const adapter = getWorkerAdapter();
+    const adapter = await this.adapter();
     if (!adapter) {
       console.warn('[WorkerStore] Worker not ready, get failed');
       return null;
@@ -32,7 +40,7 @@ export class WorkerStore implements Store {
   }
 
   async has(hash: Hash): Promise<boolean> {
-    const adapter = getWorkerAdapter();
+    const adapter = await this.adapter();
     if (!adapter) {
       return false;
     }
@@ -40,7 +48,7 @@ export class WorkerStore implements Store {
   }
 
   async delete(hash: Hash): Promise<boolean> {
-    const adapter = getWorkerAdapter();
+    const adapter = await this.adapter();
     if (!adapter) {
       return false;
     }
