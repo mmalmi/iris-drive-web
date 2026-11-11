@@ -34,7 +34,8 @@ beforeEach(() => {
 });
 it('waits for latest signed history, preserves all tags/content, and saves the name seen before follow', async () => {
   const unsubscribe=createProfileStore(contact).subscribe(()=>{});
-  const profile=fixture.requests.find(r=>r.kinds.includes(0))!;
+  // Profile lookups are batched, so the request follows a moment later.
+  const profile=await vi.waitFor(() => { const request=fixture.requests.find(r=>r.kinds.includes(0)); expect(request).toBeDefined(); return request!; });
   profile.handlers.event({pubkey:contact,created_at:20,content:JSON.stringify({name:'Bob'})});
   profile.handlers.event({pubkey:contact,created_at:10,content:JSON.stringify({name:'Outdated'})});
   expect(getProfileSync(contact)?.name).toBe('Bob');
