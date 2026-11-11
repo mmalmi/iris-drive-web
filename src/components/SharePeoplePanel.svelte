@@ -11,6 +11,7 @@
   import type { SharePeopleTarget } from '../drive/sharePeople';
   import {
     changeShareMemberRole,
+    disableJoinLinks,
     joinLinkUrl,
     removeShareMember,
     shareFromDrive,
@@ -91,9 +92,20 @@
       </select>
     </label>
     <div class="bg-surface-2 p-3 rounded">
-      <CopyText text={link} truncate={60} class="text-sm" testId="share-people-link" />
+      <CopyText text={link} truncate={40} class="text-sm" testId="share-people-link" />
     </div>
-    <p class="text-xs text-text-3">People are added while Drive is open on this device.</p>
+    <div class="flex items-center gap-2">
+      <p class="flex-1 text-xs text-text-3">People are added while Drive is open on this device.</p>
+      <button
+        class="btn-ghost text-xs"
+        title="The current link stops working. People who already joined keep their access."
+        disabled={busy}
+        data-testid="share-people-reset"
+        onclick={() => disableJoinLinks(shareId)}
+      >
+        Reset link
+      </button>
+    </div>
 
     <div class="divide-y divide-surface-2" data-testid="share-people-list">
       {#each people as member (member.profile_id)}

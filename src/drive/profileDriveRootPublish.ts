@@ -65,6 +65,34 @@ function nextDriveRootPublishedAt(profileId: string, driveId: string, appKeyPubk
   return next;
 }
 
+const rewrapTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+/**
+ * A shared folder's files are readable by the devices each writer's latest
+ * version was wrapped for. When the members change, a device that has written
+ * to the folder publishes its version again, so someone who joined later can
+ * read what it wrote without waiting for its next edit.
+ */
+export function scheduleShareRootRewrap(shareId: string): void {
+  const pending = rewrapTimers.get(shareId);
+  if (pending) clearTimeout(pending);
+  rewrapTimers.set(shareId, setTimeout(() => {
+    rewrapTimers.delete(shareId);
+    void rewrapShareRoot(shareId).catch((error) => {
+      console.warn('[driveRoot] Could not publish a shared folder again for its new members:', error);
+    });
+  }, 500));
+}
+
+async function rewrapShareRoot(shareId: string): Promise<void> {
+  const session = getCurrentNostrIdentitySession();
+  if (!session || session.status !== 'active' || !activeShareScope(shareId)?.canWrite) return;
+  if (!profileDriveProjection.contributionRoot(shareId, 'main', session.appKeyPubkey)) return;
+  const { getTreeRootSync } = await import('../stores/treeRoot');
+  const root = getTreeRootSync(shareId, 'main');
+  if (root?.key) await publishNostrIdentityDriveRootIfAvailable('main', root, { rootScopeId: shareId });
+}
+
 export async function publishNostrIdentityDriveRootIfAvailable(
   driveId: string,
   rootCid: CID,

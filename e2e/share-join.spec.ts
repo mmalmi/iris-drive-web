@@ -84,12 +84,59 @@ test.describe('sharing from the browser', () => {
       await page.getByTestId('document-share').click();
       await page.getByTestId('share-people-remove').click();
       await expect(page.getByTestId('share-people-member')).toHaveCount(1, { timeout: 30_000 });
+      // Resetting the link replaces it, so the one already handed out stops admitting people.
+      await page.getByTestId('share-people-reset').click();
+      await page.getByTestId('share-people-link').click();
+      await expect.poll(() => page.evaluate(() => navigator.clipboard.readText()), { timeout: 15_000 }).not.toBe(link);
       await page.keyboard.press('Escape');
       await guest.goto(onThisOrigin(guest, link));
       await expect(guest.getByTestId('share-join-waiting').or(guest.getByTestId('document-content'))).toBeVisible({ timeout: 30_000 });
       await expect(guest.getByTestId('document-toolbar')).toHaveCount(0, { timeout: 60_000 });
     } finally {
       await guestContext.close();
+    }
+  });
+
+  test('what an earlier guest writes reaches a guest who joined later, with the owner away', async ({ page, browser, relayUrl }) => {
+    await prepareFreshSession(page, relayUrl);
+    await createDriveProfile(page, 'Owner');
+    await createDocument(page, 'Notes');
+    await typeInDocument(page, 'Start.');
+    await expectSaved(page);
+    await page.getByTestId('document-share').click();
+    const link = await inviteLink(page);
+    await page.keyboard.press('Escape');
+
+    const firstContext = await browser.newContext();
+    const secondContext = await browser.newContext();
+    try {
+      const first = await firstContext.newPage();
+      await prepareFreshSession(first, relayUrl);
+      await createDriveProfile(first, 'First');
+      await first.goto(onThisOrigin(first, link));
+      await expect(documentBody(first)).toContainText('Start.', { timeout: 90_000 });
+      await typeInDocument(first, ' First was here.');
+      await expectSaved(first);
+
+      const second = await secondContext.newPage();
+      await prepareFreshSession(second, relayUrl);
+      await createDriveProfile(second, 'Second');
+      await second.goto(onThisOrigin(second, link));
+      await expect(documentBody(second)).toContainText('First was here.', { timeout: 90_000 });
+
+      // The owner leaves; the two guests keep working with each other.
+      await expect(documentBody(page)).toContainText('First was here.', { timeout: 90_000 });
+      await flushPendingPublishes(page);
+      await page.goto('about:blank');
+      await typeInDocument(first, ' First again.');
+      await expectSaved(first);
+      await expect(documentBody(second)).toContainText('First again.', { timeout: 90_000 });
+      await typeInDocument(second, ' Second answers.');
+      await expectSaved(second);
+      await expect(documentBody(first)).toContainText('Second answers.', { timeout: 90_000 });
+    } finally {
+      await firstContext.close();
+      await secondContext.close();
     }
   });
 

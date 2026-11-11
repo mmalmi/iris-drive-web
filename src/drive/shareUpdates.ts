@@ -21,6 +21,9 @@ export function applyShareAccessEvent(shareId: string, event: Event): boolean {
     }
   });
   // The backfill replays access events already applied; only a newer one is a change.
-  if (changed) acceptedShares.set(records);
+  if (changed) {
+    acceptedShares.set(records);
+    void import('./profileDriveRootPublish').then(({ scheduleShareRootRewrap }) => scheduleShareRootRewrap(shareId));
+  }
   return true;
 }
