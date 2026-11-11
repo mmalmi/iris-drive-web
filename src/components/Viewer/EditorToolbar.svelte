@@ -28,11 +28,17 @@
   let changes = $state(0);
   $effect(() => {
     const current = editor;
+    let listening = true;
+    // A transaction can arrive while the page is being redrawn or taken down
+    // (the editor loses focus as it is removed), so the count changes after it.
     const bump = () => {
-      changes += 1;
+      queueMicrotask(() => {
+        if (listening) changes += 1;
+      });
     };
     current.on('transaction', bump);
     return () => {
+      listening = false;
       current.off('transaction', bump);
     };
   });
