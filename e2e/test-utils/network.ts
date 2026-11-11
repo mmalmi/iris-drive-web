@@ -4,7 +4,6 @@ import { evaluateWithRetry, waitForAppShell, waitForOptionalWorkerAdapter, waitF
 const DEFAULT_E2E_PRODUCTION_RELAYS = [
   'wss://relay.damus.io',
   'wss://relay.primal.net',
-  'wss://relay.nostr.band',
   'wss://relay.snort.social',
   'wss://temp.iris.to',
 ];

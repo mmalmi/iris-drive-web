@@ -1,14 +1,24 @@
 import { describe, expect, test } from 'vitest';
-import { DEFAULT_PUBLIC_RELAYS } from '@iris/hashtree-app/defaultRelays';
+import { DEFAULT_PUBLIC_RELAYS, RETIRED_PUBLIC_RELAYS } from '@iris/hashtree-app/defaultRelays';
 import { allowsPublicGraphBootstrap, getFipsBootstrapOptions } from '../src/lib/graphBootstrapPolicy';
 
 describe('public graph bootstrap relay policy', () => {
-  test('includes Ditto in the three shipped graph relays while retaining the previous catalog', () => {
+  test('includes Ditto in the three shipped graph relays while retaining the live previous catalog', () => {
     expect([...new Set(DEFAULT_PUBLIC_RELAYS)].slice(0, 3)).toContain('wss://relay.ditto.pub');
     expect(DEFAULT_PUBLIC_RELAYS).toEqual(expect.arrayContaining([
-      'wss://relay.damus.io', 'wss://relay.primal.net', 'wss://relay.nostr.band',
-      'wss://relay.snort.social', 'wss://temp.iris.to',
+      'wss://relay.damus.io', 'wss://relay.primal.net', 'wss://relay.snort.social', 'wss://temp.iris.to',
     ]));
+    expect(DEFAULT_PUBLIC_RELAYS).not.toContain('wss://relay.nostr.band');
+  });
+
+  test('keeps the shipped policy for a saved list that differs only by a retired relay', () => {
+    const savedBeforeRetirement = [...DEFAULT_PUBLIC_RELAYS, ...RETIRED_PUBLIC_RELAYS];
+    expect(RETIRED_PUBLIC_RELAYS).toContain('wss://relay.nostr.band');
+    expect(allowsPublicGraphBootstrap(savedBeforeRetirement)).toBe(true);
+    expect(allowsPublicGraphBootstrap(RETIRED_PUBLIC_RELAYS)).toBe(false);
+    expect(allowsPublicGraphBootstrap([...savedBeforeRetirement, 'wss://relay.example'])).toBe(false);
+    expect(allowsPublicGraphBootstrap(savedBeforeRetirement.filter(relay => relay !== 'wss://relay.ditto.pub')))
+      .toBe(false);
   });
 
   test('allows only the exact shipped public set, independent of order and duplicates', () => {

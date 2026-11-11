@@ -55,7 +55,7 @@
     "@hashtree/index": "https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.27/hashtree-index-0.1.15.tgz",
     "@hashtree/nostr": "https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.40/hashtree-nostr-0.2.7.tgz",
     "@hashtree/worker": "https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.41/hashtree-worker-0.4.25.tgz",
-    "@iris/hashtree-app": "https://github.com/mmalmi/iris-kit/releases/download/runtime-v0.2.8/iris-hashtree-app-0.1.7.tgz",
+    "@iris/hashtree-app": "https://github.com/mmalmi/iris-kit/releases/download/runtime-v0.2.10/iris-hashtree-app-0.1.8.tgz",
     "@iris/identity": "https://github.com/mmalmi/iris-kit/releases/download/runtime-v0.2.9/iris-identity-0.4.0.tgz",
     "@iris/release-tools": "https://github.com/mmalmi/iris-kit/releases/download/runtime-v0.2.6/iris-release-tools-0.1.1.tgz",
     "@iris/svelte-ui": "file:vendor/iris-svelte-ui-3d26f8c.tgz",
