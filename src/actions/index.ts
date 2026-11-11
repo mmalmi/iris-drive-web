@@ -5,9 +5,6 @@
 // Route helpers (internal use)
 export { getCurrentRootCid, buildRouteUrl, getCurrentPathFromUrl, updateRoute } from './route';
 
-// Navigation
-export { clearFileSelection, navigateTo, goBack, selectFile } from './navigation';
-
 // File operations
 export { saveFile, createFile, uploadSingleFile, uploadExtractedFiles } from './file';
 
@@ -18,8 +15,6 @@ export {
   createDocument,
   forkTree,
   createTree,
-  verifyCurrentTree,
-  clearStore,
 } from './tree';
 
 // Entry operations

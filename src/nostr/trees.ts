@@ -9,7 +9,6 @@ import {
   type TreeVisibility,
 } from '@hashtree/core';
 import { nostrStore } from './store';
-import { nostr } from './client';
 import { updateLocalRootCache } from '../treeRootCache';
 import { parseRoute } from '../utils/route';
 import { getRefResolver } from '../refResolver';
@@ -29,14 +28,6 @@ export interface SaveHashtreeOptions {
   linkKey?: string;
   /** Additional l-tags to add (e.g., ['docs'] for document trees) */
   labels?: string[];
-}
-
-/**
- * Parse visibility from Nostr event tags
- */
-export function parseVisibility(tags: string[][]): TreeVisibility {
-  const visibility = tags.find((tag) => tag[0] === 'visibility')?.[1];
-  return visibility === 'link-visible' || visibility === 'private' ? visibility : 'public';
 }
 
 /**
@@ -188,62 +179,6 @@ export function autosaveIfOwn(rootCid: CID): void {
     rootHash,
     rootKey: selectedTree.visibility === 'public' ? rootKey : selectedTree.rootKey,
   });
-}
-
-/**
- * Publish tree root to Nostr (called by treeRootCache after throttle)
- * This is the ONLY place that should publish merkle roots.
- *
- * @param cachedVisibility - Visibility from the root cache. Use this first, then fall back to selectedTree.
- */
-export async function publishTreeRoot(treeName: string, rootCid: CID, cachedVisibility?: TreeVisibility): Promise<boolean> {
-  const state = nostrStore.getState();
-  if (!state.pubkey || !nostr.signer) return false;
-  const selectedTreeLabels = state.selectedTree?.name === treeName && state.selectedTree.pubkey === state.pubkey
-    ? state.selectedTree.labels
-    : undefined;
-
-  // Priority: cached visibility > selectedTree visibility > 'public'
-  let visibility: TreeVisibility = cachedVisibility ?? 'public';
-  let linkKey: string | undefined;
-
-  // If no cached visibility, try to get from selectedTree
-  if (!cachedVisibility) {
-    const isOwnSelectedTree = state.selectedTree?.name === treeName &&
-      state.selectedTree?.pubkey === state.pubkey;
-    if (isOwnSelectedTree && state.selectedTree?.visibility) {
-      visibility = state.selectedTree.visibility;
-    }
-  }
-
-  // For link-visible trees, get the linkKey from the URL
-  if (visibility === 'link-visible') {
-    const route = parseRoute();
-    linkKey = route.params.get('k') ?? undefined;
-
-    // Fallback to stored key when the current URL omits ?k=
-    if (!linkKey && state.npub) {
-      const { getLinkKey, waitForLinkKeysCache } = await import('../stores/trees');
-      linkKey = getLinkKey(state.npub, treeName) ?? undefined;
-      if (!linkKey) {
-        await waitForLinkKeysCache().catch(() => {});
-        linkKey = getLinkKey(state.npub, treeName) ?? undefined;
-      }
-    }
-
-    if (!linkKey) {
-      console.warn('[nostr] Missing link key for link-visible publish', { treeName, npub: state.npub });
-      return false;
-    }
-  }
-
-  const result = await saveHashtree(treeName, rootCid, {
-    visibility,
-    linkKey,
-    labels: selectedTreeLabels,
-  });
-
-  return result.success;
 }
 
 /**

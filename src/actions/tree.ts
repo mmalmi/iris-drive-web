@@ -1,13 +1,13 @@
 /**
- * Tree operations - create, fork, verify trees
+ * Tree operations - create and fork trees
  */
 import { navigate } from '../utils/navigate';
 import { parseRoute } from '../utils/route';
-import { verifyTree, toHex, LinkType } from '@hashtree/core';
+import { toHex, LinkType } from '@hashtree/core';
 import type { CID } from '@hashtree/core';
 import { linkKeyUtils, saveHashtree, useNostrStore } from '../nostr';
 import { nip19 } from 'nostr-tools';
-import { localStore, getTree } from '../store';
+import { getTree } from '../store';
 import { autosaveIfOwn } from '../nostr';
 import { getCurrentRootCid, getCurrentPathFromUrl } from './route';
 import { getLocalRootCache, updateLocalRootCache } from '../treeRootCache';
@@ -280,19 +280,4 @@ export async function createDocumentTree(
   }
 
   return { success: true, npub: nostrState.npub, treeName, linkKey: result.linkKey };
-}
-
-// Verify tree
-export async function verifyCurrentTree(): Promise<{ valid: boolean; missing: number }> {
-  const rootCid = getCurrentRootCid();
-  if (!rootCid) return { valid: false, missing: 0 };
-
-  const { valid, missing } = await verifyTree(localStore, rootCid.hash);
-  return { valid, missing: missing.length };
-}
-
-// Clear store
-export function clearStore() {
-  localStore.clear();
-  navigate('/');
 }

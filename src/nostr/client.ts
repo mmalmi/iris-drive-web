@@ -32,12 +32,6 @@ export function getNostrRelayUrls(): string[] {
   return getEffectiveNostrRelayUrls(settingsStore.getState().network.relays);
 }
 
-export async function configureNostrRelays(relays: string[], timeoutMs = 5000): Promise<void> {
-  const { waitForWorkerAdapter } = await import('../lib/workerInit');
-  const adapter = await waitForWorkerAdapter(timeoutMs);
-  if (adapter) await adapter.setRelays(getEffectiveNostrRelayUrls(relays));
-}
-
 if (typeof window !== 'undefined') {
   (window as Window & { __nostr?: AppNostrClient }).__nostr = nostr;
 }

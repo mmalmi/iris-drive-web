@@ -7,8 +7,6 @@ import {
   relayStatusMapsEqual,
 } from '@iris/hashtree-app/relayStatusSnapshot';
 
-export { normalizeRelayUrl } from '@iris/hashtree-app/relayStatusSnapshot';
-
 let relayTrackingInitialized = false;
 
 /**

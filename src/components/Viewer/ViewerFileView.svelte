@@ -137,17 +137,6 @@
   }));
 
   $effect(() => {
-    if (typeof window !== 'undefined') {
-      const w = window as typeof window & {
-        __viewerMediaPlayerTreeName?: string | null;
-        __viewerUrlPath?: string[];
-      };
-      w.__viewerMediaPlayerTreeName = effectiveMediaTree.treeName;
-      w.__viewerUrlPath = routePath;
-    }
-  });
-
-  $effect(() => {
     fileRetryToken;
     const currentEntry = entry;
     const entryCidHash = currentEntry?.cid?.hash ? toHex(currentEntry.cid.hash) : null;

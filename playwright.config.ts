@@ -27,15 +27,11 @@ const resolveWorkers = (): number | string => {
 };
 const workers = resolveWorkers();
 
-const slowSpecs = [
-  'e2e/livestream-viewer.spec.ts',
-];
 const integrationSpecs = [
   'e2e/anchor-links.spec.ts',
   'e2e/compression.spec.ts',
   'e2e/explorer.test.ts',
   'e2e/link-visible-tree.spec.ts',
-  'e2e/search-navigation.spec.ts',
   'e2e/viewer-actions.spec.ts',
 ];
 const fastMode = process.env.E2E_FAST === '1';
@@ -80,7 +76,7 @@ process.env.VITE_TEST_RELAY = relayBaseUrl;
  */
 export default defineConfig({
   testDir: './e2e',
-  testIgnore: fastMode ? [...slowSpecs, ...integrationSpecs] : undefined,
+  testIgnore: fastMode ? integrationSpecs : undefined,
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0, // Retry once on CI to handle flaky tests

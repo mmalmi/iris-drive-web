@@ -5,17 +5,12 @@
  */
 import { writable, get } from 'svelte/store';
 import { getWorkerAdapter } from '../workerAdapter';
-import { nostrStore, type NostrState } from '../nostr/store';
+import { nostrStore } from '../nostr/store';
 import { DEFAULT_BOOTSTRAP_PUBKEY } from './constants';
 import { LRUCache } from './lruCache';
 
 // Default root pubkey (used when not logged in)
 const DEFAULT_SOCIAL_GRAPH_ROOT = DEFAULT_BOOTSTRAP_PUBKEY;
-let currentRoot = DEFAULT_SOCIAL_GRAPH_ROOT;
-
-// Debug logging
-const DEBUG = false;
-const log = (...args: unknown[]) => DEBUG && console.log('[socialGraph]', ...args);
 
 // ============================================================================
 // Sync Caches (for immediate UI access) - Using LRU eviction
@@ -84,7 +79,6 @@ const isFollowingCache = createGraphCache<boolean>(FOLLOWING_CACHE_MAX_SIZE);
 const followsCache = createGraphCache<Set<string>>(CACHE_MAX_SIZE, sameMembers);
 const followersCache = createGraphCache<Set<string>>(CACHE_MAX_SIZE, sameMembers);
 const friendsFollowingCache = createGraphCache<Set<string>>(CACHE_MAX_SIZE, sameMembers);
-const graphSizeCache = createGraphCache<number>(1);
 
 // Track pending fetches to avoid duplicate requests and flickering
 const pendingProfileFollows = new Set<string>();
@@ -96,13 +90,11 @@ const pendingProfileFollowers = new Set<string>();
 
 interface SocialGraphState {
   version: number;
-  isRecrawling: boolean;
 }
 
 function createSocialGraphStore() {
   const { subscribe, update } = writable<SocialGraphState>({
     version: 0,
-    isRecrawling: false,
   });
 
   // Debounce version increments to prevent cascade re-renders
@@ -129,9 +121,6 @@ function createSocialGraphStore() {
       pendingIncrement = true;
       if (incrementTimeout) clearTimeout(incrementTimeout);
       incrementTimeout = setTimeout(flushIncrement, 100);
-    },
-    setIsRecrawling: (value: boolean) => {
-      update(state => ({ ...state, isRecrawling: value }));
     },
     getState: (): SocialGraphState => get(socialGraphStore),
   };
@@ -279,127 +268,14 @@ export function unwatchUserFollowers(pubkey: string | null | undefined): void {
   watchedFollowersPubkeys.delete(pubkey);
 }
 
-/**
- * Get the graph size
- */
-export function getGraphSize(): number {
-  return graphSizeCache.read('size', 0, adapter => adapter.getSocialGraphSize());
-}
-
-/**
- * Get users at a specific follow distance
- */
-export function getUsersByFollowDistance(_distance: number): Set<string> {
-  // This is rarely used in hot paths, return empty and let caller handle async if needed
-  return new Set();
-}
-
-// Legacy aliases
-export const followDistance = getFollowDistance;
-export const followedByFriends = getFollowedByFriends;
+// Legacy alias
 export const follows = getFollows;
 
 // Mock SocialGraph interface for backwards compatibility (e2e tests)
 export function getSocialGraph(): { getRoot: () => string } | null {
   return {
-    getRoot: () => currentRoot,
+    getRoot: () => DEFAULT_SOCIAL_GRAPH_ROOT,
   };
-}
-
-// ============================================================================
-// Subscription Management
-// ============================================================================
-
-export async function fetchFollowList(publicKey: string): Promise<void> {
-  log('fetching own follow list for', publicKey);
-  // The worker's event subscription handles kind:3 events automatically
-  // This function is kept for API compatibility but is now a no-op
-}
-
-async function crawlFollowLists(publicKey: string, depth = 2): Promise<void> {
-  if (depth <= 0) return;
-
-  const adapter = getWorkerAdapter();
-  if (!adapter) return;
-
-  socialGraphStore.setIsRecrawling(true);
-
-  try {
-    // Get current follows to check
-    const rootFollows = await adapter.getFollows(publicKey);
-
-    // Find users we need to fetch follow lists for
-    const toFetch: string[] = [];
-    for (const pk of rootFollows) {
-      const theirFollows = await adapter.getFollows(pk);
-      if (theirFollows.length === 0) {
-        toFetch.push(pk);
-      }
-    }
-
-    log('need to crawl', toFetch.length, 'users at depth 1');
-
-    // Depth 2
-    if (depth >= 2) {
-      const toFetchSet = new Set(toFetch);
-
-      for (const pk of rootFollows) {
-        const theirFollows = await adapter.getFollows(pk);
-        for (const pk2 of theirFollows) {
-          if (!toFetchSet.has(pk2)) {
-            const followsOfFollows = await adapter.getFollows(pk2);
-            if (followsOfFollows.length === 0) {
-              toFetchSet.add(pk2);
-            }
-          }
-        }
-      }
-
-      log('total users needing crawl:', toFetchSet.size);
-    }
-
-    // Note: The worker's event subscription will fetch kind:3 events
-    // We just identified who needs fetching here
-  } finally {
-    socialGraphStore.setIsRecrawling(false);
-  }
-}
-
-async function setupSubscription(publicKey: string) {
-  log('setting root to', publicKey);
-  currentRoot = publicKey;
-
-  const adapter = getWorkerAdapter();
-  if (!adapter) return;
-
-  try {
-    await adapter.setSocialGraphRoot(publicKey);
-  } catch (err) {
-    console.error('[socialGraph] error setting root:', err);
-  }
-
-  // Trigger crawl in background
-  queueMicrotask(() => crawlFollowLists(publicKey));
-}
-
-export async function setupSocialGraphSubscriptions() {
-  const currentPublicKey = nostrStore.getState().pubkey;
-  if (currentPublicKey) {
-    await setupSubscription(currentPublicKey);
-  }
-
-  let prevPubkey = currentPublicKey;
-  nostrStore.subscribe((state: NostrState) => {
-    if (state.pubkey !== prevPubkey) {
-      if (state.pubkey) {
-        setupSubscription(state.pubkey);
-      } else {
-        currentRoot = DEFAULT_SOCIAL_GRAPH_ROOT;
-        getWorkerAdapter()?.setSocialGraphRoot(DEFAULT_SOCIAL_GRAPH_ROOT).catch(() => {});
-      }
-      prevPubkey = state.pubkey;
-    }
-  });
 }
 
 // Worker handles SocialGraph init and kind:3 subscriptions internally

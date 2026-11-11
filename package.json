@@ -38,8 +38,7 @@
     "test:e2e:drive-vm-interop": "PW_WORKERS=${PW_WORKERS:-1} playwright test e2e/drive-vm-interop.spec.ts --project=chromium",
     "test:e2e:docker": "bash ./scripts/test-e2e-docker.sh",
     "test:e2e:fast": "E2E_FAST=1 playwright test",
-    "test:e2e:integration": "playwright test e2e/anchor-links.spec.ts e2e/compression.spec.ts e2e/explorer.test.ts e2e/link-visible-tree.spec.ts e2e/search-navigation.spec.ts e2e/viewer-actions.spec.ts",
-    "test:e2e:slow": "playwright test e2e/livestream-viewer.spec.ts",
+    "test:e2e:integration": "playwright test e2e/anchor-links.spec.ts e2e/compression.spec.ts e2e/explorer.test.ts e2e/link-visible-tree.spec.ts e2e/viewer-actions.spec.ts",
     "test:e2e:ui": "playwright test --ui",
     "lint": "eslint src",
     "lint:fix": "eslint src --fix"

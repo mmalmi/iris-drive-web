@@ -22,7 +22,6 @@ export { nostr, signEvent, type NostrEvent } from './client';
 export {
   updateConnectedRelayCount,
   initRelayTracking,
-  normalizeRelayUrl,
 } from './relays';
 
 // Authentication exports
@@ -44,7 +43,6 @@ export {
   getStoredNostrIdentitySessionForAccount,
   waitForNostrExtension,
   initReadonlyBackend,
-  initReadonlyWorker,
   logout,
   getSecretKey,
   getNsec,
@@ -62,11 +60,9 @@ export {
 // Tree management exports
 export {
   saveHashtree,
-  publishTreeRoot,
   deleteTree,
   autosaveIfOwn,
   isOwnTree,
-  parseVisibility,
   pubkeyToNpub,
   npubToPubkey,
   linkKeyUtils,

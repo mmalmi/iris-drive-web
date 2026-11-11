@@ -256,10 +256,6 @@ export async function initReadonlyBackend(): Promise<void> {
   await initHashtreeBackend({ pubkey: bootstrapPubkey, nsec: nsecHex });
 }
 
-export async function initReadonlyWorker(): Promise<void> {
-  return initReadonlyBackend();
-}
-
 /**
  * Wait for window.nostr to be available
  */
