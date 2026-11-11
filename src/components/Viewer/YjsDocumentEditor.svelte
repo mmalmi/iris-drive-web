@@ -7,6 +7,9 @@
   import { getTree } from '../../store';
   import { routeStore, getTreeRootSync, treeRootStore } from '../../stores';
   import { open as openShareModal } from '../Modals/ShareModal.svelte';
+  import { acceptedShares } from '../../drive/shareLibrary';
+  import { sharePeopleTarget } from '../../drive/sharePeople';
+  import { activeNostrIdentityRootScope } from '../../drive/profileRoute';
   import { nostrStore, saveOwnTreeRoot } from '../../nostr';
   import { deleteCurrentFolder } from '../../actions';
   import type { CommentsStore } from '../../lib/comments';
@@ -44,7 +47,7 @@
 
   let route = $derived($routeStore);
   let userNpub = $derived($nostrStore.npub);
-  let writeScope = $derived(documentWriteScope(route.npub, userNpub, $nostrStore));
+  let writeScope = $derived(documentWriteScope(route.npub, userNpub, $nostrStore, $acceptedShares));
   let canEdit = $derived(!!writeScope && !!route.treeName && !route.isPermalink);
   let title = $derived(documentTitle(dirName));
   let backHref = $derived.by(() => {
@@ -291,7 +294,14 @@
       decryptKey: documentCid.key ? toHex(documentCid.key) : undefined,
     });
     const link = `${window.location.origin}${window.location.pathname}#/${snapshot}?${DOCUMENT_TITLE_PARAM}=${encodeURIComponent(title)}`;
-    openShareModal(link);
+    const people = canEdit ? sharePeopleTarget({
+      scope: route.npub,
+      treeName: route.treeName,
+      path: route.path,
+      profileId: activeNostrIdentityRootScope($nostrStore),
+      records: $acceptedShares,
+    }) : null;
+    openShareModal(link, null, people, Boolean(people));
   }
 
   async function handleDelete(): Promise<void> {

@@ -12,6 +12,9 @@
   import { buildSelectedTreeForOwnRoute, syncSelectedTreeForOwnRoute } from '../lib/selectedTree';
   import { routeDocumentFolderName } from '../lib/documentNames';
   import { treeRootRegistry } from '../TreeRootRegistry';
+  import { acceptedShares } from '../drive/shareLibrary';
+  import { sharedRouteForOwnPath } from '../drive/sharePeople';
+  import { activeNostrIdentityRootScope } from '../drive/profileRoute';
 
   interface Props {
     npub?: string;
@@ -52,6 +55,15 @@
   // Show stream view if streaming and logged in
   let isLoggedIn = $derived($nostrStore.isLoggedIn);
   let showStreamView = $derived(isStreaming && isLoggedIn);
+
+  // A folder or document of this Drive that has been shared lives in the shared
+  // folder from then on: open it there, so the owner edits what everyone sees.
+  $effect(() => {
+    const profileId = activeNostrIdentityRootScope($nostrStore);
+    if (!profileId || route.npub !== profileId || route.treeName !== 'main' || route.isPermalink) return;
+    const shared = sharedRouteForOwnPath(route.path, profileId, $acceptedShares);
+    if (shared) window.location.replace(`#${shared}`);
+  });
 
   // Use $effect to run when npub or treeName props change (not just on mount)
   // This is needed because the Router uses conditionals, not {#key}, so the component

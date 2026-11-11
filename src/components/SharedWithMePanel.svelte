@@ -29,13 +29,17 @@
   let nativeActionEndpoint = $derived(nativeShareActionEndpoint());
   let shareActionPending = $state('');
   let localShareViews = $derived(projectAcceptedShareViews($acceptedShares.filter((share) => share.local_profile_id === activeNostrIdentityRootScope($nostrStore)), $nostrStore.pubkey ?? undefined).map((share) => share.view));
+  // The native app answers on this address only when it is running; without
+  // an answer the folders this browser has joined are shown.
+  let nativeAnswered = $state(false);
+  let usingNative = $derived(Boolean(nativeActionEndpoint && nativeAnswered));
   let shares = $derived.by((): SharedWithMeRow[] => (
-    nativeActionEndpoint ? $nativeShareStore : localShareViews
+    usingNative ? $nativeShareStore : localShareViews
   ));
 
   $effect(() => {
     if (!nativeActionEndpoint) return;
-    void refreshNativeShareState().catch(() => undefined);
+    void refreshNativeShareState().then(() => { nativeAnswered = true; }).catch(() => undefined);
   });
 
   async function handleAddShortcut(shareId: string) {
@@ -111,7 +115,7 @@
                 · {repairText(share)}
               {/if}
             </div>
-            {#if nativeActionEndpoint && share.shortcut_paths.length > 0}
+            {#if usingNative && share.shortcut_paths.length > 0}
               <div class="text-xs text-text-3 truncate">
                 {share.shortcut_paths[0]}
               </div>
@@ -122,7 +126,7 @@
           {/if}
           {#if share.key_status === 'revoked'}
             <span class="i-lucide-lock-keyhole text-text-3 shrink-0" aria-label="Access removed"></span>
-          {:else if nativeActionEndpoint && share.shortcut_paths.length === 0}
+          {:else if usingNative && share.shortcut_paths.length === 0}
             <button
               class="btn-ghost h-8 w-8 min-h-8 min-w-8 p-0"
               title="Add shortcut to My Drive"
@@ -133,7 +137,7 @@
             >
               <span class="i-lucide-plus text-base"></span>
             </button>
-          {:else}
+          {:else if usingNative}
             <span class="i-lucide-check text-success shrink-0" title="Shortcut added"></span>
           {/if}
         </div>

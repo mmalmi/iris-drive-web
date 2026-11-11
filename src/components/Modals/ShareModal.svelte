@@ -4,6 +4,7 @@
    */
   import { getAppType } from '../../appType';
   import { createShareUrlOptions, type ShareUrlOption, type ShareUrlOptionId } from '../../lib/shareUrls';
+  import type { SharePeopleTarget } from '../../drive/sharePeople';
 
   interface ModalLinkVariant {
     id: 'snapshot' | 'latest';
@@ -16,8 +17,18 @@
   let selectedLinkVariantId = $state<ModalLinkVariant['id']>('snapshot');
   let options = $state<ShareUrlOption[]>([]);
   let selectedOptionId = $state<ShareUrlOptionId>('web');
+  let people = $state<SharePeopleTarget | null>(null);
+  let showPeople = $state(false);
 
-  export function open(shareUrl: string, latestShareUrl: string | null = null) {
+  /** `peopleTarget` adds a tab for inviting people to edit; `startWithPeople` opens on it. */
+  export function open(
+    shareUrl: string,
+    latestShareUrl: string | null = null,
+    peopleTarget: SharePeopleTarget | null = null,
+    startWithPeople = false,
+  ) {
+    people = peopleTarget;
+    showPeople = Boolean(peopleTarget && startWithPeople);
     const snapshotOptions = createShareUrlOptions(getAppType(), shareUrl);
     const latestOptions = latestShareUrl
       ? createShareUrlOptions(getAppType(), latestShareUrl)
@@ -44,6 +55,8 @@
 
   export function close() {
     show = false;
+    people = null;
+    showPeople = false;
     linkVariants = [];
     selectedLinkVariantId = 'snapshot';
     options = [];
@@ -117,6 +130,27 @@
       class="bg-surface-1 sm:rounded-lg overflow-auto w-screen sm:w-96 sm:border border-surface-3 max-h-full my-auto"
       data-testid="share-modal"
     >
+      {#if people}
+        <div class="grid grid-cols-2 gap-2 px-4 pt-4">
+          {#each [[false, 'View link'], [true, 'Invite people']] as [value, label] (label)}
+            <button
+              class={`rounded-md border px-3 py-2 text-sm font-medium transition-colors ${
+                value === showPeople ? 'border-accent bg-accent/10 text-text-1' : 'border-surface-3 text-text-3'
+              }`}
+              onclick={() => { showPeople = value as boolean; }}
+              aria-pressed={value === showPeople}
+              data-testid={value ? 'share-tab-people' : 'share-tab-link'}
+            >
+              {label}
+            </button>
+          {/each}
+        </div>
+      {/if}
+      {#if people && showPeople}
+        {#await import('../SharePeoplePanel.svelte') then { default: SharePeoplePanel }}
+          <SharePeoplePanel target={people} />
+        {/await}
+      {:else}
       {#if linkVariants.length > 1}
         <div class="grid grid-cols-2 gap-2 px-4 pt-4">
           {#each linkVariants as variant (variant.id)}
@@ -187,6 +221,7 @@
             Share via...
           </button>
         </div>
+      {/if}
       {/if}
     </div>
   </div>

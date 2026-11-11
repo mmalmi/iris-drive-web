@@ -14,6 +14,9 @@
   import { settingsStore } from './stores/settings';
   import { nostrStore } from './nostr';
   import { activeDriveRootPath } from './drive/profileRoute';
+  import { acceptedShares } from './drive/shareLibrary';
+  import { PENDING_JOIN_KEY } from './drive/sharePeople';
+  import { navigate } from './lib/router.svelte';
 
   // Modal components
   import CreateModal from './components/Modals/CreateModal.svelte';
@@ -38,6 +41,7 @@
       '/settings',
       '/share',
       '/share-invite',
+      '/share-join',
       '/users',
       '/wallet',
     ].some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
@@ -45,6 +49,29 @@
 
   onMount(() => {
     initRouter();
+  });
+
+  // A join link opened before signing in: go back to it once there is an account.
+  $effect(() => {
+    if (homePath === '/' || $currentPath.startsWith('/share-join/') || $currentPath.startsWith('/users')) return;
+    try {
+      const pending = sessionStorage.getItem(PENDING_JOIN_KEY);
+      if (!pending) return;
+      sessionStorage.removeItem(PENDING_JOIN_KEY);
+      navigate(`/share-join/${pending}`);
+    } catch {
+      // No session storage: the visitor opens the link again.
+    }
+  });
+
+  // Join links this device handed out are answered for as long as Drive is open.
+  let stopJoinWatch: (() => void) | null = null;
+  $effect(() => {
+    if (stopJoinWatch || !$acceptedShares.some((record) => record.join_links?.length)) return;
+    stopJoinWatch = () => {};
+    void import('./drive/shareOwner').then(({ watchJoinRequests }) => {
+      stopJoinWatch = watchJoinRequests();
+    });
   });
 
   function handleLogoClick(e: MouseEvent) {

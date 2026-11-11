@@ -28,6 +28,9 @@
     snapshotMatchesRootCid,
   } from '../lib/treeEventSnapshots';
   import { createDriveShareLinkVariants } from '../lib/shareUrls';
+  import { acceptedShares } from '../drive/shareLibrary';
+  import { sharePeopleTarget } from '../drive/sharePeople';
+  import { activeNostrIdentityRootScope } from '../drive/profileRoute';
   import { isNostrIdentityId } from '../utils/route';
 
   interface Props {
@@ -260,6 +263,14 @@
     isPermalink: route.isPermalink,
   }));
 
+  let peopleTarget = $derived(route.isPermalink ? null : sharePeopleTarget({
+    scope: route.npub,
+    treeName: route.treeName,
+    path: route.path,
+    profileId: activeNostrIdentityRootScope($nostrStore),
+    records: $acceptedShares,
+  }));
+
   let btnClass = 'flex items-center gap-1 px-2 h-7 text-xs lg:px-3 lg:h-9 lg:text-sm';
 </script>
 
@@ -267,7 +278,7 @@
   <div class="flex flex-row flex-wrap items-center gap-1">
     <!-- Share and permalink first -->
     {#if dirCid?.hash}
-      <ShareButton url={shareLinks[0]?.url ?? null} latestUrl={shareLinks[1]?.url ?? null} />
+      <ShareButton url={shareLinks[0]?.url ?? null} latestUrl={shareLinks[1]?.url ?? null} people={peopleTarget} />
       {#if permalinkHref}
         <a
           href={permalinkHref}

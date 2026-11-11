@@ -77,6 +77,7 @@ test.describe('documents in a Drive', () => {
     await flushPendingPublishes(page);
     await page.getByTestId('document-share').click();
     await expect(page.getByTestId('share-modal')).toBeVisible({ timeout: 30_000 });
+    await page.getByTestId('share-tab-link').click();
     await page.getByTestId('share-copy-url').click();
     const sharedUrl = await page.evaluate(() => navigator.clipboard.readText());
     expect(sharedUrl).toMatch(/#\/nhash1[a-z0-9]+\?doc=Field%20notes$/);

@@ -11,6 +11,7 @@ import {
   type SharedFolder,
   type SharedFolderView,
 } from './protocol';
+import type { ShareJoinLink } from './shareJoinLink';
 
 const STORAGE_KEY = 'iris-drive.accepted-shares.v1';
 
@@ -21,6 +22,8 @@ export interface AcceptedShareRecord {
   invite_payload: string;
   folder: SharedFolder;
   shortcuts: ShareShortcut[];
+  /** Links this device has handed out that let their holders join the folder. */
+  join_links?: ShareJoinLink[];
 }
 
 export interface AcceptedShareView extends AcceptedShareRecord {
@@ -121,6 +124,7 @@ export function upsertAcceptedShare(
     folder: existing?.folder.access && (existing.folder.access.updated_at >= (incoming.folder.access?.updated_at ?? 0))
       ? existing.folder : incoming.folder,
     shortcuts: existing?.shortcuts ?? incoming.shortcuts,
+    ...((incoming.join_links ?? existing?.join_links) ? { join_links: incoming.join_links ?? existing?.join_links } : {}),
   };
   return [
     ...records.filter((record) => !matches(record)),
@@ -201,6 +205,7 @@ function normalizeAcceptedShareRecord(value: unknown): AcceptedShareRecord | nul
     invite_payload: record.invite_payload,
     folder: record.folder,
     shortcuts: Array.isArray(record.shortcuts) ? record.shortcuts.filter(isShareShortcut) : [],
+    ...(Array.isArray(record.join_links) ? { join_links: record.join_links } : {}),
   };
 }
 

@@ -22,6 +22,7 @@
     | 'home'
     | 'deviceApproval'
     | 'shareDialog'
+    | 'shareJoin'
     | 'shareInvite'
     | 'recent'
     | 'sharedWithMe'
@@ -47,6 +48,7 @@
     { pattern: '/approve-device/:payload', id: 'deviceApproval' },
     { pattern: '/share', id: 'shareDialog' },
     { pattern: '/share-invite/:payload', id: 'shareInvite' },
+    { pattern: '/share-join/:payload', id: 'shareJoin' },
     { pattern: '/recent', id: 'recent' },
     { pattern: '/shared-with-me', id: 'sharedWithMe' },
     { pattern: '/settings', id: 'settings' },
@@ -107,6 +109,10 @@
   {:else if route.id === 'shareInvite'}
     {#await import('../routes/ShareInviteRoute.svelte') then { default: ShareInviteRoute }}
       <ShareInviteRoute payload={route.params.payload || ''} />
+    {/await}
+  {:else if route.id === 'shareJoin'}
+    {#await import('../routes/ShareJoinRoute.svelte') then { default: ShareJoinRoute }}
+      <ShareJoinRoute payload={route.params.payload || ''} />
     {/await}
   {:else if route.id === 'recent'}
     <RecentRoute />

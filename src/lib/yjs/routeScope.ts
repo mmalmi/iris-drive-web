@@ -1,4 +1,5 @@
 import { isEditableDriveRouteScope } from '../../drive/profileRoute';
+import type { AcceptedShareRecord } from '../../drive/shareLibrary';
 
 type EditableNostrState = {
   isLoggedIn: boolean;
@@ -15,7 +16,9 @@ export function documentWriteScope(
   routeScope: string | null | undefined,
   userNpub: string | null,
   state: EditableNostrState,
+  /** Pass the current shared folders so the answer follows access changes. */
+  shares?: AcceptedShareRecord[],
 ): string | null {
   if (!routeScope || !state.isLoggedIn || !state.pubkey) return null;
-  return routeScope === userNpub || isEditableDriveRouteScope(routeScope, state) ? routeScope : null;
+  return routeScope === userNpub || isEditableDriveRouteScope(routeScope, state, shares) ? routeScope : null;
 }
