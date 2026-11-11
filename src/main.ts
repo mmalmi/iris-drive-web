@@ -25,8 +25,11 @@ async function init() {
   const swPromise = initServiceWorker();
   await swPromise;
   const htreePromise = initHtreeApi();
-  const backendPromise = initReadonlyBackend();
+  // Restore the stored account before the backend starts, so the backend and
+  // its peer network start once with that account's key. Started first, they
+  // came up with a throwaway key and had to be torn down and started again.
   const sessionPromise = restoreSession({ autoCreate: shouldAutoCreateTestSession() });
+  const backendPromise = initReadonlyBackend();
   await Promise.all([backendPromise, sessionPromise]);
   await htreePromise;
   await waitForRelayConnection();
