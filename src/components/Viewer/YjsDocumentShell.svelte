@@ -152,7 +152,7 @@
       <div class="w-80 max-w-[85vw] shrink-0 border-l border-surface-2 bg-surface-1">
         <CommentsPanel
           {commentsStore}
-          {userNpub}
+          userNpub={canEdit ? userNpub : null}
           onClickThread={onClickThread}
           onDeleteThread={onDeleteThread}
         />

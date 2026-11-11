@@ -58,6 +58,10 @@
     return editor.can().redo();
   });
 
+  function keepEditorFocus(event: MouseEvent): void {
+    if (!(event.target as HTMLElement).closest('select')) event.preventDefault();
+  }
+
   function setBlockStyle(event: Event): void {
     const value = (event.target as HTMLSelectElement).value;
     const chain = editor.chain().focus();
@@ -66,7 +70,15 @@
   }
 </script>
 
-<div class="toolbar shrink-0 border-b border-surface-2 bg-surface-1" role="toolbar" aria-label="Formatting" data-testid="document-toolbar">
+<!-- Pressing a button must not take the cursor out of the text. -->
+<div
+  class="toolbar shrink-0 border-b border-surface-2 bg-surface-1"
+  role="toolbar"
+  tabindex="-1"
+  aria-label="Formatting"
+  data-testid="document-toolbar"
+  onmousedown={keepEditorFocus}
+>
   <button onclick={() => editor.chain().focus().undo().run()} disabled={!canUndo} class="tool" title="Undo" aria-label="Undo">
     <span class="i-lucide-undo-2"></span>
   </button>

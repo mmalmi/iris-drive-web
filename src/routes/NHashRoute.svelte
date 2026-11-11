@@ -3,7 +3,8 @@
   import FileBrowser from '../components/FileBrowser.svelte';
   import Viewer from '../components/Viewer/Viewer.svelte';
   import { nostrStore } from '../nostr';
-  import { isViewingFileStore, currentHash } from '../stores';
+  import { isViewingFileStore, currentHash, routeStore } from '../stores';
+  import { routeDocumentFolderName } from '../lib/documentNames';
   import { nhashDecode } from '@hashtree/core';
   import { getQueryParamsFromHash } from '../lib/router.svelte';
   import { shouldShowNhashFileBrowser } from '../lib/nhashRouteLayout';
@@ -15,7 +16,8 @@
   let { nhash }: Props = $props();
 
   let hash = $derived($currentHash);
-  let isViewingFile = $derived($isViewingFileStore);
+  // A snapshot of a document opens in the editor, like a file, not as a folder listing.
+  let isViewingFile = $derived($isViewingFileStore || !!routeDocumentFolderName($routeStore));
   let isValid = $state(true);
 
   let showViewer = $derived(isViewingFile);

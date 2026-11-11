@@ -207,11 +207,10 @@
               {/each}
             </div>
 
-            <!-- Actions -->
-            {#if isActive}
+            <!-- A reply can be written straight away; the other actions show for the selected thread. -->
+            {#if isActive || (userNpub && !thread.resolved)}
               <div class="px-3 pb-3 space-y-2">
-                <!-- Reply input -->
-                {#if userNpub}
+                {#if userNpub && !thread.resolved}
                   <div class="flex gap-2">
                     <input
                       type="text"
@@ -241,7 +240,7 @@
                   </div>
                 {/if}
 
-                <!-- Thread actions -->
+                {#if isActive && userNpub}
                 <div class="flex items-center gap-1 pt-1">
                   {#if thread.resolved}
                     <button
@@ -280,6 +279,7 @@
                     Delete
                   </button>
                 </div>
+                {/if}
               </div>
             {/if}
           </div>

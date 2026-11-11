@@ -10,7 +10,7 @@
   import { nip19 } from 'nostr-tools';
   import { getQueryParamsFromHash } from '../lib/router.svelte';
   import { buildSelectedTreeForOwnRoute, syncSelectedTreeForOwnRoute } from '../lib/selectedTree';
-  import { isDocumentFolderName } from '../lib/documentNames';
+  import { routeDocumentFolderName } from '../lib/documentNames';
   import { treeRootRegistry } from '../TreeRootRegistry';
 
   interface Props {
@@ -41,7 +41,7 @@
   let isViewingFile = $derived($isViewingFileStore);
 
   // A document folder shows the editor, also on a narrow screen.
-  let isYjsDocument = $derived(isDocumentFolderName(route.path[route.path.length - 1]));
+  let isYjsDocument = $derived(!!routeDocumentFolderName(route));
 
   // On mobile, show viewer for Yjs docs or when file/stream selected
   let hasFileSelected = $derived(isViewingFile || isStreaming || isYjsDocument);

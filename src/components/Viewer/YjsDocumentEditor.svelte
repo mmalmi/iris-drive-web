@@ -2,7 +2,7 @@
   import { onMount, onDestroy, tick } from 'svelte';
   import type { Editor } from '@tiptap/core';
   import * as Y from 'yjs';
-  import { LinkType, toHex } from '@hashtree/core';
+  import { LinkType, nhashEncode, toHex } from '@hashtree/core';
   import type { CID, TreeEntry } from '@hashtree/core';
   import { getTree } from '../../store';
   import { routeStore, getTreeRootSync, treeRootStore } from '../../stores';
@@ -24,8 +24,8 @@
     documentWriteScope,
     type DocumentChange,
   } from '../../lib/yjs';
-  import { documentTitle } from '../../lib/documentNames';
-  import { getNpubFileUrl } from '../../lib/mediaUrl';
+  import { DOCUMENT_TITLE_PARAM, documentTitle } from '../../lib/documentNames';
+  import { getCidFileUrl } from '../../lib/mediaUrl';
   import { removeOwnDirectoryForDriveRoute, setEntryForDriveRoute } from '../../drive/profileDriveRouteEntry';
 
   // Edits are stored after a short pause, and at least this often while typing without one.
@@ -77,6 +77,8 @@
   let retryLoadTimer: ReturnType<typeof setTimeout> | undefined;
   let missedLoads = 0;
   let documentFound: () => void = () => {};
+  let documentCid: CID | null = null;
+  const attachmentUrls: Record<string, string> = {};
   // The route can change before this component is torn down; the document's place does not.
   let documentPath: string[] = [];
   let destroyed = false;
@@ -156,6 +158,8 @@
         if (folder?.type === LinkType.Dir) {
           const list: TreeEntry[] = await getTree().listDirectory(folder.cid);
           await session.load(list);
+          await rememberAttachments(list);
+          documentCid = folder.cid;
           found = true;
         }
       } catch (error) {
@@ -228,20 +232,27 @@
     if (document.visibilityState === 'hidden') saveBeforeLeaving();
   }
 
-  function attachmentUrl(filename: string): string | null {
-    if (!route.npub || !route.treeName) return null;
-    return getNpubFileUrl(route.npub, route.treeName, [...route.path, ATTACHMENTS_DIRECTORY, filename].join('/'));
+  /** Attachments are addressed by content, so the same link works in a Drive and in a snapshot. */
+  async function rememberAttachments(list: TreeEntry[]): Promise<void> {
+    const folder = list.find(entry => entry.name === ATTACHMENTS_DIRECTORY && entry.type === LinkType.Dir);
+    if (!folder) return;
+    for (const entry of await getTree().listDirectory(folder.cid)) {
+      if (entry.type !== LinkType.Dir) attachmentUrls[entry.name] = getCidFileUrl(entry.cid, entry.name);
+    }
+    for (const img of editorElement?.querySelectorAll('img') ?? []) resolveImageSrc(img);
   }
 
   function isCurrentSaver(): boolean {
     return isSaver && !!opened && canWriteOpened();
   }
 
+  /** Shows an attachment once this browser knows where it is; until then the image stays empty. */
   function resolveImageSrc(img: HTMLImageElement): void {
-    const filename = attachmentFilename(img.getAttribute('src'));
+    const filename = attachmentFilename(img.getAttribute('src')) ?? img.dataset.attachment ?? null;
     if (!filename) return;
-    const url = attachmentUrl(filename);
-    if (url) img.src = url;
+    img.dataset.attachment = filename;
+    const url = attachmentUrls[filename];
+    if (url && img.getAttribute('src') !== url) img.src = url;
   }
 
   async function handleImageUpload(file: File): Promise<void> {
@@ -255,6 +266,7 @@
     try {
       const data = new Uint8Array(await file.arrayBuffer());
       await commitChange({ writes: [{ path: [ATTACHMENTS_DIRECTORY, filename], data }], removeDirectories: [] });
+      attachmentUrls[filename] = URL.createObjectURL(file);
       editor.chain().focus().setImage({ src: `${ATTACHMENT_SCHEME}${filename}`, alt: file.name }).run();
     } catch (error) {
       console.error('[Document] Could not add image:', error);
@@ -262,8 +274,17 @@
     }
   }
 
-  function handleShare(): void {
-    openShareModal(window.location.href);
+  /** Shares a read-only copy of the document as it is stored now. */
+  async function handleShare(): Promise<void> {
+    if (session?.dirty) await saveNow();
+    await loadStored($treeRootStore);
+    if (!documentCid) return;
+    const snapshot = nhashEncode({
+      hash: toHex(documentCid.hash),
+      decryptKey: documentCid.key ? toHex(documentCid.key) : undefined,
+    });
+    const link = `${window.location.origin}${window.location.pathname}#/${snapshot}?${DOCUMENT_TITLE_PARAM}=${encodeURIComponent(title)}`;
+    openShareModal(link);
   }
 
   async function handleDelete(): Promise<void> {

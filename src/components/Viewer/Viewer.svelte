@@ -6,7 +6,7 @@
   import { getQueryParamsFromHash } from '../../lib/router.svelte';
   import DirectoryActions from './DirectoryActions.svelte';
   import ViewerFileView from './ViewerFileView.svelte';
-  import { isDocumentFolderName } from '../../lib/documentNames';
+  import { routeDocumentFolderName } from '../../lib/documentNames';
   import { buildSitesHref, isHtmlFilename } from '../../lib/siteHref';
   import {
     buildTreeEventPermalink,
@@ -128,7 +128,7 @@
   let hasTreeContext = $derived(!!rootCid || !!route.treeName);
 
   // A folder named like a document opens in the editor instead of as a file list.
-  let isYjsDocument = $derived(isDocumentFolderName(route.path[route.path.length - 1]));
+  let documentFolder = $derived(routeDocumentFolderName(route));
 
   let yjsViewKey = $derived.by(() => {
     if (!route.npub || !route.treeName) return '';
@@ -283,11 +283,11 @@
 
 </script>
 
-{#if hasTreeContext && isYjsDocument}
+{#if hasTreeContext && documentFolder}
   <!-- The editor and its libraries load only when a document is opened. -->
   {#key yjsViewKey}
     {#await import('./YjsDocumentEditor.svelte') then { default: YjsDocumentEditor }}
-      <YjsDocumentEditor dirName={route.path[route.path.length - 1]} />
+      <YjsDocumentEditor dirName={documentFolder} />
     {/await}
   {/key}
 {:else if urlFileName && (isEditing || entryFromStore)}
