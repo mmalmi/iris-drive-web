@@ -16,7 +16,7 @@ overrides:
   nostr-social-graph: https://github.com/mmalmi/nostr-social-graph/releases/download/v4.1.0/nostr-social-graph-4.1.0.tgz
   '@hashtree/nostr-pubsub': https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.27/hashtree-nostr-pubsub-0.1.9.tgz
   '@hashtree/mesh': https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.27/hashtree-mesh-0.3.3.tgz
-  nostr-pubsub: https://github.com/mmalmi/nostr-pubsub/releases/download/nostr-pubsub-ts-v0.5.27/nostr-pubsub-0.5.27.tgz
+  nostr-pubsub: https://github.com/mmalmi/nostr-pubsub/releases/download/nostr-pubsub-ts-v0.5.28/nostr-pubsub-0.5.28.tgz
   '@hashtree/collection': https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.27/hashtree-collection-0.2.11.tgz
   '@hashtree/git': https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.27/hashtree-git-0.1.10.tgz
   '@hashtree/merge': https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.9/hashtree-merge-0.1.2.tgz
@@ -121,8 +121,8 @@ importers:
         specifier: ^15.0.12
         version: 15.0.12
       nostr-pubsub:
-        specifier: https://github.com/mmalmi/nostr-pubsub/releases/download/nostr-pubsub-ts-v0.5.27/nostr-pubsub-0.5.27.tgz
-        version: https://github.com/mmalmi/nostr-pubsub/releases/download/nostr-pubsub-ts-v0.5.27/nostr-pubsub-0.5.27.tgz(nostr-tools@2.25.2(typescript@5.9.3))
+        specifier: https://github.com/mmalmi/nostr-pubsub/releases/download/nostr-pubsub-ts-v0.5.28/nostr-pubsub-0.5.28.tgz
+        version: https://github.com/mmalmi/nostr-pubsub/releases/download/nostr-pubsub-ts-v0.5.28/nostr-pubsub-0.5.28.tgz(nostr-tools@2.25.2(typescript@5.9.3))
       nostr-social-graph:
         specifier: https://github.com/mmalmi/nostr-social-graph/releases/download/v4.1.0/nostr-social-graph-4.1.0.tgz
         version: https://github.com/mmalmi/nostr-social-graph/releases/download/v4.1.0/nostr-social-graph-4.1.0.tgz(typescript@5.9.3)
@@ -2832,13 +2832,13 @@ packages:
   nostics@1.3.0:
     resolution: {integrity: sha512-wzRsrJwNlFbqIRQt8aCeL2WE8USip/uuvGSOZV1D02CxX8ABTMbw8IywKjH7yWHETMXbWJI4OBpihg9rmz2Vyg==}
 
-  nostr-pubsub-reconcile@https://github.com/mmalmi/nostr-pubsub/releases/download/nostr-pubsub-reconcile-ts-v0.1.1/nostr-pubsub-reconcile-0.1.1.tgz:
-    resolution: {integrity: sha512-hrwY11Np7ufQaqMBQyHJvOjN+fjCfFQ0kTQDzVgALay0ogmP7RLAvDtQmx7U3KOGrGKGoZKLnbeKfsNLCykB+Q==, tarball: https://github.com/mmalmi/nostr-pubsub/releases/download/nostr-pubsub-reconcile-ts-v0.1.1/nostr-pubsub-reconcile-0.1.1.tgz}
-    version: 0.1.1
+  nostr-pubsub-reconcile@https://github.com/mmalmi/nostr-pubsub/releases/download/nostr-pubsub-reconcile-ts-v0.1.2/nostr-pubsub-reconcile-0.1.2.tgz:
+    resolution: {integrity: sha512-w2N8AE2bL5h7H0tOuTONOTprHS4/SVCP93lyipA/mekk+RogF3fZFh+s2lxLEDvW5tSjIJcBdX1lguX7wD5+2g==, tarball: https://github.com/mmalmi/nostr-pubsub/releases/download/nostr-pubsub-reconcile-ts-v0.1.2/nostr-pubsub-reconcile-0.1.2.tgz}
+    version: 0.1.2
 
-  nostr-pubsub@https://github.com/mmalmi/nostr-pubsub/releases/download/nostr-pubsub-ts-v0.5.27/nostr-pubsub-0.5.27.tgz:
-    resolution: {integrity: sha512-y04tAgKcwbz/IneFVgvmXCQ8SY9vMcIS2QeiTgmzRBn3YOJfUUB43LBl+IZ+AFQfWaNPhgp+5ncmzO9W8vU7RQ==, tarball: https://github.com/mmalmi/nostr-pubsub/releases/download/nostr-pubsub-ts-v0.5.27/nostr-pubsub-0.5.27.tgz}
-    version: 0.5.27
+  nostr-pubsub@https://github.com/mmalmi/nostr-pubsub/releases/download/nostr-pubsub-ts-v0.5.28/nostr-pubsub-0.5.28.tgz:
+    resolution: {integrity: sha512-gEiYZyhVP1AKJjVS78+4EZihffGcyMu/jZUYaymsBmVOWtw2+Mk5g4QiUSwZnxUjh/5wuVI096yy/fXDJoEwXw==, tarball: https://github.com/mmalmi/nostr-pubsub/releases/download/nostr-pubsub-ts-v0.5.28/nostr-pubsub-0.5.28.tgz}
+    version: 0.5.28
     peerDependencies:
       nostr-tools: '>=2.23.3 <3'
 
@@ -4640,7 +4640,7 @@ snapshots:
       '@fips/transport-webrtc': https://github.com/mmalmi/fips-ts/releases/download/runtime-v0.0.61/fips-transport-webrtc-0.0.60.tgz
       '@fips/transport-websocket': https://github.com/mmalmi/fips-ts/releases/download/runtime-v0.0.61/fips-transport-websocket-0.0.14.tgz
       '@hashtree/core': https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.27/hashtree-core-0.4.0.tgz
-      nostr-pubsub: https://github.com/mmalmi/nostr-pubsub/releases/download/nostr-pubsub-ts-v0.5.27/nostr-pubsub-0.5.27.tgz(nostr-tools@2.25.2(typescript@5.9.3))
+      nostr-pubsub: https://github.com/mmalmi/nostr-pubsub/releases/download/nostr-pubsub-ts-v0.5.28/nostr-pubsub-0.5.28.tgz(nostr-tools@2.25.2(typescript@5.9.3))
     transitivePeerDependencies:
       - nostr-tools
 
@@ -4656,7 +4656,7 @@ snapshots:
     dependencies:
       '@hashtree/core': https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.27/hashtree-core-0.4.0.tgz
       '@hashtree/nostr': https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.40/hashtree-nostr-0.2.7.tgz(typescript@5.9.3)
-      nostr-pubsub: https://github.com/mmalmi/nostr-pubsub/releases/download/nostr-pubsub-ts-v0.5.27/nostr-pubsub-0.5.27.tgz(nostr-tools@2.25.2(typescript@5.9.3))
+      nostr-pubsub: https://github.com/mmalmi/nostr-pubsub/releases/download/nostr-pubsub-ts-v0.5.28/nostr-pubsub-0.5.28.tgz(nostr-tools@2.25.2(typescript@5.9.3))
       nostr-tools: 2.25.2(typescript@5.9.3)
     transitivePeerDependencies:
       - typescript
@@ -4680,7 +4680,7 @@ snapshots:
       '@hashtree/nostr-pubsub': https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.27/hashtree-nostr-pubsub-0.1.9.tgz(nostr-tools@2.25.2(typescript@5.9.3))(typescript@5.9.3)
       '@msgpack/msgpack': 3.1.3
       dexie: 4.4.6
-      nostr-pubsub: https://github.com/mmalmi/nostr-pubsub/releases/download/nostr-pubsub-ts-v0.5.27/nostr-pubsub-0.5.27.tgz(nostr-tools@2.25.2(typescript@5.9.3))
+      nostr-pubsub: https://github.com/mmalmi/nostr-pubsub/releases/download/nostr-pubsub-ts-v0.5.28/nostr-pubsub-0.5.28.tgz(nostr-tools@2.25.2(typescript@5.9.3))
       nostr-tools: 2.25.2(typescript@5.9.3)
     optionalDependencies:
       nostr-social-graph: https://github.com/mmalmi/nostr-social-graph/releases/download/v4.1.0/nostr-social-graph-4.1.0.tgz(typescript@5.9.3)
@@ -6570,12 +6570,12 @@ snapshots:
 
   nostics@1.3.0: {}
 
-  nostr-pubsub-reconcile@https://github.com/mmalmi/nostr-pubsub/releases/download/nostr-pubsub-reconcile-ts-v0.1.1/nostr-pubsub-reconcile-0.1.1.tgz: {}
+  nostr-pubsub-reconcile@https://github.com/mmalmi/nostr-pubsub/releases/download/nostr-pubsub-reconcile-ts-v0.1.2/nostr-pubsub-reconcile-0.1.2.tgz: {}
 
-  nostr-pubsub@https://github.com/mmalmi/nostr-pubsub/releases/download/nostr-pubsub-ts-v0.5.27/nostr-pubsub-0.5.27.tgz(nostr-tools@2.25.2(typescript@5.9.3)):
+  nostr-pubsub@https://github.com/mmalmi/nostr-pubsub/releases/download/nostr-pubsub-ts-v0.5.28/nostr-pubsub-0.5.28.tgz(nostr-tools@2.25.2(typescript@5.9.3)):
     dependencies:
       '@fips/tcp': https://github.com/mmalmi/fips-tcp/releases/download/fips-tcp-v0.2.5/fips-tcp-0.2.4.tgz
-      nostr-pubsub-reconcile: https://github.com/mmalmi/nostr-pubsub/releases/download/nostr-pubsub-reconcile-ts-v0.1.1/nostr-pubsub-reconcile-0.1.1.tgz
+      nostr-pubsub-reconcile: https://github.com/mmalmi/nostr-pubsub/releases/download/nostr-pubsub-reconcile-ts-v0.1.2/nostr-pubsub-reconcile-0.1.2.tgz
       nostr-tools: 2.25.2(typescript@5.9.3)
 
   nostr-social-graph@https://github.com/mmalmi/nostr-social-graph/releases/download/v4.1.0/nostr-social-graph-4.1.0.tgz(typescript@5.9.3):
