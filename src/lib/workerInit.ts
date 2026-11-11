@@ -71,6 +71,7 @@ let lastBlossomServersHash = '';
 let lastRelaysHash = '';
 let fipsStoreName: string | null = null;
 let fipsIdentity: ResolvedDriveFipsIdentity | null = null;
+let startIdentity: WorkerInitIdentity | null = null;
 let fipsRuntimeReadyFor: BackendAdapter | null = null;
 let fipsDesiredKey = '';
 let fipsActiveKey = '';
@@ -297,12 +298,18 @@ async function waitForServiceWorker(maxWaitMs?: number): Promise<boolean> {
  * Initialize the active hashtree backend with user identity.
  * Safe to call multiple times - only initializes once.
  */
+/** Whether the backend was started with exactly these credentials. */
+export function backendStartedWith(identity: WorkerInitIdentity): boolean {
+  return !!startIdentity && startIdentity.pubkey === identity.pubkey && startIdentity.nsec === identity.nsec;
+}
+
 export async function initHashtreeBackend(identity: WorkerInitIdentity): Promise<void> {
   if (initialized) return;
   if (initPromise) {
     await initPromise;
     return;
   }
+  startIdentity = identity;
 
   initPromise = (async () => {
     const t0 = performance.now();

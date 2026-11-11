@@ -132,7 +132,7 @@ async function appPolicyCase(mode, relays) {
           if (message.type === 'setRelays') {
             this.policyRelayRequests ??= new Map(); this.policyRelayRequests.set(message.id, message.relays);
           }
-          window.__policyWire.push({ type: message.type,
+          window.__policyWire.push({ type: message.type, pubkey: message.config?.pubkey ?? message.pubkey,
             relays: message.config?.relays ?? message.relays,
             graphBootstrap: message.config?.graphBootstrap ?? message.graphBootstrap, sameCredentials });
           super.postMessage(message, transfer);
@@ -173,7 +173,10 @@ async function appPolicyCase(mode, relays) {
     assert.deepEqual(init.relays, relays);
     assert.equal(init.graphBootstrap, ['default-enabled', 'default-to-empty', 'restored-account'].includes(mode));
     if (mode === 'restored-account') {
-      await page.waitForFunction(() => window.__policyWire.some(frame => frame.type === 'setIdentity'));
+      // The stored account is restored before the worker starts, so the worker starts with its
+      // key: no throwaway identity first, and the same credentials are never sent again.
+      await page.waitForFunction(expected => window.__nostrStore?.getState?.().pubkey === expected, owner, { timeout: 15000 });
+      assert.equal(init.pubkey, owner, 'Restored session did not start the worker with the stored account');
       const identities = (await page.evaluate(() => window.__policyWire)).filter(frame => frame.type === 'setIdentity');
       assert.ok(identities.every(frame => frame.sameCredentials === false), 'Restored session redundantly sent the same credentials');
       releaseHttp();

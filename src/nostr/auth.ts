@@ -27,7 +27,7 @@ import type { Filter } from 'nostr-tools';
 import { nostr, createNsecSigner, createExtensionSigner, getNostrRelayUrls } from './client';
 import { createRemoteRecoverySigner } from './remoteRecovery';
 import { nostrStore } from './store';
-import { initHashtreeBackend, getWorkerAdapter, waitForWorkerAdapter } from '../lib/workerInit';
+import { initHashtreeBackend, getWorkerAdapter, waitForWorkerAdapter, backendStartedWith } from '../lib/workerInit';
 import {
   accountsStore,
   initAccountsStore,
@@ -240,7 +240,8 @@ async function initOrUpdateBackendIdentity(pubkey: string, nsecHex?: string): Pr
   } else {
     await initHashtreeBackend({ pubkey, nsec: nsecHex });
     const readyAdapter = getWorkerAdapter();
-    if (readyAdapter) {
+    // A backend that was started with these credentials already has them.
+    if (readyAdapter && !backendStartedWith({ pubkey, nsec: nsecHex })) {
       await readyAdapter.setIdentity(pubkey, nsecHex);
     }
   }
