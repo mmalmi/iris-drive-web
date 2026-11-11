@@ -14,6 +14,7 @@ import {
   type SignedNostrIdentityRosterOp,
 } from '../drive/protocol';
 import { nostr } from '../nostr/client';
+import { queryConfiguredRelaysDirectly } from '../nostr/directQuery';
 import { waitForWorkerAdapter } from '../lib/workerInit';
 import { getStoredNostrIdentitySessionForAccount } from '../nostr/auth';
 import { getProfileName, type Profile } from './profile';
@@ -124,6 +125,20 @@ async function fetchIdentityRosterOps(
     .sort((left, right) => left.content.created_at - right.content.created_at || left.op_id.localeCompare(right.op_id));
 }
 
+/** Once a name has arrived, other relays get this long to send a newer copy. */
+const IDENTITY_NAME_SETTLE_MS = 1500;
+/** A name nobody sent is given up after this long. */
+const IDENTITY_NAME_LISTEN_MAX_MS = 20000;
+/** How long the worker gets to answer before the relays are asked directly too. */
+const IDENTITY_NAME_DIRECT_AFTER_MS = 1500;
+const IDENTITY_NAME_DIRECT_MS = 6000;
+
+/**
+ * Listens until a name arrives rather than until the relays report the end of
+ * what they have: while the worker is busy an answer can reach the page long
+ * after that, and this store is kept for the whole visit, so a lookup closed at
+ * that point would leave the placeholder name up until a reload.
+ */
 async function fetchIdentityProfileName(
   authors: string[],
   projection: NonNullable<ReturnType<typeof projectNostrIdentityRoster>>,
@@ -135,18 +150,33 @@ async function fetchIdentityProfileName(
   const events: NostrMetadataEventLike[] = [];
   await new Promise<void>((resolve) => {
     let resolved = false;
+    let historySeen = false;
+    let settleTimer: ReturnType<typeof setTimeout> | null = null;
+    let stopDirect: (() => void) | null = null;
     const finish = () => {
       if (resolved) return;
       resolved = true;
-      clearTimeout(timer);
+      clearTimeout(giveUpTimer);
+      clearTimeout(directTimer);
+      if (settleTimer) clearTimeout(settleTimer);
       sub.stop();
+      stopDirect?.();
       resolve();
     };
-    const sub = nostr.subscribe(
-      { kinds: [0], authors, limit: Math.max(20, authors.length) },
-      { closeAfterHistory: true },
-    );
-    const timer = setTimeout(finish, 5000);
+    const sub = nostr.subscribe({ kinds: [0], authors, limit: Math.max(20, authors.length) });
+    const giveUpTimer = setTimeout(finish, IDENTITY_NAME_LISTEN_MAX_MS);
+
+    const handleProfileEvent = (raw: NostrToolsEvent) => {
+      if (resolved) return;
+      events.push({
+        kind: raw.kind,
+        pubkey: raw.pubkey,
+        created_at: raw.created_at,
+        content: raw.content,
+      });
+      store.set(identityNameFromEvents(projection, events, fallbackName, !historySeen));
+      settleTimer ??= setTimeout(finish, IDENTITY_NAME_SETTLE_MS);
+    };
 
     sub.on('event', (event) => {
       const raw = event as NostrToolsEvent;
@@ -154,17 +184,17 @@ async function fetchIdentityProfileName(
         console.warn('[identityProfile] Ignoring profile event with invalid signature');
         return;
       }
-      events.push({
-        kind: raw.kind,
-        pubkey: raw.pubkey,
-        created_at: raw.created_at,
-        content: raw.content,
-      });
-
-      const next = identityNameFromEvents(projection, events, fallbackName);
-      store.set(next);
+      handleProfileEvent(raw);
     });
-    sub.on('history', finish);
+    sub.on('history', () => {
+      historySeen = true;
+      if (!resolved) store.set(identityNameFromEvents(projection, events, fallbackName, false));
+    });
+
+    const directTimer = setTimeout(() => {
+      if (resolved || events.length > 0) return;
+      stopDirect = queryConfiguredRelaysDirectly([{ kinds: [0], authors }], handleProfileEvent, IDENTITY_NAME_DIRECT_MS);
+    }, IDENTITY_NAME_DIRECT_AFTER_MS);
   });
 
   store.set(identityNameFromEvents(projection, events, fallbackName, false));
