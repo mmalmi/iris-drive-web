@@ -21,7 +21,8 @@ export type ProfileDriveMutation =
   | { type: 'write'; path: string; content: string | Uint8Array }
   | { type: 'mkdir'; path: string }
   | { type: 'set-entry'; path: string; entry: Omit<TreeEntry, 'name'> }
-  | { type: 'delete'; path: string }
+  /** `markContents: false` records one marker for a folder instead of one per file below it. */
+  | { type: 'delete'; path: string; markContents?: boolean }
   | { type: 'rename'; from: string; to: string };
 
 export interface ProfileDriveMutationOptions {
@@ -119,7 +120,9 @@ export async function mutateProfileDriveRoot(
     if (!name) throw new Error('delete path is empty');
     const existing = await resolveEntry(tree, nextRoot, [...parts, name]);
     if (!existing) return nextRoot;
-    deletedPaths.push(...await visiblePathsUnder(tree, nextRoot, [...parts, name]));
+    // A marker on a folder already covers everything below it when roots are merged.
+    if (mutation.markContents === false) deletedPaths.push([...parts, name].join('/'));
+    else deletedPaths.push(...await visiblePathsUnder(tree, nextRoot, [...parts, name]));
     roleOperations.push({ op: 'clear', path: mutation.path });
     nextRoot = await tree.removeEntry(nextRoot, parts, name);
   } else {
