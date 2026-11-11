@@ -7,7 +7,7 @@
   import { getBtcUsdRate, satsToUsd } from '../utils/btcRate';
   import { nostrStore } from '../nostr';
   import { getSecretKey } from '../nostr/auth';
-  import QRCode from 'qrcode';
+  import { qrCodeDataUrl } from '../lib/qrCode';
   import CopyText from '@iris/svelte-ui/CopyText.svelte';
 
   type Tab = 'balance' | 'receive' | 'send' | 'mints';
@@ -63,7 +63,7 @@
     try {
       const { invoice } = await createReceiveQuote(amount, receiveMint);
       receiveInvoice = invoice;
-      receiveQrUrl = await QRCode.toDataURL(`lightning:${invoice.toUpperCase()}`, {
+      receiveQrUrl = await qrCodeDataUrl(`lightning:${invoice.toUpperCase()}`, {
         width: 280,
         margin: 2,
         color: { dark: '#000000', light: '#ffffff' },

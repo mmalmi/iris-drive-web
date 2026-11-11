@@ -99,4 +99,31 @@ test.describe('documents in a Drive', () => {
       await guestContext.close();
     }
   });
+
+  test('two tabs of one browser show each other\'s typing and only one of them saves', async ({ page, context, relayUrl }) => {
+    await prepareFreshSession(page, relayUrl);
+    await createDriveProfile(page);
+    await createDocument(page, 'Tabs');
+    await typeInDocument(page, 'First tab.');
+    await expectSaved(page);
+
+    const second = await context.newPage();
+    await second.goto(page.url());
+    await expect(documentBody(second)).toContainText('First tab.', { timeout: 60_000 });
+    await expect(second.getByTestId('document-save-status')).toHaveText('Open in another tab');
+
+    // The second tab's typing shows in the first at once and is saved by it.
+    await typeInDocument(second, ' Second tab.');
+    await expect(documentBody(page)).toContainText('Second tab.', { timeout: 5_000 });
+    await expectSaved(page);
+
+    // Closing the saving tab hands saving to the one that is left.
+    await page.close();
+    await typeInDocument(second, ' After the first tab closed.');
+    await expectSaved(second);
+    await second.reload({ waitUntil: 'domcontentloaded' });
+    for (const text of ['First tab.', 'Second tab.', 'After the first tab closed.']) {
+      await expect(documentBody(second)).toContainText(text, { timeout: 60_000 });
+    }
+  });
 });

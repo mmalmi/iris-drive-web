@@ -6,7 +6,7 @@
   import { getQueryParamsFromHash } from '../../lib/router.svelte';
   import DirectoryActions from './DirectoryActions.svelte';
   import ViewerFileView from './ViewerFileView.svelte';
-  import { routeDocumentFolderName } from '../../lib/documentNames';
+  import { documentTitle, routeDocumentFolderName } from '../../lib/documentNames';
   import { buildSitesHref, isHtmlFilename } from '../../lib/siteHref';
   import {
     buildTreeEventPermalink,
@@ -147,7 +147,7 @@
 
     addRecent({
       type: 'file',
-      label: urlFileName,
+      label: documentFolder ? documentTitle(documentFolder) : urlFileName,
       path: fullPath,
       npub: route.npub,
       treeName: route.treeName,

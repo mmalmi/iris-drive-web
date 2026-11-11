@@ -52,7 +52,7 @@
 </script>
 
 <script lang="ts">
-  import QRCode from 'qrcode';
+  import { qrCodeDataUrl } from '../../lib/qrCode';
   import CopyText from '@iris/svelte-ui/CopyText.svelte';
 
   let selectedUrl = $derived(options.find((option) => option.id === selectedOptionId)?.url ?? null);
@@ -95,7 +95,7 @@
   }
 
   async function generateQrCode(text: string): Promise<string> {
-    return QRCode.toDataURL(text, {
+    return qrCodeDataUrl(text, {
       width: 200,
       margin: 2,
       color: { dark: '#000000', light: '#ffffff' },

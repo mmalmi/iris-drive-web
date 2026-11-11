@@ -14,7 +14,6 @@
   import { TreeRow } from '../ui';
   import CodeViewer from './CodeViewer.svelte';
   import FileEditor from './FileEditor.svelte';
-  import MarkdownViewer from './MarkdownViewer.svelte';
   import MediaPlayer from './MediaPlayer.svelte';
   import ZipPreview from './ZipPreview.svelte';
   import { buildEntryHref } from '../fileBrowserHrefs';
@@ -475,7 +474,9 @@
       {:else if isMarkdown && fileContent !== null}
         {#key cidKey}
           <div class="flex-1 overflow-auto">
-            <MarkdownViewer content={fileContent} dirPath={routePath.slice(0, -1)} />
+            {#await import('./MarkdownViewer.svelte') then { default: MarkdownViewer }}
+              <MarkdownViewer content={fileContent} dirPath={routePath.slice(0, -1)} />
+            {/await}
           </div>
         {/key}
       {:else}

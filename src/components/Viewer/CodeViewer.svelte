@@ -1,37 +1,6 @@
 <script lang="ts">
   import { tick } from 'svelte';
   import { SvelteURLSearchParams } from 'svelte/reactivity';
-  import Prism from 'prismjs';
-  // Import popular languages
-  import 'prismjs/components/prism-markup';
-  import 'prismjs/components/prism-css';
-  import 'prismjs/components/prism-clike';
-  import 'prismjs/components/prism-javascript';
-  import 'prismjs/components/prism-typescript';
-  import 'prismjs/components/prism-jsx';
-  import 'prismjs/components/prism-tsx';
-  import 'prismjs/components/prism-json';
-  import 'prismjs/components/prism-markdown';
-  import 'prismjs/components/prism-python';
-  import 'prismjs/components/prism-rust';
-  import 'prismjs/components/prism-go';
-  import 'prismjs/components/prism-c';
-  import 'prismjs/components/prism-cpp';
-  import 'prismjs/components/prism-java';
-  import 'prismjs/components/prism-bash';
-  import 'prismjs/components/prism-sql';
-  import 'prismjs/components/prism-yaml';
-  import 'prismjs/components/prism-toml';
-  import 'prismjs/components/prism-ini';
-  import 'prismjs/components/prism-diff';
-  import 'prismjs/components/prism-ruby';
-  import 'prismjs/components/prism-markup-templating';
-  import 'prismjs/components/prism-php';
-  import 'prismjs/components/prism-swift';
-  import 'prismjs/components/prism-kotlin';
-  import 'prismjs/components/prism-scala';
-  import 'prismjs/components/prism-docker';
-  import 'prismjs/components/prism-nginx';
 
   interface Props {
     content: string;
@@ -107,6 +76,12 @@
 
   let language = $derived(getLanguage(filename));
 
+  // The text shows at once; colours follow when the highlighter has loaded.
+  let highlight = $state<((content: string, language: string) => string | null) | null>(null);
+  void import('../../lib/codeHighlighter').then((module) => {
+    highlight = module.highlightCode;
+  });
+
   // Parse line range from URL query param (e.g., ?L=10 or ?L=10-15)
   function parseLineRange(search: string): { start: number; end: number } | null {
     const params = new URLSearchParams(search);
@@ -151,16 +126,10 @@
 
   // Split highlighted HTML into lines while preserving tags
   let lines = $derived.by(() => {
-    const grammar = Prism.languages[language];
-    let highlighted: string;
-    if (!grammar) {
-      highlighted = content
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;');
-    } else {
-      highlighted = Prism.highlight(content, grammar, language);
-    }
+    const highlighted = highlight?.(content, language) ?? content
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
     // Split by newlines - each becomes a line
     return highlighted.split('\n');
   });

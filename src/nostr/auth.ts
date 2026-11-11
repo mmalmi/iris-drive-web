@@ -40,7 +40,9 @@ import {
 import { treeRootRegistry } from '../TreeRootRegistry';
 import { profileDriveProjection } from '../drive/profileDriveProjection';
 import { needsMigrations, runMigrations } from '../migrations';
-import { initWallet, disposeWallet } from '../stores/wallet';
+// The wallet is not needed to show the Drive; it loads once an account is signed in.
+const initWallet = (key: Uint8Array) => import('../stores/wallet').then(wallet => wallet.initWallet(key));
+const disposeWallet = () => import('../stores/wallet').then(wallet => wallet.disposeWallet());
 import {
   createDriveDeviceApprovalDraft,
   buildDriveDeviceApprovalAppliedAckEvent,

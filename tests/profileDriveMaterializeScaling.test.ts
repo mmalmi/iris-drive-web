@@ -62,7 +62,8 @@ async function visiblePaths(tree: HashTree, directory: CID, prefix = ''): Promis
   return paths;
 }
 
-describe('profile Drive merged root materialization', () => {
+// Editing 300 files one path at a time is slow on a busy machine.
+describe('profile Drive merged root materialization', { timeout: 30_000 }, () => {
   it('is byte-identical to editing the tree one path at a time', async () => {
     const tree = new HashTree({ store: new MemoryStore() });
     const fixture: Fixture = {

@@ -5,7 +5,7 @@
    */
   import { requestBrowserSigner } from '@iris/identity/browserSigner';
   import { onMount } from 'svelte';
-  import QRCode from 'qrcode';
+  import { qrCodeDataUrl } from '../lib/qrCode';
   import { parseDeviceApprovalBootstrap } from '@iris/identity';
   import AccountSwitcher from '@iris/svelte-ui/AccountSwitcher.svelte';
   import IdentityRecoveryPanel from '@iris/svelte-ui/IdentityRecoveryPanel.svelte';
@@ -117,7 +117,7 @@
       return;
     }
     let cancelled = false;
-    QRCode.toDataURL(link.url, {
+    qrCodeDataUrl(link.url, {
       errorCorrectionLevel: 'M',
       margin: 1,
       scale: 6,

@@ -4,7 +4,7 @@
    * Based on React implementation using jsQR
    */
   import { onMount, onDestroy } from 'svelte';
-  import jsQR from 'jsqr';
+  import type jsQRDecoder from 'jsqr';
 
   interface Props {
     onScanSuccess: (result: string) => void;
@@ -18,6 +18,10 @@
   let stream: MediaStream | null = $state(null);
   let animationId: number | null = $state(null);
   let error = $state('');
+  let jsQR: typeof jsQRDecoder | undefined;
+  void import('jsqr').then((module) => {
+    jsQR = module.default;
+  });
 
   function startScanning() {
     if (!canvasElement || !videoElement) return;
@@ -57,7 +61,7 @@
             const imageData = ctx.getImageData(0, 0, canvasElement.width, canvasElement.height);
 
             // Process with jsQR
-            const code = jsQR(imageData.data, imageData.width, imageData.height, {
+            const code = jsQR?.(imageData.data, imageData.width, imageData.height, {
               inversionAttempts: 'dontInvert', // Faster processing
             });
 

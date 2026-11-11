@@ -4,7 +4,6 @@
    */
   import { LinkType, type TreeEntry } from '@hashtree/core';
   import { routeStore } from '../../stores';
-  import MarkdownViewer from './MarkdownViewer.svelte';
 
   interface Props {
     content: string;
@@ -44,5 +43,7 @@
       </button>
     {/if}
   </div>
-  <MarkdownViewer {content} dirPath={route.path} />
+  {#await import('./MarkdownViewer.svelte') then { default: MarkdownViewer }}
+    <MarkdownViewer {content} dirPath={route.path} />
+  {/await}
 </div>

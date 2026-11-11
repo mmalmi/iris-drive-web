@@ -6,19 +6,11 @@
   import { matchRoute } from '../lib/router.svelte';
   import { matchDirectContentRoute } from '../lib/directContentRoute';
 
-  // Page components
-  import SettingsLayout from './settings/SettingsLayout.svelte';
-  import WalletPage from './WalletPage.svelte';
+  // Pages other than the file views load when first opened.
   import UsersPage from './UsersPage.svelte';
-  import FollowsPage from './FollowsPage.svelte';
-  import FollowersPage from './FollowersPage.svelte';
-  import EditProfilePage from './EditProfilePage.svelte';
 
   // Route handlers
-  import DeviceApprovalRoute from '../routes/DeviceApprovalRoute.svelte';
   import HomeRoute from '../routes/HomeRoute.svelte';
-  import ShareDialogRoute from '../routes/ShareDialogRoute.svelte';
-  import ShareInviteRoute from '../routes/ShareInviteRoute.svelte';
   import RecentRoute from '../routes/RecentRoute.svelte';
   import SharedWithMeRoute from '../routes/SharedWithMeRoute.svelte';
   import TreeRoute from '../routes/TreeRoute.svelte';
@@ -105,27 +97,43 @@
   {#if route.id === 'home'}
     <HomeRoute />
   {:else if route.id === 'deviceApproval'}
-    <DeviceApprovalRoute payload={route.params.payload || ''} />
+    {#await import('../routes/DeviceApprovalRoute.svelte') then { default: DeviceApprovalRoute }}
+      <DeviceApprovalRoute payload={route.params.payload || ''} />
+    {/await}
   {:else if route.id === 'shareDialog'}
-    <ShareDialogRoute />
+    {#await import('../routes/ShareDialogRoute.svelte') then { default: ShareDialogRoute }}
+      <ShareDialogRoute />
+    {/await}
   {:else if route.id === 'shareInvite'}
-    <ShareInviteRoute payload={route.params.payload || ''} />
+    {#await import('../routes/ShareInviteRoute.svelte') then { default: ShareInviteRoute }}
+      <ShareInviteRoute payload={route.params.payload || ''} />
+    {/await}
   {:else if route.id === 'recent'}
     <RecentRoute />
   {:else if route.id === 'sharedWithMe'}
     <SharedWithMeRoute />
   {:else if route.id === 'settings'}
-    <SettingsLayout />
+    {#await import('./settings/SettingsLayout.svelte') then { default: SettingsLayout }}
+      <SettingsLayout />
+    {/await}
   {:else if route.id === 'wallet'}
-    <WalletPage />
+    {#await import('./WalletPage.svelte') then { default: WalletPage }}
+      <WalletPage />
+    {/await}
   {:else if route.id === 'users'}
     <UsersPage mode={route.params.usersMode === 'no_existing' ? 'no_existing' : route.params.usersMode === 'create' ? 'create' : route.params.usersMode === 'existing' ? 'existing' : 'list'} />
   {:else if route.id === 'follows'}
-    <FollowsPage npub={route.params.npub} />
+    {#await import('./FollowsPage.svelte') then { default: FollowsPage }}
+      <FollowsPage npub={route.params.npub} />
+    {/await}
   {:else if route.id === 'followers'}
-    <FollowersPage npub={route.params.npub} />
+    {#await import('./FollowersPage.svelte') then { default: FollowersPage }}
+      <FollowersPage npub={route.params.npub} />
+    {/await}
   {:else if route.id === 'editProfile'}
-    <EditProfilePage npub={route.params.npub} />
+    {#await import('./EditProfilePage.svelte') then { default: EditProfilePage }}
+      <EditProfilePage npub={route.params.npub} />
+    {/await}
   {:else if route.id === 'tree'}
     <TreeRoute npub={route.params.npub} treeName={route.params.treeName} wild={route.params.wild} />
   {:else if route.id === 'user'}
