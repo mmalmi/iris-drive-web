@@ -35,6 +35,15 @@
   // Don't show for self
   let isSelf = $derived(pubkey === myPubkey);
 
+  let namedFriends = $derived(friendsArray.slice(0, MAX_NAMES));
+  let others = $derived(total - namedFriends.length);
+
+  // "Followed by A", "A and B", "A, B and C", "A, B, C and 4 others"
+  function leadIn(index: number): string {
+    if (index === 0) return 'Followed by ';
+    return index === namedFriends.length - 1 && others === 0 ? ' and ' : ', ';
+  }
+
   function getNpub(pk: string): string {
     try {
       return nip19.npubEncode(pk);
@@ -60,11 +69,11 @@
     <div data-testid="profile-follow-explanation" class="flex items-center gap-2 {className}">
       <Badge pubKeyHex={pubkey} size="sm" />
       <!-- Avatar stack -->
-      <div class="flex -space-x-2">
+      <div class="flex -space-x-2 shrink-0">
         {#each friendsArray as pk (pk)}
           <a
             href="#/{getNpub(pk)}"
-            class="rounded-full ring-2 ring-surface-0 hover:z-10"
+            class="rounded-full ring-2 ring-surface-0 hover:z-10 no-underline"
           >
             <Avatar pubkey={pk} size={24} />
           </a>
@@ -73,24 +82,12 @@
 
       <!-- Names -->
       <div class="text-sm text-text-2 min-w-0 truncate">
-        <span>Followed by </span>
-        {#each friendsArray.slice(0, MAX_NAMES) as pk, i (pk)}
-          {#if i > 0}
-            {#if i === friendsArray.length - 1 || i === MAX_NAMES - 1}
-              <span> and </span>
-            {:else}
-              <span>, </span>
-            {/if}
-          {/if}
-          <a
-            href="#/{getNpub(pk)}"
-            class="text-text-1 hover:underline"
-          >
-            <Name pubkey={pk} />
-          </a>
+        {#each namedFriends as pk, i (pk)}
+          <span>{leadIn(i)}</span>
+          <a href="#/{getNpub(pk)}" class="inline-flex items-baseline text-text-1 no-underline hover:text-accent"><Name pubkey={pk} /></a>
         {/each}
-        {#if total > MAX_NAMES}
-          <span> and {total - MAX_NAMES} other{total - MAX_NAMES !== 1 ? 's' : ''}</span>
+        {#if others > 0}
+          <span>{` and ${others} other${others !== 1 ? 's' : ''}`}</span>
         {/if}
       </div>
     </div>

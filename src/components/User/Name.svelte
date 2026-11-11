@@ -32,7 +32,7 @@
   {profile}
   name={profileName}
   {fallbackName}
-  class={`truncate ${className}`.trim()}
+  class={`truncate align-bottom ${className}`.trim()}
   fallbackClass="italic opacity-70"
 />
 
