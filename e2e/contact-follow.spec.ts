@@ -23,7 +23,8 @@ test('public follow and unfollow preserve relay contact metadata through the rea
     const { nostrStore } = await import('/src/nostr/index.ts');
     const adapter = getWorkerAdapter();
     const pubkey = nostrStore.getState().pubkey;
-    if (!adapter?.queryEvents || !pubkey) throw new Error('Signed-in worker not ready');
+    // Polled: a worker that is still starting is simply not there yet.
+    if (!adapter?.queryEvents || !pubkey) return { complete: false, tags: undefined, content: undefined };
     const result = await adapter.queryEvents([{ kinds: [3], authors: [pubkey] }], {
       cache: 'network-only', relays: getNostrRelayUrls(), deadline: Date.now() + 10_000,
     });
