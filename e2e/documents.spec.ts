@@ -126,4 +126,55 @@ test.describe('documents in a Drive', () => {
       await expect(documentBody(second)).toContainText(text, { timeout: 60_000 });
     }
   });
+
+  test('a long document folds its change files, and deleting it leaves its neighbours alone', async ({ page, relayUrl }) => {
+    await page.addInitScript(() => {
+      (window as unknown as { __documentFolding?: object }).__documentFolding = { maxChanges: 3, quietMs: 0 };
+    });
+    await prepareFreshSession(page, relayUrl);
+    await createDriveProfile(page);
+    await page.locator('label[title="Add files"]:visible input[type="file"]').setInputFiles({
+      name: 'neighbour.txt', mimeType: 'text/plain', buffer: Buffer.from('still here'),
+    });
+    await expect(page.getByTestId('viewer-header')).toContainText('neighbour.txt', { timeout: 30_000 });
+    await page.getByRole('link', { name: 'Back to folder' }).click();
+    await createDocument(page, 'Log');
+
+    for (let entry = 1; entry <= 8; entry += 1) {
+      await typeInDocument(page, `Entry ${entry}. `);
+      await expectSaved(page);
+    }
+    const storedFiles = () => page.evaluate(async () => {
+      const { parseRoute } = await import('/src/utils/route.ts');
+      const { getTreeRootSync } = await import('/src/stores/treeRoot.ts');
+      const { getTree } = await import('/src/store.ts');
+      const route = parseRoute();
+      const tree = getTree();
+      const root = getTreeRootSync(route.npub, route.treeName);
+      const updates = root && await tree.resolvePath(root, [...route.path, 'updates']);
+      if (!updates) return [];
+      const names: string[] = [];
+      for (const folder of await tree.listDirectory(updates.cid)) {
+        for (const file of await tree.listDirectory(folder.cid)) names.push(`${folder.name.replace(/^[0-9a-f]+-/, '')}/${file.name === 'base' ? 'base' : 'change'}`);
+      }
+      return names.sort();
+    });
+    // Three changes fill a folder and the next save starts a new one from a full copy:
+    // after eight saves two folders have been folded away and the third holds just that copy.
+    await expect.poll(storedFiles, { timeout: 30_000 }).toEqual(['2/base']);
+
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    for (let entry = 1; entry <= 8; entry += 1) {
+      await expect(documentBody(page)).toContainText(`Entry ${entry}.`, { timeout: 60_000 });
+    }
+    await expect.poll(storedFiles, { timeout: 30_000 }).toEqual(['2/base']);
+
+    page.once('dialog', dialog => void dialog.accept());
+    await page.getByTestId('document-delete').click();
+    await expect(page.getByRole('link', { name: /^neighbour\.txt\b/ })).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId('document-entry')).toHaveCount(0);
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await expect(page.getByRole('link', { name: /^neighbour\.txt\b/ })).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByTestId('document-entry')).toHaveCount(0);
+  });
 });

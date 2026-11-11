@@ -228,6 +228,13 @@
     if (session?.dirty) void saveNow();
   }
 
+  /** Closing the tab in the moment before a save would lose the last words; ask first. */
+  function handleBeforeUnload(event: BeforeUnloadEvent): void {
+    if (!session?.dirty || !isCurrentSaver()) return;
+    saveBeforeLeaving();
+    event.preventDefault();
+  }
+
   function handleVisibilityChange(): void {
     if (document.visibilityState === 'hidden') saveBeforeLeaving();
   }
@@ -315,6 +322,7 @@
       // Each device has its own key, so its folder is its alone.
       writerId: (pubkey ?? 'viewer').slice(0, 12),
       commit: commitChange,
+      ...(import.meta.env.VITE_TEST_MODE ? (window as Window & { __documentFolding?: { maxChanges?: number; quietMs?: number } }).__documentFolding : undefined),
     });
     // Until this tab is known to be the one that saves, it only shows edits.
     activeSession.setSaver(false);
@@ -339,6 +347,7 @@
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('pagehide', saveBeforeLeaving);
+    window.addEventListener('beforeunload', handleBeforeUnload);
 
     void (async () => {
       // The editor opens once the document has been read, never on a blank page that is still loading.
@@ -374,6 +383,7 @@
     if (retryLoadTimer) clearTimeout(retryLoadTimer);
     document.removeEventListener('visibilitychange', handleVisibilityChange);
     window.removeEventListener('pagehide', saveBeforeLeaving);
+    window.removeEventListener('beforeunload', handleBeforeUnload);
     disconnectTabs?.();
     commentsStore?.destroy();
     editor?.destroy();
