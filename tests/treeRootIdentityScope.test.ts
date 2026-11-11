@@ -376,6 +376,59 @@ describe('NostrIdentity tree-root scope', () => {
     expect(shared.fetchEvents).not.toHaveBeenCalled();
   });
 
+  it('never lets a merged view replace a local change that is not published yet', async () => {
+    const { appSecret, appPubkey } = activateProfile();
+    const tree = new HashTree({ store: new MemoryStore() });
+    shared.tree = tree;
+    const entry = async (name: string) => {
+      const file = await tree.putFile(new TextEncoder().encode(name));
+      return { name, cid: file.cid, size: file.size, type: LinkType.Blob };
+    };
+    const publishedRoot = (await tree.putDirectory([await entry('published.txt')])).cid;
+    const localRoot = (await tree.putDirectory([await entry('published.txt'), await entry('just-typed.txt')])).cid;
+    const rootEvent = (root: typeof publishedRoot, sequence: number, publishedAt: number) => buildDriveRootEvent({
+      deviceSecretKey: appSecret,
+      rootScopeId: PROFILE_ID,
+      driveId: 'main',
+      root,
+      dckGeneration: 1,
+      appKeySeq: sequence,
+      publishedAt,
+      authorizedAppKeyPubkeys: [appPubkey],
+    });
+    // Publication stamps only move forward, so the merged view can carry a
+    // later stamp than a change saved on this device a moment afterwards.
+    const published = rootEvent(publishedRoot, 1, Math.floor(Date.now() / 1000) + 600);
+    profileDriveProjection.add(published, parseDriveRootEventForDevice(published, appSecret));
+    treeRootRegistry.setLocal(PROFILE_ID, 'main', localRoot.hash, { key: localRoot.key, visibility: 'private' });
+    const { rebuildRetainedDriveRootProjection } = await import('../src/stores/treeRootResolver');
+    const names = async () => {
+      const record = treeRootRegistry.get(PROFILE_ID, 'main')!;
+      return (await tree.listDirectory({ hash: record.hash, key: record.key })).map(item => item.name).sort();
+    };
+
+    // The change cannot be published yet: the merged view must not take its place.
+    rebuildRetainedDriveRootProjection(`${PROFILE_ID}/main`);
+    await new Promise(resolve => setTimeout(resolve, 50));
+    expect(treeRootRegistry.get(PROFILE_ID, 'main')?.dirty).toBe(true);
+    expect(await names()).toEqual(['just-typed.txt', 'published.txt']);
+
+    // Once it is published, the merged view contains it and takes over.
+    treeRootRegistry.setPublishFn(async (_scope, _drive, record) => {
+      const next = rootEvent({ hash: record.hash, key: record.key }, 2, Math.floor(Date.now() / 1000) + 601);
+      profileDriveProjection.add(next, parseDriveRootEventForDevice(next, appSecret));
+      return true;
+    });
+    rebuildRetainedDriveRootProjection(`${PROFILE_ID}/main`);
+    await vi.waitFor(() => {
+      expect(treeRootRegistry.get(PROFILE_ID, 'main')?.dirty).toBe(false);
+    });
+    await vi.waitFor(() => {
+      expect(treeRootRegistry.get(PROFILE_ID, 'main')?.source).toBe('nostr');
+    });
+    expect(await names()).toEqual(['just-typed.txt', 'published.txt']);
+  });
+
   it('waits for an already in-flight local root publish before rebuilding', async () => {
     vi.useFakeTimers();
     const { appSecret, appPubkey } = activateProfile(PUBLISHING_PROFILE_ID);

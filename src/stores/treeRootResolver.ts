@@ -345,6 +345,17 @@ async function rebuildDriveRootProjection(
         continue;
       }
 
+      // A change made on this device after the roots above were merged is not
+      // in this view, and applying the view would silently drop it. Publishing
+      // it first retains it, and the next pass merges it with everyone else's.
+      const local = treeRootRegistry.getByKey(key);
+      if (local?.dirty && local.source === 'local-write') {
+        await treeRootRegistry.flushPendingPublishes();
+        // Still unpublished (offline, or not allowed to write): keep the local change.
+        if (!treeRootRegistry.getByKey(key)?.dirty) state.requested += 1;
+        continue;
+      }
+
       const entry = subscriptionState.get(key);
       const visibilityInfo: SubscribeVisibilityInfo = { visibility: 'private' };
       const apply = () => treeRootRegistry.setFromResolver(
