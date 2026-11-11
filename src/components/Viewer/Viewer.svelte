@@ -6,7 +6,6 @@
   import { getQueryParamsFromHash } from '../../lib/router.svelte';
   import DirectoryActions from './DirectoryActions.svelte';
   import ViewerFileView from './ViewerFileView.svelte';
-  import YjsDocumentEditor from './YjsDocumentEditor.svelte';
   import { supportsDocumentFeatures } from '../../appType';
   import { buildSitesHref, isHtmlFilename } from '../../lib/siteHref';
   import {
@@ -323,12 +322,15 @@
   </div>
 {:else if hasTreeContext && isYjsDocument && currentDirCid}
   <!-- Yjs Document view - show Tiptap editor -->
+  <!-- The editor and its libraries load only when a document is opened. -->
   {#key yjsViewKey}
-    <YjsDocumentEditor
-      dirCid={currentDirCid}
-      dirName={currentDirName}
-      entries={entries}
-    />
+    {#await import('./YjsDocumentEditor.svelte') then { default: YjsDocumentEditor }}
+      <YjsDocumentEditor
+        dirCid={currentDirCid}
+        dirName={currentDirName}
+        entries={entries}
+      />
+    {/await}
   {/key}
 {:else if hasTreeContext && !resolvingPath}
   <!-- Directory view - show DirectoryActions -->

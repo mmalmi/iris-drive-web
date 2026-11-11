@@ -411,6 +411,17 @@ async function buildTombstoneDirectory(
     node.markers.set(leaf, timestamp);
   }
 
+  // A deleted folder marks every path below it with the same timestamp.
+  const markers = new Map<number, Promise<{ cid: CID; size: number }>>();
+  const markerFor = (timestamp: number) => {
+    let marker = markers.get(timestamp);
+    if (!marker) {
+      marker = tree.putFile(new TextEncoder().encode(String(timestamp)));
+      markers.set(timestamp, marker);
+    }
+    return marker;
+  };
+
   const materialize = async (node: TombstoneTrie): Promise<CID> => {
     const entries: TreeEntry[] = [];
     for (const [name, child] of [...node.directories].sort(([left], [right]) => left.localeCompare(right))) {
@@ -418,7 +429,7 @@ async function buildTombstoneDirectory(
       entries.push({ name, cid, size: 0, type: LinkType.Dir });
     }
     for (const [name, timestamp] of [...node.markers].sort(([left], [right]) => left.localeCompare(right))) {
-      const marker = await tree.putFile(new TextEncoder().encode(String(timestamp)));
+      const marker = await markerFor(timestamp);
       entries.push({ name, cid: marker.cid, size: marker.size, type: LinkType.Blob });
     }
     entries.sort((left, right) => left.name.localeCompare(right.name));

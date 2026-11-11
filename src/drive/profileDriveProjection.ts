@@ -116,6 +116,11 @@ export class ProfileDriveProjection {
     return true;
   }
 
+  /** Whether this exact signed root is already the retained one for its AppKey. */
+  retains(rootScopeId: string, driveId: string, event: Event): boolean {
+    return this.roots.get(projectionKey(rootScopeId, driveId))?.get(event.pubkey)?.event.id === event.id;
+  }
+
   clear(rootScopeId?: string, driveId?: string): void {
     if (rootScopeId && driveId) {
       this.roots.delete(projectionKey(rootScopeId, driveId));

@@ -1522,7 +1522,11 @@ export async function refreshCurrentDriveRosterOps(
   ) {
     throw new Error('Active Drive roster changed during refresh');
   }
-  replaceCurrentNostrIdentitySessionRosterOps(profileId, refreshed);
+  // Peer authorization refreshes every few seconds; an unchanged roster must
+  // not rewrite the stored session or wake every account subscriber.
+  const unchanged = refreshed.length === current.rosterOps.length
+    && refreshed.every((op, index) => op.op_id === current.rosterOps[index].op_id);
+  if (!unchanged) replaceCurrentNostrIdentitySessionRosterOps(profileId, refreshed);
   return refreshed;
 }
 

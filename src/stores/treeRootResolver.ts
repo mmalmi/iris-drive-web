@@ -231,6 +231,9 @@ function applyDriveRootEvent(
     scheduleDriveRootProjection(key, rootScopeId, driveId);
     return false;
   }
+  // The periodic backfill returns the roots already held; they need no second
+  // signature check and decryption. Authorization is synced around the backfill.
+  if (profileDriveProjection.retains(rootScopeId, driveId, event)) return false;
   const secretKey = getSecretKey();
   if (!secretKey) return false;
 

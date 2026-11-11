@@ -196,6 +196,9 @@ describe('profile Drive projection', () => {
 
     projection.add(newEvent, parseDriveRootEventForDevice(newEvent, reader));
     expect(projection.add(oldEvent, parseDriveRootEventForDevice(oldEvent, reader))).toBe(false);
+    expect(projection.retains(PROFILE_ID, 'main', newEvent)).toBe(true);
+    expect(projection.retains(PROFILE_ID, 'main', oldEvent)).toBe(false);
+    expect(projection.retains(PROFILE_ID, 'other', newEvent)).toBe(false);
     projection.add(injected, parseDriveRootEventForDevice(injected, reader));
 
     const result = await projection.materialize(

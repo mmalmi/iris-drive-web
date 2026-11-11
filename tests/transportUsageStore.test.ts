@@ -68,6 +68,30 @@ describe('TransportUsageLedger', () => {
     });
   });
 
+  it('does not rewrite storage for an idle source until its retention stamp is due', () => {
+    const storage = new MemoryStorage();
+    const writes: string[] = [];
+    const setItem = storage.setItem.bind(storage);
+    storage.setItem = (key, value) => { writes.push(value); setItem(key, value); };
+    const ledger = new TransportUsageLedger(storage);
+    ledger.recordSource('peer:alice', 'webrtc', 512, 256, 1_000);
+    const revision = ledger.revision;
+
+    const idle = ledger.recordSource('peer:alice', 'webrtc', 512, 256, 3_000);
+
+    expect(writes).toHaveLength(1);
+    expect(ledger.revision).toBe(revision);
+    expect(idle.lifetime.webrtc).toMatchObject({ bytesSent: 512, bytesReceived: 256 });
+
+    const refreshAt = 1_000 + 60 * 60 * 1000;
+    ledger.recordSource('peer:alice', 'webrtc', 512, 256, refreshAt);
+    expect(writes).toHaveLength(2);
+    expect(JSON.parse(writes[1]).sources['peer:alice'].updatedAt).toBe(refreshAt);
+
+    ledger.recordSource('peer:alice', 'webrtc', 600, 256, refreshAt + 2_000);
+    expect(writes).toHaveLength(3);
+  });
+
   it('treats lower counters as a new backend session and starts accumulating again', () => {
     const storage = new MemoryStorage();
     const ledger = new TransportUsageLedger(storage);

@@ -59,6 +59,8 @@ interface PeerUsageSample {
 
 const STORAGE_KEY = 'iris-files:transport-usage:v1';
 const SOURCE_SNAPSHOT_TTL_MS = 14 * 24 * 60 * 60 * 1000;
+// How often an idle source's retention stamp is refreshed in storage.
+const SOURCE_REFRESH_INTERVAL_MS = 60 * 60 * 1000;
 
 export const DEFAULT_RELAY_BANDWIDTH: RelayBandwidthState = {
   totalBytesSent: 0,
@@ -212,6 +214,8 @@ export class TransportUsageLedger {
   private persisted: PersistedTransportUsageState;
   private readonly runtimeSession = createEmptyTransportUsageMap();
   private readonly runtimeSources = new Map<string, PersistedSourceSnapshot>();
+  /** Bumped whenever a recorded sample changes the ledger. */
+  revision = 0;
 
   constructor(storage: StorageLike | null = getStorage()) {
     this.storage = storage;
@@ -271,6 +275,7 @@ export class TransportUsageLedger {
   }
 
   clearLifetime(): void {
+    this.revision += 1;
     this.persisted = {
       version: 1,
       lifetime: createEmptyTransportUsageMap(),
@@ -296,6 +301,18 @@ export class TransportUsageLedger {
     const normalizedReceived = Math.max(0, Math.floor(bytesReceived));
     const persistedPrevious = this.persisted.sources[sourceKey];
     const runtimePrevious = this.runtimeSources.get(sourceKey);
+    // Sources are sampled every couple of seconds and are mostly idle. An
+    // unchanged sample moves no counters, so it is not worth a storage write.
+    const unchanged = (previous: PersistedSourceSnapshot | undefined): previous is PersistedSourceSnapshot => (
+      previous?.transport === transport
+      && previous.bytesSent === normalizedSent
+      && previous.bytesReceived === normalizedReceived
+    );
+    if (unchanged(persistedPrevious) && unchanged(runtimePrevious)
+      && updatedAt - persistedPrevious.updatedAt < SOURCE_REFRESH_INTERVAL_MS) {
+      return this.snapshot();
+    }
+    this.revision += 1;
 
     const lifetimeDelta = computePersistentDelta(
       persistedPrevious,
@@ -335,7 +352,10 @@ function createTransportUsageStore(storage: StorageLike | null = getStorage()) {
   const ledger = new TransportUsageLedger(storage);
   const { subscribe, set } = writable<TransportUsageState>(ledger.snapshot());
 
+  let published = ledger.revision;
   function publish(): void {
+    if (ledger.revision === published) return;
+    published = ledger.revision;
     set(ledger.snapshot());
   }
 
