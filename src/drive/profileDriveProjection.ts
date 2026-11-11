@@ -22,6 +22,7 @@ import {
   type PathKindSourceState,
 } from './profileDrivePathKindPreference';
 import { conflictPath } from './profileDriveConflictPath';
+import { DirectoryBuilder } from './directoryBuilder';
 
 const META_DIR = '.hashtree';
 const TOMBSTONES_DIR = 'tombstones';
@@ -233,33 +234,19 @@ export class ProfileDriveProjection {
       pathKindSourceStates,
     );
     const { files, directories } = merged;
-    let root = (await tree.putDirectory([])).cid;
-
-    const directoryPaths = new Set<string>(directories.keys());
-    for (const file of files) {
-      const segments = splitPath(file.path);
-      for (let depth = 1; depth < segments.length; depth += 1) {
-        directoryPaths.add(segments.slice(0, depth).join('/'));
-      }
-    }
-
-    for (const path of [...directoryPaths].sort(comparePathsByDepth)) {
-      root = await ensureDirectory(tree, root, path, directories.get(path)?.entry.meta, signal);
+    // Explicit directories keep their link metadata; parents of files are implied.
+    const builder = new DirectoryBuilder();
+    for (const [path, directory] of directories) {
+      builder.directory(splitPath(path)).meta = directory.entry.meta;
     }
     for (const file of files.sort((left, right) => left.path.localeCompare(right.path))) {
       const segments = splitPath(file.path);
       const name = segments.pop();
       if (!name) continue;
-      root = await tree.setEntry(
-        root,
-        segments,
-        name,
-        file.entry.cid,
-        file.entry.size,
-        file.entry.type,
-        file.entry.meta,
-      );
+      builder.directory(segments).setLeaf(name, file.entry);
     }
+    signal?.throwIfAborted();
+    const root = await builder.put(tree);
 
     return {
       root,
@@ -845,25 +832,6 @@ function rootReferenceCovers(
   if (referenceHash === toHex(candidate.parsed.root.hash)) return true;
   const sequence = reference.app_key_seq ?? reference.device_seq ?? 0;
   return candidate.parsed.app_key_seq > 0 && sequence > candidate.parsed.app_key_seq;
-}
-
-async function ensureDirectory(
-  tree: HashTree,
-  root: CID,
-  path: string,
-  meta: Record<string, unknown> | undefined,
-  signal?: AbortSignal,
-): Promise<CID> {
-  const segments = splitPath(path);
-  if (segments.length === 0) return root;
-  const existing = await tree.resolvePath(root, segments, signal);
-  if (existing?.type === LinkType.Dir) return root;
-  if (existing) return root;
-
-  const name = segments.pop();
-  if (!name) return root;
-  const empty = await tree.putDirectory([]);
-  return tree.setEntry(root, segments, name, empty.cid, 0, LinkType.Dir, meta);
 }
 
 function shouldIgnoreName(name: string): boolean {
