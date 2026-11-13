@@ -11,10 +11,23 @@
  * get quite a bit smaller and still be read; a title or subtitle made much
  * smaller stops looking like one, so its box grows sooner instead.
  */
-export const MIN_FIT = { title: 0.6, subtitle: 0.7, body: 0.5 } as const;
+export const MIN_FIT = { title: 0.6, subtitle: 0.7, body: 0.5, shape: 0.3, cell: 0.4 } as const;
 
 /** Space above and below the text of a text box, in slide units; the stylesheet uses the same. */
 export const TEXT_PAD_Y = 8;
+
+/**
+ * The share of an ellipse's width and height left free on each side so that
+ * its text stays inside the curve: the rectangle that fits in an ellipse
+ * leaves (1 − 1/√2) / 2 of each side.
+ */
+export const ELLIPSE_INSET = (1 - Math.SQRT1_2) / 2;
+
+/** The height inside a box's padding, in layout units. */
+export function roomInside(box: HTMLElement): number {
+  const style = getComputedStyle(box);
+  return box.clientHeight - Number.parseFloat(style.paddingTop) - Number.parseFloat(style.paddingBottom);
+}
 
 /**
  * Sets `--fit` on `box` so that `inner`, the text inside it, is no taller

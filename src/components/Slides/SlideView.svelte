@@ -120,8 +120,9 @@
     word-break: normal;
   }
 
-  .slide-surface :global(.el-text-ellipse) {
-    padding: 12% 14%;
+  /* Words in a shape that would not fit even at their smallest are cut off at its edge, never spilled over the slide. */
+  .slide-surface :global(.el-text-shape) {
+    overflow: hidden;
   }
 
   .slide-surface :global(.el-text-inner) {
