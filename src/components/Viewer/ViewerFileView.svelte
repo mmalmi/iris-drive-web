@@ -21,6 +21,7 @@
   import MediaPlayer from './MediaPlayer.svelte';
   import ZipPreview from './ZipPreview.svelte';
   import { buildEntryHref } from '../fileBrowserHrefs';
+  import { fileImportFor, openAsDocument } from '../../lib/fileImports';
 
   const FILE_RETRY_DELAY_MS = 1500;
   const FILE_RETRY_MAX = 6;
@@ -126,6 +127,9 @@
   let isAudio = $derived(['mp3', 'wav', 'flac', 'm4a', 'ogg', 'aac'].includes(extensionOf(urlFileName)));
   let isPdf = $derived(extensionOf(urlFileName) === 'pdf');
   let isZip = $derived(extensionOf(urlFileName) === 'zip');
+  /** A file that can be opened as an Iris document, such as a spreadsheet file (see fileImports.ts). */
+  let fileImport = $derived(fileImportFor(urlFileName));
+  let opening = $state(false);
   let isMarkdown = $derived(extensionOf(urlFileName) === 'md' || extensionOf(urlFileName) === 'markdown');
   let isFullscreen = $derived(getQueryParamsFromHash(hash).get('fullscreen') === '1');
   let recentlyChanged = $derived($recentlyChangedFiles);
@@ -407,6 +411,14 @@
           </div>
 
           <div class="flex items-center gap-1 flex-wrap max-sm:w-full">
+            {#if canEdit && fileImport && !routeIsPermalink}
+              <button
+                onclick={() => { opening = true; void openAsDocument(urlFileName, fileImport.kind).finally(() => { opening = false; }); }}
+                class="btn-ghost text-accent"
+                disabled={opening}
+                data-testid="viewer-open-as-document"
+              >{fileImport.label}</button>
+            {/if}
             <button onclick={handleDownload} class="btn-ghost" title="Download file" data-testid="viewer-download" disabled={loading && !isVideo}>Download</button>
             {#if permalinkUrl}
               <a href={permalinkUrl} class="btn-ghost no-underline" title={entry?.cid?.hash ? toHex(entry.cid.hash) : ''} data-testid="viewer-permalink">Snapshot</a>
@@ -484,6 +496,12 @@
       {:else if isPdf && entry?.cid}
         {#key cidKey}
           <iframe src={getNhashFileUrl(entry.cid, urlFileName || 'document.pdf')} class="flex-1 w-full border-none" title={urlFileName}></iframe>
+        {/key}
+      {:else if fileImport && fileData}
+        {#key cidKey}
+          {#await fileImport.preview() then { default: FilePreview }}
+            <FilePreview fileName={urlFileName} data={fileData} />
+          {/await}
         {/key}
       {:else if isZip && fileData}
         {#key cidKey}

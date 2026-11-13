@@ -9,7 +9,8 @@
   import SheetGrid from './SheetGrid.svelte';
   import SheetTabs from './SheetTabs.svelte';
   import SheetToolbar from './SheetToolbar.svelte';
-  import { IMPORT_ACCEPT, downloadCsv, downloadXlsx, importFile, isSheetFile, localeMenu } from './sheetFiles';
+  import { readSiblingFile, takeImportRequest } from '../../lib/fileImports';
+  import { IMPORT_ACCEPT, downloadCsv, downloadXlsx, fillFromFile, importFile, isBlank, isSheetFile, localeMenu } from './sheetFiles';
 
   interface Props {
     dirName: string;
@@ -29,12 +30,15 @@
   let menu = $state.raw<{ x: number; y: number; items: MenuItem[] } | null>(null);
   /** True while a file is dragged over the spreadsheet. */
   let dropping = $state(false);
+  /** True while a file from the Drive is being brought in. */
+  let importing = $state(false);
 
   onMount(() => {
     void (async () => {
       if (!await drive.open()) return;
       ctl.start(drive.canEdit);
       ready = true;
+      await bringInRequestedFile();
     })();
     // Someone who may only read can sort their own copy. It cannot take in
     // later changes without mixing the two, so then the stored sheet is shown again.
@@ -42,6 +46,20 @@
       if (origin === STORED_ORIGIN && ctl.localOnly) onreset();
     });
   });
+
+  /** Opened from a spreadsheet file in the Drive: its content comes in once (see fileImports.ts). */
+  async function bringInRequestedFile(): Promise<void> {
+    const fileName = takeImportRequest();
+    if (!fileName || !ctl.canEdit || !isBlank(ctl)) return;
+    importing = true;
+    try {
+      const data = await readSiblingFile(fileName);
+      if (!data) ctl.say(`${fileName} could not be read.`);
+      else if (isBlank(ctl)) await fillFromFile(ctl, fileName, data);
+    } finally {
+      importing = false;
+    }
+  }
 
   function onkeydown(event: KeyboardEvent): void {
     if (!ready || !(event.ctrlKey || event.metaKey) || event.altKey) return;
@@ -167,6 +185,12 @@
     <FormulaBar {ctl} />
     <SheetGrid {ctl} />
     <SheetTabs {ctl} />
+  {/if}
+  {#if importing}
+    <div class="absolute inset-0 z-40 flex items-center justify-center gap-2 bg-surface-0/80 text-text-2 text-sm" data-testid="sheet-importing">
+      <span class="i-lucide-loader-2 animate-spin"></span>
+      Opening the file…
+    </div>
   {/if}
   {#if dropping}
     <div class="drop-zone" data-testid="sheet-drop-zone">

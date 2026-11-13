@@ -803,6 +803,12 @@ export class SheetController {
     this.canRedo = this.undoManager.redoStack.length > 0;
   }
 
+  /** Forgets every step so far, as after bringing a file into a new spreadsheet. */
+  clearUndo(): void {
+    this.undoManager.clear();
+    this.refreshUndo();
+  }
+
   undo(): void {
     if (!this.canEdit) return;
     this.cancelEdit();
