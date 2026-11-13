@@ -386,7 +386,7 @@
     flex: 1;
     min-width: 0;
     min-height: 0;
-    overflow: hidden;
+    overflow: clip;
     outline: none;
     background: rgb(var(--surface-0));
   }

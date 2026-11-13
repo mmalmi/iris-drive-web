@@ -56,9 +56,10 @@
 </div>
 
 <style>
+  /* Clipped, not scrollable: typing past the edge must not scroll the slide inside its frame. */
   .slide-box {
     position: relative;
-    overflow: hidden;
+    overflow: clip;
     flex: none;
   }
 
@@ -67,7 +68,7 @@
     left: 0;
     top: 0;
     transform-origin: 0 0;
-    overflow: hidden;
+    overflow: clip;
     /* Slides keep their own colours whatever the app's colour scheme. */
     color-scheme: light;
     text-rendering: geometricPrecision;

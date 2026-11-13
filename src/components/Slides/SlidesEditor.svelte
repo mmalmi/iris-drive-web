@@ -199,10 +199,13 @@
         done();
         current.addSlide();
       }
-    } else if (key.length === 1 && !mod && !event.altKey && selected && current.selection.length === 1 && current.selectedText[0]) {
-      // Typing with a box selected goes into the box.
-      done();
-      current.startEditing(current.selectedText[0].id, { insert: key });
+    } else if (key.length === 1 && key !== ' ' && !mod && !event.altKey && !strip) {
+      // Typing with a box selected goes into the box; with nothing selected, into the first empty one.
+      const box = current.selection.length === 1 ? current.selectedText[0] : current.selection.length === 0 ? current.firstEmptyBox : null;
+      if (box) {
+        done();
+        current.startEditing(box.id, { insert: key });
+      }
     }
   }
 

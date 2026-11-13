@@ -87,6 +87,8 @@ export interface TextEditorOptions {
   element: HTMLElement;
   fragment: Y.XmlFragment;
   onImage?: (file: File) => void;
+  /** Tab was pressed outside a list; `back` when with Shift. */
+  onTab?: (back: boolean) => void;
 }
 
 /** An editor for one text box, writing straight into its stored text. */
@@ -127,10 +129,16 @@ export function createTextEditor(options: TextEditorOptions): Editor {
         }
         return false;
       },
-      // Tab indents a list item; anywhere else it must not walk off to the next button.
-      handleKeyDown: (_view, event) => {
-        if (event.key === 'Tab' && !event.metaKey && !event.ctrlKey && !event.altKey) event.preventDefault();
-        return false;
+      // Tab indents a list item; anywhere else it goes on to the next box rather than to the next button.
+      handleKeyDown: (view, event) => {
+        if (event.key !== 'Tab' || event.metaKey || event.ctrlKey || event.altKey) return false;
+        event.preventDefault();
+        const { $from } = view.state.selection;
+        for (let depth = $from.depth; depth > 0; depth -= 1) {
+          if ($from.node(depth).type.name === 'listItem') return false;
+        }
+        options.onTab?.(event.shiftKey);
+        return true;
       },
     },
   });

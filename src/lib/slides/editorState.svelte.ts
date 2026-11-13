@@ -519,7 +519,14 @@ export class SlidesEditorState {
   #applyEditOptions(editor: Editor, options: StartEditingOptions): void {
     // Focus now, not a frame later: keys pressed straight after a click belong to the text.
     editor.view.focus();
-    const position = options.point ? editor.view.posAtCoords({ left: options.point.x, top: options.point.y }) : null;
+    // A click beside the text, in the empty part of its box, counts as a click on the nearest text.
+    const bounds = editor.view.dom.getBoundingClientRect();
+    const position = options.point
+      ? editor.view.posAtCoords({
+          left: Math.min(Math.max(options.point.x, bounds.left + 1), bounds.right - 1),
+          top: Math.min(Math.max(options.point.y, bounds.top + 1), bounds.bottom - 1),
+        })
+      : null;
     if (options.selectAll) editor.commands.selectAll();
     else if (position) editor.commands.setTextSelection(position.pos);
     else editor.commands.setTextSelection(editor.state.doc.content.size);
@@ -548,9 +555,27 @@ export class SlidesEditorState {
       this.deck.deleteElements(slideId, [element.id]);
       this.selection = this.selection.filter(id => id !== element.id);
     } else if (measured && measured > element.h + 1) {
-      this.deck.updateElements(slideId, { [element.id]: { h: Math.ceil(measured) } });
+      // The box grows away from the side its text is held to, so the text stays where it was.
+      const grown = Math.ceil(measured);
+      const valign = textStyle(element, this.theme, this.current?.layout ?? 'blank').valign;
+      const y = valign === 'bottom' ? element.y - (grown - element.h) : valign === 'middle' ? element.y - (grown - element.h) / 2 : element.y;
+      this.deck.updateElements(slideId, { [element.id]: { h: grown, y: Math.round(y) } });
     }
     this.#undo.stopCapturing();
+  }
+
+  /** Moves typing on to the next box that holds text (the previous one when `back`), in the order they were made. */
+  editNext(back = false): void {
+    const boxes = this.current?.elements.filter(element => element.content) ?? [];
+    const at = boxes.findIndex(element => element.id === this.editingId);
+    const next = boxes[at + (back ? -1 : 1)];
+    if (at < 0 || !next) return;
+    this.startEditing(next.id, { selectAll: !richTextIsEmpty(next.content) });
+  }
+
+  /** The first empty title, subtitle or body box of the slide: where typing goes when nothing is selected. */
+  get firstEmptyBox(): SlideElement | null {
+    return this.current?.elements.find(element => element.type === 'text' && element.role && richTextIsEmpty(element.content)) ?? null;
   }
 
   /** Set by the text box being edited: how tall its text is now, in slide units. */

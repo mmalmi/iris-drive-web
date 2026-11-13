@@ -20,6 +20,7 @@
       element: host,
       fragment,
       onImage: file => void editorState.addImage(file),
+      onTab: back => editorState.editNext(back),
     });
     // The text is laid out in slide units whatever the zoom, so its height is too.
     editorState.measureEditing = () => {

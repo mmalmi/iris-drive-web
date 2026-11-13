@@ -8,7 +8,6 @@ import {
   sheet,
   shot,
   thumbs,
-  typeInBox,
 } from './slides.helpers';
 
 test.describe('presentations in a Drive', () => {
@@ -22,20 +21,26 @@ test.describe('presentations in a Drive', () => {
     await expect(page).toHaveURL(/Field%20trip\.irisslides$/);
     await shot(page, '01-new-deck');
 
-    await typeInBox(page, 0, 'Field trip to the marsh');
+    // The first minute, hands on the keyboard: type the title, Tab, the subtitle.
+    await page.keyboard.type('Field trip to the marsh');
+    await expect(sheet(page).locator('.ProseMirror')).toBeFocused();
+    await page.keyboard.press('Tab');
+    await page.keyboard.type('What we saw, and what comes next');
     await page.keyboard.press('Escape');
-    await typeInBox(page, 1, 'What we saw, and what comes next');
-    await page.keyboard.press('Escape');
+    await expect(elements(page, 'text').nth(0)).toHaveText('Field trip to the marsh');
+    await expect(elements(page, 'text').nth(1)).toHaveText('What we saw, and what comes next');
     await shot(page, '02-title-typed');
 
-    await page.getByTestId('new-slide').click();
+    // A new slide, its title, Tab, and a list of points.
+    await page.keyboard.press('ControlOrMeta+m');
     await expect(thumbs(page)).toHaveCount(2);
-    await typeInBox(page, 0, 'Birds');
-    await page.keyboard.press('Escape');
-    await typeInBox(page, 1, 'Two herons');
+    await page.keyboard.type('Birds');
+    await page.keyboard.press('Tab');
+    await page.keyboard.type('Two herons');
     await page.keyboard.press('Enter');
     await page.keyboard.type('A kite, high up');
     await page.keyboard.press('Escape');
+    await expect(elements(page, 'text').nth(0)).toHaveText('Birds');
     await expect(elements(page, 'text').nth(1).locator('li')).toHaveCount(2);
     await shot(page, '03-second-slide');
     await expectSlidesSaved(page);
