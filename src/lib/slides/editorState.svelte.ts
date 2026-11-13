@@ -14,6 +14,7 @@ import {
   SLIDE_HEIGHT,
   SLIDE_WIDTH,
   elementToJson,
+  newId,
   richTextIsEmpty,
   richTextToPlain,
   type ElementInit,
@@ -99,6 +100,26 @@ export interface SlidesEditorOptions {
   /** Stores an image beside the deck and returns the name to refer to it by. */
   addAttachment: (file: File) => Promise<string>;
   canEdit: () => boolean;
+  /** Names this browser, the same after a reload; see `browserId`. */
+  deviceId?: string;
+}
+
+const DEVICE_KEY = 'irisslides-device';
+
+/**
+ * A name for this browser that outlasts a reload, kept in its local storage.
+ * Without storage every editor gets a name of its own.
+ */
+export function browserId(): string {
+  try {
+    const known = localStorage.getItem(DEVICE_KEY);
+    if (known) return known;
+    const made = newId();
+    localStorage.setItem(DEVICE_KEY, made);
+    return made;
+  } catch {
+    return newId();
+  }
 }
 
 export class SlidesEditorState {
@@ -108,8 +129,7 @@ export class SlidesEditorState {
   #lastAction = '';
   #pendingEdit: StartEditingOptions | null = null;
   #pasteCount = 0;
-  /** The first slide this editor gave the deck, while nobody has touched it. */
-  #seedId: string | null = null;
+  readonly #deviceId: string;
 
   slides = $state.raw<Slide[]>([]);
   themeId = $state(DEFAULT_THEME);
@@ -152,6 +172,7 @@ export class SlidesEditorState {
   constructor(ydoc: Y.Doc, options: SlidesEditorOptions) {
     this.deck = new Deck(ydoc);
     this.#options = options;
+    this.#deviceId = options.deviceId ?? browserId();
     this.#undo = new Y.UndoManager([this.deck.slides, this.deck.meta], {
       // This editor's own changes and what is typed into its text boxes, never
       // what was loaded from storage or arrived from another tab.
@@ -245,28 +266,33 @@ export class SlidesEditorState {
     if (!this.canEdit) return;
     this.deck.start(DEFAULT_THEME);
     if (this.deck.slides.size === 0) {
-      this.#seedId = this.deck.ydoc.transact(() => this.deck.addSlide('title', layoutById('title').elements, null, undefined, true), SEED_ORIGIN);
+      this.deck.ydoc.transact(() => this.deck.addSlide('title', layoutById('title').elements, null, undefined, this.#deviceId), SEED_ORIGIN);
     }
     this.#undo.clear();
+    // A first slide this browser made before a reload may meanwhile have met another.
+    this.#settleSeed();
   }
 
   /**
    * Two devices that open a new deck at the same moment each give it a first
    * slide. Each then takes its own away again if it is still untouched and
    * the other's is the one to keep: the one with something on it, or of two
-   * untouched ones the one whose id sorts first. A device only ever removes
-   * the slide it made itself, so nothing anyone typed can be lost this way.
+   * untouched ones the one whose id sorts first. A browser only ever removes
+   * a slide it made itself, also after a reload, so nothing anyone typed on
+   * another device can be lost this way.
    */
   #settleSeed(): void {
-    const own = this.#seedId ? this.slides.find(slide => slide.id === this.#seedId) : undefined;
-    if (!own || !untouched(own) || !this.canEdit) {
-      this.#seedId = null;
-      return;
-    }
-    const others = this.slides.filter(slide => slide.seed && slide.id !== own.id);
-    if (!others.some(other => !untouched(other) || other.id < own.id)) return;
-    this.#seedId = null;
-    this.deck.ydoc.transact(() => this.deck.slides.delete(own.id), SEED_ORIGIN);
+    if (!this.canEdit) return;
+    const seeds = this.slides.filter(slide => slide.seed);
+    if (seeds.length < 2) return;
+    const blank = seeds.filter(untouched);
+    // Something written on is kept; otherwise the first by id.
+    const keep = blank.length < seeds.length ? null : blank.reduce((first, slide) => (slide.id < first.id ? slide : first));
+    const losers = blank.filter(slide => slide !== keep && slide.seedBy === this.#deviceId);
+    if (losers.length === 0) return;
+    this.deck.ydoc.transact(() => {
+      for (const slide of losers) this.deck.slides.delete(slide.id);
+    }, SEED_ORIGIN);
   }
 
   /**
