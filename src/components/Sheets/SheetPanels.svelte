@@ -3,6 +3,7 @@
   import type { SheetController } from '../../lib/sheets/controller.svelte';
   import ChartPanel from './ChartPanel.svelte';
   import FormatPanel from './FormatPanel.svelte';
+  import NamesPanel from './NamesPanel.svelte';
   import ValidationPanel from './ValidationPanel.svelte';
 
   interface Props {
@@ -24,4 +25,6 @@
   <FormatPanel {ctl} onclose={close} />
 {:else if ctl.panel?.kind === 'valid'}
   <ValidationPanel {ctl} start={ctl.panel.check} onclose={close} />
+{:else if ctl.panel?.kind === 'names'}
+  <NamesPanel {ctl} onclose={close} />
 {/if}

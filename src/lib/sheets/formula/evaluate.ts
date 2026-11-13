@@ -23,6 +23,8 @@ export interface EvalHost {
   /** Where a reference points now, or the error to show when it points nowhere. */
   resolve(ref: RefSpec, homeSheetId: string): { sheetId: string; rect: Rect } | SheetError;
   cell(sheetId: string, row: number, col: number): Scalar;
+  /** Where a named range is, an error when its cells are gone, or null for an unknown name. */
+  named?(name: string): { sheetId: string; rect: Rect } | SheetError | null;
   now(): Date;
   random(): number;
 }
@@ -154,8 +156,12 @@ class Evaluator implements FnContext {
         return node.v;
       case 'empty':
         return null;
-      case 'name':
-        return err('#NAME?', `"${node.name}" is not something this spreadsheet knows`);
+      case 'name': {
+        const found = this.host.named?.(node.name) ?? null;
+        if (found === null) return err('#NAME?', `"${node.name}" is not something this spreadsheet knows`);
+        if (isError(found)) return found;
+        return new CellRange(this.host, found.sheetId, found.rect);
+      }
       case 'ref': {
         const target = this.host.resolve(node.ref, this.scope.sheetId);
         if (isError(target)) return target;

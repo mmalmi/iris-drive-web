@@ -6,6 +6,7 @@
   import { SheetController } from '../../lib/sheets/controller.svelte';
   import FormulaBar from './FormulaBar.svelte';
   import PopupMenu, { type MenuItem } from './PopupMenu.svelte';
+  import { freezeItems } from './menus';
   import SheetGrid from './SheetGrid.svelte';
   import SheetTabs from './SheetTabs.svelte';
   import SheetToolbar from './SheetToolbar.svelte';
@@ -112,17 +113,19 @@
         {
           label: 'Freeze first row',
           icon: 'i-lucide-panel-top',
-          checked: sheet.freezeRows > 0,
-          action: () => sheet.setFreeze(sheet.freezeRows > 0 ? 0 : 1, sheet.freezeCols),
+          checked: sheet.freezeRows === 1,
+          action: () => sheet.setFreeze(sheet.freezeRows === 1 ? 0 : 1, sheet.freezeCols),
           testId: 'sheet-freeze-row',
         },
         {
           label: 'Freeze first column',
           icon: 'i-lucide-panel-left',
-          checked: sheet.freezeCols > 0,
-          action: () => sheet.setFreeze(sheet.freezeRows, sheet.freezeCols > 0 ? 0 : 1),
+          checked: sheet.freezeCols === 1,
+          action: () => sheet.setFreeze(sheet.freezeRows, sheet.freezeCols === 1 ? 0 : 1),
           testId: 'sheet-freeze-column',
         },
+        ...freezeItems(ctl).filter(item => !/row 1$|column A$/.test(item.label)).map(item => ({ ...item, divider: false })),
+        { label: 'Named ranges', icon: 'i-lucide-tag', divider: true, action: () => { ctl.panel = { kind: 'names' }; }, testId: 'sheet-names' },
       );
     }
     menu = { x: bounds.right - 220, y: bounds.bottom + 4, items };

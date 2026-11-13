@@ -6,7 +6,7 @@ import './functions/lookup';
 import './functions/date';
 
 export { FUNCTIONS, evaluateFormula, type EvalHost, type EvalScope } from './evaluate';
-export { FormulaSyntaxError, callsAny, collectRefs, parseFormula, type Node } from './parser';
+export { FormulaSyntaxError, callsAny, collectNames, collectRefs, parseFormula, type Node } from './parser';
 export { rewriteRefs, tokenize, writeIdRef, type RefEnd, type RefMode, type RefSpec, type Token } from './tokens';
 
 /** Functions whose answer changes without any cell changing. */

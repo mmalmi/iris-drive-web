@@ -16,7 +16,8 @@ import { problemWith, validationAt } from './rules';
 import { jump, lastFilledCol, stepInside } from './navigate';
 import type { ObjectContent } from './objects';
 import { rectReference } from './refs';
-import { isError } from './values';
+import { defineName, resolveName } from './names';
+import { SheetError, isError } from './values';
 
 export type SelectionScope = 'cells' | 'rows' | 'cols' | 'all';
 
@@ -609,7 +610,23 @@ export class SheetController {
       return true;
     }
     const rect = parseRectName(text);
-    return rect !== null && this.goTo(rect);
+    if (rect) return this.goTo(rect);
+    // A named range, possibly on another sheet.
+    const named = resolveName(this.book, text);
+    if (!named || named instanceof SheetError) return false;
+    if (named.sheet.id !== this.sheetId) this.showSheet(named.sheet.id);
+    return this.goTo(named.rect);
+  }
+
+  /**
+   * Gives the selected cells a name typed into the box that shows the
+   * selection. Returns why not, or ''.
+   */
+  nameSelection(name: string): string {
+    if (!this.canEdit) return 'Only people who may edit can name cells.';
+    const problem = defineName(this.book, name.trim(), this.sheet, this.selection);
+    if (!problem) this.say(`${name.trim()} now stands for ${rectName(this.selection)}.`);
+    return problem;
   }
 
   get activeStyle(): CellStyle {

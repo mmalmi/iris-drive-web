@@ -16,6 +16,7 @@ import {
   FormulaSyntaxError,
   VOLATILE_FUNCTIONS,
   callsAny,
+  collectNames,
   collectRefs,
   evaluateFormula,
   parseFormula,
@@ -25,6 +26,7 @@ import {
 } from './formula';
 import { NUMBER_FORMATS, formatKind, formatValue, type NumberLocale } from './format';
 import { cellKey, decodeRaw, isFormula, type Book, type BookChange, type Sheet } from './model';
+import { nameRef, resolveName } from './names';
 import { resolveRef } from './refs';
 import { SheetError, err, isError, type Scalar } from './values';
 
@@ -50,6 +52,8 @@ interface FormulaCell {
   node: Node | null;
   syntaxError: SheetError | null;
   refs: RefSpec[];
+  /** Named ranges the formula uses, as written. */
+  names: string[];
   volatile: boolean;
   value: Scalar;
   /** A number format the formula implies, such as a date for =TODAY(). */
@@ -83,6 +87,8 @@ export class Engine {
   private readonly cellWatchers = new Map<string, Set<FormulaCell>>();
   private readonly rangeWatchers = new Map<string, Set<RangeWatch>>();
   private readonly volatile = new Set<FormulaCell>();
+  /** Formulas that use named ranges, read again when names change. */
+  private readonly named = new Set<FormulaCell>();
   private dirty: FormulaCell[] = [];
   /** Goes up whenever rows, columns or sheets move, so cached positions are worked out again. */
   private epoch = 0;
@@ -110,6 +116,10 @@ export class Engine {
       cell: (sheetId, row, col) => {
         const cached = this.grids.get(sheetId)?.[row]?.[col];
         return cached !== undefined ? cached : this.valueAt(this.book.sheet(sheetId), row, col);
+      },
+      named: (name) => {
+        const found = resolveName(this.book, name);
+        return found === null || found instanceof SheetError ? found : { sheetId: found.sheet.id, rect: found.rect };
       },
       now: () => this.now(),
       random: () => this.random(),
@@ -191,6 +201,8 @@ export class Engine {
         everything = true;
       }
     }
+    // Names may have changed: formulas that use them watch the cells they stand for now.
+    if (change.sheets) for (const formula of [...this.named]) this.register(formula.sheet, formula.key, true, true);
     const changed: Array<{ sheet: Sheet; key: string }> = [];
     for (const [sheetId, sheetChange] of change.bySheet) {
       const sheet = this.book.sheet(sheetId);
@@ -231,15 +243,16 @@ export class Engine {
   }
 
   /** Reads the cell's stored content again and updates what is known about its formula. */
-  private register(sheet: Sheet, key: string, tellDependents = true): void {
+  private register(sheet: Sheet, key: string, tellDependents = true, again = false): void {
     const formulas = this.formulas.get(sheet.id) as Map<string, FormulaCell>;
     const raw = sheet.cells.get(key);
     const existing = formulas.get(key);
     if (existing) {
-      if (existing.stored === raw) return;
+      if (existing.stored === raw && !again) return;
       this.unwatch(existing);
       formulas.delete(key);
       this.volatile.delete(existing);
+      this.named.delete(existing);
     }
     if (!isFormula(raw)) return;
     const at = key.indexOf(':');
@@ -252,6 +265,7 @@ export class Engine {
       node: null,
       syntaxError: null,
       refs: [],
+      names: [],
       volatile: false,
       value: null,
       format: undefined,
@@ -262,6 +276,12 @@ export class Engine {
     try {
       formula.node = parseFormula(raw, 'id');
       formula.refs = collectRefs(formula.node).filter(ref => ref.resolved);
+      formula.names = collectNames(formula.node);
+      // A name is watched like the reference it stands for.
+      for (const name of formula.names) {
+        const ref = nameRef(this.book, name);
+        if (ref) formula.refs.push(ref);
+      }
       formula.volatile = callsAny(formula.node, VOLATILE_FUNCTIONS);
     } catch (error) {
       if (!(error instanceof FormulaSyntaxError)) throw error;
@@ -269,6 +289,7 @@ export class Engine {
     }
     formulas.set(key, formula);
     if (formula.volatile) this.volatile.add(formula);
+    if (formula.names.length > 0) this.named.add(formula);
     for (const ref of formula.refs) {
       const targetId = ref.sheet ?? sheet.id;
       if (ref.b === null && ref.a.row !== null && ref.a.col !== null) {
