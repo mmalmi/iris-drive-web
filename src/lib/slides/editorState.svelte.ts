@@ -31,7 +31,8 @@ import { comparePositions } from './order';
 import { cellPlace, cellRect, newTable, rectKeys, stepCell, type CellRect } from './table';
 import { growTable } from './tableEditing';
 import { readTransition, type Transition } from './motion';
-import { imageSize, reuse } from './slideData';
+import { reuse } from './slideData';
+import { pictureSize } from '../pictures';
 import { SEED_ORIGIN, browserId, seedDeck, settleSeeds, untouched } from './seedSlide';
 import type { ClipboardPayload } from './clipboard';
 
@@ -548,7 +549,9 @@ export class SlidesEditorState {
     this.notice = '';
     const slideId = this.currentId;
     try {
-      const [src, size] = await Promise.all([this.#options.addAttachment(file), imageSize(file)]);
+      const [src, measured] = await Promise.all([this.#options.addAttachment(file), pictureSize(file)]);
+      // A guess for a picture that cannot be measured.
+      const size = { width: measured?.width || 400, height: measured?.height || 300 };
       const scale = Math.min(1, most.w / size.width, most.h / size.height);
       const w = Math.max(24, Math.round(size.width * scale));
       const h = Math.max(24, Math.round(size.height * scale));

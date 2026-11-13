@@ -1,9 +1,5 @@
-/**
- * Helpers of the editor that need nothing of it: keeping what did not change
- * from one reading of the deck to the next, and measuring a picture.
- */
+/** Keeping what did not change from one reading of the deck to the next, so only what changed is redrawn. */
 import type { Slide } from './model';
-import { pictureSize } from '../pictures';
 
 function shallowEqual(left: object, right: object): boolean {
   const leftKeys = Object.keys(left);
@@ -33,10 +29,4 @@ export function reuse(previous: Slide | undefined, next: Slide): Slide {
     && previous.background === next.background && previous.notes === next.notes
     && previous.transition === next.transition && previous.build === next.build;
   return same ? previous : { ...next, elements };
-}
-
-/** The size of a picture in pixels; a guess when it cannot be read. */
-export async function imageSize(file: File): Promise<{ width: number; height: number }> {
-  const size = await pictureSize(file);
-  return { width: size?.width || 400, height: size?.height || 300 };
 }
