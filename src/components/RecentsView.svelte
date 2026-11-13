@@ -3,12 +3,12 @@
    * RecentsView - shows recently accessed files and trees
    */
   import { nip19 } from 'nostr-tools';
-  import { recentsStore, clearRecents, type RecentItem } from '../stores/recents';
+  import { recentsStore, clearRecents } from '../stores/recents';
   import { Avatar } from './User';
   import { nostrStore } from '../nostr';
   import { acceptedShares } from '../drive/shareLibrary';
   import { activeNostrIdentityRootScope } from '../drive/profileRoute';
-  import { recentDisplay, timeAgo } from '../lib/recentDisplay';
+  import { recentDisplay, recentHref, timeAgo } from '../lib/recentDisplay';
 
   let recents = $derived($recentsStore);
   let ownProfileId = $derived(activeNostrIdentityRootScope($nostrStore));
@@ -21,30 +21,6 @@
       }
     } catch {}
     return null;
-  }
-
-  function buildHref(item: RecentItem): string {
-    // Encode treeName in path: /npub/treeName -> /npub/encodedTreeName
-    // For files, use the full path which includes the file
-    let encodedPath: string;
-    if (item.type === 'file' && item.path) {
-      // Files use the full path (includes file name)
-      // Extract parts and encode properly: /npub/treeName/path/to/file
-      const pathParts = item.path.split('/').filter(Boolean);
-      if (pathParts.length >= 2) {
-        const npub = pathParts[0];
-        const rest = pathParts.slice(1).map(p => encodeURIComponent(p)).join('/');
-        encodedPath = `/${npub}/${rest}`;
-      } else {
-        encodedPath = item.path;
-      }
-    } else if (item.treeName) {
-      encodedPath = `/${item.npub}/${encodeURIComponent(item.treeName)}`;
-    } else {
-      encodedPath = item.path;
-    }
-    const base = `#${encodedPath}`;
-    return item.linkKey ? `${base}?k=${item.linkKey}` : base;
   }
 </script>
 
@@ -73,7 +49,7 @@
         {@const ownerPubkey = item.npub ? npubToPubkey(item.npub) : null}
         {@const shown = recentDisplay(item, ownProfileId, $acceptedShares)}
         <a
-          href={buildHref(item)}
+          href={recentHref(item)}
           class="p-3 lg:px-5 border-b border-surface-2 flex items-center gap-3 no-underline text-text-1 hover:bg-surface-2/50 {item.type === 'hash' ? 'font-mono' : ''}"
         >
           {#if ownerPubkey}

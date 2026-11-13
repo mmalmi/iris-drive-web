@@ -28,6 +28,19 @@ export function recentDisplay(
   return { name: item.label, icon: `${getFileIcon(item.label)} text-text-2` };
 }
 
+/** Where a recent item opens. */
+export function recentHref(item: Pick<RecentItem, 'type' | 'path' | 'npub' | 'treeName' | 'linkKey'>): string {
+  let encodedPath = item.path;
+  if (item.type === 'file' && item.path) {
+    // /owner/tree/path/to/file, each part encoded once.
+    const [owner, ...rest] = item.path.split('/').filter(Boolean);
+    if (owner && rest.length > 0) encodedPath = `/${owner}/${rest.map(encodeURIComponent).join('/')}`;
+  } else if (item.treeName) {
+    encodedPath = `/${item.npub}/${encodeURIComponent(item.treeName)}`;
+  }
+  return item.linkKey ? `#${encodedPath}?k=${item.linkKey}` : `#${encodedPath}`;
+}
+
 /** "Just now", "5m ago", "3h ago", "2d ago", then the date. */
 export function timeAgo(timestamp: number, now = Date.now()): string {
   const minutes = Math.floor((now - timestamp) / 60_000);

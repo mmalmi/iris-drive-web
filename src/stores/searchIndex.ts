@@ -112,11 +112,6 @@ if (initialRoot) {
 // Persist on changes
 indexRoot.subscribe(saveIndexRoot);
 
-// Re-export parseKeywords from SearchIndex for components that need it
-export function parseKeywords(text: string): string[] {
-  return searchIndex.parseKeywords(text);
-}
-
 // ============ User Index ============
 
 const pendingUserOps: UserIndexEntryInput[] = [];
