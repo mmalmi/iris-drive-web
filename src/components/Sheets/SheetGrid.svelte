@@ -5,25 +5,35 @@
    * over the cell being edited.
    */
   import { onMount, tick } from 'svelte';
-  import { rectContains, rectOf, type CellPos, type Rect } from '../../lib/sheets/address';
-  import { appendRows, autoFitColumn, copiedHtml, copySelection, fillDownToNeighbours, fillInto, pasteText } from '../../lib/sheets/commands';
-  import type { SheetController } from '../../lib/sheets/controller.svelte';
-  import { buildLayout, readTheme, type SizeOverride } from '../../lib/sheets/gridView';
+  import { rectContains, type CellPos } from '../../lib/sheets/address';
   import {
-    FILL_HANDLE,
+    appendRows,
+    autoFitColumn,
+    copiedHtml,
+    copySelection,
+    fillDownToNeighbours,
+    fillInto,
+    moveSelectedTo,
+    pasteText,
+  } from '../../lib/sheets/commands';
+  import type { SheetController } from '../../lib/sheets/controller.svelte';
+  import { buildLayout, placeEditor, readTheme, type SizeOverride } from '../../lib/sheets/gridView';
+  import {
     HEADER_HEIGHT,
     columnX,
+    dropPosition,
     frozenHeight,
     frozenWidth,
     hitTest,
-    rectOnScreen,
+    overFillHandle,
     rowY,
     scrollToShow,
+    stretchTo,
     type Hit,
     type Viewport,
   } from '../../lib/sheets/layout';
   import { MIN_COL_WIDTH, MIN_ROW_HEIGHT } from '../../lib/sheets/model';
-  import { CELL_PAD_X, LINE_HEIGHT, drawGrid, fontOf, textWidth, type GridTheme } from '../../lib/sheets/render';
+  import { LINE_HEIGHT, drawGrid, fontOf, type GridTheme } from '../../lib/sheets/render';
   import FormulaHelp from './FormulaHelp.svelte';
   import PopupMenu, { type MenuItem } from './PopupMenu.svelte';
   import { handleEditingKey, handleGridKey } from './gridKeys';
@@ -52,6 +62,7 @@
   let resizing = $state.raw<SizeOverride | null>(null);
   let cursor = $state('default');
   let menu = $state.raw<{ x: number; y: number; items: MenuItem[] } | null>(null);
+  let dropLine = $state.raw<{ axis: 'row' | 'col'; position: number } | null>(null);
   let shiftHeld = false;
 
   let layout = $derived.by(() => {
@@ -100,12 +111,13 @@
       showHandle: ctl.canEdit && !edit,
       focused: focused || edit !== null,
       showSelection: !edit || edit.sheetId === ctl.sheetId,
+      dropLine,
     }, theme, pixelRatio);
   }
 
   $effect(() => {
     // Everything the picture depends on; any change asks for one redraw.
-    void [view, theme, pixelRatio, focused, ctl.revision, ctl.anchor, ctl.focus, ctl.active, ctl.edit, ctl.copied, ctl.fillTarget, ctl.canEdit];
+    void [view, theme, pixelRatio, focused, dropLine, ctl.revision, ctl.anchor, ctl.focus, ctl.active, ctl.edit, ctl.copied, ctl.fillTarget, ctl.canEdit];
     if (!frame) frame = requestAnimationFrame(draw);
   });
 
@@ -180,42 +192,10 @@
   let editorBox = $derived.by(() => {
     const edit = ctl.edit;
     if (!view) return null;
-    const shown = edit !== null && edit.sheetId === ctl.sheetId;
-    const cell = shown ? { row: edit.row, col: edit.col } : ctl.active;
-    if (cell.row >= view.rows.count || cell.col >= view.cols.count) return null;
-    const box = rectOnScreen(view, rectOf(cell));
-    if (!shown) {
-      // Out of sight but near its cell, where an input method shows its suggestions.
-      return {
-        x: Math.max(0, Math.min(box.x, view.width - 4)),
-        y: Math.max(0, Math.min(box.y, view.height - 4)),
-        width: 1,
-        height: 1,
-        visible: false,
-        style: ctl.activeStyle,
-        lines: 1,
-      };
+    if (edit && edit.sheetId === ctl.sheetId) {
+      return placeEditor(view, { row: edit.row, col: edit.col }, ctl.sheet.styleAt(edit.row, edit.col), edit.text);
     }
-    const style = ctl.sheet.styleAt(cell.row, cell.col);
-    const font = fontOf(style);
-    const lines = edit.text.split('\n');
-    const widest = Math.max(...lines.map(line => textWidth(line, font)));
-    const left = Math.max(view.headerWidth, Math.min(box.x, view.width - 60));
-    const top = Math.max(HEADER_HEIGHT, Math.min(box.y, view.height - 30));
-    const room = Math.max(60, view.width - left - 4);
-    const wanted = Math.max(box.width + 1, widest + CELL_PAD_X * 2 + 12);
-    const boxWidth = Math.min(wanted, room);
-    // Text wider than the room left wraps, and the box grows downwards.
-    const wrapped = wanted > room ? lines.reduce((count, line) => count + Math.max(1, Math.ceil((textWidth(line, font) + 4) / (room - CELL_PAD_X * 2))), 0) : lines.length;
-    return {
-      x: left - 1,
-      y: top - 1,
-      width: boxWidth,
-      height: Math.min(Math.max(box.height + 1, wrapped * LINE_HEIGHT + 7), Math.max(40, view.height - top)),
-      visible: true,
-      style,
-      lines: wrapped,
-    };
+    return placeEditor(view, ctl.active, ctl.activeStyle, null);
   });
 
   // The textarea shows what the controller holds, also when a click on a cell or the bar changed it.
@@ -298,6 +278,7 @@
     | { kind: 'select'; scope: 'cells' | 'rows' | 'cols' }
     | { kind: 'point'; anchor: CellPos }
     | { kind: 'fill' }
+    | { kind: 'move'; axis: 'row' | 'col'; origin: number; moved: boolean; hit: Hit }
     | { kind: 'resize'; axis: 'row' | 'col'; index: number; origin: number; startSize: number; moved: boolean };
   let drag: Drag | null = null;
   let lastPointer = { x: 0, y: 0 };
@@ -312,26 +293,16 @@
   }
 
   function onFillHandle(x: number, y: number): boolean {
-    if (!view || !ctl.canEdit || ctl.edit) return false;
-    const rect = ctl.selection;
-    const corner = rectOnScreen(view, { r1: rect.r2, c1: rect.c2, r2: rect.r2, c2: rect.c2 });
-    const cx = corner.x + corner.width - 1;
-    const cy = corner.y + corner.height - 1;
-    // Hidden behind a frozen pane, the handle is not there to grab.
-    if (rect.c2 >= view.freezeCols && cx < view.headerWidth + frozenWidth(view)) return false;
-    if (rect.r2 >= view.freezeRows && cy < HEADER_HEIGHT + frozenHeight(view)) return false;
-    return Math.abs(x - cx) <= FILL_HANDLE && Math.abs(y - cy) <= FILL_HANDLE;
+    return !!view && ctl.canEdit && !ctl.edit && overFillHandle(view, ctl.selection, x, y);
   }
 
-  function fillTargetFor(hit: Hit): Rect | null {
+  /** Whether a header that was pressed belongs to whole rows or columns already selected, which a drag then moves. */
+  function movable(hit: Hit): 'row' | 'col' | null {
     const rect = ctl.selection;
-    if (rectContains(rect, hit.row, hit.col)) return null;
-    const down = hit.row > rect.r2 ? hit.row - rect.r2 : 0;
-    const up = hit.row < rect.r1 ? rect.r1 - hit.row : 0;
-    const right = hit.col > rect.c2 ? hit.col - rect.c2 : 0;
-    const left = hit.col < rect.c1 ? rect.c1 - hit.col : 0;
-    if (Math.max(down, up) >= Math.max(right, left)) return { ...rect, r1: rect.r1 - up, r2: rect.r2 + down };
-    return { ...rect, c1: rect.c1 - left, c2: rect.c2 + right };
+    if (!ctl.canEdit) return null;
+    if (hit.area === 'colHeader' && ctl.scope === 'cols' && hit.col >= rect.c1 && hit.col <= rect.c2) return 'col';
+    if (hit.area === 'rowHeader' && ctl.scope === 'rows' && hit.row >= rect.r1 && hit.row <= rect.r2) return 'row';
+    return null;
   }
 
   function takeFocus(): void {
@@ -390,6 +361,9 @@
       };
     } else if (hit.area === 'cell' && onFillHandle(x, y)) {
       drag = { kind: 'fill' };
+    } else if (movable(hit) && !event.shiftKey) {
+      const axis = movable(hit) as 'row' | 'col';
+      drag = { kind: 'move', axis, origin: axis === 'col' ? x : y, moved: false, hit };
     } else {
       drag = selectAt(hit, event.shiftKey);
     }
@@ -407,7 +381,14 @@
     } else if (drag.kind === 'point') {
       ctl.pointDrag(drag.anchor, { row: hit.row, col: hit.col });
     } else if (drag.kind === 'fill') {
-      ctl.fillTarget = fillTargetFor(hit);
+      ctl.fillTarget = stretchTo(ctl.selection, hit.row, hit.col);
+    } else if (drag.kind === 'move') {
+      if (Math.abs((drag.axis === 'col' ? x : y) - drag.origin) > 4) drag.moved = true;
+      const rect = ctl.selection;
+      const [from, to] = drag.axis === 'col' ? [rect.c1, rect.c2] : [rect.r1, rect.r2];
+      const position = drag.moved ? dropPosition(view, drag.axis, from, to, x, y) : null;
+      dropLine = position === null ? null : { axis: drag.axis, position };
+      cursor = 'grabbing';
     } else if (drag.scope === 'cols') {
       ctl.selectCols(ctl.anchor.col, hit.col);
     } else if (drag.scope === 'rows') {
@@ -428,6 +409,8 @@
       stopAutoScroll();
       return;
     }
+    const alongRows = (drag.kind === 'select' && drag.scope === 'rows') || (drag.kind === 'move' && drag.axis === 'row');
+    const alongCols = (drag.kind === 'select' && drag.scope === 'cols') || (drag.kind === 'move' && drag.axis === 'col');
     const { x, y } = lastPointer;
     const dx = x > view.width - 12 ? 28 : x < view.headerWidth + frozenWidth(view) + 12 && scrollX > 0 ? -28 : 0;
     const dy = y > view.height - 12 ? 24 : y < HEADER_HEIGHT + frozenHeight(view) + 12 && scrollY > 0 ? -24 : 0;
@@ -435,7 +418,7 @@
       stopAutoScroll();
       return;
     }
-    scroller.scrollBy(drag.kind === 'select' && drag.scope === 'rows' ? 0 : dx, drag.kind === 'select' && drag.scope === 'cols' ? 0 : dy);
+    scroller.scrollBy(alongRows ? 0 : dx, alongCols ? 0 : dy);
     scrollX = scroller.scrollLeft;
     scrollY = scroller.scrollTop;
     dragTo(x, y);
@@ -456,6 +439,7 @@
     else if (ctl.canEdit && hit.rowEdge !== null) cursor = 'row-resize';
     else if (hit.area === 'cell' && onFillHandle(x, y)) cursor = 'crosshair';
     else if (hit.area === 'cell') cursor = ctl.pointing ? 'cell' : 'default';
+    else if (movable(hit)) cursor = 'grab';
     else cursor = hit.area === 'colHeader' ? 's-resize' : hit.area === 'rowHeader' ? 'e-resize' : 'default';
   }
 
@@ -481,6 +465,13 @@
       const target = ctl.fillTarget;
       ctl.fillTarget = null;
       if (target) fillInto(ctl, target);
+    } else if (finished.kind === 'move') {
+      const drop = dropLine;
+      dropLine = null;
+      cursor = 'default';
+      // A press without a drag is a plain click on that header.
+      if (!finished.moved) selectAt(finished.hit, false);
+      else if (drop) moveSelectedTo(ctl, drop.axis, drop.position);
     }
   }
 

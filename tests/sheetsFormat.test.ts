@@ -13,7 +13,7 @@ import {
   roundTo,
 } from '../src/lib/sheets/format';
 import { callAt, completionAt } from '../src/lib/sheets/formula/docs';
-import { AxisLayout, hitTest, panesOf, scrollToShow, type Viewport } from '../src/lib/sheets/layout';
+import { AxisLayout, dropPosition, hitTest, panesOf, scrollToShow, stretchTo, type Viewport } from '../src/lib/sheets/layout';
 import { parseClipboardTable, parseCsv, writeClipboardTable, writeCsv } from '../src/lib/sheets/table';
 import { SheetError } from '../src/lib/sheets/values';
 
@@ -302,6 +302,26 @@ describe('positions on screen', () => {
     expect(panes).toHaveLength(4);
     expect(panes[0]).toMatchObject({ rowFrom: 0, rowTo: 0, colFrom: 0, colTo: 0, x: 46, y: 24 });
     expect(panes[3]).toMatchObject({ rowFrom: 101, colFrom: 4, x: 146, y: 48 });
+  });
+
+  it('stretches a selection for filling along one direction', () => {
+    const selection = { r1: 2, c1: 1, r2: 3, c2: 2 };
+    expect(stretchTo(selection, 3, 1)).toBeNull();
+    expect(stretchTo(selection, 8, 2)).toEqual({ r1: 2, c1: 1, r2: 8, c2: 2 });
+    expect(stretchTo(selection, 0, 5)).toEqual({ r1: 2, c1: 1, r2: 3, c2: 5 });
+    expect(stretchTo(selection, 0, 0)).toEqual({ r1: 0, c1: 1, r2: 3, c2: 2 });
+    expect(stretchTo(selection, 2, 0)).toEqual({ r1: 2, c1: 0, r2: 3, c2: 2 });
+  });
+
+  it('finds where dragged columns and rows would be dropped', () => {
+    // Columns B and C (1 and 2) are being dragged; columns are 100 wide after a 46 wide header.
+    expect(dropPosition(view(), 'col', 1, 2, 60, 10)).toBe(0);
+    expect(dropPosition(view(), 'col', 1, 2, 130, 10)).toBeNull();
+    expect(dropPosition(view(), 'col', 1, 2, 300, 10)).toBeNull();
+    expect(dropPosition(view(), 'col', 1, 2, 420, 10)).toBe(4);
+    expect(dropPosition(view(), 'col', 1, 2, 500, 10)).toBe(5);
+    expect(dropPosition(view(), 'row', 0, 0, 10, 100)).toBe(3);
+    expect(dropPosition(view({ scrollY: 240 }), 'row', 0, 0, 10, 100)).toBe(13);
   });
 
   it('scrolls just enough to show a cell', () => {

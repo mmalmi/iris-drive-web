@@ -2,7 +2,7 @@
 import { columnName, type CellPos, type Rect } from './address';
 import type { Engine } from './engine';
 import { formatGeneral } from './format';
-import { FILL_HANDLE, HEADER_HEIGHT, frozenHeight, frozenWidth, panesOf, type Pane, type Viewport } from './layout';
+import { FILL_HANDLE, HEADER_HEIGHT, columnX, frozenHeight, frozenWidth, panesOf, rowY, type Pane, type Viewport } from './layout';
 import type { CellStyle, Sheet } from './model';
 import { isError, type Scalar } from './values';
 
@@ -47,6 +47,8 @@ export interface GridScene extends Viewport {
   focused: boolean;
   /** False while a formula on another sheet is being typed and this sheet is only pointed at. */
   showSelection: boolean;
+  /** Where rows or columns being dragged by their header would be dropped. */
+  dropLine: { axis: 'row' | 'col'; position: number } | null;
 }
 
 export function fontOf(style: CellStyle): string {
@@ -469,4 +471,15 @@ export function drawGrid(ctx: CanvasRenderingContext2D, scene: GridScene, theme:
   for (const pane of panes) drawPaneCells(ctx, scene, theme, pane);
   for (const pane of panes) drawPaneOverlays(ctx, scene, theme, pane);
   drawHeaders(ctx, scene, theme, panes);
+  if (scene.dropLine) {
+    const { axis, position } = scene.dropLine;
+    ctx.fillStyle = theme.accent;
+    if (axis === 'col') {
+      const x = position >= scene.cols.count ? columnX(scene, position - 1) + scene.cols.size(position - 1) : columnX(scene, position);
+      if (x >= scene.headerWidth - 1) ctx.fillRect(x - 2, 0, 3, scene.height);
+    } else {
+      const y = position >= scene.rows.count ? rowY(scene, position - 1) + scene.rows.size(position - 1) : rowY(scene, position);
+      if (y >= HEADER_HEIGHT - 1) ctx.fillRect(0, y - 2, scene.width, 3);
+    }
+  }
 }

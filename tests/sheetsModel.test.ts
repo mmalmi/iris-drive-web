@@ -204,6 +204,54 @@ describe('recalculation', () => {
     expect(get('T1000')).toBe(1023);
   });
 
+  it('handles running totals, a long chain that also reads long ranges', () => {
+    const { book, first, get } = open();
+    const sheet = first();
+    const row = (index: number) => sheet.rows.ids[index];
+    book.transact(() => {
+      for (let index = 0; index < 1000; index += 1) {
+        sheet.setRaw(index, 0, index + 1);
+        // B: a balance carried from the row above. C: everything so far added up again.
+        sheet.setRaw(index, 1, index === 0 ? `=[0,${row(0)}]` : `=[1,${row(index - 1)}]+[0,${row(index)}]`);
+        sheet.setRaw(index, 2, `=SUM([0,${row(0)}]:[0,${row(index)}])-[1,${row(index)}]`);
+      }
+    });
+    expect(get('B1000')).toBe(500500);
+    expect(get('C1000')).toBe(0);
+    const started = performance.now();
+    sheet.setRaw(0, 0, 11);
+    expect(get('B1000')).toBe(500510);
+    expect(get('C500')).toBe(0);
+    expect(performance.now() - started).toBeLessThan(500);
+  });
+
+  it('a formula that reads itself only through a branch it does not take is not a circle', () => {
+    const { put, get } = open();
+    put('A1', '5');
+    put('B1', '=IF(A1>0,A1*2,B1)');
+    expect(get('B1')).toBe(10);
+    put('A1', '-1');
+    expect(get('B1')).toBe('#CYCLE!');
+    put('A1', '3');
+    expect(get('B1')).toBe(6);
+  });
+
+  it('finds a circle at the end of a long chain too', () => {
+    const { book, first, get, put } = open();
+    const sheet = first();
+    book.transact(() => {
+      for (let index = 1; index < 400; index += 1) sheet.setRaw(index, 0, `=[0,${sheet.rows.ids[index - 1]}]+1`);
+    });
+    put('A1', '=IF(B1>0,1,A400)');
+    put('B1', '1');
+    expect(get('A400')).toBe(400);
+    put('B1', '0');
+    expect(get('A1')).toBe('#CYCLE!');
+    expect(get('A400')).toBe('#CYCLE!');
+    put('B1', '2');
+    expect(get('A400')).toBe(400);
+  });
+
   it('stays quick with a few thousand formulas', () => {
     const { book, first, get } = open();
     const sheet = first();

@@ -128,6 +128,21 @@ test.describe('working in a spreadsheet', () => {
     await page.getByTestId('sheet-rows-columns').click();
     await page.getByTestId('menu-delete-col').click();
     await expectCell(page, 'D1', 'Budget');
+    // A selected column can also be dragged to its new place by its header.
+    await clickHeader(page, 'A');
+    const from = await cellBox(page, 'A1');
+    const to = await cellBox(page, 'C1');
+    await page.mouse.move(from.x + from.width / 2, from.top + 12);
+    await page.mouse.down();
+    await page.mouse.move(to.x + 20, from.top + 12, { steps: 5 });
+    await page.mouse.move(to.x + to.width - 10, from.top + 12, { steps: 5 });
+    await page.screenshot({ path: testInfo.outputPath('dragging-column.png') });
+    await page.mouse.up();
+    await expectCell(page, 'A1', 'Due');
+    await expectCell(page, 'C1', 'Project');
+    await expect(activeCell(page)).toHaveAttribute('data-cell', 'C:C');
+    await page.keyboard.press('ControlOrMeta+z');
+    await expectCell(page, 'A1', 'Project');
 
     // The first row stays in view when frozen.
     await page.getByTestId('sheet-more').click();

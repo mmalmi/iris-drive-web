@@ -246,9 +246,23 @@ export function fillDownToNeighbours(ctl: SheetController): void {
 
 // --- Looks ---
 
+/**
+ * How to store a look for the selection. Cells dragged over from the first
+ * row to the last are whole columns in all but name, and are stored as such
+ * rather than a thousand cells at a time.
+ */
+function styleScope(ctl: SheetController): 'cells' | 'rows' | 'cols' | 'all' {
+  if (ctl.scope !== 'cells') return ctl.scope;
+  const rect = ctl.selection;
+  const sheet = ctl.sheet;
+  const allRows = rect.r1 === 0 && rect.r2 === sheet.rows.length - 1 && sheet.rows.length > 1;
+  const allCols = rect.c1 === 0 && rect.c2 === sheet.cols.length - 1 && sheet.cols.length > 1;
+  return allRows && allCols ? 'all' : allRows ? 'cols' : allCols ? 'rows' : 'cells';
+}
+
 export function applyStyle(ctl: SheetController, patch: StylePatch): void {
   if (!ctl.canEdit) return;
-  ctl.sheet.patchStyle(ctl.selection, patch, ctl.scope);
+  ctl.sheet.patchStyle(ctl.selection, patch, styleScope(ctl));
 }
 
 export function toggleStyle(ctl: SheetController, prop: 'b' | 'i' | 's' | 'u' | 'w'): void {
@@ -257,7 +271,7 @@ export function toggleStyle(ctl: SheetController, prop: 'b' | 'i' | 's' | 'u' | 
 
 export function clearFormatting(ctl: SheetController): void {
   if (!ctl.canEdit) return;
-  ctl.sheet.clearStyle(ctl.selection, ctl.scope);
+  ctl.sheet.clearStyle(ctl.selection, styleScope(ctl));
 }
 
 export function adjustDecimals(ctl: SheetController, delta: number): void {
@@ -330,6 +344,17 @@ export function moveSelected(ctl: SheetController, axis: 'row' | 'col', towardsE
   if (axis === 'row') ctl.selectRows(at, at + count - 1);
   else ctl.selectCols(at, at + count - 1);
   ctl.reveal(axis === 'row' ? at : ctl.active.row, axis === 'col' ? at : ctl.active.col);
+}
+
+/** Moves the selected rows or columns so they sit before the one now at `position`. */
+export function moveSelectedTo(ctl: SheetController, axis: 'row' | 'col', position: number): void {
+  if (!ctl.canEdit) return;
+  const { from, count } = span(ctl, axis);
+  if (position >= from && position <= from + count) return;
+  moveKeepingRanges(ctl.book, ctl.sheet, axis, from, count, position);
+  const at = position > from ? position - count : position;
+  if (axis === 'row') ctl.selectRows(at, at + count - 1);
+  else ctl.selectCols(at, at + count - 1);
 }
 
 /** Adds empty rows at the bottom of the sheet. */

@@ -286,8 +286,9 @@
 
   .drop {
     flex: none;
-    width: 2px;
-    margin: 6px -1px;
+    width: 3px;
+    margin: 5px 0;
+    border-radius: 2px;
     background: #916dfe;
   }
 

@@ -2,9 +2,14 @@
  * Keeps every formula's value up to date.
  *
  * Each formula knows the cells and ranges it reads. When cells change, only
- * the formulas that read them, and the ones reading those, are calculated
- * again, each after the formulas it depends on. A formula that depends on
+ * the formulas that read them, and the ones reading those, are marked as
+ * waiting and calculated again. A waiting formula that another one reads is
+ * calculated first, there and then; when such a chain gets too deep for
+ * that, it is walked without recursion instead. A formula that depends on
  * itself gets #CYCLE! instead of running for ever.
+ *
+ * Values that formulas and the screen read are kept by position, so adding
+ * up a long column does not look every cell up by name each time.
  */
 import { rectContains, type Rect } from './address';
 import {
@@ -26,6 +31,15 @@ import { SheetError, err, isError, type Scalar } from './values';
 const CLEAN = 0;
 const DIRTY = 1;
 const VISITING = 2;
+/** How many formulas may wait on each other before the walk without recursion takes over. */
+const MAX_NESTING = 120;
+
+/** Thrown to unwind a chain of formulas that is too deep to calculate by recursion. */
+class TooDeep extends Error {}
+
+function cycleError(): SheetError {
+  return err('#CYCLE!', 'This formula depends on its own result');
+}
 
 interface FormulaCell {
   sheet: Sheet;
@@ -72,6 +86,12 @@ export class Engine {
   private dirty: FormulaCell[] = [];
   /** Goes up whenever rows, columns or sheets move, so cached positions are worked out again. */
   private epoch = 0;
+  /** Values by sheet, row and column position; a missing entry has not been read yet. */
+  private readonly grids = new Map<string, Array<Array<Scalar | undefined> | undefined>>();
+  /** The formulas being calculated right now, each one read by the next. */
+  private nesting: FormulaCell[] = [];
+  /** True while a deep chain is walked without recursion. */
+  private walking = false;
   private readonly host: EvalHost;
   private readonly unsubscribe: () => void;
   /** How many formulas have been calculated so far. */
@@ -87,7 +107,10 @@ export class Engine {
         const found = resolveRef(ref, this.book, this.book.sheet(homeSheetId));
         return found instanceof SheetError ? found : { sheetId: found.sheet.id, rect: found.rect };
       },
-      cell: (sheetId, row, col) => this.valueAt(this.book.sheet(sheetId), row, col),
+      cell: (sheetId, row, col) => {
+        const cached = this.grids.get(sheetId)?.[row]?.[col];
+        return cached !== undefined ? cached : this.valueAt(this.book.sheet(sheetId), row, col);
+      },
       now: () => this.now(),
       random: () => this.random(),
     };
@@ -103,15 +126,37 @@ export class Engine {
   // --- Reading ---
 
   valueAt(sheet: Sheet, row: number, col: number): Scalar {
+    let grid = this.grids.get(sheet.id);
+    if (!grid) this.grids.set(sheet.id, grid = []);
+    const cached = grid[row]?.[col];
+    if (cached !== undefined) return cached;
     const rowId = sheet.rows.ids[row];
     const colId = sheet.cols.ids[col];
     if (rowId === undefined || colId === undefined) return null;
     const key = cellKey(rowId, colId);
     const formula = this.formulas.get(sheet.id)?.get(key);
-    if (!formula) return decodeRaw(sheet.cells.get(key));
-    if (formula.state === VISITING) return err('#CYCLE!', 'This formula depends on its own result');
-    if (formula.state === DIRTY) this.settle(formula);
-    return formula.value;
+    let value: Scalar;
+    if (!formula) {
+      value = decodeRaw(sheet.cells.get(key));
+    } else {
+      if (formula.state === VISITING) {
+        // Being calculated further up: everything from there to here goes round in a circle.
+        for (let index = this.nesting.lastIndexOf(formula); index >= 0 && index < this.nesting.length; index += 1) {
+          this.nesting[index].inCycle = true;
+        }
+        return cycleError();
+      }
+      if (formula.state === DIRTY) this.ensure(formula);
+      value = formula.value;
+    }
+    (grid[row] ??= [])[col] = value;
+    return value;
+  }
+
+  /** Forgets the value kept for one cell. */
+  private forget(sheet: Sheet, rowId: string, colId: string): void {
+    const cells = this.grids.get(sheet.id)?.[sheet.rows.indexOf(rowId)];
+    if (cells) cells[sheet.cols.indexOf(colId)] = undefined;
   }
 
   /** The number format in effect: the cell's own, or the one its formula implies. */
@@ -147,6 +192,8 @@ export class Engine {
       if (!this.formulas.has(sheetId)) this.loadSheet(sheet);
       if (sheetChange.axes) everything = true;
       for (const key of sheetChange.cells) {
+        const at = key.indexOf(':');
+        this.forget(sheet, key.slice(0, at), key.slice(at + 1));
         this.register(sheet, key);
         changed.push({ sheet, key });
       }
@@ -260,6 +307,7 @@ export class Engine {
   }
 
   private markAllDirty(): void {
+    this.grids.clear();
     for (const formulas of this.formulas.values()) {
       for (const formula of formulas.values()) {
         if (formula.state === CLEAN) {
@@ -277,6 +325,7 @@ export class Engine {
       if (formula.state !== CLEAN) continue;
       formula.state = DIRTY;
       this.dirty.push(formula);
+      this.forget(formula.sheet, formula.rowId, formula.colId);
       this.collectDependents(formula.sheet, formula.key, formula.rowId, formula.colId, stack);
     }
   }
@@ -332,9 +381,43 @@ export class Engine {
     return found;
   }
 
-  /** Calculates a formula after everything it reads, without deep recursion. */
+  /**
+   * Calculates a waiting formula. Waiting formulas it reads are calculated on
+   * the way, by coming back here.
+   */
+  private ensure(formula: FormulaCell): void {
+    if (formula.state !== DIRTY) return;
+    if (!this.walking && this.nesting.length >= MAX_NESTING) throw new TooDeep();
+    const outermost = this.nesting.length === 0;
+    formula.state = VISITING;
+    formula.inCycle = false;
+    this.nesting.push(formula);
+    try {
+      this.compute(formula);
+      this.nesting.pop();
+    } catch (error) {
+      if (!(error instanceof TooDeep) || !outermost) throw error;
+      // Start over for this formula, one step at a time.
+      for (const waiting of this.nesting) waiting.state = DIRTY;
+      this.nesting = [];
+      this.walking = true;
+      try {
+        this.settle(formula);
+      } finally {
+        this.walking = false;
+        this.nesting = [];
+      }
+    }
+  }
+
+  /**
+   * Calculates a formula after everything it could read, without deep
+   * recursion. Whether formulas really go round in a circle is found out as
+   * in `ensure`: by one of them reading a formula that is still on the way.
+   */
   private settle(start: FormulaCell): void {
-    const stack: FormulaCell[] = [start];
+    const stack = this.nesting;
+    stack.push(start);
     while (stack.length > 0) {
       const formula = stack[stack.length - 1];
       if (formula.state === CLEAN) {
@@ -352,9 +435,6 @@ export class Engine {
         stack.pop();
       } else if (next.state === DIRTY) {
         stack.push(next);
-      } else if (next.state === VISITING) {
-        // The walk came back to a formula it is in the middle of: a loop.
-        for (let index = stack.lastIndexOf(next); index >= 0 && index < stack.length; index += 1) stack[index].inCycle = true;
       }
     }
   }
@@ -363,15 +443,26 @@ export class Engine {
     formula.pending = null;
     const row = formula.sheet.rows.indexOf(formula.rowId);
     const col = formula.sheet.cols.indexOf(formula.colId);
+    let value: Scalar;
     if (formula.inCycle) {
-      formula.value = err('#CYCLE!', 'This formula depends on its own result');
+      value = cycleError();
     } else if (formula.syntaxError || !formula.node) {
-      formula.value = formula.syntaxError ?? err('#ERROR!');
+      value = formula.syntaxError ?? err('#ERROR!');
     } else if (row < 0 || col < 0) {
-      formula.value = null;
+      value = null;
     } else {
-      formula.value = evaluateFormula(formula.node, this.host, { sheetId: formula.sheet.id, row, col });
+      try {
+        value = evaluateFormula(formula.node, this.host, { sheetId: formula.sheet.id, row, col });
+      } catch (error) {
+        if (error instanceof TooDeep) throw error;
+        // A fault in a function must not take the rest of the spreadsheet down with it.
+        console.error('[Sheet] Could not calculate a formula:', error);
+        value = err('#ERROR!', 'This formula could not be calculated');
+      }
+      // Reading its own cells again on the way marks the formula as part of a circle.
+      if (formula.inCycle) value = cycleError();
     }
+    formula.value = value;
     formula.format = typeof formula.value === 'number' && formula.node ? this.impliedFormat(formula.node, formula.sheet) : undefined;
     formula.state = CLEAN;
     this.computed += 1;
@@ -383,7 +474,7 @@ export class Engine {
     const waiting = this.dirty;
     this.dirty = [];
     for (const formula of waiting) {
-      if (formula.state === DIRTY) this.settle(formula);
+      if (formula.state === DIRTY) this.ensure(formula);
     }
   }
 

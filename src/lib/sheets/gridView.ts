@@ -1,8 +1,9 @@
 /** What the grid component needs worked out before it can draw: sizes and colours. */
 import type { Engine } from './engine';
-import { AxisLayout, headerWidthFor } from './layout';
-import { DEFAULT_ROW_HEIGHT, type Sheet } from './model';
-import { heightForText, type GridTheme } from './render';
+import type { CellPos } from './address';
+import { AxisLayout, HEADER_HEIGHT, headerWidthFor, rectOnScreen, type Viewport } from './layout';
+import { DEFAULT_ROW_HEIGHT, type CellStyle, type Sheet } from './model';
+import { CELL_PAD_X, LINE_HEIGHT, fontOf, heightForText, textWidth, type GridTheme } from './render';
 
 export interface GridLayout {
   rows: AxisLayout;
@@ -69,5 +70,53 @@ export function readTheme(element: Element): GridTheme {
     accentSoft: 'rgb(145 109 254 / 0.13)',
     frozenLine: token('--surface-3'),
     error: dark ? '#ff7b72' : '#c5221f',
+  };
+}
+
+export interface EditorBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  visible: boolean;
+  style: CellStyle;
+}
+
+/**
+ * Where the box for typing sits. With `text` it is shown over its cell and
+ * grows with what is typed; without, it waits unseen at the cell, which is
+ * where an input method shows its suggestions.
+ */
+export function placeEditor(view: Viewport, cell: CellPos, style: CellStyle, text: string | null): EditorBox | null {
+  if (cell.row >= view.rows.count || cell.col >= view.cols.count) return null;
+  const box = rectOnScreen(view, { r1: cell.row, c1: cell.col, r2: cell.row, c2: cell.col });
+  if (text === null) {
+    return {
+      x: Math.max(0, Math.min(box.x, view.width - 4)),
+      y: Math.max(0, Math.min(box.y, view.height - 4)),
+      width: 1,
+      height: 1,
+      visible: false,
+      style,
+    };
+  }
+  const font = fontOf(style);
+  const lines = text.split('\n');
+  const widest = Math.max(...lines.map(line => textWidth(line, font)));
+  const left = Math.max(view.headerWidth, Math.min(box.x, view.width - 60));
+  const top = Math.max(HEADER_HEIGHT, Math.min(box.y, view.height - 30));
+  const room = Math.max(60, view.width - left - 4);
+  const wanted = Math.max(box.width + 1, widest + CELL_PAD_X * 2 + 12);
+  // Text wider than the room left wraps, and the box grows downwards.
+  const wrapped = wanted > room
+    ? lines.reduce((count, line) => count + Math.max(1, Math.ceil((textWidth(line, font) + 4) / (room - CELL_PAD_X * 2))), 0)
+    : lines.length;
+  return {
+    x: left - 1,
+    y: top - 1,
+    width: Math.min(wanted, room),
+    height: Math.min(Math.max(box.height + 1, wrapped * LINE_HEIGHT + 7), Math.max(40, view.height - top)),
+    visible: true,
+    style,
   };
 }

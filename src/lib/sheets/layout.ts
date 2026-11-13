@@ -1,5 +1,5 @@
 /** Where rows, columns and cells are on screen. All sizes are CSS pixels. */
-import type { Rect } from './address';
+import { rectContains, type Rect } from './address';
 
 export const HEADER_HEIGHT = 24;
 /** Pixels on either side of a header border that grab it for resizing. */
@@ -220,4 +220,40 @@ export function scrollToShow(view: Viewport, row: number, col: number): { scroll
     else if (end > scrollY + room) scrollY = Math.min(start, end - room);
   }
   return { scrollX: Math.max(0, scrollX), scrollY: Math.max(0, scrollY) };
+}
+
+/** Whether a point is on the small square at the corner of the selection. */
+export function overFillHandle(view: Viewport, selection: Rect, x: number, y: number): boolean {
+  const corner = rectOnScreen(view, { r1: selection.r2, c1: selection.c2, r2: selection.r2, c2: selection.c2 });
+  const cx = corner.x + corner.width - 1;
+  const cy = corner.y + corner.height - 1;
+  // Hidden behind a frozen pane, the handle is not there to grab.
+  if (selection.c2 >= view.freezeCols && cx < view.headerWidth + frozenWidth(view)) return false;
+  if (selection.r2 >= view.freezeRows && cy < HEADER_HEIGHT + frozenHeight(view)) return false;
+  return Math.abs(x - cx) <= FILL_HANDLE && Math.abs(y - cy) <= FILL_HANDLE;
+}
+
+/** The selection stretched to a cell outside it, up, down, left or right; null for a cell inside. */
+export function stretchTo(selection: Rect, row: number, col: number): Rect | null {
+  if (rectContains(selection, row, col)) return null;
+  const down = row > selection.r2 ? row - selection.r2 : 0;
+  const up = row < selection.r1 ? selection.r1 - row : 0;
+  const right = col > selection.c2 ? col - selection.c2 : 0;
+  const left = col < selection.c1 ? selection.c1 - col : 0;
+  if (Math.max(down, up) >= Math.max(right, left)) return { ...selection, r1: selection.r1 - up, r2: selection.r2 + down };
+  return { ...selection, c1: selection.c1 - left, c2: selection.c2 + right };
+}
+
+/**
+ * Where rows or columns dragged by their header would be dropped: the
+ * position they would sit before. Null when that is where they already are.
+ */
+export function dropPosition(view: Viewport, axis: 'row' | 'col', from: number, to: number, x: number, y: number): number | null {
+  const hit = hitTest(view, Math.max(view.headerWidth + 1, x), Math.max(HEADER_HEIGHT + 1, y));
+  const layout = axis === 'col' ? view.cols : view.rows;
+  const index = axis === 'col' ? hit.col : hit.row;
+  const start = axis === 'col' ? columnX(view, index) : rowY(view, index);
+  const before = (axis === 'col' ? x : y) < start + layout.size(index) / 2;
+  const position = before ? index : index + 1;
+  return position >= from && position <= to + 1 ? null : position;
 }
