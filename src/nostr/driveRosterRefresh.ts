@@ -6,11 +6,20 @@ import {
   type NostrIdentityRosterProjection,
   type SignedNostrIdentityRosterOp,
 } from '../drive/protocol';
+import {
+  decideRosterAdmission,
+  type DriveRosterAdmission,
+  type DriveRosterRelayAnswer,
+} from './driveRosterAdmission';
+
+/** How long a roster confirmed by a relay is trusted when no relay answers. */
+export const DRIVE_ROSTER_CONFIRMATION_MAX_AGE_MS = 10 * 60_000;
 
 export interface DriveRosterAuthorSnapshot {
+  /** Every operation any relay returned, from complete answers or not. */
   rosterOps: SignedNostrIdentityRosterOp[];
-  /** True only after the relay query reached its complete snapshot boundary. */
-  complete: boolean;
+  /** Each relay asked, and whether it answered completely. */
+  relays: DriveRosterRelayAnswer[];
 }
 
 export type DriveRosterAuthorFetcher = (
@@ -301,28 +310,35 @@ function applyCausallyReadyRosterOps(
 }
 
 /**
- * Fetches complete per-author relay snapshots, expanding the query only when
- * the anchored chain grants admin/recovery authority to another key.
+ * Asks the relays for the roster operations of every authority key, expanding
+ * the query only when the anchored chain grants admin/recovery authority to
+ * another key, and decides admission from the answers (see
+ * `decideRosterAdmission`). Relays that do not answer only make it unconfirmed.
  */
 export async function fetchAuthoritativeDriveRoster(options: {
   profileId: NostrIdentityId;
   trustedRosterOps: readonly SignedNostrIdentityRosterOp[];
   fetchAuthors: DriveRosterAuthorFetcher;
-}): Promise<AnchoredDriveRoster> {
+  /** When admission was last confirmed by a relay, or null. */
+  confirmedAt?: number | null;
+  maxAgeMs?: number;
+  now?: () => number;
+}): Promise<DriveRosterAdmission> {
   const fetchedById = new Map<string, SignedNostrIdentityRosterOp>();
   const queriedAuthors = new Set<string>();
+  // A relay counts as answered only when it answered every round completely.
+  const relayComplete = new Map<string, boolean>();
   let anchored = projectAnchoredDriveRoster(options.profileId, options.trustedRosterOps);
 
   while (true) {
     const nextAuthors = rosterAuthorityAuthors(anchored.projection)
       .filter((author) => !queriedAuthors.has(author));
-    if (nextAuthors.length === 0) return anchored;
+    if (nextAuthors.length === 0) break;
 
     const snapshot = await options.fetchAuthors(nextAuthors);
-    if (!snapshot.complete) {
-      throw new Error('Could not establish a complete Drive roster snapshot from relays');
+    for (const answer of snapshot.relays) {
+      relayComplete.set(answer.relay, (relayComplete.get(answer.relay) ?? true) && answer.complete);
     }
-    assertSnapshotCoversKnownAuthorHistory(nextAuthors, anchored.rosterOps, snapshot.rosterOps);
     for (const author of nextAuthors) queriedAuthors.add(author);
     const queriedThisRound = new Set(nextAuthors);
     for (const op of snapshot.rosterOps) {
@@ -334,32 +350,23 @@ export async function fetchAuthoritativeDriveRoster(options: {
         fetchedById.set(op.op_id, op);
       }
     }
-
     anchored = projectAnchoredDriveRoster(
       options.profileId,
       options.trustedRosterOps,
       [...fetchedById.values()],
     );
-    assertNoMissingAuthorizedParents(
-      options.profileId,
-      nextAuthors,
-      snapshot.rosterOps,
-      options.trustedRosterOps,
-      [...fetchedById.values()],
-    );
   }
-}
 
-function assertSnapshotCoversKnownAuthorHistory(
-  queriedAuthors: readonly string[],
-  knownOps: readonly SignedNostrIdentityRosterOp[],
-  snapshotOps: readonly SignedNostrIdentityRosterOp[],
-): void {
-  const authors = new Set(queriedAuthors);
-  const snapshotIds = new Set(snapshotOps.map((op) => op.op_id));
-  if (knownOps.some((op) => authors.has(op.signer_pubkey) && !snapshotIds.has(op.op_id))) {
-    throw new Error('Could not establish a complete Drive roster snapshot from relays');
-  }
+  return decideRosterAdmission({
+    profileId: options.profileId,
+    heldRosterOps: options.trustedRosterOps,
+    fetchedRosterOps: [...fetchedById.values()],
+    queriedAuthors: [...queriedAuthors],
+    relays: [...relayComplete].map(([relay, complete]) => ({ relay, complete })),
+    confirmedAt: options.confirmedAt ?? null,
+    now: (options.now ?? Date.now)(),
+    maxAgeMs: options.maxAgeMs ?? DRIVE_ROSTER_CONFIRMATION_MAX_AGE_MS,
+  });
 }
 
 function rosterAuthorityAuthors(projection: NostrIdentityRosterProjection): string[] {
@@ -370,24 +377,6 @@ function rosterAuthorityAuthors(projection: NostrIdentityRosterProjection): stri
     ))
     .map((facet) => facet.pubkey)
     .sort();
-}
-
-function assertNoMissingAuthorizedParents(
-  profileId: NostrIdentityId,
-  queriedAuthors: readonly string[],
-  snapshotOps: readonly SignedNostrIdentityRosterOp[],
-  trustedOps: readonly SignedNostrIdentityRosterOp[],
-  fetchedOps: readonly SignedNostrIdentityRosterOp[],
-): void {
-  const knownIds = new Set([...trustedOps, ...fetchedOps].map((op) => op.op_id));
-  const authors = new Set(queriedAuthors);
-  for (const op of snapshotOps) {
-    if (op.content.profile_id !== profileId || !authors.has(op.signer_pubkey)) continue;
-    const parents = op.content.parents ?? [];
-    if (parents.length > 0 && parents.some((parentId) => !knownIds.has(parentId))) {
-      throw new Error('Could not establish a complete Drive roster authorization chain');
-    }
-  }
 }
 
 function isBootstrapForProfile(
