@@ -62,6 +62,40 @@ test.describe('documents in a Drive', () => {
     await expect(documentBody(page)).toContainText('Written just before closing', { timeout: 30_000 });
   });
 
+  test('what was saved but not sent shows and is sent after a reload that starts slowly', async ({ page, relayUrl }) => {
+    await prepareFreshSession(page, relayUrl);
+    await createDriveProfile(page);
+    await createDocument(page, 'Slow start');
+    await typeInDocument(page, 'First line');
+    await expectSaved(page);
+    await flushPendingPublishes(page);
+
+    await page.evaluate(() => {
+      const client = (window as unknown as {
+        __nostr: { backend: Record<string, unknown>; setBackend: (backend: unknown) => void };
+      }).__nostr;
+      client.setBackend({ ...client.backend, publish: () => new Promise(() => {}) });
+    });
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('Written just before closing');
+    await expectSaved(page);
+
+    // The worker that publishes starts well after the page, as on a first
+    // visit over a slow connection.
+    await page.route(/hashtree\.worker/, async (route) => {
+      await new Promise(resolve => setTimeout(resolve, 4000));
+      await route.continue();
+    });
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await expect(documentBody(page)).toContainText('Written just before closing', { timeout: 60_000 });
+    // It also reaches the relay, without another edit to trigger it.
+    await expect.poll(() => page.evaluate(() => {
+      const records = JSON.parse(localStorage.getItem('hashtree:localRootCache') ?? '{}') as Record<string, { dirty?: boolean }>;
+      // Test accounts also carry legacy folders that are never published.
+      return Object.entries(records).some(([key, record]) => key.endsWith('/main') && record.dirty);
+    }), { timeout: 60_000 }).toBe(false);
+  });
+
   test('formatting and images survive, and a shared link opens read-only for someone else', async ({ page, browser, relayUrl }, testInfo) => {
     await prepareFreshSession(page, relayUrl);
     await createDriveProfile(page);

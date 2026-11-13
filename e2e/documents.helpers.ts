@@ -12,7 +12,7 @@ import {
 export async function prepareFreshSession(page: Page, relayUrl: string): Promise<void> {
   setupPageErrorHandler(page);
   page.on('console', (message) => {
-    if (message.type() === 'error' && message.text().includes('[Document]')) console.log('browser:', message.text().slice(0, 400));
+    if (message.type() === 'error' && /\[(Document|Slides|Sheets)\]/.test(message.text())) console.log('browser:', message.text().slice(0, 400));
   });
   await page.addInitScript(() => {
     localStorage.setItem('hashtree:disableTestAutoCreate', '1');
