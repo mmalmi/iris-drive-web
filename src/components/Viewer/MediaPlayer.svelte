@@ -10,12 +10,8 @@
    *
    * No MSE needed - the browser handles everything!
    */
-  import { SvelteURLSearchParams } from 'svelte/reactivity';
-  import { recentlyChangedFiles } from '../../stores/recentlyChanged';
-  import { currentHash } from '../../stores';
   import type { CID } from '@hashtree/core';
   import { getCidFileUrl, getNpubFileUrlAsync } from '../../lib/mediaUrl';
-  import { getQueryParamsFromHash } from '../../lib/router.svelte';
   import { ensureMediaStreamingReady } from '../../lib/mediaStreamingSetup';
 
   interface Props {
@@ -24,11 +20,9 @@
     fileSize?: number;
     /** Media type: 'video' or 'audio' */
     type?: 'video' | 'audio';
-    /** Npub for live streaming support (optional) */
+    /** Where the file is in a tree, so the newest version plays (optional) */
     npub?: string;
-    /** Tree name for live streaming support (optional) */
     treeName?: string;
-    /** Full path within tree for live streaming support (optional) */
     path?: string;
   }
 
@@ -55,33 +49,6 @@
     loading = false;
   }
 
-  // Check if live=1 is in URL hash params
-  let hash = $derived($currentHash);
-  let isLiveFromUrl = $derived.by(() => {
-    return getQueryParamsFromHash(hash).get('live') === '1';
-  });
-
-  // Check if file is live (recently changed in this session)
-  let changedFiles = $derived($recentlyChangedFiles);
-  let isRecentlyChanged = $derived(changedFiles.has(fileName));
-
-  // Combined live detection
-  let isLive = $derived(isLiveFromUrl || isRecentlyChanged);
-
-  // Remove ?live=1 from URL when stream ends
-  function removeLiveParam() {
-    const hashBase = window.location.hash.split('?')[0];
-    const qIdx = window.location.hash.indexOf('?');
-    if (qIdx === -1) return;
-
-    const params = new SvelteURLSearchParams(window.location.hash.slice(qIdx + 1));
-    if (!params.has('live')) return;
-
-    params.delete('live');
-    const queryString = params.toString();
-    window.location.hash = queryString ? `${hashBase}?${queryString}` : hashBase;
-  }
-
   // Load media using service worker streaming
   async function loadMedia() {
     if (!cid?.hash || !mediaRef) {
@@ -100,8 +67,7 @@
       return;
     }
 
-    // Use npub-based URL if we have the context (supports live streaming)
-    // Otherwise fall back to CID-based URL
+    // Use the tree path when known, so the newest version plays; otherwise the CID
     let url: string;
     if (npub && treeName && filePath) {
       // Use async version to ensure Tauri htree server URL is available
@@ -110,8 +76,7 @@
       url = getCidFileUrl(cid, fileName);
     }
 
-    // Add cache-busting timestamp to prevent browser caching
-    // This ensures we always get fresh content, especially for live streams
+    // Add cache-busting timestamp so the browser always fetches fresh content
     const cacheSeparator = url.includes('?') ? '&' : '?';
     mediaRef.src = `${url}${cacheSeparator}_t=${Date.now()}`;
 
@@ -140,12 +105,6 @@
       console.error('[MediaPlayer] Error:', e);
       // Get more specific error message from MediaError
       const mediaError = mediaRef?.error;
-      if (isLive && mediaError?.code === MediaError.MEDIA_ERR_NETWORK) {
-        console.warn('[MediaPlayer] Ignoring transient live stream network error');
-        loading = false;
-        error = null;
-        return;
-      }
       if (mediaError) {
         switch (mediaError.code) {
           case MediaError.MEDIA_ERR_ABORTED:
@@ -203,13 +162,6 @@
     paused = true;
   }
 
-  function handleEnded() {
-    // If was live, remove the param
-    if (isLiveFromUrl) {
-      removeLiveParam();
-    }
-  }
-
   function togglePlay() {
     if (!mediaRef) return;
     if (mediaRef.paused) {
@@ -260,14 +212,6 @@
       </div>
     {/if}
 
-    <!-- Live indicator (video only) -->
-    {#if !isAudio && isLive && !loading && !error}
-      <div class="absolute top-3 left-3 z-10 flex items-center gap-2 px-2 py-1 bg-red-600 text-white text-sm font-bold rounded">
-        <span class="w-2 h-2 bg-white rounded-full animate-pulse"></span>
-        LIVE
-      </div>
-    {/if}
-
     {#if isAudio}
       <!-- Audio visual placeholder -->
       <div class="w-full max-w-md flex flex-col items-center gap-4">
@@ -285,7 +229,6 @@
           ondurationchange={handleDurationChange}
           onplay={handlePlay}
           onpause={handlePause}
-          onended={handleEnded}
         >
           Your browser does not support the audio tag.
         </audio>
@@ -304,7 +247,6 @@
         ondurationchange={handleDurationChange}
         onplay={handlePlay}
         onpause={handlePause}
-        onended={handleEnded}
       >
         Your browser does not support the video tag.
       </video>
@@ -327,9 +269,6 @@
       {#if !loading && !error}
         <div class="absolute bottom-16 right-3 z-10 px-2 py-1 bg-black/70 text-white text-sm rounded">
           {formatTime(currentTime)} / {formatTime(duration)}
-          {#if isLive}
-            <span class="ml-2 text-xs text-gray-400">streaming</span>
-          {/if}
         </div>
       {/if}
     {/if}

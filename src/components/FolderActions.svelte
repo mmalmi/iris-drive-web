@@ -245,17 +245,6 @@
     input.value = '';
   }
 
-  // Build stream URL - goes to directory with ?stream=1
-  let streamUrl = $derived.by(() => {
-    const streamQueryParams = [
-      route.params.get('k') ? `k=${route.params.get('k')}` : '',
-      'stream=1',
-    ].filter(Boolean).join('&');
-    return route.npub && route.treeName
-      ? `#/${route.npub}/${route.treeName}${route.path.length ? '/' + route.path.join('/') : ''}?${streamQueryParams}`
-      : null;
-  });
-
   let currentShareUrl = $derived(
     window.location.origin
       + window.location.pathname
@@ -463,13 +452,6 @@
           {/if}
 
           {#if canEdit}
-            {#if streamUrl}
-              <a href={streamUrl} class={itemClass} title="Stream">
-                <span class="i-lucide-video text-base text-text-2"></span>
-                Stream
-              </a>
-            {/if}
-
             {#if isSubdir && currentDirName}
               <button onclick={() => openRenameModal(currentDirName!)} class={itemClass} title="Rename">
                 <span class="i-lucide-pencil text-base text-text-2"></span>

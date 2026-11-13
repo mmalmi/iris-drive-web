@@ -1,7 +1,7 @@
 <script lang="ts">
   import { LinkType, toHex, type CID, type TreeEntry, type TreeVisibility } from '@hashtree/core';
   import { SvelteURLSearchParams } from 'svelte/reactivity';
-  import { currentHash, recentlyChangedFiles, permalinkSnapshotStore } from '../../stores';
+  import { currentHash, permalinkSnapshotStore } from '../../stores';
   import { decodeAsText, formatBytes, getTree } from '../../store';
   import { deleteEntry } from '../../actions';
   import { nostrStore, npubToPubkey } from '../../nostr';
@@ -134,12 +134,6 @@
   let opening = $state(false);
   let isMarkdown = $derived(extensionOf(urlFileName) === 'md' || extensionOf(urlFileName) === 'markdown');
   let isFullscreen = $derived(getQueryParamsFromHash(hash).get('fullscreen') === '1');
-  let recentlyChanged = $derived($recentlyChangedFiles);
-  // LIVE is for a recording that is still growing. A note that was just saved is not one.
-  let isLiveStream = $derived(
-    getQueryParamsFromHash(hash).get('live') === '1'
-      || ((isVideo || isAudio) && recentlyChanged.has(urlFileName)),
-  );
   let cidKey = $derived(entry?.cid?.hash ? toHex(entry.cid.hash) : urlFileName);
   let effectiveMediaTree = $derived.by(() => {
     if (!routeTreeName || routePath.length < 2) {
@@ -415,9 +409,6 @@
                   hasKey={!!rootCid?.key}
                 />
                 <AccessBadge access={fileAccess} label />
-                {#if isLiveStream}
-                  <span class="ml-2 px-1.5 py-0.5 text-xs font-bold bg-red-600 text-white rounded animate-pulse">LIVE</span>
-                {/if}
               </div>
             </div>
           </div>

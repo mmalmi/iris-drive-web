@@ -6,7 +6,6 @@ const shared = vi.hoisted(() => ({
   tree: null as HashTree | null,
   root: null as CID | null,
   savedRoot: null as CID | null,
-  publishRecording: null as (() => Promise<void>) | null,
   route: { npub: '123e4567-e89b-42d3-a456-426614174170', treeName: 'main', path: [] as string[] },
 }));
 vi.mock('../src/store', () => ({ getTree: () => shared.tree }));
@@ -40,7 +39,6 @@ vi.mock('../src/stores/settings', () => ({ settingsStore: { subscribe: () => () 
 vi.mock('../src/stores/toast', () => ({ toast: { warning: vi.fn(), success: vi.fn() } }));
 
 import { cancelUpload, getUploadProgress, uploadFiles, uploadFilesWithPaths } from '../src/stores/upload';
-import { getStreamState, startRecording, stopRecording } from '../src/components/stream/streamState';
 
 function leavePrivateRoute(): void {
   shared.route = { npub: 'npub1owner', treeName: 'public', path: [] };
@@ -72,20 +70,7 @@ describe('async profile Drive write destinations', () => {
     shared.root = (await shared.tree.putDirectory([])).cid;
     shared.savedRoot = null;
     shared.route = { npub: '123e4567-e89b-42d3-a456-426614174170', treeName: 'main', path: [] };
-    shared.publishRecording = null;
-    vi.stubGlobal('window', {
-      setInterval: (callback: () => Promise<void>, delay: number) => {
-        if (delay === 3000) shared.publishRecording = callback;
-        return 0;
-      },
-      location: { hash: '#/private' },
-    });
-    vi.stubGlobal('navigator', { mediaDevices: { getUserMedia: async () => ({ getTracks: () => [] }) } });
-    vi.stubGlobal('MediaRecorder', class {
-      state = 'inactive';
-      start() { this.state = 'recording'; }
-      stop() { this.state = 'inactive'; }
-    });
+    vi.stubGlobal('window', { location: { hash: '#/private' } });
   });
   afterEach(() => vi.unstubAllGlobals());
 
@@ -127,47 +112,5 @@ describe('async profile Drive write destinations', () => {
     await newUpload;
     expect(shared.savedRoot).not.toBeNull();
     expect(getUploadProgress()).toBeNull();
-  });
-
-  it('does not attach a delayed recording finalization to another route', async () => {
-    await startRecording(null);
-    const writer = getStreamState().streamWriter!;
-    await writer.append(new TextEncoder().encode('private recording'));
-    const finalize = writer.finalize.bind(writer);
-    let resume!: () => void;
-    let started!: () => void;
-    const suspended = new Promise<void>((resolve) => { resume = resolve; });
-    const finalizing = new Promise<void>((resolve) => { started = resolve; });
-    vi.spyOn(writer, 'finalize').mockImplementationOnce(async () => {
-      started();
-      await suspended;
-      return finalize();
-    });
-    const setEntry = vi.spyOn(shared.tree!, 'setEntry');
-    const stop = stopRecording();
-    await finalizing;
-    leavePrivateRoute();
-    resume();
-    await stop;
-    expect(shared.savedRoot).toBeNull();
-    expect(setEntry).not.toHaveBeenCalled();
-  });
-
-  it('keeps the recording destination when navigation precedes the next publish and stop', async () => {
-    await startRecording(null);
-    await getStreamState().streamWriter!.append(new TextEncoder().encode('private recording'));
-    leavePrivateRoute();
-    await shared.publishRecording!();
-    await stopRecording();
-    expect(shared.savedRoot).toBeNull();
-    expect(getStreamState().streamWriter).toBeNull();
-  });
-
-  it('still publishes a recording when its destination remains current', async () => {
-    await startRecording(null);
-    await getStreamState().streamWriter!.append(new TextEncoder().encode('private recording'));
-    await stopRecording();
-    expect(shared.savedRoot).not.toBeNull();
-    expect(getStreamState().streamWriter).toBeNull();
   });
 });

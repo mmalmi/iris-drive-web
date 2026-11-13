@@ -349,32 +349,6 @@ test.describe('Hashtree Explorer', () => {
   });
 
 
-  test('should open stream panel', async ({ page }) => {
-    // Create tree via modal
-    await createAndEnterTree(page, 'stream-test');
-
-    // Click Stream link in the folder's menu
-    await openFolderMenu(page);
-    const streamLink = page.getByRole('link', { name: /Stream/ }).first();
-    await expect(streamLink).toBeVisible({ timeout: 5000 });
-    await streamLink.click();
-    await page.waitForTimeout(300);
-
-    // Should navigate to stream route and show the livestream panel
-    await expect(page.getByText('Livestream', { exact: true })).toBeVisible({ timeout: 5000 });
-
-    // Should have Start Camera button
-    await expect(page.getByRole('button', { name: 'Start Camera' })).toBeVisible({ timeout: 5000 });
-
-    // Close panel by navigating back to the folder using browser
-    await page.goBack();
-    await page.waitForTimeout(500);
-
-    // Should be back in the folder - Stream link should be offered again in its menu
-    await openFolderMenu(page);
-    await expect(page.getByRole('link', { name: /Stream/ }).first()).toBeVisible({ timeout: 5000 });
-  });
-
   test('should show empty file content for new files', async ({ page }) => {
     const fileList = page.getByTestId('file-list');
 

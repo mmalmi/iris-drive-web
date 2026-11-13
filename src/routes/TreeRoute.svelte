@@ -30,30 +30,20 @@
   let isFullscreen = $derived.by(() => {
     return getQueryParamsFromHash(hash).get('fullscreen') === '1';
   });
-  // Check if viewing own tree (streaming only allowed on own trees)
-  let userNpub = $derived($nostrStore.npub);
-  let viewedNpub = $derived(route.npub);
-  let isOwnTree = $derived(!viewedNpub || viewedNpub === userNpub);
   let connectedRelays = $derived($nostrStore.connectedRelays);
   let lastConnectedRelays = $state(0);
 
-  // Only enable streaming mode on user's own trees
-  let isStreaming = $derived(route.params.get('stream') === '1' && isOwnTree);
   // Check if a file is selected (actual check from hashtree, not heuristic)
   let isViewingFile = $derived($isViewingFileStore);
 
   // A document folder shows the editor, also on a narrow screen.
   let isYjsDocument = $derived(!!routeDocumentFolderName(route));
 
-  // On mobile, show viewer for Yjs docs or when file/stream selected
-  let hasFileSelected = $derived(isViewingFile || isStreaming || isYjsDocument);
+  // On mobile, show viewer for Yjs docs or when a file is selected
+  let hasFileSelected = $derived(isViewingFile || isYjsDocument);
   let showViewerPane = $derived(
     hasFileSelected || isFullscreen
   );
-
-  // Show stream view if streaming and logged in
-  let isLoggedIn = $derived($nostrStore.isLoggedIn);
-  let showStreamView = $derived(isStreaming && isLoggedIn);
 
   // A folder or document of this Drive that has been shared lives in the shared
   // folder from then on: open it there, so the owner edits what everyone sees.
@@ -213,15 +203,9 @@
     <FileBrowser compact={showViewerPane} />
   </div>
 {/if}
-<!-- Right panel (Viewer or StreamView) - shown on mobile when file/stream selected -->
+<!-- Right panel (Viewer) - shown on mobile when a file is selected -->
 <div class={showViewerPane
   ? 'flex flex-1 flex-col min-w-0 min-h-0'
   : 'hidden'}>
-  {#if showStreamView}
-    {#await import('../components/stream/StreamView.svelte') then { default: StreamView }}
-      <StreamView />
-    {/await}
-  {:else}
-    <Viewer />
-  {/if}
+  <Viewer />
 </div>
