@@ -22,6 +22,8 @@
   import ZipPreview from './ZipPreview.svelte';
   import { buildEntryHref } from '../fileBrowserHrefs';
   import { fileImportFor, openAsDocument } from '../../lib/fileImports';
+  import { copiedMessage, copyEntry, copyKind } from '../../lib/driveClipboard';
+  import { toast } from '../../stores/toast';
 
   const FILE_RETRY_DELAY_MS = 1500;
   const FILE_RETRY_MAX = 6;
@@ -369,6 +371,16 @@
     window.location.href = `${baseUrl}${separator}download=1`;
   }
 
+  /** Puts the file on the system clipboard for other apps: a picture, its text, or a link. */
+  function handleCopy() {
+    if (!entry) return;
+    const name = entry.name;
+    copyEntry(entry).then(
+      kind => toast.success(copiedMessage(kind, name), 2500),
+      () => toast.error(`Could not copy ${name}`),
+    );
+  }
+
   function handleShare() {
     const [primary, secondary] = shareLinks;
     if (primary) openShareModal(primary.url, secondary?.url ?? null);
@@ -420,6 +432,12 @@
               >{fileImport.label}</button>
             {/if}
             <button onclick={handleDownload} class="btn-ghost" title="Download file" data-testid="viewer-download" disabled={loading && !isVideo}>Download</button>
+            <button
+              onclick={handleCopy}
+              class="btn-ghost"
+              title={copyKind(entry) === 'picture' ? 'Copy the picture' : copyKind(entry) === 'text' ? 'Copy the text' : 'Copy a link'}
+              data-testid="viewer-copy"
+            >Copy</button>
             {#if permalinkUrl}
               <a href={permalinkUrl} class="btn-ghost no-underline" title={entry?.cid?.hash ? toHex(entry.cid.hash) : ''} data-testid="viewer-permalink">Snapshot</a>
             {/if}

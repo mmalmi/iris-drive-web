@@ -93,10 +93,15 @@ function beginUpload() {
   };
 }
 
+/** Where an upload goes: the open folder unless `dirPath` names another one, such as a folder dropped onto. */
+export interface UploadTarget {
+  dirPath?: string[];
+}
+
 /**
- * Upload files to the current directory
+ * Upload files to the current directory, or to `target.dirPath`
  */
-export async function uploadFiles(files: FileList): Promise<void> {
+export async function uploadFiles(files: FileList | File[], target: UploadTarget = {}): Promise<void> {
   if (!files.length) return;
   const upload = beginUpload();
 
@@ -109,7 +114,7 @@ export async function uploadFiles(files: FileList): Promise<void> {
   const uploadedFileNames: string[] = [];
   const tree = getTree();
   const route = parseRoute();
-  const dirPath = getCurrentPathFromUrl();
+  const dirPath = target.dirPath ?? getCurrentPathFromUrl();
 
   // Get current rootCid from resolver - track locally for multi-file uploads
   let currentRootCid: CID | null = getTreeRootSync(route.npub, route.treeName);
@@ -310,8 +315,8 @@ export async function uploadFiles(files: FileList): Promise<void> {
 
   if (!upload.isCurrent()) return;
 
-  // If single file uploaded, navigate to it
-  if (uploadedFileNames.length === 1) {
+  // If single file uploaded to the open folder, navigate to it
+  if (uploadedFileNames.length === 1 && !target.dirPath) {
     const currentRoute = parseRoute();
     const fileName = uploadedFileNames[0];
 
@@ -339,7 +344,7 @@ export async function uploadFiles(files: FileList): Promise<void> {
  * Files are uploaded with their relative paths preserved in the tree structure
  */
 
-export async function uploadFilesWithPaths(filesWithPaths: FileWithPath[]): Promise<void> {
+export async function uploadFilesWithPaths(filesWithPaths: FileWithPath[], target: UploadTarget = {}): Promise<void> {
   if (!filesWithPaths.length) return;
   const upload = beginUpload();
 
@@ -350,7 +355,7 @@ export async function uploadFilesWithPaths(filesWithPaths: FileWithPath[]): Prom
   const uploadedFileNames: string[] = [];
   const tree = getTree();
   const route = parseRoute();
-  const dirPath = getCurrentPathFromUrl();
+  const dirPath = target.dirPath ?? getCurrentPathFromUrl();
 
   // Get current rootCid from resolver - track locally for multi-file uploads
   let currentRootCid: CID | null = getTreeRootSync(route.npub, route.treeName);
@@ -569,7 +574,7 @@ export async function uploadFilesWithPaths(filesWithPaths: FileWithPath[]): Prom
  * Checks for .gitignore at root and handles filtering based on user preference
  */
 
-export async function uploadDirectory(result: DirectoryReadResult): Promise<void> {
+export async function uploadDirectory(result: DirectoryReadResult, target: UploadTarget = {}): Promise<void> {
   const { files, hasGitignore, rootDirName } = result;
 
   if (files.length === 0) return;
@@ -583,13 +588,13 @@ export async function uploadDirectory(result: DirectoryReadResult): Promise<void
 
   // If no .gitignore, upload with defaults applied
   if (!hasGitignore) {
-    await uploadFilesWithPaths(defaultFiltered);
+    await uploadFilesWithPaths(defaultFiltered, target);
     return;
   }
 
   // If user chose to always skip gitignore, upload with defaults only
   if (gitignoreBehavior === 'never') {
-    await uploadFilesWithPaths(defaultFiltered);
+    await uploadFilesWithPaths(defaultFiltered, target);
     return;
   }
 
@@ -597,7 +602,7 @@ export async function uploadDirectory(result: DirectoryReadResult): Promise<void
   const gitignoreFileEntry = findGitignoreFile(files, rootDirName);
   if (!gitignoreFileEntry) {
     // .gitignore detection was wrong, upload with defaults only
-    await uploadFilesWithPaths(defaultFiltered);
+    await uploadFilesWithPaths(defaultFiltered, target);
     return;
   }
 
@@ -607,13 +612,13 @@ export async function uploadDirectory(result: DirectoryReadResult): Promise<void
 
   // If nothing would be excluded beyond defaults, just upload
   if (excluded.length === 0) {
-    await uploadFilesWithPaths(included);
+    await uploadFilesWithPaths(included, target);
     return;
   }
 
   // If user chose to always use gitignore, filter and upload
   if (gitignoreBehavior === 'always') {
-    await uploadFilesWithPaths(included);
+    await uploadFilesWithPaths(included, target);
     return;
   }
 
@@ -634,7 +639,7 @@ export async function uploadDirectory(result: DirectoryReadResult): Promise<void
         }
 
         const filesToUpload = gitignore ? included : files;
-        await uploadFilesWithPaths(filesToUpload);
+        await uploadFilesWithPaths(filesToUpload, target);
         resolve();
       },
     });

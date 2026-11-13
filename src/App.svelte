@@ -48,6 +48,18 @@
 
   onMount(() => {
     initRouter();
+    // A file dropped where nothing takes it would otherwise open in place of the app.
+    const keepPage = (event: DragEvent) => {
+      if (event.defaultPrevented || !event.dataTransfer?.types.includes('Files')) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'none';
+    };
+    window.addEventListener('dragover', keepPage);
+    window.addEventListener('drop', keepPage);
+    return () => {
+      window.removeEventListener('dragover', keepPage);
+      window.removeEventListener('drop', keepPage);
+    };
   });
 
   // A join link opened before signing in: go back to it once there is an account.
