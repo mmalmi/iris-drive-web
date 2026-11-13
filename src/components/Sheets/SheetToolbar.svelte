@@ -22,6 +22,7 @@
   import { MOD, selectionMenu } from './menus';
   import { insertChart } from '../../lib/sheets/objectCommands';
   import { insertPicture } from '../../lib/sheets/pasting';
+  import { openThreadCells } from '../../lib/sheets/comments';
 
   interface Props {
     ctl: SheetController;
@@ -160,6 +161,10 @@
   }
 
   let pictureInput: HTMLInputElement | undefined = $state();
+  let openComments = $derived.by(() => {
+    void ctl.revision;
+    return ctl.hasSheet ? openThreadCells(ctl.sheet).size : 0;
+  });
 
   function openInsert(event: MouseEvent): void {
     moreMenu = {
@@ -167,13 +172,18 @@
       items: [
         { label: 'Chart', icon: 'i-lucide-chart-column', action: addChart, testId: 'insert-chart' },
         { label: 'Picture', icon: 'i-lucide-image', action: () => pictureInput?.click(), disabled: !ctl.media, testId: 'insert-picture' },
+        { label: 'Checkboxes', icon: 'i-lucide-square-check', divider: true, action: () => { ctl.panel = { kind: 'valid', check: 'checkbox' }; }, testId: 'insert-checkbox' },
+        { label: 'List to choose from', icon: 'i-lucide-list', action: () => { ctl.panel = { kind: 'valid', check: 'list' }; }, testId: 'insert-list' },
+        { label: 'Data validation', icon: 'i-lucide-list-checks', action: () => { ctl.panel = { kind: 'valid' }; }, testId: 'insert-validation' },
       ],
     };
   }
 
   function addChart(): void {
-    const id = insertChart(ctl);
-    if (id) ctl.chartAsked = id;
+    // On a phone the chart goes below the cells, as wide as the screen allows.
+    const grid = document.querySelector<HTMLElement>('[data-testid="sheet-grid"]');
+    const id = insertChart(ctl, 'column', grid ? grid.clientWidth - 50 : Infinity);
+    if (id) ctl.panel = { kind: 'chart', id };
   }
 
   async function onPictureChosen(event: Event): Promise<void> {
@@ -273,6 +283,9 @@
   <button onclick={openMore} class="tool" title="Rows and columns" aria-label="Rows and columns" data-testid="sheet-rows-columns">
     <span class="i-lucide-table-rows-split"></span>
   </button>
+  <button onclick={() => { ctl.panel = ctl.panel?.kind === 'format' ? null : { kind: 'format' }; }} class="tool" class:on={ctl.panel?.kind === 'format'} title="Conditional formatting" aria-label="Conditional formatting" data-testid="sheet-conditional">
+    <span class="i-lucide-paint-roller"></span>
+  </button>
   <button onclick={openInsert} class="tool" title="Insert" aria-label="Insert" data-testid="sheet-insert">
     <span class="i-lucide-square-plus"></span>
   </button>
@@ -285,6 +298,10 @@
   </button>
   <button onclick={() => toggleFilter(ctl)} class="tool" class:on={ctl.filter !== null} title="Filter" aria-label="Filter" aria-pressed={ctl.filter !== null} data-testid="sheet-filter">
     <span class="i-lucide-list-filter"></span>
+  </button>
+  <button onclick={() => { ctl.panel = ctl.panel?.kind === 'comments' ? null : { kind: 'comments' }; }} class="tool count" class:on={ctl.panel?.kind === 'comments'} title="Comments" aria-label="Comments" data-testid="sheet-comments">
+    <span class="i-lucide-message-square"></span>
+    {#if openComments > 0}<span class="badge" data-testid="sheet-comment-count">{openComments}</span>{/if}
   </button>
   <button onclick={() => { if (ctl.find) ctl.find = null; else ctl.openFind(); }} class="tool" class:on={ctl.find !== null} title="Find ({MOD}F)" aria-label="Find" data-testid="sheet-find-button">
     <span class="i-lucide-search"></span>
@@ -407,6 +424,25 @@
     color: rgb(var(--text-1));
     font-size: 0.85rem;
     cursor: pointer;
+  }
+
+  .tool.count {
+    position: relative;
+  }
+
+  .badge {
+    position: absolute;
+    top: 2px;
+    right: 1px;
+    min-width: 15px;
+    height: 15px;
+    padding: 0 4px;
+    border-radius: 8px;
+    background: #f59f00;
+    color: #1a1a1a;
+    font-size: 0.65rem;
+    font-weight: 700;
+    line-height: 15px;
   }
 
   .tool.pair {

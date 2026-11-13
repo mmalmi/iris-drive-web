@@ -9,7 +9,8 @@
  * comments and conditional formats are left out. Loaded only when used.
  */
 import { unzipSync, zipSync, strFromU8, strToU8 } from 'fflate';
-import { columnIndex, columnName, quoteSheetName } from './address';
+import { columnIndex, columnName, parseRectName, quoteSheetName } from './address';
+import { defineName, findName, listNames, resolveName } from './names';
 import { readBorder } from './borders';
 import type { SheetController } from './controller.svelte';
 import { inputToStored } from './edit';
@@ -225,6 +226,8 @@ export interface ImportedSheet {
   merges: Array<{ r1: number; c1: number; r2: number; c2: number }>;
   freezeRows: number;
   freezeCols: number;
+  /** Workbook names that stand for cells of this sheet: name -> cells, as "B2:B9". */
+  names?: Map<string, string>;
 }
 
 function resolvePath(base: string, target: string): string {
@@ -331,6 +334,15 @@ export function readXlsx(data: Uint8Array): ImportedSheet[] {
     }
     sheets.push(sheet);
   }
+  // Named ranges, as "Sheet1!$B$2:$B$9"; other kinds of names are left out.
+  for (const defined of children(child(child(workbook, 'workbook'), 'definedNames'), 'definedName')) {
+    const name = defined.attrs.name ?? '';
+    const match = /^(?:'((?:[^']|'')+)'|([^!'\s]+))!\$?([A-Z]{1,3})\$?(\d+)(?::\$?([A-Z]{1,3})\$?(\d+))?$/i.exec(defined.text.trim());
+    if (!match || defined.attrs.localSheetId !== undefined || name.startsWith('_xlnm')) continue;
+    const sheetName = (match[1] ?? match[2]).replace(/''/g, "'").toLowerCase();
+    const target = sheets.find(sheet => sheet.name.toLowerCase() === sheetName);
+    if (target) (target.names ??= new Map()).set(name, `${match[3]}${match[4]}${match[5] ? `:${match[5]}${match[6]}` : ''}`);
+  }
   return sheets;
 }
 
@@ -384,6 +396,13 @@ export function importXlsx(ctl: SheetController, fileName: string, data: Uint8Ar
     // Formulas name the new sheets, which the book must know by now.
     book.refreshSheets();
     sheets.forEach((imported, index) => fillSheet(book, book.sheet(ids[index]), imported, names));
+    sheets.forEach((imported, index) => {
+      for (const [name, cells] of imported.names ?? []) {
+        const rect = parseRectName(cells);
+        const sheet = book.sheet(ids[index]);
+        if (rect && rect.r2 < sheet.rows.length && rect.c2 < sheet.cols.length && !findName(book, name)) defineName(book, name, sheet, rect);
+      }
+    });
     if (emptyBefore) book.removeSheet(emptyBefore);
   });
   ctl.showSheet(ids[0]);
@@ -614,9 +633,18 @@ export function writeXlsx(book: Book, engine: Engine): Uint8Array {
     + sheets.map((_info, index) => `<Override PartName="/xl/worksheets/sheet${index + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')
     + '</Types>');
   files['_rels/.rels'] = strToU8(`${head}<Relationships xmlns="${pkgRel}"><Relationship Id="rId1" Type="${relNs}/officeDocument" Target="xl/workbook.xml"/></Relationships>`);
+  // Named ranges, as Excel writes them: "Sheet1!$B$2:$B$9".
+  const definedNames = listNames(book).flatMap((named) => {
+    const found = resolveName(book, named.name);
+    if (!found || !('rect' in found)) return [];
+    const { rect, sheet } = found;
+    const end = (row: number, col: number) => `$${columnName(col)}$${row + 1}`;
+    const cells = rect.r1 === rect.r2 && rect.c1 === rect.c2 ? end(rect.r1, rect.c1) : `${end(rect.r1, rect.c1)}:${end(rect.r2, rect.c2)}`;
+    return [`<definedName name="${escapeXml(named.name)}">${escapeXml(`${quoteSheetName((book.nameOf(sheet.id) ?? '').slice(0, 31))}!${cells}`)}</definedName>`];
+  });
   files['xl/workbook.xml'] = strToU8(`${head}<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="${relNs}"><sheets>`
     + sheets.map((info, index) => `<sheet name="${escapeXml(info.name.slice(0, 31))}" sheetId="${index + 1}" r:id="rId${index + 1}"/>`).join('')
-    + '</sheets><calcPr calcId="191029" fullCalcOnLoad="1"/></workbook>');
+    + `</sheets>${definedNames.length > 0 ? `<definedNames>${definedNames.join('')}</definedNames>` : ''}<calcPr calcId="191029" fullCalcOnLoad="1"/></workbook>`);
   files['xl/_rels/workbook.xml.rels'] = strToU8(`${head}<Relationships xmlns="${pkgRel}">`
     + sheets.map((_info, index) => `<Relationship Id="rId${index + 1}" Type="${relNs}/worksheet" Target="worksheets/sheet${index + 1}.xml"/>`).join('')
     + `<Relationship Id="rId${sheets.length + 1}" Type="${relNs}/styles" Target="styles.xml"/></Relationships>`);

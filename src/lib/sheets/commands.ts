@@ -453,6 +453,35 @@ export function insertBeside(ctl: SheetController, axis: 'row' | 'col', after: b
       for (const id of fresh) sheet.styles.set(axis === 'row' ? `${id}:${colId}` : `${rowId}:${id}`, style);
     }
     if (width !== undefined) for (const id of fresh) sheet.props.set(`w:${id}`, width);
+    // Added below the last row of a bordered table, its closing line moves down to the new
+    // last row instead of showing twice. A lone line under a heading stays where it is.
+    if (after && sheet.hasBorders()) {
+      const far = axis === 'row' ? 'bb' : 'br';
+      const sides = axis === 'row' ? (['bl', 'br', 'bt'] as const) : (['bt', 'bb', 'bl'] as const);
+      const across = axis === 'row' ? sheet.cols.length : sheet.rows.length;
+      const modelAt = from + count - 1;
+      const cellAt = (k: number): [number, number] => (axis === 'row' ? [modelAt, k] : [k, modelAt]);
+      const closes = (k: number) => !!sheet.styleAt(...cellAt(k))[far];
+      // A run of closing lines is a table's edge when the table has sides or a line inside it.
+      const edge = new Set<number>();
+      for (let k = 0; k < across; k += 1) {
+        if (!closes(k)) continue;
+        let end = k;
+        while (end + 1 < across && closes(end + 1)) end += 1;
+        let bordered = false;
+        for (let at2 = k; at2 <= end && !bordered; at2 += 1) bordered = sides.some(side => sheet.borderAt(...cellAt(at2), side));
+        if (bordered) for (let at2 = k; at2 <= end; at2 += 1) edge.add(at2);
+        k = end;
+      }
+      for (const k of edge) {
+        const [row, col] = cellAt(k);
+        const keep = axis === 'row' ? { r1: at + added - 1, c1: k, r2: at + added - 1, c2: k } : { r1: k, c1: at + added - 1, r2: k, c2: at + added - 1 };
+        const line = sheet.styleAt(row, col)[far];
+        const drop = axis === 'row' ? { r1: modelAt, c1: k, r2: at + added - 1, c2: k } : { r1: k, c1: modelAt, r2: k, c2: at + added - 1 };
+        sheet.patchStyle(drop, { [far]: null });
+        sheet.patchStyle(keep, { [far]: line });
+      }
+    }
     // Below a bordered row, a new one also gets the line that row has above it, kept by its neighbour.
     if (after && sheet.hasBorders()) {
       const side = axis === 'row' ? 'bt' : 'bl';

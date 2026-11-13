@@ -41,6 +41,8 @@
     </div>
     <div class="about">{hint.doc.about}</div>
   </div>
+{:else if ctl.editProblem}
+  <div class="help problem" style={place} role="alert" data-testid="sheet-edit-problem">{ctl.editProblem}</div>
 {/if}
 
 <style>
@@ -59,6 +61,11 @@
 
   .list {
     padding: 3px;
+  }
+
+  .problem {
+    padding: 6px 10px;
+    border-left: 3px solid #e5484d;
   }
 
   .choice {

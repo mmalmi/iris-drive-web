@@ -80,8 +80,18 @@
     if (nameDraft !== null && ctl.goToName(nameDraft)) {
       nameDraft = null;
       ctl.focusGrid();
+    } else if (nameDraft !== null && ctl.canEdit && /^[A-Za-z_][A-Za-z0-9_.]*$/.test(nameDraft.trim()) && !/^[A-Za-z]{1,3}\d+$/.test(nameDraft.trim())) {
+      // A new name for the selected cells, as in other spreadsheets.
+      const problem = ctl.nameSelection(nameDraft);
+      if (problem) {
+        ctl.say(problem);
+        nameInput?.select();
+      } else {
+        nameDraft = null;
+        ctl.focusGrid();
+      }
     } else if (nameDraft !== null && nameDraft.trim() !== '') {
-      ctl.say('Type a cell such as B7, or a range such as A1:C9.');
+      ctl.say(ctl.canEdit ? 'Type a cell such as B7, a range such as A1:C9, or a name for the selected cells.' : 'Type a cell such as B7, or a range such as A1:C9.');
       nameInput?.select();
     } else {
       nameDraft = null;

@@ -5,17 +5,21 @@
  */
 import * as Y from 'yjs';
 import { columnIndex, columnName, normalizeRect, parseRectName, rectContains, rectName, rectOf, type CellPos, type Rect } from './address';
-import { editTextAt, writeInput } from './edit';
+import { editTextAt, inputToStored, writeInput } from './edit';
 import { Engine } from './engine';
 import { cycleAbsoluteAt, referenceSpans, spanRect } from './editText';
 import { filteredOutRows, findCells, type SheetFilter } from './filter';
 import { callAt, completionAt, type CallHint, type Completion } from './formula/docs';
 import { formatKind } from './format';
-import { Book, LOCAL_ORIGIN, type BookChange, type CellStyle, type Sheet, type SheetInfo } from './model';
+import { Book, decodeRaw, isFormula, LOCAL_ORIGIN, type BookChange, type CellStyle, type Sheet, type SheetInfo } from './model';
+import { problemWith, validationAt } from './rules';
+import { reconcileMoves } from './structure';
 import { jump, lastFilledCol, stepInside } from './navigate';
 import type { ObjectContent } from './objects';
+import type { CommentAuthor } from './comments';
 import { rectReference } from './refs';
-import { isError } from './values';
+import { defineName, resolveName } from './names';
+import { SheetError, isError } from './values';
 
 export type SelectionScope = 'cells' | 'rows' | 'cols' | 'all';
 
@@ -76,6 +80,14 @@ export interface CopiedCells {
   objects: Array<{ id: string; content: ObjectContent; row: number; col: number; dx: number; dy: number; width: number; height: number }>;
 }
 
+/** Settings that open in a panel beside the grid. */
+export type SheetPanel =
+  | { kind: 'chart'; id: string }
+  | { kind: 'format' }
+  | { kind: 'valid'; check?: 'list' | 'checkbox' }
+  | { kind: 'names' }
+  | { kind: 'comments' };
+
 /** Where pictures are kept: the document's attachments. */
 export interface SheetMedia {
   /** Where to show an attachment from, once known. */
@@ -116,14 +128,20 @@ export class SheetController {
   localOnly = $state(false);
   /** A short message for the person, such as why something could not be done. */
   notice = $state('');
+  /** Why what is being typed was refused, shown beside the cell until it changes. */
+  editProblem = $state('');
   /** Goes up whenever the spreadsheet's content changes, so readers look again. */
   revision = $state(0);
   /** Goes up when rows, columns, sizes or wrapped text change, so positions are worked out again. */
   layoutRevision = $state(0);
   /** The picture or chart that is selected instead of cells, if any. */
   selectedObject = $state<string | null>(null);
-  /** A chart whose settings should open, set by whatever just made it. */
-  chartAsked = $state<string | null>(null);
+  /** The settings panel that is open beside the grid, if any. */
+  panel = $state.raw<SheetPanel | null>(null);
+  /** The cell whose comments show beside it ("rowId:colId"), and whether a new one is being written. */
+  commentFor = $state.raw<{ cell: string; compose: boolean } | null>(null);
+  /** Set by the spreadsheet's page: who is writing, for comments. */
+  authorOf: () => CommentAuthor | null = () => null;
   /** Set by the spreadsheet's page when pictures can be stored; null for a file only looked at. */
   media: SheetMedia | null = null;
 
@@ -134,6 +152,8 @@ export class SheetController {
   restoreScroll: (scrollX: number, scrollY: number) => void = () => {};
   /** Set by the grid: puts the keyboard focus back on it. */
   focusGrid: () => void = () => {};
+  /** Set by the grid: shows the choices of a cell that offers a list. */
+  openList: (row: number, col: number) => void = () => {};
 
   private readonly memos = new Map<string, SelectionMemo>();
   private selectionIds: SelectionIds = { anchorRow: '', anchorCol: '', focusRow: '', focusCol: '', activeRow: '', activeCol: '' };
@@ -229,6 +249,12 @@ export class SheetController {
   // --- Following changes ---
 
   private afterChange(change: BookChange): void {
+    // Moves of rows made here and elsewhere at the same time: their formula changes are put together.
+    if (!change.local && this.canEdit && [...change.bySheet.values()].some(found => found.props || found.cells.size > 0)) {
+      queueMicrotask(() => {
+        if (this.canEdit) reconcileMoves(this.book);
+      });
+    }
     this.memoBeforeChange = this.hasSheet ? this.selectionMemo() : null;
     this.sheetBeforeChange = this.sheetId;
     if (change.sheets) {
@@ -545,6 +571,7 @@ export class SheetController {
     this.memos.set(this.sheetId, this.selectionMemo());
     this.sheetId = id;
     this.selectedObject = null;
+    this.commentFor = null;
     this.pointAnchor = null;
     this.pointFocus = null;
     this.restoreMemo();
@@ -596,7 +623,23 @@ export class SheetController {
       return true;
     }
     const rect = parseRectName(text);
-    return rect !== null && this.goTo(rect);
+    if (rect) return this.goTo(rect);
+    // A named range, possibly on another sheet.
+    const named = resolveName(this.book, text);
+    if (!named || named instanceof SheetError) return false;
+    if (named.sheet.id !== this.sheetId) this.showSheet(named.sheet.id);
+    return this.goTo(named.rect);
+  }
+
+  /**
+   * Gives the selected cells a name typed into the box that shows the
+   * selection. Returns why not, or ''.
+   */
+  nameSelection(name: string): string {
+    if (!this.canEdit) return 'Only people who may edit can name cells.';
+    const problem = defineName(this.book, name.trim(), this.sheet, this.selection);
+    if (!problem) this.say(`${name.trim()} now stands for ${rectName(this.selection)}.`);
+    return problem;
   }
 
   get activeStyle(): CellStyle {
@@ -655,6 +698,7 @@ export class SheetController {
     const edit = this.edit;
     if (!edit) return;
     const typed = text !== edit.text;
+    if (typed) this.editProblem = '';
     this.edit = { ...edit, text, caret, source: source ?? edit.source, point: typed ? null : edit.point };
     if (typed) {
       this.completionIndex = 0;
@@ -771,6 +815,14 @@ export class SheetController {
   commitEdit(move: 'down' | 'up' | 'right' | 'left' | null = null): void {
     const edit = this.edit;
     if (!edit) return;
+    const problem = this.refusal(edit);
+    if (problem) {
+      // The text stays open to be put right.
+      this.say(problem);
+      this.editProblem = problem;
+      return;
+    }
+    this.editProblem = '';
     this.edit = null;
     if (edit.sheetId !== this.sheetId && this.book.nameOf(edit.sheetId) !== undefined) {
       this.memos.set(this.sheetId, this.selectionMemo());
@@ -789,8 +841,21 @@ export class SheetController {
     else this.reveal(edit.row, edit.col);
   }
 
+  /** Why a cell's validation refuses what was typed into it, or ''. */
+  private refusal(edit: EditState): string {
+    if (edit.text === edit.original || edit.text.trim() === '' || this.book.nameOf(edit.sheetId) === undefined) return '';
+    const sheet = this.book.sheet(edit.sheetId);
+    const rule = validationAt(sheet, edit.row, edit.col);
+    if (!rule?.reject) return '';
+    const stored = inputToStored(edit.text, this.book, sheet, sheet.styleAt(edit.row, edit.col).nf);
+    if (isFormula(stored.raw)) return '';
+    const value = decodeRaw(stored.raw ?? undefined);
+    return problemWith(rule.check, value, typeof value === 'string' ? value : edit.text, this.book.numberLocale) ?? '';
+  }
+
   cancelEdit(): void {
     const edit = this.edit;
+    this.editProblem = '';
     if (!edit) return;
     this.edit = null;
     if (edit.sheetId !== this.sheetId && this.book.nameOf(edit.sheetId) !== undefined) {

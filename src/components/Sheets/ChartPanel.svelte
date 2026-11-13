@@ -3,6 +3,7 @@
   import { parseRectName, quoteSheetName, rectName } from '../../lib/sheets/address';
   import type { SheetController } from '../../lib/sheets/controller.svelte';
   import { changeObject, chartRect, objectById, rectIds, removeObject, type ChartContent, type ChartType } from '../../lib/sheets/objects';
+  import { onMount, tick } from 'svelte';
   import SidePanel from './SidePanel.svelte';
 
   interface Props {
@@ -33,6 +34,27 @@
     return prefix + rectName(rect);
   });
   let rangeError = $state('');
+
+  // The chart stays in view beside the panel, or above it on a phone.
+  onMount(() => {
+    void tick().then(() => {
+      const panel = document.querySelector<HTMLElement>('[data-testid="chart-panel"]');
+      const grid = panel?.closest<HTMLElement>('.grid-root');
+      const scroller = grid?.querySelector<HTMLElement>('.scroller');
+      const element = grid?.querySelector<HTMLElement>(`[data-object-id="${id}"]`);
+      if (!panel || !grid || !scroller || !element) return;
+      const box = element.getBoundingClientRect();
+      const cover = panel.getBoundingClientRect();
+      const area = grid.getBoundingClientRect();
+      if (cover.width < area.width * 0.8) {
+        const overlap = box.right + 12 - cover.left;
+        if (overlap > 0) scroller.scrollBy({ left: Math.min(overlap, Math.max(0, box.left - area.left - 60)) });
+      } else {
+        const overlap = box.bottom + 8 - cover.top;
+        if (overlap > 0) scroller.scrollBy({ top: Math.min(overlap, Math.max(0, box.top - area.top - 32)) });
+      }
+    });
+  });
 
   $effect(() => {
     // The chart was deleted, here or elsewhere.

@@ -231,8 +231,10 @@ function googleValue(attribute: string | null): CellRaw | undefined {
 }
 
 function pictureOf(image: Element, row: number, col: number): PastedPicture | null {
-  const src = image.getAttribute('src') ?? '';
-  if (!/^(data:image\/|https?:)/i.test(src)) return null;
+  let src = image.getAttribute('src') ?? '';
+  // A picture of this app, such as one copied from a document, by its address here.
+  if (src.startsWith('/') && !src.startsWith('//') && typeof location !== 'undefined') src = new URL(src, location.href).href;
+  if (!/^(data:image\/|https?:|blob:)/i.test(src)) return null;
   const note = image.getAttribute('data-iris-object');
   let place: Partial<PastedPicture> = {};
   if (note) {

@@ -46,6 +46,20 @@ export interface GridTheme {
   error: string;
 }
 
+/** What rules and comments add to cells: looks, checkboxes, lists and marks. */
+export interface CellExtras {
+  /** The look of a cell with conditional formats applied. */
+  look(row: number, col: number): CellStyle;
+  /** A control the cell shows instead of, or beside, its text. */
+  control(row: number, col: number): 'checkbox' | 'list' | null;
+  /** The cell holds a value its validation does not allow. */
+  invalid(row: number, col: number): boolean;
+  /** The cell has comments that are not resolved. */
+  commented(row: number, col: number): boolean;
+  /** Whether any cell has a control or a mark, so drawing can skip looking. */
+  any: boolean;
+}
+
 export const REF_COLORS = ['#e8590c', '#1c7ed6', '#2f9e44', '#ae3ec9', '#d6336c', '#0c8599'];
 
 export interface GridScene extends Viewport {
@@ -75,7 +89,19 @@ export interface GridScene extends Viewport {
   dropLine: { axis: 'row' | 'col'; position: number } | null;
   /** Handles sized for a finger, after the last touch. */
   touch: boolean;
+  /** Conditional formats, checkboxes, lists and comment marks; null when there are none. */
+  extras: CellExtras | null;
 }
+
+/** A cell's look as drawn: with conditional formats when there are any. */
+function lookAt(scene: GridScene, row: number, col: number): CellStyle {
+  return scene.extras ? scene.extras.look(row, col) : scene.sheet.styleAt(row, col);
+}
+
+/** Room a list's arrow takes at the right of a cell. */
+export const LIST_ARROW = 16;
+/** Size of a checkbox drawn in a cell. */
+export const CHECKBOX = 14;
 
 
 /** The font size in points when a cell has none of its own. */
@@ -215,7 +241,9 @@ function drawCellText(
   if (!area && (rows.size(row) === 0 || cols.size(col) === 0)) return;
   const value = engine.valueAt(sheet, row, col);
   if (value === null || value === '') return;
-  const style = sheet.styleAt(row, col);
+  const style = lookAt(scene, row, col);
+  const control = scene.extras?.control(row, col) ?? null;
+  if (control === 'checkbox') return;
   let text = engine.textAt(sheet, row, col);
   if (text === '') return;
   const font = fontOf(style);
@@ -227,11 +255,11 @@ function drawCellText(
   const width = area ? area.width : cols.size(col);
   const height = area ? area.height : rows.size(row);
   if (width <= 0 || height <= 0) return;
-  const inner = width - CELL_PAD_X * 2;
+  const inner = width - CELL_PAD_X * 2 - (control === 'list' ? LIST_ARROW - 2 : 0);
   const lines = style.w || text.includes('\n') ? wrapText(text, font, style.w ? Math.max(8, inner) : null) : null;
 
   let clipLeft = x;
-  let clipRight = x + width;
+  let clipRight = x + width - (control === 'list' ? LIST_ARROW : 0);
   if (!lines) {
     const needed = textWidth(text, font);
     if (needed > inner) {
@@ -273,7 +301,8 @@ function drawCellText(
   ctx.fillStyle = style.c || (isError(value) ? theme.error : style.bg ? readableOn(style.bg, theme.text) : theme.text);
   ctx.textBaseline = 'alphabetic';
   ctx.textAlign = align === 'l' ? 'left' : align === 'r' ? 'right' : 'center';
-  const textX = align === 'l' ? x + CELL_PAD_X : align === 'r' ? x + width - CELL_PAD_X : x + width / 2;
+  const right = x + width - (control === 'list' ? LIST_ARROW - 2 : 0);
+  const textX = align === 'l' ? x + CELL_PAD_X : align === 'r' ? right - CELL_PAD_X : (x + right) / 2;
   const shown = lines ?? [text];
   const block = shown.length * lineHeight;
   // Where the first line's baseline sits within its line.
@@ -335,8 +364,8 @@ function drawBorders(ctx: CanvasRenderingContext2D, scene: GridScene, theme: Gri
   const colorOf = (value: string, row: number, col: number, otherRow: number, otherCol: number) => {
     const color = readBorder(value)?.color;
     if (color) return color;
-    const fill = sheet.styleAt(row, col).bg;
-    return fill && sheet.styleAt(otherRow, otherCol).bg ? readableOn(fill, theme.text) : theme.text;
+    const fill = lookAt(scene, row, col).bg;
+    return fill && lookAt(scene, otherRow, otherCol).bg ? readableOn(fill, theme.text) : theme.text;
   };
   const inside = (row: number, col: number, row2: number, col2: number) => {
     const m = sheet.mergeAt(row, col);
@@ -394,7 +423,7 @@ function drawPaneCells(ctx: CanvasRenderingContext2D, scene: GridScene, theme: G
   // Fills cover the lines around their cell, so a coloured block reads as one.
   for (let row = pane.rowFrom; row <= pane.rowTo; row += 1) {
     for (let col = pane.colFrom; col <= pane.colTo; col += 1) {
-      const fill = sheet.styleAt(row, col).bg;
+      const fill = lookAt(scene, row, col).bg;
       if (!fill || rows.size(row) === 0 || cols.size(col) === 0 || merged(row, col)) continue;
       ctx.fillStyle = fill;
       ctx.fillRect(pane.offsetX + cols.start(col) - 1, pane.offsetY + rows.start(row) - 1, cols.size(col) + 1, rows.size(row) + 1);
@@ -411,7 +440,7 @@ function drawPaneCells(ctx: CanvasRenderingContext2D, scene: GridScene, theme: G
   for (const m of merges) {
     const area = areaOf(m);
     if (area.width <= 0 || area.height <= 0) continue;
-    const fill = sheet.styleAt(m.r1, m.c1).bg;
+    const fill = lookAt(scene, m.r1, m.c1).bg;
     ctx.fillStyle = fill || theme.sheet;
     if (fill) ctx.fillRect(area.x - 1, area.y - 1, area.width + 1, area.height + 1);
     else ctx.fillRect(area.x, area.y, area.width - 1, area.height - 1);
@@ -447,6 +476,7 @@ function drawPaneCells(ctx: CanvasRenderingContext2D, scene: GridScene, theme: G
   }
 
   if (sheet.hasBorders()) drawBorders(ctx, scene, theme, pane);
+  if (scene.extras?.any) drawControls(ctx, scene, theme, pane);
 
   const header = scene.filterHeader;
   if (header && header.row >= pane.rowFrom && header.row <= pane.rowTo && rows.size(header.row) > 0) {
@@ -468,6 +498,88 @@ function drawPaneCells(ctx: CanvasRenderingContext2D, scene: GridScene, theme: G
     }
   }
   ctx.restore();
+}
+
+/**
+ * Checkboxes, the arrows of cells that offer a list, and the corner marks of
+ * comments and of values a validation rule does not allow.
+ */
+function drawControls(ctx: CanvasRenderingContext2D, scene: GridScene, theme: GridTheme, pane: Pane, only?: CellPos): void {
+  const { sheet, engine, rows, cols, extras, editing } = scene;
+  if (!extras) return;
+  for (let row = only?.row ?? pane.rowFrom; row <= (only?.row ?? pane.rowTo); row += 1) {
+    const height = rows.size(row);
+    if (height === 0) continue;
+    const y = pane.offsetY + rows.start(row);
+    for (let col = only?.col ?? pane.colFrom; col <= (only?.col ?? pane.colTo); col += 1) {
+      const width = cols.size(col);
+      if (width === 0) continue;
+      const merge = sheet.mergeAt(row, col);
+      if (merge && (merge.r1 !== row || merge.c1 !== col)) continue;
+      const x = pane.offsetX + cols.start(col);
+      const blockWidth = merge ? cols.end(merge.c2) - cols.start(col) : width;
+      const blockHeight = merge ? rows.end(merge.r2) - rows.start(row) : height;
+      const control = extras.control(row, col);
+      const typing = editing !== null && editing.row === row && editing.col === col;
+      if (control === 'checkbox' && !typing) {
+        const value = engine.valueAt(sheet, row, col);
+        const on = value === true || value === 1 || (typeof value === 'string' && value.toLowerCase() === 'true');
+        const size = Math.min(CHECKBOX, blockHeight - 6, blockWidth - 6);
+        if (size >= 8) {
+          const style = lookAt(scene, row, col);
+          const left = Math.round(x + (style.a === 'l' ? CELL_PAD_X : style.a === 'r' ? blockWidth - CELL_PAD_X - size : (blockWidth - size) / 2));
+          const top = Math.round(y + (blockHeight - size) / 2);
+          ctx.beginPath();
+          ctx.roundRect(left + 0.5, top + 0.5, size - 1, size - 1, 3);
+          if (on) {
+            ctx.fillStyle = style.c || theme.accent;
+            ctx.fill();
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(left + size * 0.25, top + size * 0.52);
+            ctx.lineTo(left + size * 0.43, top + size * 0.7);
+            ctx.lineTo(left + size * 0.76, top + size * 0.32);
+            ctx.stroke();
+          } else {
+            ctx.strokeStyle = style.c || theme.mutedText;
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+          }
+        }
+      } else if (control === 'list' && !typing && blockWidth > LIST_ARROW + 8) {
+        // A small arrow at the right, like the one on a choice box.
+        const centerX = x + blockWidth - LIST_ARROW / 2 - 2;
+        const centerY = y + blockHeight / 2;
+        ctx.fillStyle = theme.mutedText;
+        ctx.beginPath();
+        ctx.moveTo(centerX - 4, centerY - 2);
+        ctx.lineTo(centerX + 4, centerY - 2);
+        ctx.lineTo(centerX, centerY + 3);
+        ctx.closePath();
+        ctx.fill();
+      }
+      const right = x + blockWidth - 1;
+      if (extras.invalid(row, col)) {
+        ctx.fillStyle = theme.error;
+        ctx.beginPath();
+        ctx.moveTo(right - 7, y);
+        ctx.lineTo(right, y);
+        ctx.lineTo(right, y + 7);
+        ctx.closePath();
+        ctx.fill();
+      }
+      if (extras.commented(row, col)) {
+        ctx.fillStyle = '#f59f00';
+        ctx.beginPath();
+        ctx.moveTo(right - 8, y);
+        ctx.lineTo(right, y);
+        ctx.lineTo(right, y + 8);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+  }
 }
 
 /** The part of a rectangle of cells that lies in a pane, in canvas pixels, or null. */
@@ -528,7 +640,7 @@ function drawPaneOverlays(ctx: CanvasRenderingContext2D, scene: GridScene, theme
       // The cell that typing goes into stays clear inside the tinted range.
       const activeBox = rectInPane(scene, pane, activeRect);
       if (activeBox) {
-        const style = sheet.styleAt(active.row, active.col);
+        const style = lookAt(scene, active.row, active.col);
         ctx.fillStyle = style.bg || theme.sheet;
         ctx.fillRect(activeBox.x, activeBox.y, activeBox.width - 1, activeBox.height - 1);
         if (!(scene.editing && scene.editing.row === active.row && scene.editing.col === active.col) && !sheet.isEmpty(active.row, active.col)) {
@@ -540,6 +652,8 @@ function drawPaneOverlays(ctx: CanvasRenderingContext2D, scene: GridScene, theme
             height: scene.rows.end(activeRect.r2) - scene.rows.start(activeRect.r1),
           } : undefined);
         }
+        // Its checkbox or list arrow and its marks, which the clearing covered.
+        if (scene.extras?.any) drawControls(ctx, scene, theme, pane, { row: activeRect.r1, col: activeRect.c1 });
       }
     }
     ctx.strokeStyle = scene.focused ? theme.accent : theme.mutedText;

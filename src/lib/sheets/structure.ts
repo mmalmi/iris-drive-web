@@ -1,6 +1,30 @@
 /** Reorganising rows and columns in ways that need to look at formulas. */
-import { tokenize, writeIdRef, type RefSpec } from './formula';
-import { isFormula, type Book, type Sheet } from './model';
+import { tokenize, writeIdRef, type RefEnd, type RefSpec } from './formula';
+import { isFormula, newId, type Book, type Sheet } from './model';
+
+/** Transaction origin of formulas put together after two devices' moves met; not one of this person's edits to undo. */
+export const MERGE_ORIGIN = 'sheet-merge';
+/** How long a note of a move's formula changes is kept for a device that was away. */
+const NOTE_DAYS = 30;
+
+/**
+ * What a move did to a formula, kept in the props of the formula's sheet as
+ * fx:<id> -> { key, before, after, time }. Two devices that move different
+ * rows of one range at the same time each rewrite the formula, and only one
+ * of the two texts can stay; with these notes the other's change of the
+ * range's ends is put back (see reconcileMoves).
+ */
+interface MoveNote {
+  key: string;
+  before: string;
+  after: string;
+  time: number;
+}
+
+function isNote(value: unknown): value is MoveNote {
+  const note = value as MoveNote | null;
+  return !!note && typeof note.key === 'string' && typeof note.before === 'string' && typeof note.after === 'string';
+}
 
 /**
  * Moves rows or columns so they sit before the one now at `to`.
@@ -76,7 +100,9 @@ export function moveKeepingRanges(book: Book, sheet: Sheet, axis: 'row' | 'col',
         // rows at once, its formula and its place then win or lose together
         // with this one's (see model.ts).
         if (touched) home.cells.set(key, out);
+        if (touched && out !== raw) home.props.set(`fx:${newId()}`, { key, before: raw, after: out, time: Date.now() });
       }
+      forgetOldNotes(home);
     }
     // Merged blocks keep their rows together the same way.
     for (const merge of sheet.merges()) {
@@ -90,6 +116,81 @@ export function moveKeepingRanges(book: Book, sheet: Sheet, axis: 'row' | 'col',
     }
     sheet.move(axis, from, count, to);
   });
+}
+
+function forgetOldNotes(sheet: Sheet): void {
+  const oldest = Date.now() - NOTE_DAYS * 86_400_000;
+  for (const [key, value] of [...sheet.props.entries()]) {
+    if (key.startsWith('fx:') && (!isNote(value) || value.time < oldest || sheet.cells.get(value.key) === undefined)) sheet.props.delete(key);
+  }
+}
+
+function sameEnd(left: RefEnd | null, right: RefEnd | null): boolean {
+  if (!left || !right) return left === right;
+  return left.row === right.row && left.col === right.col && left.absRow === right.absRow && left.absCol === right.absCol;
+}
+
+/**
+ * `mine` with the range ends that `theirs` changed from `base` and `mine`
+ * left alone. Null when the three are not the same formula with ends moved.
+ */
+export function mergeRangeEnds(base: string, mine: string, theirs: string): string | null {
+  const [b, m, t] = [base, mine, theirs].map(text => tokenize(text.slice(1), 'id'));
+  if (b.length !== m.length || b.length !== t.length) return null;
+  let out = '=';
+  for (let index = 0; index < m.length; index += 1) {
+    const [bt, mt, tt] = [b[index], m[index], t[index]];
+    if (bt.type !== mt.type || bt.type !== tt.type) return null;
+    if (mt.type !== 'ref' || !mt.ref || !bt.ref || !tt.ref) {
+      if (bt.text !== mt.text || bt.text !== tt.text) return null;
+      out += mt.text;
+      continue;
+    }
+    if (bt.ref.sheet !== mt.ref.sheet || bt.ref.sheet !== tt.ref.sheet) return null;
+    const pick = (baseEnd: RefEnd | null, mineEnd: RefEnd | null, theirEnd: RefEnd | null) => (sameEnd(baseEnd, mineEnd) && !sameEnd(baseEnd, theirEnd) ? theirEnd : mineEnd);
+    out += writeIdRef({ ...mt.ref, a: pick(bt.ref.a, mt.ref.a, tt.ref.a) as RefEnd, b: pick(bt.ref.b, mt.ref.b, tt.ref.b) });
+  }
+  return out;
+}
+
+/**
+ * After another device's changes arrived: formulas that two moves at once
+ * rewrote get the range ends both moves changed. Every device that sees both
+ * notes comes to the same formula. Returns how many formulas it wrote.
+ */
+export function reconcileMoves(book: Book): number {
+  let written = 0;
+  for (const info of book.sheets) {
+    const sheet = book.sheet(info.id);
+    const byKey = new Map<string, Array<MoveNote & { id: string }>>();
+    for (const [key, value] of sheet.props.entries()) {
+      if (!key.startsWith('fx:') || !isNote(value)) continue;
+      const list = byKey.get(value.key);
+      if (list) list.push({ ...value, id: key });
+      else byKey.set(value.key, [{ ...value, id: key }]);
+    }
+    for (const [key, notes] of byKey) {
+      if (notes.length < 2) continue;
+      const current = sheet.cells.get(key);
+      if (typeof current !== 'string') continue;
+      const won = notes.find(note => note.after === current);
+      if (!won) continue;
+      let text = current;
+      for (const note of notes.sort((x, y) => (x.id < y.id ? -1 : 1))) {
+        if (note === won || note.before !== won.before || note.after === won.after) continue;
+        text = mergeRangeEnds(won.before, text, note.after) ?? text;
+      }
+      if (text !== current) {
+        book.doc.transact(() => {
+          sheet.cells.set(key, text);
+          // The result is what the moves together did: a later merge starts from it.
+          for (const note of notes) sheet.props.set(note.id, { key: note.key, before: note.before, after: text, time: note.time });
+        }, MERGE_ORIGIN);
+        written += 1;
+      }
+    }
+  }
+  return written;
 }
 
 /** Rewrites the references of every formula in the book; `replace` returns null to leave one as it is. */

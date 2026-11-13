@@ -4,7 +4,7 @@
  * The icon names here are only found by the style generator because of this marker:
  * @unocss-include
  */
-import { rectCols, rectContains, rectRows } from '../../lib/sheets/address';
+import { columnName, rectCols, rectContains, rectRows } from '../../lib/sheets/address';
 import type { Hit } from '../../lib/sheets/layout';
 import {
   autoFitColumn,
@@ -14,11 +14,11 @@ import {
   fillWithin,
   insertBeside,
   moveSelected,
-  pasteText,
 } from '../../lib/sheets/commands';
 import type { SheetController } from '../../lib/sheets/controller.svelte';
 import { hiddenNear, hideSelected, showHidden } from '../../lib/sheets/dataCommands';
 import type { MenuItem } from './PopupMenu.svelte';
+import { pasteInto, readClipboard } from './gridClipboard';
 
 const mac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
 export const MOD = mac ? '⌘' : 'Ctrl+';
@@ -34,10 +34,33 @@ export async function copyToClipboard(ctl: SheetController, cut: boolean): Promi
 
 export async function pasteFromClipboard(ctl: SheetController, valuesOnly = false): Promise<void> {
   try {
-    pasteText(ctl, await navigator.clipboard.readText(), valuesOnly);
+    pasteInto(ctl, await readClipboard(), valuesOnly);
   } catch {
     ctl.say(`Press ${MOD}V to paste.`);
   }
+}
+
+/**
+ * Freezing the rows above the selection and the columns left of it: up to
+ * the row and column of the active cell, or of the last selected row or column.
+ */
+export function freezeItems(ctl: SheetController, target: 'cell' | 'row' | 'col' = 'cell'): MenuItem[] {
+  const sheet = ctl.sheet;
+  const rect = ctl.selection;
+  const row = target === 'row' ? rect.r2 + 1 : ctl.active.row + 1;
+  const col = target === 'col' ? rect.c2 + 1 : ctl.active.col + 1;
+  const items: MenuItem[] = [];
+  if (target !== 'col' && row < sheet.rows.length) {
+    items.push({ label: `Freeze up to row ${row}`, icon: 'i-lucide-panel-top', checked: sheet.freezeRows === row, action: () => sheet.setFreeze(sheet.freezeRows === row ? 0 : row, sheet.freezeCols), testId: 'menu-freeze-rows' });
+  }
+  if (target !== 'row' && col < sheet.cols.length) {
+    items.push({ label: `Freeze up to column ${columnName(col - 1)}`, icon: 'i-lucide-panel-left', checked: sheet.freezeCols === col, action: () => sheet.setFreeze(sheet.freezeRows, sheet.freezeCols === col ? 0 : col), testId: 'menu-freeze-cols' });
+  }
+  if (sheet.freezeRows > 0 || sheet.freezeCols > 0) {
+    items.push({ label: 'Unfreeze', icon: 'i-lucide-panels-top-left', action: () => sheet.setFreeze(0, 0), testId: 'menu-unfreeze' });
+  }
+  if (items.length > 0) items[0].divider = true;
+  return items;
 }
 
 function plural(count: number, one: string, many: string): string {
@@ -84,6 +107,7 @@ export function selectionMenu(ctl: SheetController, target: 'cell' | 'row' | 'co
       { label: rows === 1 ? 'Hide row' : 'Hide rows', icon: 'i-lucide-eye-off', action: () => hideSelected(ctl, 'row'), divider: true, testId: 'menu-hide-row' },
       ...(hiddenNear(ctl, 'row') ? [{ label: 'Show hidden rows', icon: 'i-lucide-eye', action: () => showHidden(ctl, 'row'), testId: 'menu-show-rows' }] : []),
       { label: 'Fit height to content', icon: 'i-lucide-fold-vertical', action: () => sheet.setRowHeight(rect.r1, rect.r2, null) },
+      ...freezeItems(ctl, 'row'),
       clear,
     );
   } else if (target === 'col') {
@@ -95,6 +119,7 @@ export function selectionMenu(ctl: SheetController, target: 'cell' | 'row' | 'co
       { label: cols === 1 ? 'Hide column' : 'Hide columns', icon: 'i-lucide-eye-off', action: () => hideSelected(ctl, 'col'), divider: true, testId: 'menu-hide-col' },
       ...(hiddenNear(ctl, 'col') ? [{ label: 'Show hidden columns', icon: 'i-lucide-eye', action: () => showHidden(ctl, 'col'), testId: 'menu-show-cols' }] : []),
       { label: 'Fit width to content', icon: 'i-lucide-fold-horizontal', action: () => autoFitColumn(ctl, rect.c1), testId: 'menu-fit-width' },
+      ...freezeItems(ctl, 'col'),
       clear,
     );
   } else {
@@ -111,6 +136,16 @@ export function selectionMenu(ctl: SheetController, target: 'cell' | 'row' | 'co
       { ...deleteRow, divider: true },
       deleteCol,
       clear,
+      {
+        label: 'Comment',
+        icon: 'i-lucide-message-square-plus',
+        hint: `${MOD}${mac ? '⌥' : 'Alt+'}M`,
+        divider: true,
+        action: () => { ctl.commentFor = { cell: `${sheet.rows.ids[ctl.active.row]}:${sheet.cols.ids[ctl.active.col]}`, compose: true }; },
+        testId: 'menu-comment',
+      },
+      { label: 'Conditional formatting', icon: 'i-lucide-paint-roller', action: () => { ctl.panel = { kind: 'format' }; }, testId: 'menu-conditional' },
+      { label: 'Data validation', icon: 'i-lucide-list-checks', action: () => { ctl.panel = { kind: 'valid' }; }, testId: 'menu-validation' },
     );
   }
   return items;

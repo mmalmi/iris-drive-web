@@ -16,28 +16,59 @@ export function copyCells(ctl: SheetController, event: ClipboardEvent): void {
  * or spreadsheet with its looks; a picture floats over the grid. With
  * `valuesOnly` (Shift held), only values are pasted.
  */
-export function pasteInto(ctl: SheetController, data: DataTransfer | null, valuesOnly: boolean): void {
-  if (!data || !ctl.canEdit) return;
-  const text = data.getData('text/plain');
-  const html = data.getData('text/html');
+export interface Pasted {
+  text: string;
+  html: string;
+  files: File[];
+}
+
+/** What a paste event carries. */
+export function pastedFrom(data: DataTransfer | null): Pasted {
+  return {
+    text: data?.getData('text/plain') ?? '',
+    html: data?.getData('text/html') ?? '',
+    files: [...(data?.files ?? [])],
+  };
+}
+
+/** What the clipboard holds, read when a menu asks to paste. */
+export async function readClipboard(): Promise<Pasted> {
+  const out: Pasted = { text: '', html: '', files: [] };
+  for (const item of await navigator.clipboard.read()) {
+    for (const type of item.types) {
+      const blob = await item.getType(type);
+      if (type === 'text/plain') out.text ||= await blob.text();
+      else if (type === 'text/html') out.html ||= await blob.text();
+      else if (type.startsWith('image/')) out.files.push(new File([blob], `picture.${type.split('/')[1]}`, { type }));
+    }
+  }
+  return out;
+}
+
+export function pasteInto(ctl: SheetController, data: Pasted, valuesOnly: boolean): void {
+  if (!ctl.canEdit) return;
+  const { text, html } = data;
   if (text && ctl.copied?.text === text) {
     pasteText(ctl, text, valuesOnly);
     return;
   }
   if (html && pasteOwnObject(ctl, html)) return;
-  const pictures = [...data.files].filter(file => file.type.startsWith('image/'));
+  const pictures = data.files.filter(file => file.type.startsWith('image/'));
   const table = html && !valuesOnly ? readHtmlTable(html) : null;
   const origin = { row: ctl.selection.r1, col: ctl.selection.c1 };
   if (table && table.cells.length > 0) {
     pasteTable(ctl, table);
     if (table.pictures.length > 0) void pastePictures(ctl, table.pictures, origin);
-  } else if (pictures.length > 0) {
+    return;
+  }
+  // Text, such as paragraphs from a document, goes into cells; its pictures float beside.
+  if (text.trim() !== '') pasteText(ctl, text, valuesOnly);
+  if (pictures.length > 0) {
+    // The files are the exact pictures; HTML that comes with them only points at them.
     void (async () => {
       for (const [index, picture] of pictures.entries()) await insertPicture(ctl, picture, { ...origin, dx: index * 16, dy: index * 16 });
     })();
   } else if (table && table.pictures.length > 0) {
     void pastePictures(ctl, table.pictures, origin);
-  } else {
-    pasteText(ctl, text, valuesOnly);
   }
 }

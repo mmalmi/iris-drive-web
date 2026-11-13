@@ -160,6 +160,28 @@ export function collectRefs(node: Node, into: RefSpec[] = []): RefSpec[] {
   return into;
 }
 
+/** The names of ranges a formula uses, as written. */
+export function collectNames(node: Node, into: string[] = []): string[] {
+  switch (node.t) {
+    case 'name':
+      into.push(node.name);
+      break;
+    case 'un':
+    case 'pct':
+      collectNames(node.x, into);
+      break;
+    case 'bin':
+      collectNames(node.l, into);
+      collectNames(node.r, into);
+      break;
+    case 'call':
+      for (const arg of node.args) collectNames(arg, into);
+      break;
+    default:
+  }
+  return into;
+}
+
 export function callsAny(node: Node, names: ReadonlySet<string>): boolean {
   switch (node.t) {
     case 'un':
