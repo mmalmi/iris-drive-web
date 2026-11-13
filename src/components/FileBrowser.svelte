@@ -1,10 +1,14 @@
 <script lang="ts">
   import { acceptedShares } from '../drive/shareLibrary';
-  import { toHex, nhashEncode, LinkType } from '@hashtree/core';
+  import { toHex, nhashEncode, LinkType, type TreeEntry as FileEntry } from '@hashtree/core';
   import { formatBytes } from '../store';
   import { deleteEntry, moveEntry, moveToParent } from '../actions';
-  import { uploadFiles, uploadDirectory } from '../stores/upload';
+  import { uploadFiles } from '../stores/upload';
   import { recentlyChangedFiles } from '../stores/recentlyChanged';
+  import { toast } from '../stores/toast';
+  import { getNhashFileUrl } from '../lib/mediaUrl';
+  import { copiedMessage, copyEntry, copyKind, downloadDragData, entryLink, isOutsideDrag, pastedIntoFolder } from '../lib/driveClipboard';
+  import { addDropped } from '../lib/folderDrop';
   import { nostrStore, npubToPubkey } from '../nostr';
   import { UserRow, Avatar } from './User';
   import FolderActions from './FolderActions.svelte';
@@ -14,7 +18,6 @@
   import FileBrowserTreeList from './FileBrowserTreeList.svelte';
   import ProtectedTreeNotice from './ProtectedTreeNotice.svelte';
   import { treeRootStore, routeStore, createTreesStore, type TreeEntry, currentDirCidStore, isViewingFileStore, resolvingPathStore, directoryEntriesStore, permalinkSnapshotStore } from '../stores';
-  import { readFilesFromDataTransfer, hasDirectoryItems } from '@iris/hashtree-app/directory';
   import {
     buildDirHref as buildFileDirHref,
     buildEntryHref as buildFileEntryHref,
@@ -196,33 +199,26 @@
     fileListRef?.scrollTo(0, 0);
   });
 
-  async function handleFileDrop(e: DragEvent) {
+  /**
+   * Adds what is dropped from outside the page: files, folders with all that
+   * is in them, or a picture dragged from a web page. Into the open folder,
+   * or into `dirName` when dropped onto that folder's row.
+   */
+  async function handleFileDrop(e: DragEvent, dirName: string | null = null) {
     e.preventDefault();
     isDraggingOver = false;
-    if (!canEdit) return;
+    dropTargetDir = null;
+    if (!canEdit || draggingEntry) return;
 
-    const dataTransfer = e.dataTransfer;
-    if (!dataTransfer) return;
-
-    if (hasDirectoryItems(dataTransfer) || dataTransfer.items?.length > 0) {
-      const result = await readFilesFromDataTransfer(dataTransfer);
-      if (result.files.length > 0) {
-        await uploadDirectory(result);
-        return;
-      }
-    }
-
-    const files = dataTransfer.files;
-    if (files && files.length > 0) {
-      await uploadFiles(files);
-    }
+    if (!e.dataTransfer) return;
+    await addDropped(e.dataTransfer, { currentPath, taken: new Set(entries.map(entry => entry.name)), dirName });
   }
 
   function handleFileDragOver(e: DragEvent) {
-    if (!canEdit) return;
-    if (e.dataTransfer?.types.includes('Files')) {
+    if (!canEdit || draggingEntry) return;
+    if (isOutsideDrag(e.dataTransfer)) {
       e.preventDefault();
-      e.dataTransfer.dropEffect = 'copy';
+      e.dataTransfer!.dropEffect = 'copy';
       isDraggingOver = true;
     }
   }
@@ -243,14 +239,20 @@
   let draggingEntry = $state<string | null>(null);
   let dropTargetDir = $state<string | null>(null);
 
-  function handleEntryDragStart(e: DragEvent, entryName: string) {
+  function handleEntryDragStart(e: DragEvent, entry: FileEntry) {
+    const data = e.dataTransfer!;
+    // A file can be dragged out onto the desktop, read-only or not (Chrome, Edge).
+    if (entry.type !== LinkType.Dir) {
+      data.setData('DownloadURL', downloadDragData(entry, getNhashFileUrl(entry.cid, entry.name)));
+    }
     if (!canEdit) {
-      e.preventDefault();
+      if (entry.type === LinkType.Dir) e.preventDefault();
+      else data.effectAllowed = 'copy';
       return;
     }
-    draggingEntry = entryName;
-    e.dataTransfer!.effectAllowed = 'move';
-    e.dataTransfer!.setData('text/plain', entryName);
+    draggingEntry = entry.name;
+    data.effectAllowed = 'copyMove';
+    data.setData('text/plain', entry.name);
   }
 
   function handleEntryDragEnd() {
@@ -259,7 +261,17 @@
   }
 
   function handleDirDragOver(e: DragEvent, dirName: string) {
-    if (!canEdit || !draggingEntry || draggingEntry === dirName) return;
+    if (!canEdit) return;
+    if (!draggingEntry) {
+      // From the desktop or another page: into this folder.
+      if (!isOutsideDrag(e.dataTransfer)) return;
+      e.preventDefault();
+      e.dataTransfer!.dropEffect = 'copy';
+      isDraggingOver = true;
+      dropTargetDir = dirName;
+      return;
+    }
+    if (draggingEntry === dirName) return;
     e.preventDefault();
     e.dataTransfer!.dropEffect = 'move';
     dropTargetDir = dirName;
@@ -273,8 +285,12 @@
     e.preventDefault();
     e.stopPropagation();
     dropTargetDir = null;
+    if (!draggingEntry) {
+      await handleFileDrop(e, dirName);
+      return;
+    }
 
-    if (!canEdit || !draggingEntry || draggingEntry === dirName) return;
+    if (!canEdit || draggingEntry === dirName) return;
 
     await moveEntry(draggingEntry, dirName);
     draggingEntry = null;
@@ -379,6 +395,65 @@
       fileListRef?.focus();
     }, 50);
     return () => clearTimeout(timer);
+  });
+
+  /** Whether a clipboard event belongs to something else: a field, an editor or a dialog. */
+  function belongsElsewhere(event: ClipboardEvent): boolean {
+    if (event.defaultPrevented) return true;
+    const target = event.target instanceof Element ? event.target : null;
+    if (target?.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="dialog"]')) return true;
+    // The app's dialogs cover the page with a fixed layer.
+    return !!document.querySelector('[aria-modal="true"], .fixed.inset-0');
+  }
+
+  /** The entry a copy is about: the one picked with the keyboard, or the open file. */
+  function chosenEntry(): FileEntry | null {
+    const entryIndex = focusedIndex - specialItemCount;
+    if (focusedIndex >= 0) return entryIndex >= 0 ? entries[entryIndex] ?? null : null;
+    return selectedEntry ?? null;
+  }
+
+  // Pasting into the folder: files copied in Finder or Explorer, a screenshot
+  // or copied picture, or plain text kept as a text file.
+  $effect(() => {
+    if (!inTreeView || !canEdit) return;
+    const onPaste = (event: ClipboardEvent) => {
+      if (belongsElsewhere(event)) return;
+      const pasted = pastedIntoFolder(event.clipboardData, new Set(entries.map(entry => entry.name)));
+      if (!pasted) return;
+      event.preventDefault();
+      const many = pasted.files.length > 1;
+      void uploadFiles(pasted.files).then(() => {
+        toast.success(many ? `Pasted ${pasted.summary}` : `Saved as ${pasted.summary}`);
+      }, () => toast.error('Could not save what was pasted.'));
+    };
+    document.addEventListener('paste', onPaste);
+    return () => document.removeEventListener('paste', onPaste);
+  });
+
+  // Copying a file for other apps: a picture as a picture, a text file as its text, anything else as a link.
+  $effect(() => {
+    if (!inTreeView) return;
+    const onCopy = (event: ClipboardEvent) => {
+      if (belongsElsewhere(event) || !window.getSelection()?.isCollapsed) return;
+      const entry = chosenEntry();
+      if (!entry) return;
+      event.preventDefault();
+      if (copyKind(entry) === 'link' && event.clipboardData) {
+        event.clipboardData.setData('text/plain', entryLink(entry));
+        toast.success(copiedMessage('link', entry.name), 2500);
+        return;
+      }
+      copyEntry(entry).then(
+        kind => toast.success(copiedMessage(kind, entry.name), 2500),
+        (error: unknown) => {
+          console.warn('[Drive] Could not copy:', error);
+          toast.error(`Could not copy ${entry.name}`);
+        },
+      );
+    };
+    document.addEventListener('copy', onCopy);
+    return () => document.removeEventListener('copy', onCopy);
   });
 
   function handleKeyDown(e: KeyboardEvent) {
@@ -595,7 +670,7 @@
     >
       {#if isDraggingOver}
         <div class="absolute inset-0 flex items-center justify-center pointer-events-none z-10 border-2 border-dashed border-accent rounded m-2">
-          <span class="text-accent font-medium">Drop files to add</span>
+          <span class="text-accent font-medium">{dropTargetDir && !draggingEntry ? `Drop to add to ${dropTargetDir}` : 'Drop files to add'}</span>
         </div>
       {/if}
 
@@ -655,9 +730,9 @@
             {@const entryAccess = accessAt([...currentPath, entry.name])}
             <a
               href={buildEntryHref(entry, currentNpub, currentTreeName, currentPath, rootCid, linkKey, null)}
-              class="p-3 {showDirectoryNavigationRows ? 'pl-9' : 'lg:px-5'} border-b border-surface-2 flex items-center gap-3 no-underline text-text-1 hover:bg-surface-2/50 {selectedEntry?.name === entry.name && focusedIndex < 0 ? 'bg-surface-2' : ''} {focusedIndex === idx + specialItemCount ? 'ring-2 ring-inset ring-accent' : ''} {recentlyChanged.has(entry.name) && selectedEntry?.name !== entry.name ? 'animate-pulse-live' : ''} {draggingEntry === entry.name ? 'opacity-50' : ''} {dropTargetDir === entry.name ? 'bg-accent/20' : ''}"
-              draggable={canEdit}
-              ondragstart={(e) => handleEntryDragStart(e, entry.name)}
+              class="p-3 {showDirectoryNavigationRows ? 'pl-9' : 'lg:px-5'} border-b border-surface-2 flex items-center gap-3 no-underline text-text-1 hover:bg-surface-2/50 {selectedEntry?.name === entry.name && focusedIndex < 0 ? 'bg-surface-2' : ''} {focusedIndex === idx + specialItemCount ? 'ring-2 ring-inset ring-accent' : ''} {recentlyChanged.has(entry.name) && selectedEntry?.name !== entry.name ? 'animate-pulse-live' : ''} {draggingEntry === entry.name ? 'opacity-50' : ''} {dropTargetDir === entry.name ? 'bg-accent/20 ring-2 ring-inset ring-accent' : ''}"
+              draggable={canEdit || entry.type !== LinkType.Dir}
+              ondragstart={(e) => handleEntryDragStart(e, entry)}
               ondragend={handleEntryDragEnd}
               ondragover={isFolder ? (e) => handleDirDragOver(e, entry.name) : undefined}
               ondragleave={isFolder ? handleDirDragLeave : undefined}

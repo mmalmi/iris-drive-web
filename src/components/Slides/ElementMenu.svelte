@@ -11,10 +11,12 @@
     /** Copies the selection; takes it off the slide too when `cut`. */
     onCopy: (cut: boolean) => void;
     onPaste: () => void;
+    /** Puts a picture of the selection, or of the slide, on the clipboard. */
+    onCopyImage: () => void;
     /** Called as an item is chosen, before it acts. */
     onDone: () => void;
   }
-  let { editorState, open = $bindable(), at, onCopy, onPaste, onDone }: Props = $props();
+  let { editorState, open = $bindable(), at, onCopy, onPaste, onCopyImage, onDone }: Props = $props();
 
   const modifier = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl+';
 
@@ -34,6 +36,9 @@
       <span class="i-lucide-copy"></span>Copy<span class="keys">{modifier}C</span>
     </button>
   {/if}
+  <button class="menu-item" onclick={() => run(onCopyImage)} data-testid="element-menu-copy-image">
+    <span class="i-lucide-image"></span>{editorState.selection.length > 0 ? 'Copy image' : 'Copy slide as image'}
+  </button>
   <button class="menu-item" onclick={() => run(onPaste)} data-testid="element-menu-paste">
     <span class="i-lucide-clipboard"></span>Paste<span class="keys">{modifier}V</span>
   </button>

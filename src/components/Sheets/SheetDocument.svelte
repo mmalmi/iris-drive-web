@@ -171,7 +171,13 @@
     if (!ready || !ctl.canEdit || !file) return;
     event.preventDefault();
     if (isSheetFile(file)) void importFile(ctl, file);
-    else ctl.say('Drop a CSV or Excel file to add it as a sheet.');
+    else if (file.type.startsWith('image/')) {
+      // Pictures float over the grid at the active cell, as when pasted.
+      const pictures = [...(event.dataTransfer?.files ?? [])].filter(each => each.type.startsWith('image/'));
+      void import('../../lib/sheets/pasting').then(async ({ insertPicture }) => {
+        for (const picture of pictures) await insertPicture(ctl, picture);
+      });
+    } else ctl.say('Drop a picture, or a CSV or Excel file to add it as a sheet.');
   }
 </script>
 

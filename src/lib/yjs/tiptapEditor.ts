@@ -69,6 +69,11 @@ export function createYjsTiptapEditor(options: CreateYjsTiptapEditorOptions): Yj
           void addFiles(files);
           return true;
         }
+        if (event.dataTransfer?.files.length) {
+          event.preventDefault();
+          options.onNotice('Only pictures can be dropped into a document.');
+          return true;
+        }
         bringPicturesIn();
         return false;
       },
@@ -82,8 +87,31 @@ export function createYjsTiptapEditor(options: CreateYjsTiptapEditorOptions): Yj
     const html = event.clipboardData?.getData('text/html');
     if (!html || !event.clipboardData) return;
     const rewritten = rewriteCopiedHtml(html, options.attachmentUrl, window.location.href);
-    if (rewritten !== html) event.clipboardData.setData('text/html', rewritten);
+    if (rewritten === html) return;
+    event.clipboardData.setData('text/html', rewritten);
+    writePictures(rewritten, event.clipboardData.getData('text/plain'));
   };
+
+  /**
+   * Other apps cannot load a picture from where this browser shows it, so a
+   * copy with pictures is written again with the pictures themselves: inline
+   * in the HTML, and as a PNG picture when there is one. The write is asked
+   * for now, while the copy is the person's own act; what the copy event put
+   * on the clipboard stays when the browser does not allow it.
+   */
+  function writePictures(html: string, text: string): void {
+    if (typeof ClipboardItem === 'undefined' || typeof navigator.clipboard?.write !== 'function') return;
+    const made = import('./copiedPictures');
+    const pictures = (html.match(/data-iris-attachment="/g) ?? []).length;
+    const items: Record<string, Blob | Promise<Blob>> = {
+      'text/html': made.then(copied => copied.inlinePictures(html)).then(inline => new Blob([inline], { type: 'text/html' })),
+    };
+    if (text) items['text/plain'] = new Blob([text], { type: 'text/plain' });
+    if (pictures === 1) items['image/png'] = made.then(copied => copied.firstPicturePng(html));
+    navigator.clipboard.write([new ClipboardItem(items)]).catch((error: unknown) => {
+      console.warn('[Document] Pictures were copied as links only:', error);
+    });
+  }
   options.element.addEventListener('copy', nameCopiedPictures);
   options.element.addEventListener('cut', nameCopiedPictures);
 

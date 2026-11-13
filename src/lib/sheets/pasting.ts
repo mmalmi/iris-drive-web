@@ -76,10 +76,13 @@ export function pasteTable(ctl: SheetController, table: PastedTable): Rect | nul
 async function pictureSize(blob: Blob): Promise<{ width: number; height: number } | null> {
   try {
     if (typeof createImageBitmap === 'function' && blob.type !== 'image/svg+xml') {
-      const bitmap = await createImageBitmap(blob);
-      const size = { width: bitmap.width, height: bitmap.height };
-      bitmap.close();
-      return size;
+      // Some pictures a page shows are refused here; those are measured as an <img> below.
+      const bitmap = await createImageBitmap(blob).catch(() => null);
+      if (bitmap) {
+        const size = { width: bitmap.width, height: bitmap.height };
+        bitmap.close();
+        return size;
+      }
     }
     const url = URL.createObjectURL(blob);
     try {
