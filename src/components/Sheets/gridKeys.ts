@@ -74,7 +74,10 @@ export function handleGridKey(ctl: SheetController, event: KeyboardEvent, pageRo
     case 'F2': ctl.startEdit(); return true;
     case 'Delete':
     case 'Backspace': clearContents(ctl); return true;
-    case 'Escape': ctl.copied = null; return true;
+    case 'Escape':
+      if (ctl.find) ctl.find = null;
+      else ctl.copied = null;
+      return true;
     case 'Home': ctl.goHome(mod, shift); return true;
     case 'End': ctl.goEnd(mod, shift); return true;
     case 'PageDown': ctl.move(pageRows, 0, { extend: shift }); return true;

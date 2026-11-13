@@ -456,7 +456,7 @@ export class Engine {
       } catch (error) {
         if (error instanceof TooDeep) throw error;
         // A fault in a function must not take the rest of the spreadsheet down with it.
-        console.error('[Sheet] Could not calculate a formula:', error);
+        console.error('[Sheets] Could not calculate a formula:', error);
         value = err('#ERROR!', 'This formula could not be calculated');
       }
       // Reading its own cells again on the way marks the formula as part of a circle.

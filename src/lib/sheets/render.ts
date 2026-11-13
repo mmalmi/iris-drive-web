@@ -2,7 +2,7 @@
 import { columnName, type CellPos, type Rect } from './address';
 import type { Engine } from './engine';
 import { formatGeneral } from './format';
-import { FILL_HANDLE, HEADER_HEIGHT, columnX, frozenHeight, frozenWidth, panesOf, rowY, type Pane, type Viewport } from './layout';
+import { FILL_HANDLE, FILTER_BUTTON, FILTER_BUTTON_INSET, HEADER_HEIGHT, columnX, frozenHeight, frozenWidth, panesOf, rowY, type Pane, type Viewport } from './layout';
 import type { CellStyle, Sheet } from './model';
 import { isError, type Scalar } from './values';
 
@@ -47,6 +47,12 @@ export interface GridScene extends Viewport {
   focused: boolean;
   /** False while a formula on another sheet is being typed and this sheet is only pointed at. */
   showSelection: boolean;
+  /** Cells to mark, such as those a search found. */
+  marks: CellPos[];
+  /** The header row of this person's filter: each of its cells gets a button; `active` are the columns that filter. */
+  filterHeader: { row: number; c1: number; c2: number; active: ReadonlySet<number> } | null;
+  /** True while a filter leaves rows out, which the row numbers then show. */
+  filtered: boolean;
   /** Where rows or columns being dragged by their header would be dropped. */
   dropLine: { axis: 'row' | 'col'; position: number } | null;
 }
@@ -160,6 +166,7 @@ function drawCellText(
   occupied: (col: number) => boolean,
 ): void {
   const { sheet, engine, cols, rows } = scene;
+  if (rows.size(row) === 0 || cols.size(col) === 0) return;
   const value = engine.valueAt(sheet, row, col);
   if (value === null || value === '') return;
   const style = sheet.styleAt(row, col);
@@ -249,23 +256,24 @@ function drawPaneCells(ctx: CanvasRenderingContext2D, scene: GridScene, theme: G
   const right = Math.min(pane.x + pane.width, pane.offsetX + cols.end(pane.colTo));
   const bottom = Math.min(pane.y + pane.height, pane.offsetY + rows.end(pane.rowTo));
   for (let row = pane.rowFrom; row <= pane.rowTo; row += 1) {
-    ctx.fillRect(pane.x, pane.offsetY + rows.end(row) - 1, right - pane.x, 1);
+    if (rows.size(row) > 0) ctx.fillRect(pane.x, pane.offsetY + rows.end(row) - 1, right - pane.x, 1);
   }
   for (let col = pane.colFrom; col <= pane.colTo; col += 1) {
-    ctx.fillRect(pane.offsetX + cols.end(col) - 1, pane.y, 1, bottom - pane.y);
+    if (cols.size(col) > 0) ctx.fillRect(pane.offsetX + cols.end(col) - 1, pane.y, 1, bottom - pane.y);
   }
 
   // Fills cover the lines around their cell, so a coloured block reads as one.
   for (let row = pane.rowFrom; row <= pane.rowTo; row += 1) {
     for (let col = pane.colFrom; col <= pane.colTo; col += 1) {
       const fill = sheet.styleAt(row, col).bg;
-      if (!fill) continue;
+      if (!fill || rows.size(row) === 0 || cols.size(col) === 0) continue;
       ctx.fillStyle = fill;
       ctx.fillRect(pane.offsetX + cols.start(col) - 1, pane.offsetY + rows.start(row) - 1, cols.size(col) + 1, rows.size(row) + 1);
     }
   }
 
   for (let row = pane.rowFrom; row <= pane.rowTo; row += 1) {
+    if (rows.size(row) === 0) continue;
     const occupied = (col: number) => !sheet.isEmpty(row, col) || (editing !== null && editing.row === row && editing.col === col);
     // Text from a cell left of the view may run into it.
     let first = pane.colFrom;
@@ -286,6 +294,26 @@ function drawPaneCells(ctx: CanvasRenderingContext2D, scene: GridScene, theme: G
       if (editing && editing.row === row && editing.col === col) continue;
       if (sheet.isEmpty(row, col)) continue;
       drawCellText(ctx, scene, theme, pane, row, col, occupied);
+    }
+  }
+
+  const header = scene.filterHeader;
+  if (header && header.row >= pane.rowFrom && header.row <= pane.rowTo && rows.size(header.row) > 0) {
+    for (let col = Math.max(header.c1, pane.colFrom); col <= Math.min(header.c2, pane.colTo); col += 1) {
+      if (cols.size(col) < FILTER_BUTTON + FILTER_BUTTON_INSET * 2) continue;
+      const x = pane.offsetX + cols.end(col) - 1 - FILTER_BUTTON_INSET - FILTER_BUTTON;
+      const y = pane.offsetY + rows.end(header.row) - 1 - FILTER_BUTTON_INSET - FILTER_BUTTON;
+      const on = header.active.has(col);
+      ctx.fillStyle = on ? theme.accent : theme.header;
+      ctx.beginPath();
+      ctx.roundRect(x, y, FILTER_BUTTON, FILTER_BUTTON, 3);
+      ctx.fill();
+      ctx.strokeStyle = on ? theme.accent : theme.headerLine;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      // Three bars of shrinking width: the usual sign for a filter.
+      ctx.fillStyle = on ? '#ffffff' : theme.mutedText;
+      [10, 6, 2].forEach((width, index) => ctx.fillRect(x + (FILTER_BUTTON - width) / 2, y + 4 + index * 3.5, width, 1.5));
     }
   }
   ctx.restore();
@@ -317,6 +345,15 @@ function drawPaneOverlays(ctx: CanvasRenderingContext2D, scene: GridScene, theme
   // One pixel more on the left and top, where borders sit on the neighbouring grid line.
   ctx.rect(pane.x - 1, pane.y - 1, pane.width + 1, pane.height + 1);
   ctx.clip();
+
+  if (scene.marks.length > 0) {
+    ctx.fillStyle = 'rgb(255 204 0 / 0.38)';
+    for (const mark of scene.marks) {
+      if (mark.row < pane.rowFrom || mark.row > pane.rowTo || mark.col < pane.colFrom || mark.col > pane.colTo) continue;
+      const cell = rectInPane(scene, pane, { r1: mark.row, c1: mark.col, r2: mark.row, c2: mark.col });
+      if (cell && cell.width > 0 && cell.height > 0) ctx.fillRect(cell.x, cell.y, cell.width - 1, cell.height - 1);
+    }
+  }
 
   for (const reference of scene.references) {
     const box = rectInPane(scene, pane, reference.rect);
@@ -422,8 +459,9 @@ function drawHeaders(ctx: CanvasRenderingContext2D, scene: GridScene, theme: Gri
         ctx.fillStyle = allRows ? theme.accent : theme.headerActive;
         ctx.fillRect(x, 0, size, HEADER_HEIGHT);
       }
-      ctx.fillStyle = theme.headerLine;
-      ctx.fillRect(x + size - 1, 0, 1, HEADER_HEIGHT);
+      // A hidden column leaves a mark between its neighbours.
+      ctx.fillStyle = size === 0 ? theme.accent : theme.headerLine;
+      ctx.fillRect(x + size - (size === 0 ? 2 : 1), 0, size === 0 ? 3 : 1, HEADER_HEIGHT);
       ctx.fillStyle = selected ? (allRows ? '#ffffff' : theme.text) : theme.mutedText;
       if (size > 14) ctx.fillText(columnName(col), x + size / 2, HEADER_HEIGHT / 2 + 1);
     }
@@ -443,9 +481,10 @@ function drawHeaders(ctx: CanvasRenderingContext2D, scene: GridScene, theme: Gri
         ctx.fillStyle = allCols ? theme.accent : theme.headerActive;
         ctx.fillRect(0, y, headerWidth, size);
       }
-      ctx.fillStyle = theme.headerLine;
-      ctx.fillRect(0, y + size - 1, headerWidth, 1);
-      ctx.fillStyle = selected ? (allCols ? '#ffffff' : theme.text) : theme.mutedText;
+      const hiddenByHand = size === 0 && !scene.filtered;
+      ctx.fillStyle = hiddenByHand ? theme.accent : theme.headerLine;
+      ctx.fillRect(0, y + size - (hiddenByHand ? 2 : 1), headerWidth, hiddenByHand ? 3 : 1);
+      ctx.fillStyle = selected ? (allCols ? '#ffffff' : theme.text) : scene.filtered ? theme.accent : theme.mutedText;
       if (size > 10) ctx.fillText(String(row + 1), headerWidth / 2, y + size / 2 + 1);
     }
     ctx.restore();

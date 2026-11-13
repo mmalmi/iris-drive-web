@@ -7,13 +7,13 @@ import * as Y from 'yjs';
 import { columnIndex, columnName, normalizeRect, parseRectName, rectContains, rectName, rectOf, type CellPos, type Rect } from './address';
 import { editTextAt, writeInput } from './edit';
 import { Engine } from './engine';
-import { tokenize } from './formula';
+import { cycleAbsoluteAt, referenceSpans, spanRect } from './editText';
+import { filteredOutRows, findCells, type SheetFilter } from './filter';
 import { callAt, completionAt, type CallHint, type Completion } from './formula/docs';
 import { formatKind } from './format';
 import { Book, LOCAL_ORIGIN, type BookChange, type CellStyle, type Sheet, type SheetInfo } from './model';
 import { jump, lastFilledCol, stepInside } from './navigate';
 import { rectReference } from './refs';
-import { REF_COLORS } from './render';
 import { isError } from './values';
 
 export type SelectionScope = 'cells' | 'rows' | 'cols' | 'all';
@@ -58,6 +58,8 @@ interface SelectionMemo {
 export interface CopiedCells {
   sheetId: string;
   rect: Rect;
+  /** The rows that were copied; fewer than the rectangle's when a filter left some out. */
+  rows: number[];
   cut: boolean;
   /** The text placed on the clipboard, to recognise our own copy when pasting. */
   text: string;
@@ -88,6 +90,12 @@ export class SheetController {
   canRedo = $state(false);
   /** Which of the suggested functions is highlighted. */
   completionIndex = $state(0);
+  /** This person's filters, by sheet. They are not stored (see filter.ts). */
+  filters = $state.raw<ReadonlyMap<string, SheetFilter>>(new Map());
+  /** The search that is open, if any. `replace` is null while only finding. */
+  find = $state.raw<{ query: string; replace: string | null } | null>(null);
+  /** True once someone who may only read has rearranged their own copy. */
+  localOnly = $state(false);
   /** A short message for the person, such as why something could not be done. */
   notice = $state('');
   /** Goes up whenever the spreadsheet's content changes, so readers look again. */
@@ -111,6 +119,11 @@ export class SheetController {
   private tabOrigin: number | null = null;
   /** The formula text for which the list of functions was closed with Escape. */
   private completionClosedFor = $state('');
+  private visibilityKey = '';
+  private visibilityFilter: SheetFilter | null = null;
+  private visibilityValue = { rows: new Set<number>(), cols: new Set<number>(), filtered: new Set<number>() };
+  private findKey = '';
+  private findValue: CellPos[] = [];
   private memoBeforeChange: SelectionMemo | null = null;
   private sheetBeforeChange = '';
   private readonly unsubscribe: () => void;
@@ -297,12 +310,22 @@ export class SheetController {
     this.setSelection({ row: 0, col: 0 }, { row: 0, col: 0 }, this.active, 'all');
   }
 
+  /** The next position in a direction that is in view, or the starting one when there is none. */
+  private skipHidden(from: CellPos, to: CellPos, dRow: number, dCol: number): CellPos {
+    const { rows, cols } = this.visibility;
+    let { row, col } = to;
+    while (rows.has(row) && dRow !== 0) row += Math.sign(dRow);
+    while (cols.has(col) && dCol !== 0) col += Math.sign(dCol);
+    const inside = row >= 0 && col >= 0 && row < this.sheet.rows.length && col < this.sheet.cols.length;
+    return inside && !rows.has(row) && !cols.has(col) ? { row, col } : from;
+  }
+
   /** Arrow keys: move by one cell, or with `far` to the edge of the filled cells. */
   move(dRow: number, dCol: number, options: { extend?: boolean; far?: boolean } = {}): void {
     const from = options.extend ? this.focus : this.active;
-    const to = options.far
+    const to = this.skipHidden(from, options.far
       ? jump(this.sheet, from, dRow, dCol)
-      : this.clampPos({ row: from.row + dRow, col: from.col + dCol });
+      : this.clampPos({ row: from.row + dRow, col: from.col + dCol }), dRow, dCol);
     this.tabOrigin = null;
     if (options.extend) this.setSelection(this.active, to, this.active);
     else this.setSelection(to);
@@ -313,8 +336,11 @@ export class SheetController {
   step(dRow: number, dCol: number): void {
     const rect = this.selection;
     const many = rect.r1 !== rect.r2 || rect.c1 !== rect.c2;
+    const { rows, cols } = this.visibility;
     if (many) {
-      this.active = stepInside(rect, this.active, dRow, dCol);
+      let next = stepInside(rect, this.active, dRow, dCol);
+      for (let tries = 0; tries < 10_000 && (rows.has(next.row) || cols.has(next.col)); tries += 1) next = stepInside(rect, next, dRow, dCol);
+      this.active = next;
       this.rememberIds();
       this.reveal(this.active.row, this.active.col);
       return;
@@ -322,14 +348,61 @@ export class SheetController {
     if (dCol !== 0) {
       if (this.tabOrigin === null) this.tabOrigin = this.active.col;
       const to = this.clampPos({ row: this.active.row, col: this.active.col + dCol });
-      this.setSelection(to);
+      this.setSelection(this.skipHidden(this.active, to, 0, dCol));
     } else {
       // After tabbing along a row, Enter starts the next row under where the tabbing began.
       const col = dRow > 0 && this.tabOrigin !== null ? this.tabOrigin : this.active.col;
       this.tabOrigin = null;
-      this.setSelection(this.clampPos({ row: this.active.row + dRow, col }));
+      const to = this.clampPos({ row: this.active.row + dRow, col });
+      this.setSelection(this.skipHidden({ row: this.active.row, col }, to, dRow, 0));
     }
     this.reveal(this.active.row, this.active.col);
+  }
+
+  // --- What is in view ---
+
+  /** The filter on the sheet in view, if any. */
+  get filter(): SheetFilter | null {
+    return this.filters.get(this.sheetId) ?? null;
+  }
+
+  setFilter(filter: SheetFilter | null): void {
+    const next = new Map(this.filters);
+    if (filter) next.set(this.sheetId, filter);
+    else next.delete(this.sheetId);
+    this.filters = next;
+    this.layoutRevision += 1;
+  }
+
+  /** Positions of the rows and columns out of view: hidden by someone, or left out by this person's filter. */
+  get visibility(): { rows: Set<number>; cols: Set<number>; filtered: Set<number> } {
+    const key = `${this.revision}|${this.layoutRevision}|${this.sheetId}`;
+    const filter = this.filter;
+    if (this.visibilityKey !== key || this.visibilityFilter !== filter) {
+      const sheet = this.sheet;
+      const filtered = filter ? filteredOutRows(sheet, this.engine, filter) : new Set<number>();
+      const rows = sheet.hidden('row');
+      for (const row of filtered) rows.add(row);
+      this.visibilityValue = { rows, cols: sheet.hidden('col'), filtered };
+      this.visibilityKey = key;
+      this.visibilityFilter = filter;
+    }
+    return this.visibilityValue;
+  }
+
+  /** The cells that hold what is being searched for, in reading order. */
+  get findMatches(): CellPos[] {
+    const find = this.find;
+    if (!find || !this.hasSheet) return [];
+    const key = `${this.revision}|${this.sheetId}|${find.query}`;
+    if (this.findKey !== key) {
+      const sheet = this.sheet;
+      const hidden = this.visibility;
+      this.findValue = findCells(sheet, this.engine, find.query, (row, col) => editTextAt(this.book, sheet, row, col))
+        .filter(cell => !hidden.rows.has(cell.row) && !hidden.cols.has(cell.col));
+      this.findKey = key;
+    }
+    return this.findValue;
   }
 
   goHome(wholeSheet: boolean, extend: boolean): void {
@@ -600,56 +673,21 @@ export class SheetController {
   /** F4: cycles the address at the caret through A1, $A$1, A$1, $A1. */
   cycleAbsolute(): void {
     const edit = this.edit;
-    if (!edit || !edit.text.startsWith('=')) return;
-    const caret = edit.caret[0] - 1;
-    for (const token of tokenize(edit.text.slice(1), 'a1')) {
-      if (token.type !== 'ref' || !token.ref || caret < token.start || caret > token.end) continue;
-      const bang = token.text.lastIndexOf('!');
-      const prefix = token.text.slice(0, bang + 1);
-      const body = token.text.slice(bang + 1);
-      const cycle = (part: string) => {
-        const match = /^(\$?)([A-Za-z]*)(\$?)(\d*)$/.exec(part);
-        if (!match) return part;
-        const [, absCol, col, absRow, row] = match;
-        const state = (absCol ? 2 : 0) + (absRow ? 1 : 0);
-        const next = [3, 2, 0, 1][state];
-        return `${next & 2 && col ? '$' : ''}${col}${next & 1 && row ? '$' : ''}${row}`;
-      };
-      const replaced = prefix + body.split(':').map(cycle).join(':');
-      const text = `=${edit.text.slice(1, token.start + 1)}${replaced}${edit.text.slice(token.end + 1)}`;
-      const end = token.start + 1 + replaced.length;
-      this.edit = { ...edit, text, caret: [end, end], point: null };
-      return;
-    }
+    const next = edit && cycleAbsoluteAt(edit.text, edit.caret[0]);
+    if (edit && next) this.edit = { ...edit, text: next.text, caret: [next.caret, next.caret], point: null };
   }
 
   /** The cells the formula being typed mentions on the sheet in view, each with its colour. */
   get editReferences(): Array<{ rect: Rect; color: string }> {
     const edit = this.edit;
-    if (!edit || !edit.text.startsWith('=') || !this.hasSheet) return [];
+    if (!edit || !this.hasSheet) return [];
     const viewed = this.sheet;
     const viewedName = this.book.nameOf(this.sheetId)?.toLowerCase();
     const out: Array<{ rect: Rect; color: string }> = [];
-    let count = 0;
-    for (const token of tokenize(edit.text.slice(1), 'a1')) {
-      const ref = token.ref;
-      if (token.type !== 'ref' || !ref) continue;
-      const color = REF_COLORS[count % REF_COLORS.length];
-      count += 1;
-      const onViewed = ref.sheet === null ? edit.sheetId === this.sheetId : ref.sheet.toLowerCase() === viewedName;
-      if (!onViewed) continue;
-      const end = ref.b ?? ref.a;
-      const column = (letters: string) => [...letters.toUpperCase()].reduce((n, letter) => n * 26 + letter.charCodeAt(0) - 64, 0) - 1;
-      const rect = normalizeRect({
-        r1: ref.a.row === null ? 0 : Number(ref.a.row) - 1,
-        c1: ref.a.col === null ? 0 : column(ref.a.col),
-        r2: end.row === null ? viewed.rows.length - 1 : Number(end.row) - 1,
-        c2: end.col === null ? viewed.cols.length - 1 : column(end.col),
-      });
-      if (rect.r1 >= viewed.rows.length || rect.c1 >= viewed.cols.length) continue;
-      rect.r2 = Math.min(rect.r2, viewed.rows.length - 1);
-      rect.c2 = Math.min(rect.c2, viewed.cols.length - 1);
-      out.push({ rect, color });
+    for (const span of referenceSpans(edit.text)) {
+      const onViewed = span.ref.sheet === null ? edit.sheetId === this.sheetId : span.ref.sheet.toLowerCase() === viewedName;
+      const rect = onViewed ? spanRect(span.ref, viewed.rows.length, viewed.cols.length) : null;
+      if (rect) out.push({ rect, color: span.color });
     }
     return out;
   }

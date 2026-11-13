@@ -5,6 +5,9 @@ export const HEADER_HEIGHT = 24;
 /** Pixels on either side of a header border that grab it for resizing. */
 export const RESIZE_GRIP = 5;
 export const FILL_HANDLE = 7;
+/** Size of the button a filter puts into each cell of its header row, and its distance from the cell's edge. */
+export const FILTER_BUTTON = 16;
+export const FILTER_BUTTON_INSET = 3;
 
 /** The positions of the rows, or of the columns, laid end to end. */
 export class AxisLayout {
