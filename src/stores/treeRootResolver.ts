@@ -37,6 +37,7 @@ import {
 } from '../nostr';
 import { getTree } from '../store';
 import { treeRootRegistry } from '../TreeRootRegistry';
+import { isUnpublishedOwnWrite } from '../lib/unpublishedRoots';
 import { isNostrIdentityId } from '../utils/route';
 import {
   getVisibilityInfoFromRegistry,
@@ -206,7 +207,7 @@ function syncDriveRootAuthorization(
     // here, after a reload or a roster change, would silently lose the last
     // edits. It stays unusable until the session is authorized again, and
     // signing out removes it.
-    const unpublishedOwnWrite = record?.dirty === true && record.source === 'local-write';
+    const unpublishedOwnWrite = isUnpublishedOwnWrite(record);
     if (record && !unpublishedOwnWrite) {
       treeRootRegistry.delete(rootScopeId, driveId);
     }
@@ -501,6 +502,16 @@ export function refreshDriveRootResolverKey(key: string): void {
     return;
   }
   const state = subscriptionState.get(key);
+  // What this device saved before a reload and has not published yet is not
+  // replaced by what relays hold, so nothing below would show it. Show it as
+  // soon as the session is back: its own work, from its own storage.
+  const record = treeRootRegistry.get(scope.rootScopeId, scope.driveId);
+  if (state && record && isUnpublishedOwnWrite(record)) {
+    const visibilityInfo = getVisibilityInfoFromRegistry(key);
+    state.listeners.forEach(listener => listener(record.hash, record.key, visibilityInfo, {
+      updatedAt: record.updatedAt,
+    }));
+  }
   if (state && !state.unsubscribeResolver && !state.unsubscribeWorker) {
     void startResolverSubscription(key);
     return;

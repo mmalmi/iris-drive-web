@@ -40,7 +40,9 @@ test.describe('sharing from the browser', () => {
     await typeInDocument(page, 'Owner wrote this.');
     await expectSaved(page);
 
-    await page.getByTestId('document-share').click();
+    // Until it is shared, the document says it is private.
+    await expect(page.getByTestId('access-badge')).toHaveAttribute('data-access', 'private');
+    await page.getByTestId('access-badge').click();
     const link = await inviteLink(page);
     await page.screenshot({ path: testInfo.outputPath('invite-people.png') });
     await page.keyboard.press('Escape');
@@ -48,6 +50,7 @@ test.describe('sharing from the browser', () => {
     await expect(page).not.toHaveURL(new RegExp(`#/${owner.profileId}/`), { timeout: 30_000 });
     await expect(page).toHaveURL(/\/main\/Plan\.irisdoc$/);
     await expect(documentBody(page)).toContainText('Owner wrote this.', { timeout: 60_000 });
+    await expect(page.getByTestId('access-badge')).toHaveAttribute('data-access', 'link');
 
     const guestContext = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
     try {
@@ -69,6 +72,10 @@ test.describe('sharing from the browser', () => {
       await expect(documentBody(guest)).toContainText('Owner replied.', { timeout: 90_000 });
       await expect(documentBody(guest)).toContainText('Guest added this.');
       await guest.screenshot({ path: testInfo.outputPath('guest-editing.png') });
+      // Each sees who else can open it: the owner the link and who joined, the guest that it is shared.
+      await expect(page.getByTestId('access-badge')).toHaveAttribute('title', /1 person has joined/, { timeout: 30_000 });
+      await expect(guest.getByTestId('access-badge')).toHaveAttribute('data-access', 'people');
+      await expect(guest.getByTestId('access-badge')).toContainText('Shared with 1');
 
       // Both are listed for the owner, and the guest finds the folder again later.
       await page.getByTestId('document-share').click();
@@ -76,6 +83,13 @@ test.describe('sharing from the browser', () => {
       await expect(page.getByTestId('share-people-list')).toContainText('Guest');
       await page.screenshot({ path: testInfo.outputPath('people-list.png') });
       await page.keyboard.press('Escape');
+
+      // In the owner's Drive the shared document is marked in the list, where everything else is private.
+      await page.getByRole('link', { name: 'My Drive' }).click();
+      await expect(page.getByTestId('document-entry').getByTestId('access-icon')).toHaveAttribute('data-access', 'link', { timeout: 30_000 });
+      await page.screenshot({ path: testInfo.outputPath('owner-drive-list.png') });
+      await page.goBack();
+      await expect(documentBody(page)).toContainText('Owner replied.', { timeout: 60_000 });
 
       await guest.goto(`${new URL(guest.url()).origin}/#/shared-with-me`);
       await expect(guest.getByText('Plan').first()).toBeVisible({ timeout: 30_000 });

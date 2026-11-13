@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { DOCUMENT_KINDS } from '../lib/documentNames';
   /**
    * Folder actions, used in FileBrowser and Viewer. Renders two siblings for
    * the parent to place: the adding and creating buttons, and the share button
@@ -354,15 +355,19 @@
         New Document
       </button>
 
+      {#if DOCUMENT_KINDS.sheet.ready}
       <button onclick={() => openCreateModal('sheet')} class="btn-ghost {btnClass}" title="New Spreadsheet" data-testid="new-sheet">
         <span class="i-lucide-table-2"></span>
         New Spreadsheet
       </button>
+      {/if}
 
+      {#if DOCUMENT_KINDS.slides.ready}
       <button onclick={() => openCreateModal('slides')} class="btn-ghost {btnClass}" title="New Presentation" data-testid="new-slides">
         <span class="i-lucide-presentation"></span>
         New Presentation
       </button>
+      {/if}
 
       <button onclick={() => openCreateModal('file')} class="btn-ghost {btnClass}" title="New File">
         <span class="i-lucide-file-plus"></span>

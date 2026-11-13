@@ -13,6 +13,7 @@ import { fromHex } from '@hashtree/core';
 import { treeRootRegistry } from './TreeRootRegistry';
 import { isNostrIdentityId, parseRoute } from './utils/route';
 import { publishNostrIdentityDriveRootIfAvailable } from './drive/profileDriveRootPublish';
+import { requeueUnpublishedRoots } from './lib/unpublishedRoots';
 
 /**
  * Initialize the publish function on the registry.
@@ -89,6 +90,10 @@ export async function initializePublishFn(): Promise<void> {
     if (!result?.success) return false;
     return publishNostrIdentityDriveRootIfAvailable(treeName, rootCid);
   });
+
+  // What an earlier page left unpublished may have been tried before this
+  // point, and dropped.
+  requeueUnpublishedRoots(treeRootRegistry);
 }
 
 // Re-export for backward compatibility

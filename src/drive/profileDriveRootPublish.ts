@@ -129,6 +129,24 @@ interface DriveRootPublishOptions {
 
 const publishQueues = new Map<string, Promise<unknown>>();
 
+// Handing an event to the worker takes milliseconds. Past this the version is
+// tried again later instead of holding up the ones queued behind it.
+const HAND_OVER_TIMEOUT_MS = 15_000;
+
+/** Resolves true once the worker holds the event for sending. */
+function heldForSending(publishing: Promise<unknown>): Promise<boolean> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(false), HAND_OVER_TIMEOUT_MS);
+    publishing.then(() => true, (error) => {
+      console.warn('[driveRoot] Could not hand the Drive root to the publisher:', error);
+      return false;
+    }).then((held) => {
+      clearTimeout(timer);
+      resolve(held);
+    });
+  });
+}
+
 /**
  * Publishes a version of a Drive. Versions of one Drive go out one at a time,
  * in the order they were asked for: each is given its time only once its
@@ -251,15 +269,17 @@ async function publishDriveRootNow(
     rawEvent,
     parseDriveRootEventForDevice(rawEvent, secretKey),
   );
-  // The signed root is already retained above and the worker keeps it in its
-  // outbox, so saving does not wait for a relay to accept it.
+  // The worker keeps a root it was handed and sends it when it can, so no
+  // relay is waited for. The hand-over itself is: this version counts as
+  // published only once the worker holds it. Until then it stays marked
+  // unpublished, and a page that is reloaded or closed in between publishes it
+  // again when it next opens. Counting it published too early brought the
+  // Drive back from relays without the last edits.
   const publishing = publishEvent(rawEvent);
   if (options.awaitRelay) {
     await publishing;
-  } else {
-    void publishing.catch((error) => {
-      console.warn('[driveRoot] Could not hand the Drive root to the publisher:', error);
-    });
+  } else if (!await heldForSending(publishing)) {
+    return false;
   }
   if (retained) {
     // Run after this publish resolves so TreeRootRegistry can mark its local
