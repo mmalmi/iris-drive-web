@@ -3,7 +3,8 @@ import type { Engine } from './engine';
 import type { Rect } from './address';
 import { AxisLayout, HEADER_HEIGHT, headerWidthFor, rectOnScreen, type Viewport } from './layout';
 import { DEFAULT_ROW_HEIGHT, type CellStyle, type Sheet } from './model';
-import { CELL_PAD_X, fontOf, heightForText, lineHeightOf, textWidth, type GridTheme } from './render';
+import { CELL_PAD_X, fontOf, heightForText, lineHeightOf, textWidth } from './cellText';
+import type { GridTheme } from './render';
 
 export interface GridLayout {
   rows: AxisLayout;
@@ -143,4 +144,12 @@ export function placeEditor(view: Viewport, cell: Rect, style: CellStyle, text: 
     visible: true,
     style,
   };
+}
+
+/** The CSS of the box for typing: where it is, and its text drawn as the cell draws it. */
+export function editorCss(box: EditorBox | null): string {
+  const style: CellStyle = box?.style ?? {};
+  const align = style.a === 'r' ? 'right' : style.a === 'c' ? 'center' : 'left';
+  return `left: ${box?.x ?? 0}px; top: ${box?.y ?? 0}px; width: ${box?.visible ? box.width : 1}px; height: ${box?.visible ? box.height : 1}px; `
+    + `font: ${fontOf(style)}; color: ${style.c || 'inherit'}; text-align: ${align}; line-height: ${lineHeightOf(style)}px`;
 }

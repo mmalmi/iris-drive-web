@@ -20,7 +20,7 @@ import { tokenize, type RefEnd } from './formula';
 import { NUMBER_FORMATS } from './format';
 import { cellKey, decodeRaw, encodeText, isFormula, MAX_COLS, MAX_ROWS, type Book, type CellRaw, type CellStyle, type Sheet } from './model';
 import { toDisplay } from './refs';
-import { DEFAULT_POINTS } from './render';
+import { DEFAULT_POINTS } from './cellText';
 import { isError } from './values';
 
 // --- Reading XML ---

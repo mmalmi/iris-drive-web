@@ -7,7 +7,8 @@
  */
 import type { SheetController } from '../../lib/sheets/controller.svelte';
 import { HEADER_HEIGHT, columnX, rowY, type Hit, type Viewport } from '../../lib/sheets/layout';
-import { CELL_PAD_X, CHECKBOX, LIST_ARROW, type CellExtras } from '../../lib/sheets/render';
+import { CELL_PAD_X } from '../../lib/sheets/cellText';
+import { CHECKBOX, LIST_ARROW, type CellExtras } from '../../lib/sheets/render';
 import { chooseFromList, listChoices } from '../../lib/sheets/ruleCommands';
 import type { MenuItem } from './PopupMenu.svelte';
 

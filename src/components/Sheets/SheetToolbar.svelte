@@ -11,7 +11,7 @@
     toggleStyle,
     unmergeSelection,
   } from '../../lib/sheets/commands';
-  import { DEFAULT_POINTS } from '../../lib/sheets/render';
+  import { DEFAULT_POINTS } from '../../lib/sheets/cellText';
   import { columnName } from '../../lib/sheets/address';
   import type { SheetController } from '../../lib/sheets/controller.svelte';
   import { sortSelection, sortTarget, toggleFilter } from '../../lib/sheets/dataCommands';

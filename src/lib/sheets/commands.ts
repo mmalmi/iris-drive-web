@@ -9,7 +9,7 @@ import { changeDecimals, isDateFormat, localeFor } from './format';
 import { cellKey, decodeRaw, encodeText, isFormula, MAX_COLS, MAX_ROWS, type CellRaw, type CellStyle, type Sheet, type StylePatch } from './model';
 import { addObject, listObjects, removeObject } from './objects';
 import { transplant } from './refs';
-import { CELL_PAD_X, DEFAULT_POINTS, fontOf, textWidth } from './render';
+import { CELL_PAD_X, DEFAULT_POINTS, fontOf, textWidth } from './cellText';
 import { followMovedCells, moveKeepingRanges, requalify, widenRangesAtEdge } from './structure';
 import { parseClipboardTable, readCsv, writeClipboardTable, writeCsv } from './table';
 import { isError } from './values';

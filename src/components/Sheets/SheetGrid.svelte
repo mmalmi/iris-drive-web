@@ -14,7 +14,7 @@
     resizeFrom,
   } from '../../lib/sheets/commands';
   import type { SheetController } from '../../lib/sheets/controller.svelte';
-  import { buildLayout, placeEditor, readTheme, type SizeOverride } from '../../lib/sheets/gridView';
+  import { buildLayout, editorCss, placeEditor, readTheme, type SizeOverride } from '../../lib/sheets/gridView';
   import {
     HEADER_HEIGHT,
     columnX,
@@ -31,7 +31,7 @@
     type Viewport,
   } from '../../lib/sheets/layout';
   import { MIN_COL_WIDTH, MIN_ROW_HEIGHT } from '../../lib/sheets/model';
-  import { drawGrid, fontOf, lineHeightOf, type GridTheme } from '../../lib/sheets/render';
+  import { drawGrid, type GridTheme } from '../../lib/sheets/render';
   import { filterRect } from '../../lib/sheets/filter';
   import AddRowsButton from './AddRowsButton.svelte';
   import FilterMenu from './FilterMenu.svelte';
@@ -754,7 +754,7 @@
     bind:this={editor}
     class="cell-editor"
     class:visible={editorBox?.visible}
-    style="left: {editorBox?.x ?? 0}px; top: {editorBox?.y ?? 0}px; width: {editorBox?.visible ? editorBox.width : 1}px; height: {editorBox?.visible ? editorBox.height : 1}px; font: {fontOf(editorBox?.style ?? {})}; color: {editorBox?.style.c || 'inherit'}; text-align: {editorBox?.style.a === 'r' ? 'right' : editorBox?.style.a === 'c' ? 'center' : 'left'}; line-height: {lineHeightOf(editorBox?.style ?? {})}px"
+    style={editorCss(editorBox)}
     rows="1"
     spellcheck="false"
     autocomplete="off"
