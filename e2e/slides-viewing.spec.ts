@@ -227,8 +227,10 @@ test.describe('looking at a presentation', () => {
     await page.keyboard.press('Escape');
     await expect(sheet(page).getByTestId('selection-frame')).toHaveCount(0);
     await page.getByTestId('deck-theme').click();
+    await expect(page.getByRole('dialog', { name: 'Themes' })).toBeVisible();
     await shot(page, 'view-07-dark-theme-menu');
     await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog', { name: 'Themes' })).toHaveCount(0);
 
     // Narrow, as on a phone: everything still reachable, the slide still whole.
     await page.setViewportSize({ width: 390, height: 760 });
