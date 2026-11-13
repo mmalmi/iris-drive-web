@@ -146,6 +146,9 @@ export default defineConfig({
       // page does, so without this a cold dev cache serves dexie's UMD build
       // to the worker and the worker crashes.
       'dexie',
+      // Reached through virtual modules or dynamic paths the scan cannot follow.
+      'workbox-window',
+      '@noble/hashes/sha2.js',
     ],
     exclude: [
       '@hashtree/worker',
