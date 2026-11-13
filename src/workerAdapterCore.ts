@@ -48,7 +48,7 @@ export type WorkerConstructor = URL | string | (new () => Worker);
 export class WorkerAdapterCore {
   protected worker: Worker | null = null;
   protected workerFactory: WorkerConstructor;
-  protected config: WorkerAdapterConfig & { graphBootstrap: boolean; graphReconciliation: boolean };
+  protected config: WorkerAdapterConfig & { graphBootstrap: boolean };
   protected ready = false;
   protected readyPromise: Promise<void> | null = null;
   protected readyResolve: (() => void) | null = null;
@@ -104,15 +104,7 @@ export class WorkerAdapterCore {
    */
   constructor(workerFactory: WorkerConstructor, config: WorkerAdapterConfig) {
     this.workerFactory = workerFactory;
-    this.config = {
-      ...config,
-      graphBootstrap: allowsPublicGraphBootstrap(config.relays),
-      // The public follow-list catch-up downloads up to 2 MB of other people's
-      // follow lists every minute, also while the tab is hidden (a worker
-      // cannot see that). Drive keeps your own lists live and the bootstrap
-      // snapshot for everyone else.
-      graphReconciliation: false,
-    };
+    this.config = { ...config, graphBootstrap: allowsPublicGraphBootstrap(config.relays) };
   }
 
   /**
