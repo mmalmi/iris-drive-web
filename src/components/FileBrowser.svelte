@@ -12,6 +12,7 @@
   import { nostrStore, npubToPubkey } from '../nostr';
   import { UserRow, Avatar } from './User';
   import FolderActions from './FolderActions.svelte';
+  import NewMenu from './NewMenu.svelte';
   import VisibilityIcon from './VisibilityIcon.svelte';
   import AccessBadge from './AccessBadge.svelte';
   import { itemAccess } from '../drive/itemAccess';
@@ -603,12 +604,12 @@
         </div>
       {/if}
     {:else}
-      <!-- Where you are, with sharing beside it and the adding buttons beneath. -->
+      <!-- Where you are, with sharing beside it. New is in the sidebar, or here where there is none. -->
       <div
-        class="shrink-0 flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2 lg:px-5 lg:py-3 border-b border-surface-2 bg-surface-0"
+        class="shrink-0 flex items-center gap-2 sm:gap-3 px-3 py-2 lg:px-5 lg:py-3 border-b border-surface-2 bg-surface-0"
         data-testid="folder-header"
       >
-        <div class="order-1 min-w-0 flex-1 flex items-center gap-1.5 min-h-9">
+        <div class="min-w-0 flex-1 flex items-center gap-1.5 min-h-9">
           {#if parentHref}
             <a
               href={parentHref}
@@ -644,13 +645,14 @@
             <VisibilityIcon visibility={currentTreeVisibility} class="text-text-3 shrink-0 ml-1" />
           {/if}
         </div>
+        {#if canEdit}
+          <NewMenu variant="folder" class="shrink-0" />
+        {/if}
         {#if currentDirCid || canEdit}
           <FolderActions
             dirCid={currentDirCid}
             dirName={currentDirName}
             {canEdit}
-            menuClass="order-2"
-            toolbarClass="order-3 basis-full"
           />
         {/if}
       </div>
@@ -659,7 +661,7 @@
     <div
       bind:this={fileListRef}
       data-testid="file-list"
-      class="flex-1 overflow-auto relative outline-none pb-4 {isDraggingOver ? 'bg-accent/10' : ''}"
+      class="flex-1 overflow-auto relative outline-none {canEdit && !compact ? 'pb-24 sm:pb-4' : 'pb-4'} {isDraggingOver ? 'bg-accent/10' : ''}"
       tabindex="0"
       role="listbox"
       aria-label="File list"
