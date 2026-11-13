@@ -68,10 +68,13 @@ function sample(tag: string): string {
   return `${formatValue(1234.56, '#,##0.00', locale)} · ${formatValue(46339, NUMBER_FORMATS.date, locale)}`;
 }
 
+/** A locale's name, short: "German"; with its region only where the list has the language twice, as "British English". */
 function languageName(tag: string): string {
+  const language = tag.split('-')[0];
+  const alone = LOCALES.filter(other => other.split('-')[0] === language).length <= 1;
   try {
     const names = new Intl.DisplayNames([browserLocale()], { type: 'language' });
-    return names.of(tag) ?? tag;
+    return names.of(alone ? language : tag) ?? tag;
   } catch {
     return tag;
   }
