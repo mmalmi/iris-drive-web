@@ -1,13 +1,14 @@
 /** The actions that change a spreadsheet's content, each one undo step. */
 import { rectCols, rectRows, type Rect } from './address';
+import { setBorders, type BorderPlace } from './borders';
 import type { CopiedCells, SheetController } from './controller.svelte';
 import { inputToStored } from './edit';
 import { planFill } from './fill';
 import { changeDecimals, isDateFormat } from './format';
 import { cellKey, encodeText, isFormula, MAX_COLS, MAX_ROWS, type CellRaw, type CellStyle, type Sheet, type StylePatch } from './model';
 import { transplant } from './refs';
-import { CELL_PAD_X, fontOf, textWidth } from './render';
-import { moveKeepingRanges } from './structure';
+import { CELL_PAD_X, DEFAULT_POINTS, fontOf, textWidth } from './render';
+import { followMovedCells, moveKeepingRanges, requalify, widenRangesAtEdge } from './structure';
 import { parseClipboardTable, parseCsv, writeClipboardTable, writeCsv } from './table';
 import { isError } from './values';
 
@@ -81,7 +82,9 @@ export function copySelection(ctl: SheetController, cut = false): string {
     cells.push(cellRow);
   }
   const text = writeClipboardTable(lines);
-  ctl.copied = { sheetId: sheet.id, rect, rows, cut: cut && ctl.canEdit, text, lines, cells };
+  const rowIds = rows.map(row => sheet.rows.ids[row]);
+  const colIds = sheet.cols.ids.slice(rect.c1, rect.c2 + 1);
+  ctl.copied = { sheetId: sheet.id, rect, rows, rowIds, colIds, cut: cut && ctl.canEdit, text, lines, cells };
   return text;
 }
 
@@ -128,8 +131,9 @@ export function pasteText(ctl: SheetController, text: string, valuesOnly = false
   if (sourceRows === 0) return;
 
   const selection = ctl.selection;
-  // A selection that is a whole number of copies wide and tall is filled with copies.
-  const fits = (have: number, need: number) => (have > need && have % need === 0 ? have : need);
+  // A selection that is a whole number of copies wide and tall is filled with copies; what was cut goes once.
+  const cut = copied?.cut === true;
+  const fits = (have: number, need: number) => (!cut && have > need && have % need === 0 ? have : need);
   const rows = ctl.scope === 'cells' || ctl.scope === 'rows' ? fits(rectRows(selection), sourceRows) : sourceRows;
   const cols = ctl.scope === 'cells' || ctl.scope === 'cols' ? fits(rectCols(selection), sourceCols) : sourceCols;
   const target: Rect = { r1: selection.r1, c1: selection.c1, r2: selection.r1 + rows - 1, c2: selection.c1 + cols - 1 };
@@ -139,15 +143,24 @@ export function pasteText(ctl: SheetController, text: string, valuesOnly = false
   }
 
   const source = copied ? ctl.book.sheet(copied.sheetId) : null;
+  /** Cut cells by their place before and after: "rowId:colId" on the source to the same here. */
+  const moved = new Map<string, string>();
   ctl.book.transact(() => {
     ensureSize(sheet, target.r2 + 1, target.c2 + 1);
     if (copied?.cut && source) {
-      for (const row of copied.rows) {
-        for (let col = copied.rect.c1; col <= copied.rect.c2; col += 1) {
+      for (const rowId of copied.rowIds) {
+        for (const colId of copied.colIds) {
+          const row = source.rows.indexOf(rowId);
+          const col = source.cols.indexOf(colId);
+          if (row < 0 || col < 0) continue;
           source.setRaw(row, col, null);
           source.clearStyle({ r1: row, c1: col, r2: row, c2: col });
         }
       }
+      copied.rowIds.forEach((rowId, r) => copied.colIds.forEach((colId, c) => {
+        const to = cellKey(sheet.rows.ids[target.r1 + r], sheet.cols.ids[target.c1 + c]);
+        moved.set(cellKey(rowId, colId), to);
+      }));
     }
     for (let r = 0; r < rows; r += 1) {
       for (let c = 0; c < cols; c += 1) {
@@ -162,8 +175,9 @@ export function pasteText(ctl: SheetController, text: string, valuesOnly = false
           } else if (isFormula(raw) && !copied.cut) {
             // The formula reads the cells that lie the same way from its new place.
             raw = transplant(raw, ctl.book, source, sheet, row - copied.rows[r % sourceRows], col - (copied.rect.c1 + (c % sourceCols)));
-          } else if (isFormula(raw) && source !== sheet) {
-            raw = transplant(raw, ctl.book, source, sheet, 0, 0);
+          } else if (isFormula(raw)) {
+            // Moved, a formula keeps reading the cells it read.
+            raw = requalify(raw, source, sheet);
           }
           sheet.setRaw(row, col, raw ?? null);
           if (!valuesOnly) setCellStyle(sheet, row, col, from.style);
@@ -176,6 +190,8 @@ export function pasteText(ctl: SheetController, text: string, valuesOnly = false
         }
       }
     }
+    // Formulas that read the cut cells now read them where they went.
+    if (source && moved.size > 0) followMovedCells(ctl.book, source, sheet, moved);
   });
   if (copied?.cut) ctl.copied = null;
   ctl.setSelection({ row: target.r1, col: target.c1 }, { row: target.r2, col: target.c2 });
@@ -278,7 +294,61 @@ export function toggleStyle(ctl: SheetController, prop: 'b' | 'i' | 's' | 'u' | 
 
 export function clearFormatting(ctl: SheetController): void {
   if (!ctl.canEdit) return;
-  ctl.sheet.clearStyle(ctl.selection, styleScope(ctl));
+  const scope = styleScope(ctl);
+  ctl.book.transact(() => {
+    ctl.sheet.clearStyle(ctl.selection, scope);
+    // Lines that the cells beside them draw along the cleared cells go too.
+    if (scope === 'cells') setBorders(ctl.book, ctl.sheet, ctl.selection, 'outer', null);
+  });
+}
+
+/** Draws lines along the selection, or removes them with 'none'. Whole rows and columns get them as far as they are filled. */
+export function applyBorders(ctl: SheetController, where: BorderPlace, line: string): void {
+  if (!ctl.canEdit) return;
+  const sheet = ctl.sheet;
+  let rect = ctl.selection;
+  const used = sheet.usedRect();
+  if (ctl.scope !== 'cells' && used) {
+    rect = {
+      ...rect,
+      r2: ctl.scope === 'rows' ? rect.r2 : Math.max(rect.r1, Math.min(rect.r2, used.r2)),
+      c2: ctl.scope === 'cols' ? rect.c2 : Math.max(rect.c1, Math.min(rect.c2, used.c2)),
+    };
+  }
+  setBorders(ctl.book, sheet, rect, where, where === 'none' ? null : line);
+}
+
+/** Merges the selection into one cell, or each of its rows into one. */
+export function mergeSelection(ctl: SheetController, how: 'all' | 'across'): void {
+  if (!ctl.canEdit) return;
+  const rect = ctl.selection;
+  if (how === 'across' ? rect.c1 === rect.c2 : rect.r1 === rect.r2 && rect.c1 === rect.c2) {
+    ctl.say('Select more than one cell to merge.');
+    return;
+  }
+  if (rectRows(rect) * rectCols(rect) > 100_000) {
+    ctl.say('That is too large to merge.');
+    return;
+  }
+  if (ctl.sheet.merge(rect, how)) ctl.say('Only the first cell of each merged block keeps its content.');
+  ctl.setSelection({ row: rect.r1, col: rect.c1 }, { row: rect.r2, col: rect.c2 });
+}
+
+export function unmergeSelection(ctl: SheetController): void {
+  if (!ctl.canEdit) return;
+  const rect = ctl.selection;
+  ctl.sheet.unmerge(rect);
+  ctl.setSelection({ row: rect.r1, col: rect.c1 }, { row: rect.r2, col: rect.c2 }, ctl.active);
+}
+
+/** Whether the selection holds merged cells. */
+export function hasMerges(ctl: SheetController): boolean {
+  const rect = ctl.selection;
+  return ctl.sheet.merges().some(m => m.r1 <= rect.r2 && rect.r1 <= m.r2 && m.c1 <= rect.c2 && rect.c1 <= m.c2);
+}
+
+export function setFontSize(ctl: SheetController, points: number): void {
+  applyStyle(ctl, { fs: points === DEFAULT_POINTS ? null : points });
 }
 
 export function adjustDecimals(ctl: SheetController, delta: number): void {
@@ -318,6 +388,8 @@ export function insertBeside(ctl: SheetController, axis: 'row' | 'col', after: b
       for (const id of fresh) sheet.styles.set(axis === 'row' ? `${id}:${colId}` : `${rowId}:${id}`, style);
     }
     if (width !== undefined) for (const id of fresh) sheet.props.set(`w:${id}`, width);
+    // Added from inside a range at its end, the new ones belong to it.
+    widenRangesAtEdge(ctl.book, sheet, axis, after ? live.ids[from + count - 1] : live.ids[from + added], fresh, after);
   });
   if (added === 0) {
     ctl.say(axis === 'row' ? 'The sheet cannot have more rows.' : 'The sheet cannot have more columns.');
@@ -365,6 +437,17 @@ export function moveSelectedTo(ctl: SheetController, axis: 'row' | 'col', positi
   const at = position > from ? position - count : position;
   if (axis === 'row') ctl.selectRows(at, at + count - 1);
   else ctl.selectCols(at, at + count - 1);
+}
+
+/** Gives a row or column a size; when it is one of several whole ones selected, all of them. */
+export function resizeFrom(ctl: SheetController, axis: 'row' | 'col', index: number, size: number): void {
+  if (!ctl.canEdit) return;
+  const rect = ctl.selection;
+  const many = axis === 'col'
+    ? ctl.scope === 'cols' && index >= rect.c1 && index <= rect.c2
+    : ctl.scope === 'rows' && index >= rect.r1 && index <= rect.r2;
+  if (axis === 'col') ctl.sheet.setColWidth(many ? rect.c1 : index, many ? rect.c2 : index, size);
+  else ctl.sheet.setRowHeight(many ? rect.r1 : index, many ? rect.r2 : index, size);
 }
 
 /** Adds empty rows at the bottom of the sheet. */

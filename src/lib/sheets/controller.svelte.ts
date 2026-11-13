@@ -60,6 +60,9 @@ export interface CopiedCells {
   rect: Rect;
   /** The rows that were copied; fewer than the rectangle's when a filter left some out. */
   rows: number[];
+  /** The same rows and the columns by their ids, which stay right when rows move before pasting. */
+  rowIds: string[];
+  colIds: string[];
   cut: boolean;
   /** The text placed on the clipboard, to recognise our own copy when pasting. */
   text: string;
@@ -281,6 +284,17 @@ export class SheetController {
       a = { row: 0, col: a.col };
       f = { row: sheet.rows.length - 1, col: f.col };
     }
+    if (scope === 'cells') {
+      // A merged block is one cell: a selection takes all of it or none of it.
+      const rect = rectOf(a, f);
+      const grown = sheet.withMerges(rect);
+      if (grown !== rect) {
+        const down = f.row >= a.row;
+        const right = f.col >= a.col;
+        a = { row: down ? grown.r1 : grown.r2, col: right ? grown.c1 : grown.c2 };
+        f = { row: down ? grown.r2 : grown.r1, col: right ? grown.c2 : grown.c1 };
+      }
+    }
     this.anchor = a;
     this.focus = f;
     const rect = rectOf(a, f);
@@ -289,6 +303,8 @@ export class SheetController {
       row: Math.max(rect.r1, Math.min(wanted.row, rect.r2)),
       col: Math.max(rect.c1, Math.min(wanted.col, rect.c2)),
     };
+    const merge = sheet.mergeAt(this.active.row, this.active.col);
+    if (merge) this.active = { row: merge.r1, col: merge.c1 };
     this.scope = scope;
     this.rememberIds();
   }
@@ -322,9 +338,26 @@ export class SheetController {
     return inside && !rows.has(row) && !cols.has(col) ? { row, col } : from;
   }
 
+  /** The far side of the merged block a cell is in, in a direction; the cell itself outside one. */
+  private leaveMerge(from: CellPos, dRow: number, dCol: number): CellPos {
+    const merge = this.sheet.mergeAt(from.row, from.col);
+    if (!merge) return from;
+    return {
+      row: dRow > 0 ? merge.r2 : dRow < 0 ? merge.r1 : from.row,
+      col: dCol > 0 ? merge.c2 : dCol < 0 ? merge.c1 : from.col,
+    };
+  }
+
+  /** The block the active cell is: its merged block, or itself. */
+  get activeRect(): Rect {
+    void this.revision;
+    const { row, col } = this.active;
+    return (this.hasSheet ? this.sheet.mergeAt(row, col) : null) ?? { r1: row, c1: col, r2: row, c2: col };
+  }
+
   /** Arrow keys: move by one cell, or with `far` to the edge of the filled cells. */
   move(dRow: number, dCol: number, options: { extend?: boolean; far?: boolean } = {}): void {
-    const from = options.extend ? this.focus : this.active;
+    const from = this.leaveMerge(options.extend ? this.focus : this.active, dRow, dCol);
     const to = this.skipHidden(from, options.far
       ? jump(this.sheet, from, dRow, dCol)
       : this.clampPos({ row: from.row + dRow, col: from.col + dCol }), dRow, dCol);
@@ -337,11 +370,18 @@ export class SheetController {
   /** Tab and Enter: the next cell, staying inside a selected range. */
   step(dRow: number, dCol: number): void {
     const rect = this.selection;
-    const many = rect.r1 !== rect.r2 || rect.c1 !== rect.c2;
+    const block = this.activeRect;
+    const many = !(rect.r1 === block.r1 && rect.r2 === block.r2 && rect.c1 === block.c1 && rect.c2 === block.c2);
     const { rows, cols } = this.visibility;
     if (many) {
+      // Hidden cells, and the cells under a merged block other than its first, are passed over.
+      const skip = (pos: CellPos) => {
+        if (rows.has(pos.row) || cols.has(pos.col)) return true;
+        const merge = this.sheet.mergeAt(pos.row, pos.col);
+        return merge !== null && (merge.r1 !== pos.row || merge.c1 !== pos.col);
+      };
       let next = stepInside(rect, this.active, dRow, dCol);
-      for (let tries = 0; tries < 10_000 && (rows.has(next.row) || cols.has(next.col)); tries += 1) next = stepInside(rect, next, dRow, dCol);
+      for (let tries = 0; tries < 10_000 && skip(next); tries += 1) next = stepInside(rect, next, dRow, dCol);
       this.active = next;
       this.rememberIds();
       this.reveal(this.active.row, this.active.col);
@@ -349,14 +389,16 @@ export class SheetController {
     }
     if (dCol !== 0) {
       if (this.tabOrigin === null) this.tabOrigin = this.active.col;
-      const to = this.clampPos({ row: this.active.row, col: this.active.col + dCol });
-      this.setSelection(this.skipHidden(this.active, to, 0, dCol));
+      const from = this.leaveMerge(this.active, 0, dCol);
+      const to = this.clampPos({ row: from.row, col: from.col + dCol });
+      this.setSelection(this.skipHidden(from, to, 0, dCol));
     } else {
       // After tabbing along a row, Enter starts the next row under where the tabbing began.
       const col = dRow > 0 && this.tabOrigin !== null ? this.tabOrigin : this.active.col;
       this.tabOrigin = null;
-      const to = this.clampPos({ row: this.active.row + dRow, col });
-      this.setSelection(this.skipHidden({ row: this.active.row, col }, to, dRow, 0));
+      const from = this.leaveMerge({ row: this.active.row, col }, dRow, 0);
+      const to = this.clampPos({ row: from.row + dRow, col });
+      this.setSelection(this.skipHidden(from, to, dRow, 0));
     }
     this.reveal(this.active.row, this.active.col);
   }
@@ -507,6 +549,9 @@ export class SheetController {
     const rect = this.selection;
     if (this.scope === 'rows') return `${rect.r1 + 1}:${rect.r2 + 1}`;
     if (this.scope === 'cols') return `${columnName(rect.c1)}:${columnName(rect.c2)}`;
+    const block = this.activeRect;
+    // A merged cell goes by the name of its first cell.
+    if (rect.r1 === block.r1 && rect.r2 === block.r2 && rect.c1 === block.c1 && rect.c2 === block.c2) return rectName(rectOf(this.active));
     return rectName(rect);
   }
 

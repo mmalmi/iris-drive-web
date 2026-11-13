@@ -454,6 +454,42 @@ describe('two devices editing at once', () => {
     expect(b.first().rows.length).toBe(DEFAULT_ROWS);
   });
 
+  it('the last row of a summed range moved by both devices at once is summed where it ends up', () => {
+    for (const [first, second] of [[1, 2], [2, 1]]) {
+      const docA = new Y.Doc();
+      docA.clientID = first;
+      const a = open(docA);
+      a.put('A1', '1');
+      a.put('A2', '2');
+      a.put('A3', '3');
+      a.put('A4', '=SUM(A1:A3)');
+      const docB = new Y.Doc();
+      docB.clientID = second;
+      const b = open(docB);
+      sync(a.doc, b.doc);
+      // One moves the 3 to the top, inside the range; the other moves it below the total.
+      moveKeepingRanges(a.book, a.first(), 'row', 2, 1, 0);
+      expect(a.get('A4')).toBe(6);
+      moveKeepingRanges(b.book, b.first(), 'row', 2, 1, 4);
+      expect(b.get('A3')).toBe(3);
+      sync(a.doc, b.doc);
+      const column = (side: typeof a) => [1, 2, 3, 4].map(row => side.get(`A${row}`));
+      expect(column(a)).toEqual(column(b));
+      // Either the 3 sits on top and is summed, or it sits under the total and is not.
+      expect([[3, 1, 2, 6], [1, 2, 3, 3]]).toContainEqual(column(a));
+    }
+  });
+
+  it('merged cells added on two devices at once that overlap leave one merge on both', () => {
+    const { a, b } = pair();
+    a.first().merge({ r1: 0, c1: 1, r2: 1, c2: 2 });
+    b.first().merge({ r1: 1, c1: 2, r2: 2, c2: 3 });
+    sync(a.doc, b.doc);
+    const strip = (list: Array<{ r1: number; c1: number; r2: number; c2: number }>) => list.map(({ r1, c1, r2, c2 }) => ({ r1, c1, r2, c2 }));
+    expect(strip(a.first().merges())).toEqual([{ r1: 0, c1: 1, r2: 1, c2: 2 }]);
+    expect(strip(b.first().merges())).toEqual(strip(a.first().merges()));
+  });
+
   it('sheets added on both devices are both kept', () => {
     const { a, b } = pair();
     const fromA = a.book.addSheet('Costs');

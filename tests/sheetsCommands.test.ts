@@ -3,8 +3,13 @@ import * as Y from 'yjs';
 import { parseRectName } from '../src/lib/sheets/address';
 import {
   adjustDecimals,
+  applyBorders,
   applyStyle,
   clearContents,
+  clearFormatting,
+  mergeSelection,
+  setFontSize,
+  unmergeSelection,
   copiedHtml,
   copySelection,
   deleteSelected,
@@ -303,6 +308,49 @@ describe('the clipboard', () => {
     expect(get('G1')).toBe(7);
   });
 
+  it('formulas elsewhere follow cut cells to where they are pasted', () => {
+    const { ctl, select, type, get, formula } = table();
+    type('E1', '=SUM(A1:A2)');
+    type('E2', '=B1*2');
+    type('E3', '=SUM(A1:B1)');
+    select('A1:B2');
+    const text = copySelection(ctl, true);
+    select('A11');
+    pasteText(ctl, text);
+    // Wholly moved ranges and single cells follow; formulas that moved keep reading the moved cells.
+    expect(formula('E1')).toBe('=SUM(A11:A12)');
+    expect(formula('E2')).toBe('=B11*2');
+    expect(formula('E3')).toBe('=SUM(A11:B11)');
+    expect(formula('C1')).toBe('=A11*B11');
+    expect(get('E1')).toBe(6);
+    expect(get('C1')).toBe(7);
+    // A range only partly moved stays where it was.
+    type('F1', '=SUM(A11:A13)');
+    select('A11');
+    const one = copySelection(ctl, true);
+    select('H1');
+    pasteText(ctl, one);
+    expect(formula('F1')).toBe('=SUM(A11:A13)');
+    expect(formula('E1')).toBe('=SUM(A11:A12)');
+    ctl.undo();
+    expect(get('A11')).toBe(2);
+  });
+
+  it('a cut cell pasted on another sheet is read there by formulas on the first', () => {
+    const { ctl, select, type, formula } = table();
+    type('E1', '=A1+1');
+    select('A1');
+    const text = copySelection(ctl, true);
+    const first = ctl.sheetId;
+    const id = ctl.book.addSheet('Notes');
+    ctl.showSheet(id);
+    select('B2');
+    pasteText(ctl, text);
+    ctl.showSheet(first);
+    expect(formula('E1')).toBe('=Notes!B2+1');
+    expect(formula('C1')).toBe('=Notes!B2*B1');
+  });
+
   it('reads text from other programs as typed values', () => {
     const { ctl, select, get, show } = open();
     select('B2');
@@ -386,7 +434,7 @@ describe('rows, columns and sheets', () => {
   }
 
   it('a new row looks like the row it was added next to', () => {
-    const { ctl, select, type, show, style } = table();
+    const { ctl, select, type, show, style, formula } = table();
     select('A2');
     toggleStyle(ctl, 'i');
     ctl.selectRows(1, 1);
@@ -397,12 +445,96 @@ describe('rows, columns and sheets', () => {
     expect(show('B2')).toBe('$50.00');
     expect(show('B4')).toBe('$1,250.00');
     expect(ctl.sheet.rows.length).toBe(1001);
-    // A row added under the last summed one is, as in other spreadsheets, not summed.
+    // A row added from the last summed one, below it, is summed too: a line added to the list.
     ctl.selectRows(2, 2);
     insertBeside(ctl, 'row', true);
     type('B4', '1');
     expect(show('B4')).toBe('$1.00');
-    expect(show('B5')).toBe('$1,250.00');
+    expect(show('B5')).toBe('$1,251.00');
+    expect(formula('B5')).toBe('=SUM(B1:B4)');
+    // Added from the total row, above it, it is not.
+    ctl.selectRows(4, 4);
+    insertBeside(ctl, 'row', false);
+    type('B5', '7');
+    expect(formula('B6')).toBe('=SUM(B1:B4)');
+    // From the first summed row, above it, it is.
+    ctl.selectRows(0, 0);
+    insertBeside(ctl, 'row', false);
+    expect(formula('B7')).toBe('=SUM(B1:B5)');
+  });
+
+  it('borders go on and off, and the line between two cells is kept once', () => {
+    const { ctl, select, style } = table();
+    select('A1:B3');
+    applyBorders(ctl, 'all', 's');
+    expect(style('A1')).toMatchObject({ bt: 's', bb: 's', bl: 's', br: 's' });
+    expect(style('A2').bt).toBeUndefined();
+    expect(ctl.sheet.borderAt(1, 0, 'bt')).toBe('s');
+    select('A2');
+    applyBorders(ctl, 'none', 's');
+    expect(ctl.sheet.borderAt(1, 0, 'bt')).toBeUndefined();
+    expect(ctl.sheet.borderAt(1, 0, 'br')).toBeUndefined();
+    expect(ctl.sheet.borderAt(0, 0, 'bt')).toBe('s');
+    select('A1:B3');
+    applyBorders(ctl, 'outer', 'k#e03131');
+    expect(ctl.sheet.borderAt(2, 1, 'bb')).toBe('k#e03131');
+    expect(ctl.sheet.borderAt(0, 1, 'bb')).toBe('s');
+    clearFormatting(ctl);
+    for (const name of ['A1', 'B2', 'B3', 'C1', 'A4']) expect(style(name)).toEqual({});
+    ctl.undo();
+    expect(ctl.sheet.borderAt(2, 1, 'bb')).toBe('k#e03131');
+  });
+
+  it('merged cells act as one cell', () => {
+    const { ctl, select, get, show } = table();
+    select('A5:C5');
+    ctl.startEdit({ text: 'Budget' });
+    ctl.commitEdit();
+    select('A5:C6');
+    ctl.sheet.setRaw(5, 1, 'lost');
+    mergeSelection(ctl, 'all');
+    expect(ctl.notice).toBe('Only the first cell of each merged block keeps its content.');
+    expect(get('B6')).toBe(null);
+    expect(show('A5')).toBe('Budget');
+    // Clicking any part selects all of it, named after its first cell.
+    select('B6');
+    expect(ctl.selectionName).toBe('A5');
+    expect(ctl.selection).toEqual({ r1: 4, c1: 0, r2: 5, c2: 2 });
+    // Arrows step over it whole.
+    ctl.move(0, 1);
+    expect(ctl.selectionName).toBe('D5');
+    ctl.move(0, -1);
+    expect(ctl.selectionName).toBe('A5');
+    ctl.move(1, 0);
+    expect(ctl.selectionName).toBe('A7');
+    // A selection that reaches into it takes all of it.
+    select('D6');
+    ctl.move(0, -1, { extend: true });
+    expect(ctl.selection).toEqual({ r1: 4, c1: 0, r2: 5, c2: 3 });
+    // A row inserted inside it makes it taller; unmerging gives the cells back.
+    ctl.selectRows(5, 5);
+    insertBeside(ctl, 'row', false);
+    expect(ctl.sheet.merges()[0]).toMatchObject({ r1: 4, r2: 6, c1: 0, c2: 2 });
+    select('A5');
+    unmergeSelection(ctl);
+    expect(ctl.sheet.merges()).toEqual([]);
+    select('B6');
+    expect(ctl.selectionName).toBe('B6');
+    ctl.undo();
+    expect(ctl.sheet.merges()).toHaveLength(1);
+    // Merging each row on its own.
+    select('A10:B11');
+    mergeSelection(ctl, 'across');
+    expect(ctl.sheet.merges()).toHaveLength(3);
+  });
+
+  it('a larger font makes its row taller', () => {
+    const { ctl, select, style } = table();
+    select('A1');
+    setFontSize(ctl, 18);
+    expect(style('A1').fs).toBe(18);
+    setFontSize(ctl, 10);
+    expect(style('A1').fs).toBeUndefined();
   });
 
   it('inserts as many rows as are selected, and deletes them', () => {

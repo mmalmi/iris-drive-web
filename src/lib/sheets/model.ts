@@ -13,11 +13,15 @@
  * - A deleted row or column is not taken out of the order; it is marked gone
  *   and its cells are emptied. A range that ended in it can then shrink to
  *   its neighbour, and undoing the deletion brings everything back.
- * - A moved row is taken out and put back in the order. If two devices move
- *   the same row at once it ends up listed twice; the first place counts.
- *   The same rule lets two devices that both start the same empty
- *   spreadsheet end up with one grid: the first rows and columns of a sheet
- *   get the same ids ("0", "1", "2" … in base 36) everywhere.
+ * - A moved row is taken out and put back in the order, and its new place is
+ *   noted under mr:/mc: in props. If two devices move the same row at once
+ *   it ends up listed twice; the place the note names counts. The note and
+ *   any formula the move rewrote are written in one step, so whichever
+ *   device's step wins, its formulas and its place win together. Without a
+ *   note the first place counts. That rule also lets two devices that both
+ *   start the same empty spreadsheet end up with one grid: the first rows
+ *   and columns of a sheet get the same ids ("0", "1", "2" … in base 36)
+ *   everywhere.
  * - Nothing is nested. Every sheet's data lives in shared types at the top
  *   of the document, named by the sheet id, because a nested type created on
  *   two devices at once would have one of them thrown away with its content.
@@ -27,6 +31,8 @@
  *   book           Map    version: 1
  *                         name:<sheetId>  the sheet's name
  *                         gone:<sheetId>  true once the sheet is deleted
+ *                         locale  how numbers and dates are written, such
+ *                                 as "de-DE"; unset: each reader's own
  *   sheets         Array  sheet ids in tab order
  *   <sheetId>:rows Array  row ids in order
  *   <sheetId>:cols Array  column ids in order
@@ -45,6 +51,12 @@
  *                         xr:<rowId>, xc:<colId>  true once deleted
  *                         hr:<rowId>, hc:<colId>  true while hidden
  *                         freezeRows, freezeCols  how many stay in view
+ *                         m:<rowId>:<colId>  "rowId:colId": cells merged
+ *                           from the first cell to the second. Merges that
+ *                           overlap after two devices merged at once give
+ *                           way to the one nearer the top left.
+ *                         mr:<rowId>, mc:<colId>  [client, clock]: which of
+ *                           the places a moved row is listed at counts
  *
  * Whole values are replaced, last writer wins: one cell's content, one
  * cell's style, one width.
@@ -88,10 +100,29 @@ export interface CellStyle {
   w?: 0 | 1;
   /** Number format pattern (see format.ts). */
   nf?: string;
+  /** Font size in points; 10 when not set. */
+  fs?: number;
+  /** Vertical alignment: top, middle; bottom when not set. */
+  va?: 't' | 'm' | 'b' | '';
+  /**
+   * Borders on the top, bottom, left and right side: a line kind and a
+   * colour, as "s#000000" (see borders.ts). The line between two cells shows
+   * when either of them has it.
+   */
+  bt?: string;
+  bb?: string;
+  bl?: string;
+  br?: string;
 }
 
 /** A change to a style: a value sets a property, null clears it. */
 export type StylePatch = { [K in keyof CellStyle]?: CellStyle[K] | null };
+
+/** Every style property, for clearing them all. */
+export const STYLE_PROPS: Array<keyof CellStyle> = ['b', 'i', 's', 'u', 'c', 'bg', 'a', 'w', 'nf', 'fs', 'va', 'bt', 'bb', 'bl', 'br'];
+const TEXT_PROPS = new Set<keyof CellStyle>(['c', 'bg', 'a', 'nf', 'va', 'bt', 'bb', 'bl', 'br']);
+export const BORDER_PROPS = ['bt', 'bb', 'bl', 'br'] as const;
+export type BorderSide = typeof BORDER_PROPS[number];
 
 const EMPTY_STYLE: CellStyle = Object.freeze({});
 
@@ -131,12 +162,30 @@ export class Axis {
   /** For a deleted id: how many living ids come before it. */
   private slots = new Map<string, number>();
 
-  rebuild(listed: string[], isGone: (id: string) => boolean): void {
+  /**
+   * `placeOf` names, for an id listed more than once, the index in `listed`
+   * of the place that counts; otherwise the first one does.
+   */
+  rebuild(listed: string[], isGone: (id: string) => boolean, placeOf?: (id: string) => number | undefined): void {
     const ids: string[] = [];
     const positions = new Map<string, number>();
     const slots = new Map<string, number>();
-    for (const id of listed) {
+    let chosen: Map<string, number> | null = null;
+    if (placeOf) {
+      const seen = new Set<string>();
+      for (const id of listed) {
+        if (!seen.has(id)) seen.add(id);
+        else if (!chosen?.has(id)) {
+          const index = placeOf(id);
+          if (index !== undefined && listed[index] === id) (chosen ??= new Map()).set(id, index);
+        }
+      }
+    }
+    for (let index = 0; index < listed.length; index += 1) {
+      const id = listed[index];
       if (positions.has(id) || slots.has(id)) continue;
+      const wanted = chosen?.get(id);
+      if (wanted !== undefined && wanted !== index) continue;
       if (isGone(id)) {
         slots.set(id, ids.length);
       } else {
@@ -215,6 +264,9 @@ export class Sheet {
   private readonly doc: Y.Doc;
   private styleCache = new Map<string, CellStyle>();
   private used: Rect | null | undefined;
+  private mergeList: Array<Rect & { key: string }> | null = null;
+  private mergeIndex: Map<number, Rect[]> | null = null;
+  private bordered: boolean | null = null;
 
   constructor(doc: Y.Doc, id: string) {
     this.doc = doc;
@@ -232,14 +284,37 @@ export class Sheet {
   }
 
   rebuildAxes(): void {
-    this.rows.rebuild(this.rowOrder.toArray(), id => this.props.get(`xr:${id}`) === true);
-    this.cols.rebuild(this.colOrder.toArray(), id => this.props.get(`xc:${id}`) === true);
+    this.rows.rebuild(this.rowOrder.toArray(), id => this.props.get(`xr:${id}`) === true, this.notedPlace(this.rowOrder, 'mr:'));
+    this.cols.rebuild(this.colOrder.toArray(), id => this.props.get(`xc:${id}`) === true, this.notedPlace(this.colOrder, 'mc:'));
     this.used = undefined;
+    this.forgetMerges();
+  }
+
+  /** Where the note left by the last move of a row or column says it is listed. */
+  private notedPlace(order: Y.Array<string>, prefix: string): (id: string) => number | undefined {
+    return (id) => {
+      const note = this.props.get(`${prefix}${id}`);
+      if (!Array.isArray(note) || note.length !== 2) return undefined;
+      const place = Y.createAbsolutePositionFromRelativePosition(
+        Y.createRelativePositionFromJSON({ item: { client: note[0], clock: note[1] } }),
+        this.doc,
+      );
+      return place && place.type === order ? place.index : undefined;
+    };
   }
 
   forgetCaches(part: SheetPart): void {
-    if (part === 'styles') this.styleCache.clear();
+    if (part === 'styles') {
+      this.styleCache.clear();
+      this.bordered = null;
+    }
     if (part === 'cells') this.used = undefined;
+    if (part === 'props') this.forgetMerges();
+  }
+
+  private forgetMerges(): void {
+    this.mergeList = null;
+    this.mergeIndex = null;
   }
 
   private transact(run: () => void): void {
@@ -334,7 +409,7 @@ export class Sheet {
   patchStyle(rect: Rect, patch: StylePatch, scope: 'cells' | 'rows' | 'cols' | 'all' = 'cells'): void {
     const props = Object.keys(patch) as Array<keyof CellStyle>;
     if (props.length === 0) return;
-    const off = (prop: keyof CellStyle): 0 | '' => (prop === 'c' || prop === 'bg' || prop === 'a' || prop === 'nf' ? '' : 0);
+    const off = (prop: keyof CellStyle): 0 | '' => (TEXT_PROPS.has(prop) ? '' : 0);
     const isOn = (value: unknown) => value !== undefined && value !== null && value !== 0 && value !== '';
     /** Applies the patch to one stored style, given what shows through from underneath. */
     const apply = (current: CellStyle | undefined, below: CellStyle | undefined): CellStyle => {
@@ -427,7 +502,141 @@ export class Sheet {
 
   /** Removes every look from the cells, rows or columns the rectangle stands for. */
   clearStyle(rect: Rect, scope: 'cells' | 'rows' | 'cols' | 'all' = 'cells'): void {
-    this.patchStyle(rect, { b: null, i: null, s: null, u: null, c: null, bg: null, a: null, w: null, nf: null }, scope);
+    const patch: StylePatch = {};
+    for (const prop of STYLE_PROPS) (patch as Record<string, null>)[prop] = null;
+    this.patchStyle(rect, patch, scope);
+  }
+
+  /** Whether any cell, row or column has a border, so drawing can skip looking. */
+  hasBorders(): boolean {
+    if (this.bordered === null) {
+      this.bordered = false;
+      for (const style of this.styles.values()) {
+        if (style.bt || style.bb || style.bl || style.br) {
+          this.bordered = true;
+          break;
+        }
+      }
+    }
+    return this.bordered;
+  }
+
+  /** The line along one side of a cell: its own, or the one its neighbour has on the side they share. */
+  borderAt(row: number, col: number, side: BorderSide): string | undefined {
+    const own = this.styleAt(row, col)[side];
+    if (own) return own;
+    switch (side) {
+      case 'bt': return row > 0 ? this.styleAt(row - 1, col).bb : undefined;
+      case 'bb': return this.styleAt(row + 1, col).bt;
+      case 'bl': return col > 0 ? this.styleAt(row, col - 1).br : undefined;
+      default: return this.styleAt(row, col + 1).bl;
+    }
+  }
+
+  // --- Merged cells ---
+
+  /** The merged blocks, in order from the top left; overlapping ones give way to the earlier. */
+  merges(): Array<Rect & { key: string }> {
+    if (this.mergeList) return this.mergeList;
+    const found: Array<Rect & { key: string }> = [];
+    for (const [key, value] of this.props.entries()) {
+      if (!key.startsWith('m:') || typeof value !== 'string') continue;
+      const [rowId, colId] = key.slice(2).split(':');
+      const [endRow, endCol] = value.split(':');
+      const rows = this.rows.span(rowId, endRow);
+      const cols = this.cols.span(colId, endCol);
+      if (!rows || !cols || (rows[0] === rows[1] && cols[0] === cols[1])) continue;
+      found.push({ r1: rows[0], r2: rows[1], c1: cols[0], c2: cols[1], key });
+    }
+    found.sort((a, b) => a.r1 - b.r1 || a.c1 - b.c1 || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+    const kept: Array<Rect & { key: string }> = [];
+    for (const merge of found) {
+      if (!kept.some(other => other.r1 <= merge.r2 && merge.r1 <= other.r2 && other.c1 <= merge.c2 && merge.c1 <= other.c2)) kept.push(merge);
+    }
+    this.mergeList = kept;
+    return kept;
+  }
+
+  /** The merged block a cell belongs to, or null. */
+  mergeAt(row: number, col: number): Rect | null {
+    if (!this.mergeIndex) {
+      const index = new Map<number, Rect[]>();
+      for (const merge of this.merges()) {
+        for (let r = merge.r1; r <= merge.r2; r += 1) {
+          const list = index.get(r);
+          if (list) list.push(merge);
+          else index.set(r, [merge]);
+        }
+      }
+      this.mergeIndex = index;
+    }
+    const list = this.mergeIndex.get(row);
+    if (!list) return null;
+    for (const merge of list) if (col >= merge.c1 && col <= merge.c2) return merge;
+    return null;
+  }
+
+  /** The rectangle grown until it cuts no merged block in two. */
+  withMerges(rect: Rect): Rect {
+    const merges = this.merges();
+    if (merges.length === 0) return rect;
+    const out = { ...rect };
+    for (let grown = true; grown;) {
+      grown = false;
+      for (const merge of merges) {
+        if (merge.r1 > out.r2 || merge.r2 < out.r1 || merge.c1 > out.c2 || merge.c2 < out.c1) continue;
+        if (merge.r1 < out.r1 || merge.r2 > out.r2 || merge.c1 < out.c1 || merge.c2 > out.c2) {
+          out.r1 = Math.min(out.r1, merge.r1);
+          out.r2 = Math.max(out.r2, merge.r2);
+          out.c1 = Math.min(out.c1, merge.c1);
+          out.c2 = Math.max(out.c2, merge.c2);
+          grown = true;
+        }
+      }
+    }
+    return out;
+  }
+
+  /** Removes the merges that overlap a rectangle. */
+  unmerge(rect: Rect): void {
+    const doomed = this.merges().filter(m => m.r1 <= rect.r2 && rect.r1 <= m.r2 && m.c1 <= rect.c2 && rect.c1 <= m.c2);
+    if (doomed.length === 0) return;
+    this.transact(() => {
+      for (const merge of doomed) this.props.delete(merge.key);
+    });
+    this.forgetMerges();
+  }
+
+  /**
+   * Merges a rectangle into one cell, or each of its rows (`across`) or
+   * columns (`down`) into one. Only the first cell of each keeps its content.
+   * Returns whether content was dropped.
+   */
+  merge(rect: Rect, how: 'all' | 'across' | 'down' = 'all'): boolean {
+    const blocks: Rect[] = how === 'across'
+      ? Array.from({ length: rect.r2 - rect.r1 + 1 }, (_unused, k) => ({ ...rect, r1: rect.r1 + k, r2: rect.r1 + k }))
+      : how === 'down'
+        ? Array.from({ length: rect.c2 - rect.c1 + 1 }, (_unused, k) => ({ ...rect, c1: rect.c1 + k, c2: rect.c1 + k }))
+        : [rect];
+    let dropped = false;
+    this.transact(() => {
+      this.unmerge(rect);
+      for (const block of blocks) {
+        if (block.r1 === block.r2 && block.c1 === block.c2) continue;
+        for (let row = block.r1; row <= block.r2; row += 1) {
+          for (let col = block.c1; col <= block.c2; col += 1) {
+            if ((row !== block.r1 || col !== block.c1) && !this.isEmpty(row, col)) {
+              dropped = true;
+              this.setRaw(row, col, null);
+            }
+          }
+        }
+        const key = `m:${this.rows.ids[block.r1]}:${this.cols.ids[block.c1]}`;
+        this.props.set(key, `${this.rows.ids[block.r2]}:${this.cols.ids[block.c2]}`);
+      }
+    });
+    this.forgetMerges();
+    return dropped;
   }
 
   // --- Sizes ---
@@ -563,13 +772,20 @@ export class Sheet {
     const ids = live.ids.slice(from, from + count);
     const moving = new Set(ids);
     const target = live.ids[to];
+    const note = axis === 'row' ? 'mr:' : 'mc:';
     this.transact(() => {
       const listed = order.toArray();
       for (let index = listed.length - 1; index >= 0; index -= 1) {
         if (moving.has(listed[index])) order.delete(index, 1);
       }
       const remaining = order.toArray();
-      order.insert(target === undefined ? remaining.length : remaining.indexOf(target), ids);
+      const at = target === undefined ? remaining.length : remaining.indexOf(target);
+      order.insert(at, ids);
+      // Which place counts, should another device move the same rows at once.
+      ids.forEach((id, offset) => {
+        const item = Y.createRelativePositionFromTypeIndex(order, at + offset).item;
+        if (item) this.props.set(`${note}${id}`, [item.client, item.clock]);
+      });
     });
     this.rebuildAxes();
   }
@@ -765,7 +981,9 @@ export class Book {
         found.axes = true;
       } else {
         found.props = true;
-        for (const key of keys) if (key !== null && key.startsWith('x')) found.axes = true;
+        for (const key of keys) {
+          if (key !== null && (key.startsWith('x') || key.startsWith('mr:') || key.startsWith('mc:'))) found.axes = true;
+        }
       }
     }
     for (const [id, found] of change.bySheet) if (found.axes) this.sheet(id).rebuildAxes();

@@ -57,6 +57,10 @@ export function sortTarget(ctl: SheetController): { rect: Rect; header: boolean;
  */
 export function sortRange(ctl: SheetController, rect: Rect, keyCol: number, ascending: boolean): void {
   const sheet = ctl.sheet;
+  if (sheet.merges().some(m => m.r2 > m.r1 && m.r1 <= rect.r2 && rect.r1 <= m.r2 && m.c1 <= rect.c2 && rect.c1 <= m.c2)) {
+    ctl.say('Unmerge the cells that span several rows to sort them.');
+    return;
+  }
   const order = sortedRows(sheet, ctl.engine, rect, keyCol, ascending);
   if (order.every((row, index) => row === rect.r1 + index)) return;
   const content = contentInOrder(sheet, rect, order);
