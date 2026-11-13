@@ -7,15 +7,17 @@
     /** The button it belongs to, or the point it opens at. */
     anchor: HTMLElement | { x: number; y: number } | undefined;
     label: string;
+    /** Rises from the bottom of the screen, full width, as on a phone. */
+    sheet?: boolean;
     children: Snippet;
   }
-  let { open = $bindable(), anchor, label, children }: Props = $props();
+  let { open = $bindable(), anchor, label, sheet = false, children }: Props = $props();
 
   let panel: HTMLElement | undefined = $state();
   let position = $state({ left: 0, top: 0 });
 
   $effect(() => {
-    if (!open || !panel || !anchor) return;
+    if (!open || !panel || !anchor || sheet) return;
     const size = panel.getBoundingClientRect();
     const at = anchor instanceof HTMLElement
       ? (() => {
@@ -58,11 +60,12 @@
 {#if open}
   <div
     class="popover"
+    class:sheet
     bind:this={panel}
     role="dialog"
     aria-label={label}
-    style:left="{position.left}px"
-    style:top="{position.top}px"
+    style:left={sheet ? undefined : `${position.left}px`}
+    style:top={sheet ? undefined : `${position.top}px`}
     data-slides-popover
   >
     {@render children()}
@@ -82,6 +85,18 @@
     background: rgb(var(--surface-1));
     color: rgb(var(--text-1));
     box-shadow: 0 8px 28px rgb(0 0 0 / 0.22);
+  }
+
+  .popover.sheet {
+    left: 0;
+    right: 0;
+    bottom: 0;
+    max-width: none;
+    max-height: 72vh;
+    padding: 8px 10px max(12px, env(safe-area-inset-bottom));
+    border-width: 1px 0 0;
+    border-radius: 14px 14px 0 0;
+    box-shadow: 0 -6px 28px rgb(0 0 0 / 0.22);
   }
 
   .popover :global(.menu-item) {
