@@ -54,7 +54,8 @@ async function publishOwnName(pubkey: string, name: string, generatedKey: boolea
     import('../lib/nostrPublish'),
   ]);
   type Known = ReturnType<typeof getProfileSync>;
-  const known = getProfileSync(pubkey) ?? await new Promise<Known>((resolve) => {
+  // A key made by Drive only ever had profiles Drive wrote, so it need not wait for one.
+  const known = getProfileSync(pubkey) ?? (generatedKey ? undefined : await new Promise<Known>((resolve) => {
     let unsubscribe: (() => void) | null = null;
     const finish = (value: Known) => {
       clearTimeout(timer);
@@ -63,7 +64,7 @@ async function publishOwnName(pubkey: string, name: string, generatedKey: boolea
     };
     const timer = setTimeout(() => finish(undefined), PROFILE_WAIT_MS);
     unsubscribe = createProfileStore(pubkey).subscribe((value) => { if (value) finish(value); });
-  });
+  }));
   // A key made by Drive has no other profile to keep. Any other key might, so
   // without its current profile nothing is published that could replace it.
   if (!known && !generatedKey) return;

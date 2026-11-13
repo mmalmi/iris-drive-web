@@ -49,6 +49,23 @@ describe('shareContacts', () => {
     expect(ranked[1].nostr_identity_id).toBe('123e4567-e89b-42d3-a456-426614174011');
   });
 
+  it('puts nearer people first, then better matches, then the order the search found them in', () => {
+    const [near, exact, unknownA, unknownB] = [1, 2, 3, 4].map(() => getPublicKey(generateSecretKey()));
+    const graph = {
+      getFollowDistance: (pubkey: string) => (pubkey === near ? 1 : pubkey === exact ? 2 : 1000),
+      followedByFriendsCount: () => 0,
+    };
+    const ranked = rankShareContacts('bob', [
+      { pubkey: unknownB, displayName: 'Bob B', order: 2 },
+      { pubkey: exact, displayName: 'Bob' },
+      { pubkey: unknownA, displayName: 'Bob A', order: 1 },
+      { pubkey: near, displayName: 'Robert Bobson' },
+    ], graph);
+    expect(ranked.map((contact) => contact.pubkey)).toEqual([near, exact, unknownA, unknownB]);
+    expect(ranked[0].follow_distance).toBe(1);
+    expect(ranked[2].follow_distance).toBeUndefined();
+  });
+
   it('drops candidates with malformed representative npubs', () => {
     expect(rankShareContacts('', [{ pubkey: 'also-not-a-key', npub: 'npub1bad' }])).toEqual([]);
   });

@@ -31,6 +31,8 @@ import {
 
 export const SHARE_JOIN_LABEL = 'iris-drive/share-join';
 export const SHARE_JOIN_ROUTE = '/share-join/';
+/** Tells a person's devices that a folder was shared with them directly. */
+export const SHARE_ADDED_LABEL = 'iris-drive/share-added';
 
 export interface ShareJoinLink {
   v: 1;

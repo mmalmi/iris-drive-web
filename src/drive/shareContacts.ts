@@ -9,6 +9,8 @@ export interface ShareContactCandidate {
   nostrIdentityId?: string;
   linkedNpubs?: string[];
   shareRecipientEvidenceJson?: string;
+  /** Position given by the search that found it; earlier is better. */
+  order?: number;
 }
 
 export interface RankedShareContact {
@@ -19,6 +21,24 @@ export interface RankedShareContact {
   linked_npubs: string[];
   recipient_evidence_json?: string;
   score: number;
+  /** Steps from this account in the follow graph, when it is close enough to know. */
+  follow_distance?: number;
+  order?: number;
+}
+
+/** Beyond this the graph does not know the person. */
+const UNKNOWN_DISTANCE = 100;
+
+export function knownFollowDistance(distance: number | undefined): number | undefined {
+  return distance !== undefined && distance >= 0 && distance < UNKNOWN_DISTANCE ? distance : undefined;
+}
+
+/** People nearer in the follow graph first, then the better match, then the search's own order. */
+export function compareShareContacts(a: RankedShareContact, b: RankedShareContact): number {
+  return (a.follow_distance ?? Infinity) - (b.follow_distance ?? Infinity)
+    || b.score - a.score
+    || (a.order ?? Infinity) - (b.order ?? Infinity)
+    || a.display_name.localeCompare(b.display_name);
 }
 
 type ShareSocialGraph = Pick<SocialGraph, 'getFollowDistance' | 'followedByFriendsCount'>;
@@ -33,7 +53,7 @@ export function rankShareContacts(
   return candidates
     .map((candidate) => rankedShareContact(candidate, normalizedQuery, graph))
     .filter((contact): contact is RankedShareContact => contact !== null)
-    .sort((a, b) => b.score - a.score || a.display_name.localeCompare(b.display_name))
+    .sort(compareShareContacts)
     .slice(0, limit);
 }
 
@@ -100,5 +120,7 @@ function rankedShareContact(
     linked_npubs: Array.from(new Set([npub, ...linkedNpubs])).sort(),
     recipient_evidence_json: candidate.shareRecipientEvidenceJson,
     score: queryScore + socialScore,
+    ...(knownFollowDistance(followDistance) !== undefined ? { follow_distance: followDistance } : {}),
+    ...(candidate.order !== undefined ? { order: candidate.order } : {}),
   };
 }

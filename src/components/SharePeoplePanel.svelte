@@ -1,7 +1,7 @@
 <script lang="ts">
   /**
-   * Invite people to a folder or document: one link, and the list of people
-   * who have joined with it.
+   * Invite people to a folder or document: one link, a search to add someone
+   * directly, and the list of people who have access.
    */
   import CopyText from '@iris/svelte-ui/CopyText.svelte';
   import { nostrStore } from '../nostr';
@@ -9,10 +9,17 @@
   import { projectSharedFolderView, type ShareRole } from '../drive/protocol';
   import { acceptedShares } from '../drive/shareLibrary';
   import type { SharePeopleTarget } from '../drive/sharePeople';
-  import { personHref } from '../drive/people';
+  import { memberNpub, npubPubkey, personHref } from '../drive/people';
+  import type { RankedShareContact } from '../drive/shareContactSearch';
+  import { getProfileName, getProfileSync } from '../stores/profile';
+  import { refreshSocialGraph } from '../lib/socialGraphRefresh';
   import { close as closeShareDialog } from './Modals/ShareModal.svelte';
+  import { Avatar } from './User';
+  import PersonName from './User/PersonName.svelte';
   import {
+    addPersonToShare,
     changeShareMemberRole,
+    NoDevicesFoundError,
     disableJoinLinks,
     joinLinkUrl,
     removeShareMember,
@@ -74,6 +81,65 @@
     const role = (event.currentTarget as HTMLSelectElement).value as ShareRole;
     void run(() => changeShareMemberRole(shareId, memberProfileId, role));
   }
+
+  function memberPubkey(memberProfileId: string): string | null {
+    const npub = record ? memberNpub(record.folder, memberProfileId) : null;
+    return npub ? npubPubkey(npub) : null;
+  }
+
+  // Adding a person directly, found by name or key.
+  let query = $state('');
+  let addRole = $state<'editor' | 'reader'>('editor');
+  let found = $state<RankedShareContact[]>([]);
+  let searching = $state(false);
+  let adding = $state<Array<{ pubkey: string; name: string; error: string }>>([]);
+  let searchCode: Promise<typeof import('../drive/sharePeopleSearch')> | null = null;
+  let inFolder = $derived(new Set([
+    ...Object.values(record?.folder.access?.devices ?? {})
+      .filter((device) => device.profile_id && people.some((member) => member.profile_id === device.profile_id))
+      .map((device) => device.pubkey),
+    ...people.map((member) => member.representative_npub_hint && npubPubkey(member.representative_npub_hint)).filter(Boolean),
+  ]));
+  let choices = $derived(found.filter((contact) => !inFolder.has(contact.pubkey)));
+
+  $effect(() => {
+    const text = query.trim();
+    if (!text) {
+      found = [];
+      searching = false;
+      return;
+    }
+    searching = true;
+    let stop = () => {};
+    const timer = setTimeout(() => {
+      searchCode ??= import('../drive/sharePeopleSearch');
+      void searchCode.then(({ searchPeopleToShare }) => {
+        stop = searchPeopleToShare(text, (contacts, done) => {
+          found = contacts;
+          searching = !done;
+        });
+      });
+    }, 150);
+    return () => {
+      clearTimeout(timer);
+      stop();
+    };
+  });
+
+  function add(contact: RankedShareContact) {
+    if (adding.some((item) => item.pubkey === contact.pubkey && !item.error)) return;
+    const name = getProfileName(getProfileSync(contact.pubkey)) || contact.display_name;
+    adding = [...adding.filter((item) => item.pubkey !== contact.pubkey), { pubkey: contact.pubkey, name, error: '' }];
+    query = '';
+    void addPersonToShare(shareId, contact.pubkey, addRole, name).then(() => {
+      adding = adding.filter((item) => item.pubkey !== contact.pubkey);
+    }, (cause) => {
+      const message = cause instanceof NoDevicesFoundError
+        ? `Could not find ${name}'s devices. Send them the invite link instead.`
+        : cause instanceof Error ? cause.message : 'Could not add them';
+      adding = adding.map((item) => item.pubkey === contact.pubkey ? { ...item, error: message } : item);
+    });
+  }
 </script>
 
 <div class="p-4 space-y-4" data-testid="share-people">
@@ -109,10 +175,78 @@
       </button>
     </div>
 
+    <div class="space-y-2">
+      <div class="flex gap-2">
+        <div class="relative min-w-0 flex-1">
+          <span class="i-lucide-search absolute left-3 top-1/2 -translate-y-1/2 text-sm text-text-3"></span>
+          <input
+            class="input w-full pl-9"
+            bind:value={query}
+            placeholder="Add people by name or npub"
+            aria-label="Add people"
+            autocomplete="off"
+            onfocus={() => refreshSocialGraph()}
+            data-testid="share-people-search"
+          />
+        </div>
+        <select class="pick h-auto!" bind:value={addRole} aria-label="Access for people you add" data-testid="share-people-add-role">
+          <option value="editor">Editor</option>
+          <option value="reader">Reader</option>
+        </select>
+      </div>
+      {#if choices.length > 0}
+        <div class="rounded border border-surface-2 divide-y divide-surface-2" data-testid="share-people-results">
+          {#each choices as contact (contact.pubkey)}
+            <button
+              class="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-surface-2"
+              onclick={() => add(contact)}
+              data-testid="share-people-result"
+            >
+              <Avatar pubkey={contact.pubkey} size={28} />
+              <span class="min-w-0 flex-1">
+                <span class="block text-sm text-text-1 truncate"><PersonName pubkey={contact.pubkey} known={contact.display_name} /></span>
+                <span class="block text-xs text-text-3 truncate">{contact.follow_distance === 1 ? 'You follow them' : contact.representative_npub.slice(0, 20) + '…'}</span>
+              </span>
+              <span class="i-lucide-user-plus text-text-3 shrink-0"></span>
+            </button>
+          {/each}
+        </div>
+      {:else if query.trim()}
+        <p class="text-xs text-text-3">{searching ? 'Searching…' : 'Nobody found. Paste their npub, or send the invite link.'}</p>
+      {/if}
+    </div>
+
     <div class="divide-y divide-surface-2" data-testid="share-people-list">
+      {#each adding as item (item.pubkey)}
+        <div class="py-2 flex items-center gap-3" data-testid="share-people-adding">
+          <Avatar pubkey={item.pubkey} size={20} />
+          <span class="min-w-0 flex-1">
+            <span class="block text-sm text-text-1 truncate">{item.name}</span>
+            {#if item.error}
+              <span class="block text-xs text-danger" data-testid="share-people-adding-error">{item.error}</span>
+            {/if}
+          </span>
+          {#if item.error}
+            <button
+              class="btn-ghost h-8 w-8 min-h-8 min-w-8 p-0"
+              aria-label="Dismiss"
+              onclick={() => { adding = adding.filter((other) => other.pubkey !== item.pubkey); }}
+            >
+              <span class="i-lucide-x text-base"></span>
+            </button>
+          {:else}
+            <span class="text-xs text-text-3">Adding…</span>
+          {/if}
+        </div>
+      {/each}
       {#each people as member (member.profile_id)}
+        {@const pubkey = memberPubkey(member.profile_id)}
         <div class="py-2 flex items-center gap-3" data-testid="share-people-member">
-          <span class="i-lucide-user-round text-text-3"></span>
+          {#if pubkey}
+            <Avatar {pubkey} size={20} />
+          {:else}
+            <span class="i-lucide-user-round text-text-3"></span>
+          {/if}
           {#if member.profile_id === profileId}
             <span class="min-w-0 flex-1 text-sm text-text-1 truncate">{member.display_name} (you)</span>
           {:else}

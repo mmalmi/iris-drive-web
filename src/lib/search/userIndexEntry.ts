@@ -12,6 +12,8 @@ export interface UserIndexEntryInput {
 
 export interface UserIndexEntry extends UserIndexEntryInput {
   npub: string;
+  /** Position in the results of the search that found it. */
+  order?: number;
 }
 
 interface StoredUserIndexEntry {

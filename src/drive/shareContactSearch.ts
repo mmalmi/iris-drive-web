@@ -1,5 +1,7 @@
 import type { UserIndexEntry } from '../stores/searchIndex';
 import {
+  compareShareContacts,
+  knownFollowDistance,
   rankShareContacts,
   representativePubkey,
   representativeNpub,
@@ -88,6 +90,7 @@ export function shareContactCandidatesFromUsers(users: UserIndexEntry[]): ShareC
     nostrIdentityId: user.nostrIdentityId,
     linkedNpubs: user.linkedNpubs,
     shareRecipientEvidenceJson: user.shareRecipientEvidenceJson,
+    order: user.order,
   }));
 }
 
@@ -136,12 +139,14 @@ export async function rankedShareContactFromRepresentativeInput(
   const graphScore = distance >= 0 ? Math.max(0, 1 - Number(distance) / 8) : 0;
   const socialScore = graphScore + Math.min(Number(friendFollowers), 20) / 100;
 
+  const known = knownFollowDistance(Number(distance));
   return {
     representative_npub: npub,
     pubkey,
     display_name: npub.slice(0, 12),
     linked_npubs: [npub],
     score: 0.8 + socialScore,
+    ...(known !== undefined ? { follow_distance: known } : {}),
   };
 }
 
@@ -157,7 +162,7 @@ function mergeRankedShareContacts(
     }
   }
   return [...byNpub.values()]
-    .sort((a, b) => b.score - a.score || a.display_name.localeCompare(b.display_name))
+    .sort(compareShareContacts)
     .slice(0, limit);
 }
 

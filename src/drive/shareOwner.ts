@@ -1,6 +1,6 @@
 import { get } from 'svelte/store';
 import { LinkType, type CID } from '@hashtree/core';
-import type { Event } from 'nostr-tools';
+import { finalizeEvent, type Event } from 'nostr-tools';
 import { nostr, nostrStore } from '../nostr';
 import { getCurrentNostrIdentitySession, getSecretKey } from '../nostr/auth';
 import { saveOwnTreeRoot } from '../nostr/trees';
@@ -9,7 +9,14 @@ import { isDocumentFolderName } from '../lib/documentNames';
 import { getTree } from '../store';
 import { getTreeRootSync, waitForTreeRoot } from '../stores/treeRoot';
 import { ownDisplayName } from './ownDisplayName';
-import { projectNostrIdentityRoster, type NostrIdentityId, type ShareRole, type SharedFolder } from './protocol';
+import {
+  KIND_DRIVE_ROOT,
+  projectNostrIdentityRoster,
+  shareRecipientsForResolvedRecipient,
+  type NostrIdentityId,
+  type ShareRole,
+  type SharedFolder,
+} from './protocol';
 import { mutateProfileDriveRoot } from './profileDriveMutation';
 import {
   addShareRecipients,
@@ -21,6 +28,7 @@ import {
 import {
   encodeShareJoinLink,
   joinRequestNeedsApproval,
+  SHARE_ADDED_LABEL,
   shareJoinLinkPubkey,
   shareJoinRequestFilter,
   shareRecipientsFromJoinRequest,
@@ -196,12 +204,73 @@ export async function removeShareMember(shareId: NostrIdentityId, profileId: Nos
   await applyAccessChange(shareId, revokeShareMember(ownRecord(shareId).folder, secretKey, profileId, now()));
 }
 
-let approvals: Promise<void> = Promise.resolve();
+export interface ShareAddedNotice {
+  v: 1;
+  share_id: NostrIdentityId;
+  owner_profile_id: NostrIdentityId;
+  name: string;
+  role: Exclude<ShareRole, 'admin'>;
+}
+
+/** Changes to who has access, applied one at a time. */
+let accessChanges: Promise<void> = Promise.resolve();
+
+/** Thrown when relays know no devices for a person, so they cannot be added directly. */
+export class NoDevicesFoundError extends Error {
+  constructor() {
+    super('Could not find their devices. Send them the invite link instead.');
+  }
+}
+
+/**
+ * Add a person by their key. Their devices are looked up on relays first,
+ * the one wait in sharing; then they are added like anyone who joined by
+ * link, and their devices are told so they find it in Shared with me.
+ */
+export async function addPersonToShare(
+  shareId: NostrIdentityId,
+  pubkey: string,
+  role: Exclude<ShareRole, 'admin'>,
+  displayName?: string,
+): Promise<void> {
+  const { secretKey } = ownerContext();
+  ownRecord(shareId);
+  const { findShareRecipient } = await import('./sharePersonLookup');
+  const resolved = await findShareRecipient(pubkey);
+  if (!resolved) throw new NoDevicesFoundError();
+  const recipient = { ...resolved, display_name: displayName?.trim() || resolved.display_name };
+  // One change at a time: each builds on the access list the one before produced.
+  const change = accessChanges.then(() => applyAccessChange(
+    shareId,
+    addShareRecipients(ownRecord(shareId).folder, secretKey, shareRecipientsForResolvedRecipient(recipient, role), now()),
+  ));
+  accessChanges = change.catch(() => undefined);
+  await change;
+  const { folder } = ownRecord(shareId);
+  const notice: ShareAddedNotice = {
+    v: 1,
+    share_id: shareId,
+    owner_profile_id: folder.owner_profile_id,
+    name: folder.display_name,
+    role,
+  };
+  await publishEvent(finalizeEvent({
+    kind: KIND_DRIVE_ROOT,
+    created_at: now(),
+    content: JSON.stringify(notice),
+    tags: [
+      ['d', `${SHARE_ADDED_LABEL}/${shareId}/${resolved.profile_id}`],
+      ['l', SHARE_ADDED_LABEL],
+      ['i', shareId],
+      ...resolved.app_pubkeys.map((appPubkey) => ['p', appPubkey]),
+    ],
+  }, secretKey));
+}
 
 /** Add the person behind a join request, if the request is valid and still needed. */
 export function approveJoinRequest(event: Event): Promise<void> {
   // One at a time: each approval builds on the access list the previous one produced.
-  approvals = approvals.then(async () => {
+  accessChanges = accessChanges.then(async () => {
     const { session, secretKey } = ownerContext();
     for (const record of ownRecords(session.profileId)) {
       const link = record.join_links?.find((item) => shareJoinLinkPubkey(item) === event.pubkey);
@@ -214,7 +283,7 @@ export function approveJoinRequest(event: Event): Promise<void> {
   }).catch((error) => {
     console.warn('[share] Could not add a person who asked to join:', error);
   });
-  return approvals;
+  return accessChanges;
 }
 
 /**

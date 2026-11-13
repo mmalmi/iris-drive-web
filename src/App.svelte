@@ -85,6 +85,23 @@
     });
   });
 
+  // Folders people share with this account directly show up while Drive is open.
+  let stopAddedWatch: (() => void) | null = null;
+  $effect(() => {
+    if (stopAddedWatch || !$nostrStore.isLoggedIn) return;
+    stopAddedWatch = () => {};
+    void import('./drive/shareJoin').then(({ watchSharesAddedToMe }) => {
+      stopAddedWatch = watchSharesAddedToMe();
+    });
+  });
+  // This device says once that it belongs to its account, so people can add it to folders.
+  $effect(() => {
+    if (!$nostrStore.isLoggedIn || !$nostrStore.pubkey) return;
+    void import('./drive/sharePersonLookup')
+      .then(({ publishOwnShareAcceptance }) => publishOwnShareAcceptance())
+      .catch((error) => console.warn('[share] Could not publish this device for sharing:', error));
+  });
+
   function handleLogoClick(e: MouseEvent) {
     const isEmptyHomeHash = homePath === '/'
       && (window.location.hash === '' || window.location.hash === '#');
