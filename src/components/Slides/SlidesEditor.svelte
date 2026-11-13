@@ -304,7 +304,14 @@
     {/if}
 
     {#if editorState.slides.length === 0}
-      <div class="flex-1 flex items-center justify-center text-text-3 text-sm" data-testid="slides-empty">No slides yet</div>
+      <div class="flex-1 flex flex-col items-center justify-center gap-3 text-text-3 text-sm" data-testid="slides-empty">
+        No slides yet
+        {#if canEdit}
+          <button class="btn-ghost flex items-center gap-1.5" onclick={() => editorState?.addSlide('title')} data-testid="slides-empty-add">
+            <span class="i-lucide-plus"></span>Add a slide
+          </button>
+        {/if}
+      </div>
     {:else}
       <div class="flex-1 flex min-h-0 flex-col-reverse sm:flex-row" data-testid="slides-workspace">
         <SlideStrip {editorState} {urls} />

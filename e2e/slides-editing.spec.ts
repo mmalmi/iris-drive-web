@@ -1,10 +1,12 @@
 import { expect, test, type Page } from './fixtures';
 import { createDriveProfile, prepareFreshSession } from './documents.helpers';
 import {
+  bandsSvg,
   clickSlide,
   createPresentation,
   dragSlide,
   elements,
+  expectSlidesSaved,
   frameOf,
   settle,
   sheet,
@@ -284,6 +286,94 @@ test.describe('working on a slide', () => {
     expect(await titles()).toEqual(['Two']);
     await page.getByRole('button', { name: 'Undo' }).click();
     expect(await titles()).toEqual(['Two', 'Three', 'Four']);
+
+    // A slide copied in the strip is pasted after the one that is open.
+    await thumbs(page).nth(2).click();
+    await page.keyboard.press('ControlOrMeta+c');
+    await thumbs(page).nth(0).click();
+    await page.keyboard.press('ControlOrMeta+v');
+    expect(await titles()).toEqual(['Two', 'Four', 'Three', 'Four']);
+
+    // With every slide gone the deck says so and offers a way back.
+    await page.keyboard.press('ControlOrMeta+a');
+    await page.keyboard.press('Delete');
+    await expect(page.getByTestId('slides-empty')).toBeVisible();
+    await expect(page.getByTestId('present')).toHaveCount(0);
+    await page.getByTestId('slides-empty-add').click();
+    await expect(thumbs(page)).toHaveCount(1);
+    await expect(sheet(page)).toContainText('Add a title');
+  });
+
+  test('pictures can be picked, pasted and dropped, and keep their proportions', async ({ page, relayUrl }) => {
+    await prepareFreshSession(page, relayUrl);
+    await createDriveProfile(page);
+    await createPresentation(page, 'Pictures');
+    await blankSlide(page);
+    const loaded = (index: number) => elements(page, 'image').nth(index).locator('img').evaluate(node => (node as HTMLImageElement).naturalWidth).catch(() => 0);
+
+    // Picked from the device: a large picture is brought down to fit the slide.
+    await page.getByTestId('slides-image-input').setInputFiles({ name: 'wide.svg', mimeType: 'image/svg+xml', buffer: bandsSvg(3000, 1500) });
+    await expect(elements(page, 'image')).toHaveCount(1, { timeout: 30_000 });
+    await expect.poll(() => loaded(0), { timeout: 30_000 }).toBeGreaterThan(0);
+    const picked = await frameOf(elements(page, 'image').first());
+    expect(picked).toEqual({ x: 260, y: 170, w: 760, h: 380 });
+
+    // A corner handle keeps the proportions; Shift lets them go.
+    await dragHandle(page, 'se', -200, -40);
+    const smaller = await frameOf(elements(page, 'image').first());
+    expect(smaller.w / smaller.h).toBeCloseTo(2, 5);
+    expect(smaller.w).toBe(560);
+    await dragHandle(page, 'se', 0, 100, 'Shift');
+    const stretched = await frameOf(elements(page, 'image').first());
+    expect(stretched.w).toBe(560);
+    expect(stretched.h).toBe(380);
+    await page.getByRole('button', { name: 'Undo' }).click();
+
+    // Pasted from the clipboard.
+    await page.evaluate(async () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 320;
+      canvas.height = 200;
+      const context = canvas.getContext('2d')!;
+      context.fillStyle = '#e4572e';
+      context.fillRect(0, 0, 320, 200);
+      const blob = await new Promise<Blob>(resolve => canvas.toBlob(result => resolve(result!), 'image/png'));
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+    });
+    await sheet(page).click({ position: { x: 4, y: 4 } });
+    await page.keyboard.press('ControlOrMeta+v');
+    await expect(elements(page, 'image')).toHaveCount(2, { timeout: 30_000 });
+    expect(await frameOf(elements(page, 'image').nth(1))).toEqual({ x: 480, y: 260, w: 320, h: 200 });
+
+    // Dropped onto the slide: it lands where it was dropped.
+    const drop = await slidePoint(page, 300, 500);
+    const dataTransfer = await page.evaluateHandle((bytes) => {
+      const transfer = new DataTransfer();
+      transfer.items.add(new File([new Uint8Array(bytes)], 'bands.svg', { type: 'image/svg+xml' }));
+      return transfer;
+    }, [...bandsSvg(300, 200)]);
+    await page.dispatchEvent('[data-testid="slide-canvas"]', 'dragover', { dataTransfer, clientX: drop.x, clientY: drop.y });
+    await page.dispatchEvent('[data-testid="slide-canvas"]', 'drop', { dataTransfer, clientX: drop.x, clientY: drop.y });
+    await expect(elements(page, 'image')).toHaveCount(3, { timeout: 30_000 });
+    const dropped = await frameOf(elements(page, 'image').nth(2));
+    expect(Math.abs(dropped.x + dropped.w / 2 - 300)).toBeLessThan(2);
+    expect(Math.abs(dropped.y + dropped.h / 2 - 500)).toBeLessThan(2);
+    for (const index of [0, 1, 2]) await expect.poll(() => loaded(index), { timeout: 30_000 }).toBeGreaterThan(0);
+    await shot(page, 'edit-09-pictures');
+
+    // Undo from another slide comes back to the slide where the change was.
+    await thumbs(page).first().click();
+    await page.getByRole('button', { name: 'Undo' }).click();
+    await expect(elements(page, 'image')).toHaveCount(2);
+    await expect(thumbs(page).nth(1)).toHaveAttribute('aria-selected', 'true');
+
+    // The pictures are still there after a reload, read back from the Drive.
+    await expectSlidesSaved(page);
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await expect(thumbs(page)).toHaveCount(2, { timeout: 60_000 });
+    await thumbs(page).nth(1).click();
+    await expect(elements(page, 'image')).toHaveCount(2);
+    for (const index of [0, 1]) await expect.poll(() => loaded(index), { timeout: 30_000 }).toBeGreaterThan(0);
   });
 
   test('themes and backgrounds restyle the deck', async ({ page, relayUrl }) => {
