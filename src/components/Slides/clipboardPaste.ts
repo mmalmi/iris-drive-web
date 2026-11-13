@@ -9,7 +9,7 @@ import { adoptMedia, imageFromSource, readForeignHtml } from '../../lib/slides/c
 import type { ClipboardOptions, Held } from './clipboardEvents';
 
 /** Pastes something copied from a deck, with its pictures made this deck's own first. */
-async function pastePayload(current: SlidesEditorState, payload: ClipboardPayload, options: ClipboardOptions): Promise<void> {
+export async function pastePayload(current: SlidesEditorState, payload: ClipboardPayload, options: ClipboardOptions): Promise<void> {
   const { payload: own, missing } = await adoptMedia(payload, options.urls, options.addAttachment);
   current.paste(own);
   if (missing) current.notice = missing === 1 ? 'One picture could not be copied.' : `${missing} pictures could not be copied.`;

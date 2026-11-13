@@ -6,7 +6,7 @@
  * Loaded only when something is copied.
  */
 import { SLIDE_HEIGHT, SLIDE_WIDTH } from './model';
-import { dataUrlOf } from './clipboardMedia';
+import { dataUrlAt } from './clipboardMedia';
 
 export interface SnapshotOptions {
   /** The ids of the elements to draw; the whole slide when absent. */
@@ -59,7 +59,7 @@ export async function snapshotPng(surface: HTMLElement, options: SnapshotOptions
   // Hints in empty boxes are for the person editing, not part of the slide.
   for (const hint of [...clone.querySelectorAll('.el-hint')]) hint.remove();
   await Promise.all([...clone.querySelectorAll('img')].map(async (image) => {
-    const data = await dataUrlOf(image.src);
+    const data = await dataUrlAt(image.src);
     if (data) image.setAttribute('src', data);
     else image.remove();
   }));

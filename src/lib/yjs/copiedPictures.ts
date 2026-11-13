@@ -5,7 +5,7 @@
  * `data:` URL, and a lone picture also goes as a PNG picture. Loaded the
  * first time a picture is copied.
  */
-import { pngAt } from '../clipboardPng';
+import { dataUrlOf, pngAt } from '../pictures';
 
 /** Largest picture put inline, and the most all inline pictures may add up to. */
 const MAX_INLINE_BYTES = 8 * 1024 * 1024;
@@ -13,15 +13,6 @@ const MAX_TOTAL_BYTES = 16 * 1024 * 1024;
 
 /** Copied pictures, as `rewriteCopiedHtml` names them. */
 const COPIED_PICTURE = /src="([^"]+)" data-iris-attachment="([^"]*)"/g;
-
-function dataUrl(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(blob);
-  });
-}
 
 function unescape(src: string): string {
   return src.replace(/&quot;/g, '"').replace(/&amp;/g, '&');
@@ -43,7 +34,7 @@ export async function inlinePictures(html: string): Promise<string> {
       const blob = await response.blob();
       if (!blob.type.startsWith('image/') || blob.size > MAX_INLINE_BYTES || total + blob.size > MAX_TOTAL_BYTES) continue;
       total += blob.size;
-      inline.set(url, await dataUrl(blob));
+      inline.set(url, await dataUrlOf(blob));
     } catch {
       // Left as it is.
     }

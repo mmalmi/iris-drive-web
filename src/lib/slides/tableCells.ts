@@ -62,7 +62,7 @@ export function mergeCells(map: Y.Map<unknown>, rect: CellRect): string | null {
 }
 
 /** Splits every merged block that has a cell in the rectangle back into its cells. */
-export function unmergeCells(map: Y.Map<unknown>, rect: CellRect): void {
+function unmergeCells(map: Y.Map<unknown>, rect: CellRect): void {
   const table = readTable(map);
   const cellStore = cells(map);
   if (!table || !cellStore) return;
@@ -121,7 +121,7 @@ export function setCellBorders(map: Y.Map<unknown>, rect: CellRect, which: Borde
 }
 
 /** Takes the words out of cells, keeping their fill and lines. */
-export function clearCells(map: Y.Map<unknown>, keys: string[]): void {
+function clearCells(map: Y.Map<unknown>, keys: string[]): void {
   const cellStore = cells(map);
   if (!cellStore) return;
   for (const key of keys) {

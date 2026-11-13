@@ -17,7 +17,7 @@
 import { LinkType, toHex, type CID, type HashTree, type TreeEntry } from '@hashtree/core';
 import * as Y from 'yjs';
 
-export const UPDATES_DIRECTORY = 'updates';
+const UPDATES_DIRECTORY = 'updates';
 const BASE_FILE = 'base';
 const READ_CONCURRENCY = 8;
 

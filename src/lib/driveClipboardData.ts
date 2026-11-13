@@ -7,7 +7,7 @@
 import type { TreeEntry } from '@hashtree/core';
 import type { FileWithPath } from '@iris/hashtree-app/directory';
 import { getTree } from '../store';
-import { pngOf } from './clipboardPng';
+import { pngOf } from './pictures';
 
 /** Largest picture fetched from a web page. */
 const MAX_PICTURE_BYTES = 50 * 1024 * 1024;

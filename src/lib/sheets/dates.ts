@@ -62,7 +62,7 @@ export function serialFromLocalDate(date: Date): number {
   return days + serialFromTime(date.getHours(), date.getMinutes(), date.getSeconds());
 }
 
-export function isValidYmd(year: number, month: number, day: number): boolean {
+function isValidYmd(year: number, month: number, day: number): boolean {
   if (month < 1 || month > 12 || day < 1 || year < 0 || year > 9999) return false;
   const parts = partsFromSerial(serialFromYmd(year, month, day));
   return parts.year === year && parts.month === month && parts.day === day;

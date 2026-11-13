@@ -80,7 +80,7 @@ function isRule(value: unknown): value is Rule {
   return !!rule && (rule.type === 'format' || rule.type === 'scale' || rule.type === 'valid') && !!rule.range && typeof rule.range.r1 === 'string';
 }
 
-export function rangeRect(sheet: Sheet, range: RangeIds): Rect | null {
+function rangeRect(sheet: Sheet, range: RangeIds): Rect | null {
   const rows = sheet.rows.span(range.r1, range.r2);
   const cols = sheet.cols.span(range.c1, range.c2);
   return rows && cols ? { r1: rows[0], r2: rows[1], c1: cols[0], c2: cols[1] } : null;

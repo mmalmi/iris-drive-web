@@ -19,6 +19,7 @@
   import Popover from './Popover.svelte';
   import { isPresenterWindow, presenterUrl } from '../../lib/slides/presentSync';
   import { stretchCells } from '../../lib/slides/tableEditing';
+  import { readSiblingFile, takeImportRequest } from '../../lib/fileImports';
 
   interface Props {
     dirName: string;
@@ -36,7 +37,7 @@
     addAttachment: file => drive.addAttachment(file),
     root: () => root,
   });
-  const { onCopy, onCut, onPaste, menuCopy, menuPaste } = clipboard;
+  const { onCopy, onCut, onPaste, onBlur, menuCopy, menuPaste } = clipboard;
 
   let canEdit = $derived(!!editorState?.canEdit);
 
@@ -69,8 +70,8 @@
       if (!presenterWindow) created.startDeck();
       editorState = created;
       if (!presenterWindow) setTimeout(() => void presentViewLoaded(), 1500);
-      // `?import=<file name>` asks for a PowerPoint file beside the deck to be brought in.
-      const requested = presenterWindow ? null : new URLSearchParams(window.location.hash.split('?')[1] ?? '').get('import');
+      // Opened from a PowerPoint file in the Drive: it comes in once (see fileImports.ts).
+      const requested = presenterWindow ? null : takeImportRequest();
       if (requested) void importFromFolder(requested);
     })();
     narrowScreen.addEventListener('change', onNarrowChange);
@@ -79,6 +80,7 @@
     document.addEventListener('copy', onCopy);
     document.addEventListener('cut', onCut);
     document.addEventListener('paste', onPaste);
+    window.addEventListener('blur', onBlur);
   });
 
   onDestroy(() => {
@@ -87,6 +89,7 @@
     document.removeEventListener('copy', onCopy);
     document.removeEventListener('cut', onCut);
     document.removeEventListener('paste', onPaste);
+    window.removeEventListener('blur', onBlur);
     editorState?.stopEditing();
     editorState?.destroy();
     drive.destroy();
@@ -161,9 +164,7 @@
 
   /** The file the address asks for, from the folder the deck is in. */
   async function importFromFolder(name: string): Promise<void> {
-    const { forgetImportRequest, readSiblingFile } = await import('./pptxFiles');
-    const bytes = name.includes('/') ? null : await readSiblingFile(name).catch(() => null);
-    forgetImportRequest();
+    const bytes = await readSiblingFile(name, 15_000);
     // A deck already made from the file (or written in since) is just opened.
     if (editorState && !editorState.isBlank) return;
     if (!bytes) {

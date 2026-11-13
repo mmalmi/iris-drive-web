@@ -96,7 +96,7 @@ export interface TableJson {
   cells: Record<string, CellJson>;
 }
 
-export const MAX_TABLE_LINES = 40;
+const MAX_TABLE_LINES = 40;
 const SIDES: Side[] = ['t', 'b', 'l', 'r'];
 
 export function cellKey(rowId: string, colId: string): string {

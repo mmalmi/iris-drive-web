@@ -3,7 +3,7 @@ import { tokenize, writeIdRef, type RefEnd, type RefSpec } from './formula';
 import { isFormula, newId, type Book, type Sheet } from './model';
 
 /** Transaction origin of formulas put together after two devices' moves met; not one of this person's edits to undo. */
-export const MERGE_ORIGIN = 'sheet-merge';
+const MERGE_ORIGIN = 'sheet-merge';
 /** How long a note of a move's formula changes is kept for a device that was away. */
 const NOTE_DAYS = 30;
 
@@ -134,7 +134,7 @@ function sameEnd(left: RefEnd | null, right: RefEnd | null): boolean {
  * `mine` with the range ends that `theirs` changed from `base` and `mine`
  * left alone. Null when the three are not the same formula with ends moved.
  */
-export function mergeRangeEnds(base: string, mine: string, theirs: string): string | null {
+function mergeRangeEnds(base: string, mine: string, theirs: string): string | null {
   const [b, m, t] = [base, mine, theirs].map(text => tokenize(text.slice(1), 'id'));
   if (b.length !== m.length || b.length !== t.length) return null;
   let out = '=';

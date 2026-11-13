@@ -76,13 +76,6 @@ export function isRange(value: Value): value is RangeMatrix {
   return isMatrix(value) && 'sheetId' in value;
 }
 
-/** Visits every value of a matrix, row by row. */
-export function eachCell(matrix: Matrix, visit: (value: Scalar, row: number, col: number) => void): void {
-  for (let row = 0; row < matrix.rows; row += 1) {
-    for (let col = 0; col < matrix.cols; col += 1) visit(matrix.get(row, col), row, col);
-  }
-}
-
 const NUMBER_TEXT = /^\s*[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?\s*$/;
 
 /** Reads text as a plain number, or returns null when it is not one. */

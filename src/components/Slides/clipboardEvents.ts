@@ -43,6 +43,17 @@ const loadPaste = () => import('./clipboardPaste');
 export function createClipboard(options: ClipboardOptions) {
   /** What was last copied here, for browsers that keep only plain text on the clipboard. */
   let copied: Copied | null = null;
+  /** The clipboard write this deck asked for last. Pasting from the menu reads the clipboard only once it is done. */
+  let writing: Promise<unknown> = Promise.resolve();
+  /**
+   * True while what was last copied here is newer than what the clipboard
+   * holds: copied from the menu, and its write not finished yet or turned
+   * down. Copying anything else, here or (after leaving the page) in another
+   * app, ends it.
+   */
+  let ahead = false;
+
+  const canWriteFull = () => typeof ClipboardItem !== 'undefined' && 'write' in (navigator.clipboard ?? {});
 
   /**
    * Puts the full version on the clipboard where the browser allows it: the
@@ -51,8 +62,7 @@ export function createClipboard(options: ClipboardOptions) {
    * write is asked for now, while the copy is still the person's own act;
    * what it holds is made by code fetched as it is needed.
    */
-  function writeFull(data: Copied): void {
-    if (typeof ClipboardItem === 'undefined' || !('write' in (navigator.clipboard ?? {}))) return;
+  function writeFull(data: Copied): Promise<void> {
     const made = import('./clipboardCopy').then(copy => copy.makeClipboard(data, options.root(), options.urls));
     const items: Record<string, Blob | Promise<Blob>> = {
       'text/plain': new Blob([data.text || ' '], { type: 'text/plain' }),
@@ -60,7 +70,7 @@ export function createClipboard(options: ClipboardOptions) {
       'image/png': made.then(parts => parts.png),
     };
     if (ClipboardItem.supports?.(WEB_CLIPBOARD_TYPE)) items[WEB_CLIPBOARD_TYPE] = made.then(parts => parts.own);
-    navigator.clipboard.write([new ClipboardItem(items)]).catch(() => {});
+    return navigator.clipboard.write([new ClipboardItem(items)]);
   }
 
   function copyTo(event: ClipboardEvent): boolean {
@@ -75,7 +85,8 @@ export function createClipboard(options: ClipboardOptions) {
     event.clipboardData.setData('text/html', clipboardHtml(data.payload, data.text));
     event.clipboardData.setData('text/plain', data.text || ' ');
     copied = data;
-    writeFull(data);
+    ahead = false;
+    if (canWriteFull()) writing = writeFull(data).catch(() => {});
     return true;
   }
 
@@ -89,15 +100,17 @@ export function createClipboard(options: ClipboardOptions) {
       text: data.getData('text/plain'),
       files: [...data.files].filter(file => file.type.startsWith('image/')),
     };
-    if (!held.own && !held.html && !held.text && !held.files.length) return;
+    // Copied here a moment ago, and not on the clipboard yet (or turned away by it): that copy is the newer.
+    const newer = ahead ? copied : null;
+    if (!newer && !held.own && !held.html && !held.text && !held.files.length) return;
     event.preventDefault();
     // Copied here, with no picture that this deck lacks: it goes in at once.
-    const own = readPayload(held.own) ?? (copied && !held.html.includes('data-iris-slides') && (copied.text || ' ') === held.text ? copied.payload : null);
+    const own = newer?.payload ?? readPayload(held.own) ?? (copied && !held.html.includes('data-iris-slides') && (copied.text || ' ') === held.text ? copied.payload : null);
     if (own && ownMedia(own)) {
       current.paste(own);
       return;
     }
-    void loadPaste().then(paste => paste.pasteHeld(current, held, copied, options));
+    void loadPaste().then(paste => (newer ? paste.pastePayload(current, newer.payload, options) : paste.pasteHeld(current, held, copied, options)));
   }
 
   /** Whether every picture a payload names is already this deck's. */
@@ -112,25 +125,43 @@ export function createClipboard(options: ClipboardOptions) {
     const data = current ? copyPayload(current, options.urls) : null;
     if (!current || !data) return;
     copied = data;
-    if (typeof ClipboardItem !== 'undefined' && 'write' in (navigator.clipboard ?? {})) writeFull(data);
-    else void navigator.clipboard?.writeText(data.text || ' ').catch(() => {});
+    ahead = true;
+    const write = canWriteFull() ? writeFull(data) : navigator.clipboard?.writeText(data.text || ' ') ?? Promise.reject(new Error('No clipboard'));
+    writing = write.then(() => {
+      if (copied === data) ahead = false;
+    }, () => {});
     if (cut && current.canEdit) current.cut();
   }
 
-  /** Paste from a menu: what the clipboard holds if the browser lets it be read, otherwise what was last copied here. */
+  /**
+   * Paste from a menu: what the clipboard holds if the browser lets it be
+   * read, otherwise what was last copied here. A copy or cut made a moment
+   * ago may still be on its way to the clipboard, so that is waited for.
+   */
   async function menuPaste(): Promise<void> {
     const current = options.state();
     if (!current?.canEdit) return;
-    await (await loadPaste()).pasteFromClipboard(current, copied, options);
+    await writing;
+    const paste = await loadPaste();
+    if (ahead && copied) await paste.pastePayload(current, copied.payload, options);
+    else await paste.pasteFromClipboard(current, copied, options);
   }
 
   return {
-    onCopy: (event: ClipboardEvent) => void copyTo(event),
+    onCopy: (event: ClipboardEvent) => {
+      ahead = false;
+      copyTo(event);
+    },
     onCut: (event: ClipboardEvent) => {
+      ahead = false;
       const current = options.state();
       if (current?.canEdit && copyTo(event)) current.cut();
     },
     onPaste,
+    /** The page was left, perhaps to copy something in another app. */
+    onBlur: () => {
+      ahead = false;
+    },
     menuCopy,
     menuPaste,
   };

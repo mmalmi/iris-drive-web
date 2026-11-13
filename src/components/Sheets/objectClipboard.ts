@@ -7,15 +7,12 @@
 import type { SheetController } from '../../lib/sheets/controller.svelte';
 import type { CopiedCells } from '../../lib/sheets/controller.svelte';
 import { chartsNow, loadCharts } from './chartLoader';
-import { pngAt } from '../../lib/clipboardPng';
+import { dataUrlOf, pngAt } from '../../lib/pictures';
+import { escapeHtml } from '../../lib/markup';
 import { addObject, removeObject, type ChartContent, type SheetObject } from '../../lib/sheets/objects';
 
 /** The object this tab copied last, to paste it as itself rather than as a picture. */
 let lastCopy: { token: string; sheetId: string; object: SheetObject } | null = null;
-
-function escapeAttr(text: string): string {
-  return text.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
-}
 
 /** The chart as SVG on a light background, as it goes to other apps. */
 function lightChartSvg(ctl: SheetController, chart: ChartContent, width: number, height: number): string {
@@ -39,15 +36,6 @@ async function pngOf(ctl: SheetController, object: SheetObject): Promise<Blob> {
   return pngAt(url);
 }
 
-function dataUrl(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(blob);
-  });
-}
-
 /** Puts a picture or chart on the clipboard; with `cut`, takes it off the sheet. */
 export async function copyObject(ctl: SheetController, object: SheetObject, cut = false): Promise<void> {
   const token = Math.random().toString(36).slice(2, 12);
@@ -55,8 +43,8 @@ export async function copyObject(ctl: SheetController, object: SheetObject, cut 
   const png = pngOf(ctl, object);
   const html = png.then(async (blob) => {
     const { dx, dy, width, height } = object.placement;
-    const note = escapeAttr(JSON.stringify({ dx, dy, width, height }));
-    return new Blob([`<img src="${await dataUrl(blob)}" width="${width}" height="${height}" data-iris-object="${note}" data-iris-token="${token}">`], { type: 'text/html' });
+    const note = escapeHtml(JSON.stringify({ dx, dy, width, height }));
+    return new Blob([`<img src="${await dataUrlOf(blob)}" width="${width}" height="${height}" data-iris-object="${note}" data-iris-token="${token}">`], { type: 'text/html' });
   });
   try {
     await navigator.clipboard.write([new ClipboardItem({ 'image/png': png, 'text/html': html })]);
@@ -103,7 +91,7 @@ export function pasteOwnObject(ctl: SheetController, html: string): boolean {
  */
 export function copiedObjectHtml(ctl: SheetController): (object: CopiedCells['objects'][number]) => string {
   return (object) => {
-    const note = escapeAttr(JSON.stringify({ dx: object.dx, dy: object.dy, width: object.width, height: object.height }));
+    const note = escapeHtml(JSON.stringify({ dx: object.dx, dy: object.dy, width: object.width, height: object.height }));
     let src = '';
     if (object.content.kind === 'chart') {
       const svg = lightChartSvg(ctl, object.content, object.width, object.height);

@@ -5,6 +5,7 @@
  * comes out as an RGB colour. Used by pptxImport.ts.
  */
 import { strFromU8 } from 'fflate';
+import { resolvePath } from '../ooxml';
 
 export type Files = Record<string, Uint8Array>;
 
@@ -62,17 +63,6 @@ export function readXml(files: Files, path: string): Element | null {
   const doc = new DOMParser().parseFromString(text, 'application/xml');
   const root = doc.documentElement;
   return root && root.localName !== 'parsererror' && !doc.getElementsByTagName('parsererror').length ? root : null;
-}
-
-/** Where a relationship of a part points, as a path in the file. */
-export function resolvePath(from: string, target: string): string {
-  if (target.startsWith('/')) return target.slice(1);
-  const parts = from.split('/').slice(0, -1);
-  for (const piece of target.split('/')) {
-    if (piece === '..') parts.pop();
-    else if (piece !== '.') parts.push(piece);
-  }
-  return parts.join('/');
 }
 
 /** The relationships of a part, by id: their target paths and kinds. */

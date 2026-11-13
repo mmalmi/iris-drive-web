@@ -1,6 +1,6 @@
 /**
  * Opening plain files from the Drive as Iris documents: an .xlsx or .csv as a
- * spreadsheet, and later a .pptx as a presentation.
+ * spreadsheet, a .pptx as a presentation.
  *
  * How it fits together, for anyone adding a kind:
  *
@@ -25,14 +25,14 @@
  */
 import type { Component } from 'svelte';
 import { get } from 'svelte/store';
-import { LinkType } from '@hashtree/core';
+import { LinkType, type CID } from '@hashtree/core';
 import { getTree } from '../store';
 import { currentHash, routeStore, treeRootStore } from '../stores';
 import { createDocument } from '../actions/tree';
 import { DOCUMENT_KINDS, documentFolderName, type DocumentKind } from './documentNames';
 
 /** The query parameter that asks an editor to bring a file in. */
-export const IMPORT_PARAM = 'import';
+const IMPORT_PARAM = 'import';
 
 export interface FilePreviewProps {
   fileName: string;
@@ -49,7 +49,7 @@ export interface FileImport {
   preview?: () => Promise<{ default: Component<FilePreviewProps> }>;
 }
 
-export const FILE_IMPORTS: FileImport[] = [
+const FILE_IMPORTS: FileImport[] = [
   {
     extensions: ['xlsx', 'csv', 'tsv'],
     kind: 'sheet',
@@ -57,7 +57,7 @@ export const FILE_IMPORTS: FileImport[] = [
     preview: () => import('../components/Sheets/SheetPreview.svelte'),
   },
   {
-    // The presentation editor brings the file in itself (SlidesEditor, pptxFiles.ts).
+    // No preview: the file shows as any other file until it is opened as a presentation.
     extensions: ['pptx'],
     kind: 'slides',
     label: 'Open as presentation',
@@ -77,7 +77,7 @@ export function fileImportFor(fileName: string | null | undefined): FileImport |
 }
 
 /** The folder name of the document made from a file: "Budget.xlsx" gives "Budget.irissheet". */
-export function importedDocumentName(fileName: string, kind: DocumentKind): string {
+function importedDocumentName(fileName: string, kind: DocumentKind): string {
   const dot = fileName.lastIndexOf('.');
   const base = (dot > 0 ? fileName.slice(0, dot) : fileName).trim() || 'Imported';
   return documentFolderName(base, kind);
@@ -122,16 +122,43 @@ export function takeImportRequest(): string | null {
   return fileName || null;
 }
 
-/** Reads a file that sits in the same folder as the open document; null when it is not there. */
-export async function readSiblingFile(fileName: string): Promise<Uint8Array | null> {
-  const route = get(routeStore);
-  const root = get(treeRootStore);
-  if (!root || fileName.includes('/')) return null;
+async function readFrom(root: CID | null, fileName: string): Promise<Uint8Array | null> {
+  if (!root) return null;
   try {
-    const entry = await getTree().resolvePath(root, [...route.path.slice(0, -1), fileName]);
+    const entry = await getTree().resolvePath(root, [...get(routeStore).path.slice(0, -1), fileName]);
     if (!entry || entry.type === LinkType.Dir) return null;
     return await getTree().readFile(entry.cid);
   } catch {
     return null;
   }
+}
+
+/**
+ * Reads a file that sits in the same folder as the open document; null when
+ * it is not there. A file just put there may reach this page's view of the
+ * Drive a moment later; with `waitMs`, newer views are looked in for that long.
+ */
+export async function readSiblingFile(fileName: string, waitMs = 0): Promise<Uint8Array | null> {
+  if (fileName.includes('/')) return null;
+  const now = await readFrom(get(treeRootStore), fileName);
+  if (now || waitMs <= 0) return now;
+  return await new Promise((resolve) => {
+    let done = false;
+    let first = true;
+    const finish = (bytes: Uint8Array | null) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      queueMicrotask(() => unsubscribe());
+      resolve(bytes);
+    };
+    const timer = setTimeout(() => finish(null), waitMs);
+    const unsubscribe = treeRootStore.subscribe((root) => {
+      if (first) {
+        first = false;
+        return;
+      }
+      void readFrom(root, fileName).then(bytes => bytes && finish(bytes));
+    });
+  });
 }

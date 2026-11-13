@@ -617,7 +617,7 @@ function transitionOf(slide: Part): Transition | undefined {
 }
 
 /** Of our looks, the one nearest to a file's theme: light or dark, the hue of its accent, and its fonts. */
-export function nearestTheme(theme: ThemeInfo, background: string | null): string {
+function nearestTheme(theme: ThemeInfo, background: string | null): string {
   const page = background ?? `#${theme.colours.lt1 ?? 'FFFFFF'}`;
   const accent = `#${theme.colours.accent1 ?? '4472C4'}`;
   const serif = isSerif(theme.majorFont) || isSerif(theme.minorFont);

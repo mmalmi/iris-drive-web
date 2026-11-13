@@ -5,6 +5,7 @@
  */
 import { imagesOf, type ClipboardMedia, type ClipboardPayload } from './clipboard';
 import type { ElementJson } from './model';
+import { dataUrlOf } from '../pictures';
 
 async function bytesOf(media: ClipboardMedia | undefined): Promise<Blob | null> {
   for (const source of [media?.data, media?.url]) {
@@ -100,17 +101,11 @@ export async function imageFromSource(src: string): Promise<File | null> {
   }
 }
 
-/** Reads a picture into a data URL, so its bytes travel with what is copied. */
-export async function dataUrlOf(url: string): Promise<string | null> {
+/** Reads the picture at `url` into a data URL, so its bytes travel with what is copied; null when it cannot be read or is too large. */
+export async function dataUrlAt(url: string): Promise<string | null> {
   try {
     const blob = await (await fetch(url)).blob();
-    if (blob.size > 12 * 1024 * 1024) return null;
-    return await new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : null);
-      reader.onerror = () => resolve(null);
-      reader.readAsDataURL(blob);
-    });
+    return blob.size > 12 * 1024 * 1024 ? null : await dataUrlOf(blob);
   } catch {
     return null;
   }
@@ -121,7 +116,7 @@ export async function withMediaBytes(payload: ClipboardPayload): Promise<Clipboa
   if (!payload.media) return payload;
   const media: Record<string, ClipboardMedia> = {};
   await Promise.all(Object.entries(payload.media).map(async ([src, entry]) => {
-    const data = entry.url ? await dataUrlOf(entry.url) : null;
+    const data = entry.url ? await dataUrlAt(entry.url) : null;
     media[src] = data ? { ...entry, data } : entry;
   }));
   return { ...payload, media };

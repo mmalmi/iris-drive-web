@@ -9,6 +9,8 @@
  * comments and conditional formats are left out. Loaded only when used.
  */
 import { unzipSync, zipSync, strFromU8, strToU8 } from 'fflate';
+import { escapeXml } from '../markup';
+import { NS_R, XML_HEAD, relationshipsXml, resolvePath } from '../ooxml';
 import { columnIndex, columnName, parseRectName, quoteSheetName } from './address';
 import { defineName, findName, listNames, resolveName } from './names';
 import { readBorder } from './borders';
@@ -19,7 +21,7 @@ import { tokenize, type RefEnd } from './formula';
 import { NUMBER_FORMATS } from './format';
 import { cellKey, decodeRaw, encodeText, isFormula, MAX_COLS, MAX_ROWS, type Book, type CellRaw, type CellStyle, type Sheet } from './model';
 import { toDisplay } from './refs';
-import { DEFAULT_POINTS } from './render';
+import { DEFAULT_POINTS } from './cellText';
 import { isError } from './values';
 
 // --- Reading XML ---
@@ -230,16 +232,6 @@ export interface ImportedSheet {
   names?: Map<string, string>;
 }
 
-function resolvePath(base: string, target: string): string {
-  if (target.startsWith('/')) return target.slice(1);
-  const parts = base.split('/').slice(0, -1);
-  for (const piece of target.split('/')) {
-    if (piece === '..') parts.pop();
-    else if (piece !== '.') parts.push(piece);
-  }
-  return parts.join('/');
-}
-
 /** Reads the sheets of an .xlsx file. Throws when it is not one. */
 export function readXlsx(data: Uint8Array): ImportedSheet[] {
   const files = unzipSync(data);
@@ -448,12 +440,6 @@ function fillSheet(book: Book, sheet: Sheet, imported: ImportedSheet, names: Map
 
 // --- Writing a file ---
 
-function escapeXml(text: string): string {
-  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
-    // Characters XML cannot hold at all.
-    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '');
-}
-
 const KIND_NAMES: Record<string, string> = { s: 'thin', m: 'medium', k: 'thick', d: 'dashed', o: 'dotted' };
 
 function argb(hex: string): string {
@@ -523,7 +509,7 @@ class StyleTable {
 
   xml(): string {
     const numFmts = [...this.formats].map(([code, id]) => `<numFmt numFmtId="${id}" formatCode="${escapeXml(code)}"/>`).join('');
-    return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+    return XML_HEAD
       + '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
       + (numFmts ? `<numFmts count="${this.formats.size}">${numFmts}</numFmts>` : '')
       + `<fonts count="${this.fonts.length}">${this.fonts.join('')}</fonts>`
@@ -606,8 +592,8 @@ function sheetXml(book: Book, engine: Engine, sheet: Sheet, styles: StyleTable):
   const mergeXml = merges.length > 0
     ? `<mergeCells count="${merges.length}">${merges.map(m => `<mergeCell ref="${columnName(m.c1)}${m.r1 + 1}:${columnName(m.c2)}${m.r2 + 1}"/>`).join('')}</mergeCells>`
     : '';
-  return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
-    + '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+  return XML_HEAD
+    + `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="${NS_R}">`
     + `<sheetViews><sheetView workbookViewId="0">${pane}</sheetView></sheetViews>`
     + '<sheetFormatPr defaultRowHeight="18" defaultColWidth="13.57"/>'
     + (cols.length > 0 ? `<cols>${cols.join('')}</cols>` : '')
@@ -622,17 +608,14 @@ export function writeXlsx(book: Book, engine: Engine): Uint8Array {
   sheets.forEach((info, index) => {
     files[`xl/worksheets/sheet${index + 1}.xml`] = strToU8(sheetXml(book, engine, book.sheet(info.id), styles));
   });
-  const head = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
-  const relNs = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
-  const pkgRel = 'http://schemas.openxmlformats.org/package/2006/relationships';
-  files['[Content_Types].xml'] = strToU8(`${head}<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">`
+  files['[Content_Types].xml'] = strToU8(`${XML_HEAD}<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">`
     + '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
     + '<Default Extension="xml" ContentType="application/xml"/>'
     + '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
     + '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'
     + sheets.map((_info, index) => `<Override PartName="/xl/worksheets/sheet${index + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')
     + '</Types>');
-  files['_rels/.rels'] = strToU8(`${head}<Relationships xmlns="${pkgRel}"><Relationship Id="rId1" Type="${relNs}/officeDocument" Target="xl/workbook.xml"/></Relationships>`);
+  files['_rels/.rels'] = strToU8(relationshipsXml([{ id: 'rId1', type: `${NS_R}/officeDocument`, target: 'xl/workbook.xml' }]));
   // Named ranges, as Excel writes them: "Sheet1!$B$2:$B$9".
   const definedNames = listNames(book).flatMap((named) => {
     const found = resolveName(book, named.name);
@@ -642,12 +625,13 @@ export function writeXlsx(book: Book, engine: Engine): Uint8Array {
     const cells = rect.r1 === rect.r2 && rect.c1 === rect.c2 ? end(rect.r1, rect.c1) : `${end(rect.r1, rect.c1)}:${end(rect.r2, rect.c2)}`;
     return [`<definedName name="${escapeXml(named.name)}">${escapeXml(`${quoteSheetName((book.nameOf(sheet.id) ?? '').slice(0, 31))}!${cells}`)}</definedName>`];
   });
-  files['xl/workbook.xml'] = strToU8(`${head}<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="${relNs}"><sheets>`
+  files['xl/workbook.xml'] = strToU8(`${XML_HEAD}<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="${NS_R}"><sheets>`
     + sheets.map((info, index) => `<sheet name="${escapeXml(info.name.slice(0, 31))}" sheetId="${index + 1}" r:id="rId${index + 1}"/>`).join('')
     + `</sheets>${definedNames.length > 0 ? `<definedNames>${definedNames.join('')}</definedNames>` : ''}<calcPr calcId="191029" fullCalcOnLoad="1"/></workbook>`);
-  files['xl/_rels/workbook.xml.rels'] = strToU8(`${head}<Relationships xmlns="${pkgRel}">`
-    + sheets.map((_info, index) => `<Relationship Id="rId${index + 1}" Type="${relNs}/worksheet" Target="worksheets/sheet${index + 1}.xml"/>`).join('')
-    + `<Relationship Id="rId${sheets.length + 1}" Type="${relNs}/styles" Target="styles.xml"/></Relationships>`);
+  files['xl/_rels/workbook.xml.rels'] = strToU8(relationshipsXml([
+    ...sheets.map((_info, index) => ({ id: `rId${index + 1}`, type: `${NS_R}/worksheet`, target: `worksheets/sheet${index + 1}.xml` })),
+    { id: `rId${sheets.length + 1}`, type: `${NS_R}/styles`, target: 'styles.xml' },
+  ]));
   files['xl/styles.xml'] = strToU8(styles.xml());
   return zipSync(files, { level: 6 });
 }

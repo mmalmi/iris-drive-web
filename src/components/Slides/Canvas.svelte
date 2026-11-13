@@ -36,7 +36,7 @@
   import type { SlidesEditorState } from '../../lib/slides/editorState.svelte';
   import SlideView from './SlideView.svelte';
   import Overlay from './Overlay.svelte';
-  import { writePng } from '../../lib/clipboardPng';
+  import { writePng } from '../../lib/pictures';
 
   interface Props {
     editorState: SlidesEditorState;
