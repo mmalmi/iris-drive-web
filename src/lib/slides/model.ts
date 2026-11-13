@@ -297,7 +297,9 @@ function nodesFromJson(json: unknown, depth = 0): Array<Y.XmlElement | Y.XmlText
 }
 
 export function elementToJson(element: SlideElement): ElementJson {
-  const { id: _id, content, ...props } = element;
+  const { content, ...rest } = element;
+  const props: ElementJson & { id?: string } = { ...rest };
+  delete props.id;
   return content ? { ...props, content: richTextToJson(content) } : props;
 }
 

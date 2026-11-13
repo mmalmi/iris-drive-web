@@ -1,0 +1,193 @@
+<script lang="ts">
+  /**
+   * A slide, drawn at a given width. It is always laid out at 1280 × 720 and
+   * scaled as a whole, so it looks the same on the canvas, in a thumbnail
+   * and on a projector.
+   */
+  import { SLIDE_HEIGHT, SLIDE_WIDTH, type Frame, type Slide } from '../../lib/slides/model';
+  import { paletteFor, resolveColour, type Theme } from '../../lib/slides/themes';
+  import type { SlidesEditorState } from '../../lib/slides/editorState.svelte';
+  import ElementView from './ElementView.svelte';
+
+  interface Props {
+    slide: Slide;
+    theme: Theme;
+    urls: Map<string, string>;
+    /** Width on screen, in CSS pixels. */
+    width: number;
+    /** Frames to draw in place of the stored ones, while something is being dragged. */
+    overrides?: Record<string, Partial<Frame>>;
+    editorState?: SlidesEditorState;
+  }
+  let { slide, theme, urls, width, overrides, editorState }: Props = $props();
+
+  let scale = $derived(width / SLIDE_WIDTH);
+  let palette = $derived(paletteFor(theme, slide.layout));
+  let background = $derived(resolveColour(slide.background, palette) ?? palette.background);
+</script>
+
+<div class="slide-box" style:width="{width}px" style:height="{width * SLIDE_HEIGHT / SLIDE_WIDTH}px">
+  <div
+    class="slide-surface"
+    style:width="{SLIDE_WIDTH}px"
+    style:height="{SLIDE_HEIGHT}px"
+    style:transform="scale({scale})"
+    style:background
+    style:color={palette.text}
+    style:font-family={theme.bodyFont}
+    style:--slide-text={palette.text}
+    style:--slide-muted={palette.muted}
+    style:--slide-accent={palette.accent}
+    style:--slide-on-accent={palette.onAccent}
+  >
+    {#each slide.elements as element (element.id)}
+      {@const moved = overrides?.[element.id]}
+      <ElementView
+        element={moved ? { ...element, ...moved } : element}
+        {theme}
+        {palette}
+        layout={slide.layout}
+        {urls}
+        {editorState}
+        revision={editorState?.revision}
+      />
+    {/each}
+  </div>
+</div>
+
+<style>
+  .slide-box {
+    position: relative;
+    overflow: hidden;
+    flex: none;
+  }
+
+  .slide-surface {
+    position: absolute;
+    left: 0;
+    top: 0;
+    transform-origin: 0 0;
+    overflow: hidden;
+    /* Slides keep their own colours whatever the app's colour scheme. */
+    color-scheme: light;
+    text-rendering: geometricPrecision;
+    -webkit-font-smoothing: antialiased;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  .slide-surface :global(.el) {
+    position: absolute;
+    box-sizing: border-box;
+  }
+
+  .slide-surface :global(.el-line) {
+    overflow: visible;
+    pointer-events: none;
+  }
+
+  .slide-surface :global(.el-line-hit) {
+    pointer-events: stroke;
+  }
+
+  .slide-surface :global(.el-shape) {
+    position: absolute;
+    inset: 0;
+    box-sizing: border-box;
+  }
+
+  .slide-surface :global(.el-image) {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    -webkit-user-drag: none;
+  }
+
+  .slide-surface :global(.el-image-missing) {
+    background: rgb(128 128 128 / 0.18);
+  }
+
+  .slide-surface :global(.el-text) {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    padding: 8px 12px;
+    box-sizing: border-box;
+    overflow-wrap: break-word;
+    word-break: normal;
+  }
+
+  .slide-surface :global(.el-text-ellipse) {
+    padding: 12% 14%;
+  }
+
+  .slide-surface :global(.el-text-inner) {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .slide-surface :global(.el-editing) {
+    user-select: text;
+    -webkit-user-select: text;
+  }
+
+  .slide-surface :global(.slide-text) {
+    outline: none;
+    white-space: pre-wrap;
+    cursor: inherit;
+  }
+
+  .slide-surface :global(.el-editing .slide-text) {
+    cursor: text;
+    caret-color: currentColor;
+  }
+
+  .slide-surface :global(.slide-text p) {
+    margin: 0;
+  }
+
+  .slide-surface :global(.slide-text > * + *) {
+    margin-top: 0.35em;
+  }
+
+  .slide-surface :global(.slide-text ul),
+  .slide-surface :global(.slide-text ol) {
+    margin: 0;
+    padding-left: 1.25em;
+    /* A centred or right-aligned list keeps its markers beside its text. */
+    text-align: left;
+  }
+
+  .slide-surface :global(.slide-text ul) {
+    list-style: disc;
+  }
+
+  .slide-surface :global(.slide-text ul ul) {
+    list-style: circle;
+  }
+
+  .slide-surface :global(.slide-text ol) {
+    list-style: decimal;
+  }
+
+  .slide-surface :global(.slide-text li) {
+    margin: 0;
+    padding-left: 0.15em;
+  }
+
+  .slide-surface :global(.slide-text li + li),
+  .slide-surface :global(.slide-text li > ul),
+  .slide-surface :global(.slide-text li > ol) {
+    margin-top: 0.35em;
+  }
+
+  .slide-surface :global(.slide-text li::marker) {
+    color: var(--slide-accent);
+  }
+
+  .slide-surface :global(.el-hint) {
+    opacity: 0.38;
+  }
+</style>
