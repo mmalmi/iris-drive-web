@@ -1,11 +1,14 @@
 <script lang="ts">
   /**
    * The deck shown to an audience: one slide filling the screen. Keys, a
-   * click, or a swipe move through it; Escape leaves.
+   * click, or a swipe move through it; Escape leaves. A presenter's window
+   * with the notes, when one is open, moves with it.
    */
   import { onMount } from 'svelte';
   import type { Slide } from '../../lib/slides/model';
   import type { Theme } from '../../lib/slides/themes';
+  import { Presentation } from '../../lib/slides/presentation.svelte';
+  import { presentationKey } from '../../lib/slides/presentSync';
   import SlideView from './SlideView.svelte';
 
   interface Props {
@@ -16,57 +19,40 @@
     startId: string | null;
     /** Called when presenting ends, with the slide that was showing. */
     onExit: (slideId: string | null) => void;
+    /** Opens the presenter's window. */
+    onOpenNotes: () => void;
   }
-  let { slides, theme, urls, startId, onExit }: Props = $props();
+  let { slides, theme, urls, startId, onExit, onOpenNotes }: Props = $props();
+
+  // svelte-ignore state_referenced_locally
+  const run = new Presentation({ slides: () => slides, startId, key: presentationKey(window.location), leads: true });
 
   let root: HTMLElement | undefined = $state();
   let width = $state(0);
   let height = $state(0);
-  // Follows the slide by id, so it stays put when someone else adds or removes slides meanwhile.
-  // svelte-ignore state_referenced_locally
-  let showingId = $state<string | null>(startId ?? slides[0]?.id ?? null);
-  let ended = $state(false);
   let controls = $state(true);
   let hideTimer: ReturnType<typeof setTimeout> | undefined;
   let touch: { x: number; y: number; time: number } | null = null;
   let wentFullscreen = false;
-  let lastIndex = 0;
   let exited = false;
 
-  let index = $derived.by(() => {
-    const found = slides.findIndex(slide => slide.id === showingId);
-    return found >= 0 ? found : Math.min(lastIndex, slides.length - 1);
-  });
-  let slide = $derived(slides[index] ?? null);
+  let index = $derived(run.index);
+  let ended = $derived(run.ended);
+  let slide = $derived(run.slide);
   let slideWidth = $derived(Math.min(width, height * 16 / 9));
 
-  $effect(() => {
-    lastIndex = index;
-  });
-
-  function show(target: number): void {
-    if (target >= slides.length) {
-      ended = true;
-      return;
-    }
-    ended = false;
-    showingId = slides[Math.max(0, target)]?.id ?? null;
-  }
+  const show = (target: number) => run.go(target);
+  const previous = () => run.previous();
 
   function next(): void {
-    if (ended) exit();
-    else show(index + 1);
-  }
-
-  function previous(): void {
-    if (ended) ended = false;
-    else show(index - 1);
+    if (!run.next()) exit();
   }
 
   function exit(): void {
     if (exited) return;
     exited = true;
     const at = slide?.id ?? null;
+    run.end();
     if (document.fullscreenElement === root) void document.exitFullscreen().catch(() => {});
     onExit(at);
   }
@@ -136,6 +122,7 @@
     window.addEventListener('keydown', onKey, true);
     document.addEventListener('fullscreenchange', onFullscreenChange);
     return () => {
+      run.close();
       if (hideTimer) clearTimeout(hideTimer);
       window.removeEventListener('keydown', onKey, true);
       document.removeEventListener('fullscreenchange', onFullscreenChange);
@@ -176,6 +163,9 @@
     <span class="count" data-testid="present-count">{ended ? slides.length : index + 1} / {slides.length}</span>
     <button class="control" onclick={next} title="Next" aria-label="Next slide" data-testid="present-next">
       <span class="i-lucide-chevron-right"></span>
+    </button>
+    <button class="control" onclick={onOpenNotes} title="Notes in their own window" aria-label="Notes in their own window" data-testid="present-notes">
+      <span class="i-lucide-notebook-text"></span>
     </button>
     <button class="control" onclick={toggleFullscreen} title="Full screen" aria-label="Full screen">
       <span class="i-lucide-maximize"></span>

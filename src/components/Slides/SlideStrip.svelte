@@ -12,6 +12,9 @@
   let { editorState, urls }: Props = $props();
 
   const DRAG_START = 5;
+  /** How long a finger rests on a slide before it picks the slide up, and how far it may wander meanwhile. */
+  const HOLD_MS = 350;
+  const HOLD_SLACK = 8;
   const modifier = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl+';
 
   let list: HTMLElement | undefined = $state();
@@ -20,7 +23,9 @@
   let sideways = $derived(listHeight < 140 && listWidth > listHeight);
   let thumbWidth = $derived(sideways ? Math.max(64, Math.round((listHeight - 20) * 16 / 9)) : Math.max(80, listWidth - 48));
 
-  let pressed: { id: string; x: number; y: number; dragging: boolean; picked: boolean } | null = null;
+  let pressed: { id: string; x: number; y: number; dragging: boolean; picked: boolean; touch: boolean } | null = null;
+  let holdTimer: ReturnType<typeof setTimeout> | undefined;
+  let byTouch = false;
   let dragging = $state(false);
   /** Where the dragged slides would land: before this slide, or at the end when null. */
   let dropBefore = $state<string | null | undefined>(undefined);
@@ -49,19 +54,41 @@
     if (event.shiftKey) editorState.pickSlide(id, 'range');
     else if (event.metaKey || event.ctrlKey) editorState.pickSlide(id, 'toggle');
     else if (!picked) editorState.pickSlide(id, 'only');
-    // Dragging by finger scrolls the strip; reordering by touch goes through the menu.
-    if (canEdit && event.pointerType === 'mouse' && !event.shiftKey && !event.metaKey && !event.ctrlKey) {
-      pressed = { id, x: event.clientX, y: event.clientY, dragging: false, picked };
-      (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
-      event.preventDefault();
-    } else {
+    byTouch = event.pointerType !== 'mouse';
+    clearTimeout(holdTimer);
+    if (!canEdit || event.shiftKey || event.metaKey || event.ctrlKey) {
       pressed = null;
+      return;
     }
+    const item = event.currentTarget as HTMLElement;
+    const press = { id, x: event.clientX, y: event.clientY, dragging: false, picked, touch: byTouch };
+    pressed = press;
+    if (!byTouch) {
+      item.setPointerCapture(event.pointerId);
+      event.preventDefault();
+      return;
+    }
+    // A finger that moves scrolls the strip; one that rests on a slide for a moment picks it up.
+    holdTimer = setTimeout(() => {
+      if (pressed !== press) return;
+      press.dragging = true;
+      dragging = true;
+      item.setPointerCapture(event.pointerId);
+    }, HOLD_MS);
   }
 
   function onPointerMove(event: PointerEvent): void {
     if (!pressed || !list) return;
-    if (!pressed.dragging && Math.hypot(event.clientX - pressed.x, event.clientY - pressed.y) < DRAG_START) return;
+    const moved = Math.hypot(event.clientX - pressed.x, event.clientY - pressed.y);
+    if (pressed.touch && !pressed.dragging) {
+      // Moving before the slide was picked up: this is scrolling.
+      if (moved > HOLD_SLACK) {
+        clearTimeout(holdTimer);
+        pressed = null;
+      }
+      return;
+    }
+    if (!pressed.dragging && moved < DRAG_START) return;
     pressed.dragging = true;
     dragging = true;
     const along = sideways ? event.clientX : event.clientY;
@@ -93,6 +120,7 @@
   }
 
   function onPointerUp(event: PointerEvent, id: string): void {
+    clearTimeout(holdTimer);
     const press = pressed;
     pressed = null;
     dragging = false;
@@ -100,11 +128,28 @@
     dropBefore = undefined;
     if (!press) return;
     if (press.dragging) {
-      if (target !== undefined) editorState.moveSlides(editorState.pickedSlides, target);
+      if (target !== undefined && event.type !== 'pointercancel') editorState.moveSlides(editorState.pickedSlides, target);
     } else if (press.picked && !event.shiftKey && !event.metaKey && !event.ctrlKey) {
       // A plain click on one of several picked slides picks just that one.
       editorState.pickSlide(id, 'only');
     }
+  }
+
+  // While a slide is being carried by finger, the strip must not scroll under it.
+  $effect(() => {
+    const strip = list;
+    if (!strip) return;
+    const hold = (event: TouchEvent) => {
+      if (dragging) event.preventDefault();
+    };
+    strip.addEventListener('touchmove', hold, { passive: false });
+    return () => strip.removeEventListener('touchmove', hold);
+  });
+
+  function onContextMenu(event: MouseEvent, id: string): void {
+    // A long press by finger is how a slide is picked up; the menu is on the ⋯ button.
+    if (byTouch) event.preventDefault();
+    else openMenu(event, id);
   }
 
   function openMenu(event: MouseEvent, id: string): void {
@@ -156,7 +201,7 @@
       onpointermove={onPointerMove}
       onpointerup={event => onPointerUp(event, slide.id)}
       onpointercancel={event => onPointerUp(event, slide.id)}
-      oncontextmenu={event => openMenu(event, slide.id)}
+      oncontextmenu={event => onContextMenu(event, slide.id)}
     >
       <span class="number">{index + 1}</span>
       <div class="thumb">
@@ -283,6 +328,12 @@
 
   .dragging .item.picked {
     opacity: 0.45;
+  }
+
+  .item {
+    -webkit-touch-callout: none;
+    user-select: none;
+    -webkit-user-select: none;
   }
 
   .more {

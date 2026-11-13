@@ -2,7 +2,8 @@
   /**
    * A presentation: the strip of slides, the slide being worked on, its
    * notes, and presenting. Someone who may only view gets the slides and
-   * presenting, without anything that edits.
+   * presenting, without anything that edits. Opened as the presenter's
+   * window, it shows the presenter's view and nothing else.
    */
   import { onMount, onDestroy } from 'svelte';
   import DocumentHeader from '../Viewer/DocumentHeader.svelte';
@@ -14,6 +15,11 @@
   import Toolbar from './Toolbar.svelte';
   import NotesBox from './NotesBox.svelte';
   import PresentView from './PresentView.svelte';
+  import PresenterView from './PresenterView.svelte';
+  import PrintView from './PrintView.svelte';
+  import SlideStack from './SlideStack.svelte';
+  import Popover from './Popover.svelte';
+  import { isPresenterWindow, presenterUrl } from '../../lib/slides/presentSync';
 
   interface Props {
     dirName: string;
@@ -31,6 +37,16 @@
   let canEdit = $derived(!!editorState?.canEdit);
   let urls = $derived(drive.attachmentUrls);
 
+  /** This window was opened beside a presentation, for the one presenting. */
+  const presenterWindow = isPresenterWindow(window.location.hash);
+  let printing = $state(false);
+  let moreOpen = $state(false);
+  let moreButton: HTMLElement | undefined = $state();
+  /** On a phone, someone who is only reading gets the slides one under the other. */
+  const narrowScreen = window.matchMedia('(max-width: 639px)');
+  let narrow = $state(narrowScreen.matches);
+  const onNarrowChange = () => (narrow = narrowScreen.matches);
+
   onMount(() => {
     void (async () => {
       if (!await drive.open()) return;
@@ -38,9 +54,11 @@
         addAttachment: file => drive.addAttachment(file),
         canEdit: () => drive.canEdit,
       });
-      created.startDeck();
+      if (!presenterWindow) created.startDeck();
       editorState = created;
     })();
+    narrowScreen.addEventListener('change', onNarrowChange);
+    if (presenterWindow) return;
     window.addEventListener('keydown', onKeyDown, true);
     document.addEventListener('copy', onCopy);
     document.addEventListener('cut', onCut);
@@ -48,6 +66,7 @@
   });
 
   onDestroy(() => {
+    narrowScreen.removeEventListener('change', onNarrowChange);
     window.removeEventListener('keydown', onKeyDown, true);
     document.removeEventListener('copy', onCopy);
     document.removeEventListener('cut', onCut);
@@ -61,6 +80,23 @@
     if (!editorState || editorState.slides.length === 0) return;
     editorState.stopEditing();
     editorState.presenting = true;
+  }
+
+  /** Opens the presenter's window: the same presentation, marked as the presenter's. */
+  function openNotesWindow(): void {
+    window.open(presenterUrl(window.location.href), 'irisslides-presenter', 'popup=yes,width=1180,height=720');
+  }
+
+  function presentWithNotes(): void {
+    moreOpen = false;
+    openNotesWindow();
+    present();
+  }
+
+  function print(): void {
+    moreOpen = false;
+    editorState?.stopEditing();
+    printing = true;
   }
 
   function focusCanvas(): void {
@@ -321,12 +357,24 @@
 
 <div class="flex-1 flex flex-col min-h-0 bg-surface-0" data-testid="document-editor" bind:this={root}>
   <DocumentHeader {drive}>
-    {#if editorState && editorState.slides.length > 0}
-      <button onclick={present} class="btn-ghost flex items-center gap-1.5 mr-1 max-sm:px-2.5" title="Present" aria-label="Present" data-testid="present">
+    {#if editorState && editorState.slides.length > 0 && !presenterWindow}
+      <button onclick={present} class="btn-ghost flex items-center gap-1.5 max-sm:px-2.5" title="Present" aria-label="Present" data-testid="present">
         <span class="i-lucide-play text-sm"></span><span class="max-sm:hidden">Present</span>
+      </button>
+      <button bind:this={moreButton} onclick={() => (moreOpen = !moreOpen)} class="btn-circle btn-ghost" title="More" aria-label="More" aria-expanded={moreOpen} data-testid="slides-more">
+        <span class="i-lucide-ellipsis text-base"></span>
       </button>
     {/if}
   </DocumentHeader>
+
+  <Popover bind:open={moreOpen} anchor={moreButton} label="More">
+    <button class="menu-item" onclick={presentWithNotes} data-testid="present-with-notes">
+      <span class="i-lucide-notebook-text"></span>Present with notes
+    </button>
+    <button class="menu-item" onclick={print} data-testid="slides-print-button">
+      <span class="i-lucide-printer"></span>Print or save as PDF
+    </button>
+  </Popover>
 
   {#if !editorState}
     <div class="flex-1 flex items-center justify-center text-text-3 text-sm">
@@ -336,6 +384,8 @@
         <span class="i-lucide-loader-2 animate-spin" data-testid="document-loading"></span>
       {/if}
     </div>
+  {:else if presenterWindow}
+    <PresenterView slides={editorState.slides} theme={editorState.theme} {urls} title={drive.title} revision={editorState.revision} />
   {:else}
     {#if canEdit}
       <Toolbar {editorState} onPickImage={() => imageInput?.click()} />
@@ -357,6 +407,16 @@
           </button>
         {/if}
       </div>
+    {:else if narrow && !canEdit}
+      <SlideStack
+        slides={editorState.slides}
+        theme={editorState.theme}
+        {urls}
+        onPresent={(slideId) => {
+          editorState?.goTo(slideId);
+          present();
+        }}
+      />
     {:else}
       <div class="flex-1 flex min-h-0 flex-col-reverse sm:flex-row" data-testid="slides-workspace">
         <SlideStrip {editorState} {urls} />
@@ -384,7 +444,11 @@
           if (slideId) current.goTo(slideId);
           focusCanvas();
         }}
+        onOpenNotes={openNotesWindow}
       />
+    {/if}
+    {#if printing}
+      <PrintView slides={editorState.slides} theme={editorState.theme} {urls} onDone={() => (printing = false)} />
     {/if}
   {/if}
 </div>
