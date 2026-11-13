@@ -31,7 +31,9 @@ const DEFAULT_CONNECT_TIMEOUT_MS = 30_000;
 const DEFAULT_RELAY_CONNECT_TIMEOUT_MS = 8_000;
 const DEFAULT_ICE_GATHER_TIMEOUT_MS = 2_000;
 const DEFAULT_REQUEST_TIMEOUT_MS = 8_000;
-const AUTHORIZATION_REFRESH_MS = 3_000;
+// Peer events and roster changes refresh admission when they happen; this only
+// keeps the relay-checked roster from going stale while nothing happens.
+const AUTHORIZATION_REFRESH_MS = 3 * 60_000;
 
 export type DriveFipsAuthorizedAppKeySource = (
   () => readonly string[] | Promise<readonly string[]>
@@ -309,6 +311,11 @@ export class DriveFipsRuntime {
   }
 
   getNostrSource(): RuntimeSource { return this.getP2PProvider().nostrSource; }
+
+  /** Re-admit peers after the Drive roster changed. */
+  refreshAuthorization(): void {
+    void this.refreshNostrPeerAuthorization();
+  }
 
   getStats(): DriveFipsRuntimeStats {
     const identity = this.localIdentity;

@@ -234,7 +234,7 @@ export function angleFromCentre(centre: Point, pointer: Point): number {
   return Math.atan2(pointer.x - centre.x, centre.y - pointer.y) / RADIANS;
 }
 
-export function normaliseAngle(degrees: number): number {
+function normaliseAngle(degrees: number): number {
   const turned = ((degrees % 360) + 360) % 360;
   return Math.round(turned * 10) / 10 === 360 ? 0 : Math.round(turned * 10) / 10;
 }

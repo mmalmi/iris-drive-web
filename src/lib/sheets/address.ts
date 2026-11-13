@@ -73,11 +73,6 @@ export function rectCols(rect: Rect): number {
   return rect.c2 - rect.c1 + 1;
 }
 
-export function sameRect(a: Rect | null, b: Rect | null): boolean {
-  if (!a || !b) return a === b;
-  return a.r1 === b.r1 && a.c1 === b.c1 && a.r2 === b.r2 && a.c2 === b.c2;
-}
-
 /** A sheet name as it must be written in front of "!" in a formula. */
 export function quoteSheetName(name: string): string {
   return /^[A-Za-z_][A-Za-z0-9_.]*$/.test(name) && !/^[A-Za-z]{1,3}\d+$/.test(name)

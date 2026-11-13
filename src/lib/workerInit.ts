@@ -15,10 +15,13 @@ import {
   settingsStore,
   waitForSettingsLoaded,
 } from '../stores/settings';
-import { refreshFipsStats, setBlossomBandwidth } from '../store';
+import { refreshFipsPeersIfChanged, setBlossomBandwidth } from '../store';
+import { setVisibleInterval } from './visibleInterval';
+import { startBackgroundSocialGraphRefresh } from './socialGraphRefresh';
 import { get } from 'svelte/store';
 import { setupVersionCallback } from '../utils/socialGraph';
 import { nostr } from '../nostr/client';
+import { nostrStore } from '../nostr/store';
 import { initRelayTracking } from '../nostr/relays';
 import { getAppType } from '../appType';
 import { logHtreeDebug } from './htreeDebug';
@@ -36,8 +39,32 @@ function loadFipsRuntime(): Promise<typeof import('./driveFipsRuntime')> {
   return fipsRuntimeModule;
 }
 async function stopDriveFipsRuntime(): Promise<void> {
+  stopDriveRosterWatch();
   // Nothing to stop when it never loaded.
   if (fipsRuntimeModule) await (await fipsRuntimeModule).stopDriveFipsRuntime();
+}
+
+// Peers are admitted by the Drive roster. The live roster subscription updates
+// the session; peers are looked at again the moment it changes.
+let driveRosterWatch: (() => void) | null = null;
+let driveRosterWatchGeneration = 0;
+function stopDriveRosterWatch(): void {
+  driveRosterWatchGeneration += 1;
+  driveRosterWatch?.();
+  driveRosterWatch = null;
+}
+async function watchDriveRosterForFips(runtime: { refreshAuthorization(): void }): Promise<void> {
+  stopDriveRosterWatch();
+  const generation = driveRosterWatchGeneration;
+  const { getCurrentNostrIdentitySession } = await import('../nostr/auth');
+  if (generation !== driveRosterWatchGeneration) return;
+  let rosterOps = getCurrentNostrIdentitySession()?.rosterOps;
+  driveRosterWatch = nostrStore.subscribe(() => {
+    const current = getCurrentNostrIdentitySession()?.rosterOps;
+    if (current === rosterOps) return;
+    rosterOps = current;
+    runtime.refreshAuthorization();
+  });
 }
 import {
   createDriveFipsRosterAuthorizationSource,
@@ -143,6 +170,7 @@ function startFipsForAdapter(
         return;
       }
       attachDriveFipsProvider(adapter, runtime);
+      if (identity.profileId) void watchDriveRosterForFips(runtime);
       await adapter.setNostrSource?.(runtime.getNostrSource());
       fipsActiveKey = desiredKey;
       fipsRuntimeReadyFor = adapter;
@@ -396,6 +424,9 @@ export async function initHashtreeBackend(identity: WorkerInitIdentity): Promise
             config.storeName,
             fipsIdentity,
           );
+          // Other people's follow lists: when people search asks, and at
+          // most every 30 minutes while the page is shown.
+          startBackgroundSocialGraphRefresh();
 
         }
         nostr.setBackend({
@@ -409,9 +440,11 @@ export async function initHashtreeBackend(identity: WorkerInitIdentity): Promise
           signalWorkerReady();
         });
 
-        // Start connectivity polling ASAP after worker is ready.
-        refreshFipsStats();
-        setInterval(refreshFipsStats, 2000);
+        // Start connectivity polling ASAP after worker is ready. Peers are
+        // looked at only while the page is shown, and shown again only when
+        // one connected or left.
+        refreshFipsPeersIfChanged();
+        setVisibleInterval(refreshFipsPeersIfChanged, 2000);
         initRelayTracking();
       }
 

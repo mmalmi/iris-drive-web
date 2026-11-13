@@ -48,7 +48,7 @@ export function filterRect(sheet: Sheet, filter: SheetFilter): Rect | null {
   return { r1: header, c1: span[0], r2: Math.max(header, sheet.usedRect()?.r2 ?? header), c2: span[1] };
 }
 
-export function conditionHolds(condition: NonNullable<ColumnFilter['condition']>, value: Scalar, text: string): boolean {
+function conditionHolds(condition: NonNullable<ColumnFilter['condition']>, value: Scalar, text: string): boolean {
   const wanted = condition.value.trim();
   const lower = text.toLowerCase();
   switch (condition.kind) {

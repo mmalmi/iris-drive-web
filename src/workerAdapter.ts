@@ -14,7 +14,8 @@ import type { WorkerAdapterConfig, WorkerConstructor } from './workerAdapterCore
 
 export class WorkerAdapter extends WorkerAdapterSocial {}
 
-export type BackendAdapter = Omit<WorkerAdapter, 'setP2PProvider' | 'setNostrSource' | 'queryEvents' | 'onIdentityChange'> & {
+export type BackendAdapter = Omit<WorkerAdapter, 'setP2PProvider' | 'setNostrSource' | 'queryEvents' | 'onIdentityChange' | 'refreshSocialGraph'> & {
+  refreshSocialGraph?: WorkerAdapter['refreshSocialGraph'];
   setP2PProvider?: WorkerAdapter['setP2PProvider'];
   setNostrSource?: WorkerAdapter['setNostrSource'];
   queryEvents?: WorkerAdapter['queryEvents'];

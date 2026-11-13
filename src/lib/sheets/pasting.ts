@@ -9,6 +9,7 @@ import { inputToStored } from './edit';
 import type { PastedPicture, PastedTable } from './htmlPaste';
 import { encodeText, MAX_COLS, MAX_ROWS, type CellStyle, type Sheet } from './model';
 import { addObject } from './objects';
+import { pictureSize } from '../pictures';
 
 /** Pictures larger than this are not taken in. */
 const MAX_PICTURE_BYTES = 15 * 1024 * 1024;
@@ -72,32 +73,6 @@ export function pasteTable(ctl: SheetController, table: PastedTable): Rect | nul
   return target;
 }
 
-/** A picture's own size, or null when the data is not a picture a browser can show. */
-async function pictureSize(blob: Blob): Promise<{ width: number; height: number } | null> {
-  try {
-    if (typeof createImageBitmap === 'function' && blob.type !== 'image/svg+xml') {
-      // Some pictures a page shows are refused here; those are measured as an <img> below.
-      const bitmap = await createImageBitmap(blob).catch(() => null);
-      if (bitmap) {
-        const size = { width: bitmap.width, height: bitmap.height };
-        bitmap.close();
-        return size;
-      }
-    }
-    const url = URL.createObjectURL(blob);
-    try {
-      const image = new Image();
-      image.src = url;
-      await image.decode();
-      return { width: image.naturalWidth || 300, height: image.naturalHeight || 150 };
-    } finally {
-      URL.revokeObjectURL(url);
-    }
-  } catch {
-    return null;
-  }
-}
-
 const EXTENSIONS: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp', 'image/svg+xml': 'svg', 'image/avif': 'avif', 'image/bmp': 'bmp' };
 
 export interface PictureSpot {
@@ -122,11 +97,13 @@ export async function insertPicture(ctl: SheetController, blob: Blob, spot?: Pic
     return null;
   }
   const sheetId = ctl.sheetId;
-  const size = await pictureSize(blob);
-  if (!size) {
+  const measured = await pictureSize(blob);
+  if (!measured) {
     ctl.say('That picture could not be read.');
     return null;
   }
+  // A picture with no size of its own is given the size a browser gives one.
+  const size = { width: measured.width || 300, height: measured.height || 150 };
   const extension = EXTENSIONS[blob.type] ?? 'png';
   const file = blob instanceof File && /\.[a-z0-9]+$/i.test(blob.name) ? blob : new File([blob], `picture.${extension}`, { type: blob.type });
   let name: string;

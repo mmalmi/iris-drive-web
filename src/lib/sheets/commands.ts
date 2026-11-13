@@ -1,4 +1,5 @@
 /** The actions that change a spreadsheet's content, each one undo step. */
+import { escapeHtml } from '../markup';
 import { rectCols, rectRows, type Rect } from './address';
 import { setBorders, type BorderPlace } from './borders';
 import type { CopiedCells, SheetController } from './controller.svelte';
@@ -8,7 +9,7 @@ import { changeDecimals, isDateFormat, localeFor } from './format';
 import { cellKey, decodeRaw, encodeText, isFormula, MAX_COLS, MAX_ROWS, type CellRaw, type CellStyle, type Sheet, type StylePatch } from './model';
 import { addObject, listObjects, removeObject } from './objects';
 import { transplant } from './refs';
-import { CELL_PAD_X, DEFAULT_POINTS, fontOf, textWidth } from './render';
+import { CELL_PAD_X, DEFAULT_POINTS, fontOf, textWidth } from './cellText';
 import { followMovedCells, moveKeepingRanges, requalify, widenRangesAtEdge } from './structure';
 import { parseClipboardTable, readCsv, writeClipboardTable, writeCsv } from './table';
 import { isError } from './values';
@@ -99,10 +100,6 @@ export function copySelection(ctl: SheetController, cut = false): string {
     .map(m => ({ r1: rows.indexOf(m.r1), c1: m.c1 - rect.c1, r2: rows.indexOf(m.r2), c2: m.c2 - rect.c1 }));
   ctl.copied = { sheetId: sheet.id, rect, rows, rowIds, colIds, cut: cut && ctl.canEdit, text, lines, cells, merges, objects };
   return text;
-}
-
-function escapeHtml(text: string): string {
-  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 function borderCss(value: string | undefined): string {

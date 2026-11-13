@@ -53,7 +53,6 @@
     if (hasBeenReady) return;
     hasBeenReady = true;
     loading = false;
-    console.log('[MediaPlayer] Ready to play');
   }
 
   // Check if live=1 is in URL hash params
@@ -107,10 +106,8 @@
     if (npub && treeName && filePath) {
       // Use async version to ensure Tauri htree server URL is available
       url = await getNpubFileUrlAsync(npub, treeName, filePath);
-      console.log('[MediaPlayer] Using npub streaming (live-capable):', url);
     } else {
       url = getCidFileUrl(cid, fileName);
-      console.log('[MediaPlayer] Using CID streaming:', url);
     }
 
     // Add cache-busting timestamp to prevent browser caching
@@ -122,7 +119,6 @@
     mediaRef.addEventListener('loadedmetadata', () => {
       if (mediaRef && !isNaN(mediaRef.duration) && isFinite(mediaRef.duration)) {
         duration = mediaRef.duration;
-        console.log('[MediaPlayer] Duration:', duration);
         // Don't seek on initial load - let the video play from the start
         // Seeking to near-end is only done on tree updates when we want to catch up
       }
@@ -176,8 +172,8 @@
     // Try to start playback
     try {
       await mediaRef.play();
-    } catch (e) {
-      console.log('[MediaPlayer] Autoplay blocked:', (e as Error).message);
+    } catch {
+      // Autoplay was blocked; the controls start it.
     }
   }
 

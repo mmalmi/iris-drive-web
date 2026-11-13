@@ -154,4 +154,71 @@ describe('Drive FIPS identity selection', () => {
     refreshRosterOps.mockRejectedValueOnce(new Error('relay offline'));
     await expect(source()).resolves.toEqual([]);
   });
+
+  test('answers from the held roster and checks with the relays in the background once it is old', async () => {
+    const profileId = '89f3d04f-41fb-437b-9339-75df537bf291';
+    const admin = generateSecretKey();
+    const adminPubkey = getPublicKey(admin);
+    const bootstrap = signNostrIdentityRosterOp({
+      signerSecretKey: admin,
+      profileId,
+      createdAt: 200,
+      op: { op: 'add_facet', facet: appFacet(adminPubkey, 200, 'Admin', true, true) },
+    });
+    let now = 1_000;
+    const session = { profileId, appKeyPubkey: adminPubkey, status: 'active' as const, rosterOps: [bootstrap] };
+    let answer: (() => void) | null = null;
+    const refreshRosterOps = vi.fn(async () => [bootstrap]);
+    const source = createDriveFipsRosterAuthorizationSource({
+      identity: { appKeyPubkey: adminPubkey, deviceSecretKey: '00'.repeat(32), profileId },
+      getSession: () => session,
+      refreshRosterOps,
+      now: () => now,
+      maxAgeMs: 10_000,
+      refreshAfterMs: 4_000,
+      failedRetryMs: 2_000,
+    });
+
+    await expect(source()).resolves.toEqual([adminPubkey]);
+    expect(refreshRosterOps).toHaveBeenCalledTimes(1);
+
+    // Young: no relay check at all.
+    now += 3_000;
+    await expect(source()).resolves.toEqual([adminPubkey]);
+    expect(refreshRosterOps).toHaveBeenCalledTimes(1);
+
+    // Old: answered at once while the relays are asked, which never answer.
+    now += 2_000;
+    refreshRosterOps.mockImplementationOnce(() => new Promise((_, reject) => {
+      answer = () => reject(new Error('relay offline'));
+    }));
+    await expect(source()).resolves.toEqual([adminPubkey]);
+    await expect(source()).resolves.toEqual([adminPubkey]);
+    expect(refreshRosterOps).toHaveBeenCalledTimes(2);
+
+    // A failed background check leaves the roster trusted until it expires.
+    answer!();
+    await Promise.resolve();
+    await expect(source()).resolves.toEqual([adminPubkey]);
+
+    now += 6_000;
+    refreshRosterOps.mockRejectedValueOnce(new Error('relay offline'));
+    await expect(source()).resolves.toEqual([]);
+    const failedChecks = refreshRosterOps.mock.calls.length;
+
+    // Failed: stays empty without asking again until the wait is over, then doubles it.
+    now += 1_900;
+    await expect(source()).resolves.toEqual([]);
+    expect(refreshRosterOps).toHaveBeenCalledTimes(failedChecks);
+    now += 100;
+    refreshRosterOps.mockRejectedValueOnce(new Error('relay offline'));
+    await expect(source()).resolves.toEqual([]);
+    expect(refreshRosterOps).toHaveBeenCalledTimes(failedChecks + 1);
+    now += 3_900;
+    await expect(source()).resolves.toEqual([]);
+    expect(refreshRosterOps).toHaveBeenCalledTimes(failedChecks + 1);
+    now += 100;
+    await expect(source()).resolves.toEqual([adminPubkey]);
+    expect(refreshRosterOps).toHaveBeenCalledTimes(failedChecks + 2);
+  });
 });

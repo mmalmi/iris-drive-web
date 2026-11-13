@@ -23,7 +23,7 @@ import { pasteInto, readClipboard } from './gridClipboard';
 const mac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
 export const MOD = mac ? '⌘' : 'Ctrl+';
 
-export async function copyToClipboard(ctl: SheetController, cut: boolean): Promise<void> {
+async function copyToClipboard(ctl: SheetController, cut: boolean): Promise<void> {
   const text = copySelection(ctl, cut);
   try {
     await navigator.clipboard.writeText(text);

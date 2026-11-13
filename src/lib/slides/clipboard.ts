@@ -12,6 +12,7 @@
  * pictures themselves). Pasted into another deck, each picture is stored
  * there anew; a pasted element never points at another deck's file.
  */
+import { escapeHtml } from '../markup';
 import {
   elementToJson,
   richTextToPlain,
@@ -120,10 +121,6 @@ function plainOf(elements: SlideElement[]): string {
     }
   }
   return lines.join('\n');
-}
-
-function escapeHtml(value: string): string {
-  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 function toBase64(value: string): string {
