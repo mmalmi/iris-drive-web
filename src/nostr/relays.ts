@@ -1,6 +1,7 @@
 import { nostrStore } from './store';
 import { settingsStore } from '../stores/settings';
 import { getWorkerAdapter } from '../lib/workerInit';
+import { setVisibleInterval } from '../lib/visibleInterval';
 import {
   buildRelayStatusSnapshot,
   relayInfoListsEqual,
@@ -54,7 +55,7 @@ export async function updateConnectedRelayCount(): Promise<void> {
 
 /**
  * Initialize relay tracking
- * Polls worker periodically for relay status updates.
+ * Polls worker periodically for relay status updates, only while the page is shown.
  */
 export function initRelayTracking(): void {
   if (relayTrackingInitialized) return;
@@ -75,5 +76,5 @@ export function initRelayTracking(): void {
   }, 200);
 
   // Regular polling after initial burst
-  setInterval(updateConnectedRelayCount, 2000);
+  setVisibleInterval(() => void updateConnectedRelayCount(), 2000);
 }

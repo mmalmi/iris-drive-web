@@ -15,7 +15,8 @@ import {
   settingsStore,
   waitForSettingsLoaded,
 } from '../stores/settings';
-import { refreshFipsStats, setBlossomBandwidth } from '../store';
+import { refreshFipsPeersIfChanged, setBlossomBandwidth } from '../store';
+import { setVisibleInterval } from './visibleInterval';
 import { get } from 'svelte/store';
 import { setupVersionCallback } from '../utils/socialGraph';
 import { nostr } from '../nostr/client';
@@ -435,9 +436,11 @@ export async function initHashtreeBackend(identity: WorkerInitIdentity): Promise
           signalWorkerReady();
         });
 
-        // Start connectivity polling ASAP after worker is ready.
-        refreshFipsStats();
-        setInterval(refreshFipsStats, 2000);
+        // Start connectivity polling ASAP after worker is ready. Peers are
+        // looked at only while the page is shown, and shown again only when
+        // one connected or left.
+        refreshFipsPeersIfChanged();
+        setVisibleInterval(refreshFipsPeersIfChanged, 2000);
         initRelayTracking();
       }
 
