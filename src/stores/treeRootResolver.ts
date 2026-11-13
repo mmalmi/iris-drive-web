@@ -444,40 +444,20 @@ async function backfillDriveRootScope(
   driveId: string,
   options: { forceRebuild?: boolean; awaitRebuild?: boolean } = {},
 ): Promise<boolean> {
-  // Only a caller that must hand a complete Drive to another device waits for
-  // the relays' stored roots. Everything on screen is fed as answers arrive.
-  const complete = options.awaitRebuild === true;
-  if (complete && get(acceptedShares).some((record) => record.share_id === rootScopeId)) {
-    const accessEvents = await nostr.fetchEvents({ kinds: [KIND_DRIVE_ROOT], '#d': [rootScopeId], '#l': ['iris-drive/share-access'] });
-    const sorted = Array.from(accessEvents).sort((a, b) => a.created_at - b.created_at);
-    for (const event of sorted) {
-      const raw = rawSignedEvent(event);
-      if (raw) applyShareAccessEvent(rootScopeId, raw);
-    }
-  }
   const initial = syncDriveRootAuthorization(key, rootScopeId, driveId);
   if (!initial.authorization.active) {
     stopOpenBackfill(key);
     return false;
   }
 
-  const filters = driveRootBackfillFilters(
+  // The relays are asked and never waited for: each answer is used as it
+  // arrives. A caller that awaits the rebuild gets the Drive as this device
+  // holds it now; one relay that never answers must not hold anyone up.
+  requestDriveRootBackfill(key, rootScopeId, driveId, driveRootBackfillFilters(
     rootScopeId,
     driveId,
     initial.authorization.appKeys,
-  );
-  let accepted = false;
-  if (complete) {
-    const events = filters.length > 0 ? await nostr.fetchEvents(filters) : new Set<Event>();
-    for (const event of events) {
-      const rawEvent = rawSignedEvent(event);
-      if (rawEvent) {
-        accepted = applyDriveRootEvent(key, rootScopeId, driveId, rawEvent, { rebuild: false }) || accepted;
-      }
-    }
-  } else {
-    requestDriveRootBackfill(key, rootScopeId, driveId, filters);
-  }
+  ));
 
   const current = syncDriveRootAuthorization(key, rootScopeId, driveId);
   if (!current.authorization.active) return false;
@@ -489,7 +469,6 @@ async function backfillDriveRootScope(
       current.authorization.appKeys,
     );
   const shouldRebuild = options.forceRebuild
-    || accepted
     || initial.changed
     || initial.projectionChanged
     || current.changed
@@ -597,8 +576,9 @@ async function waitForNewestLocalDriveRootPublish(
 
 /**
  * Force the current logical Drive view to be rebuilt from every authorized
- * AppKey root. Unlike the UI refresh helper, this is awaitable and never treats
- * an existing registry record as proof that the projection is current.
+ * AppKey root this device holds. Unlike the UI refresh helper, this is
+ * awaitable and never treats an existing registry record as proof that the
+ * projection is current. It resolves false when the device holds no root yet.
  */
 export async function resolveDriveRootProjectionNow(
   key: string,

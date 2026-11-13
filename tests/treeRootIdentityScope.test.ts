@@ -216,7 +216,7 @@ describe('NostrIdentity tree-root scope', () => {
       .map((entry) => entry.name)).toEqual(['authorized.txt']);
   });
 
-  it('forces an awaitable author-scoped rebuild instead of trusting a stale registry record', async () => {
+  it('forces an awaitable rebuild from the roots this device holds instead of trusting a stale registry record', async () => {
     const { appSecret, appPubkey } = activateProfile();
 
     const tree = new HashTree({ store: new MemoryStore() });
@@ -254,12 +254,14 @@ describe('NostrIdentity tree-root scope', () => {
 
     await expect(resolveDriveRootProjectionNow(`${PROFILE_ID}/main`)).resolves.toBe(true);
 
-    expect(shared.fetchEvents).toHaveBeenCalledWith([{
+    // The relays are asked for anything newer, and nothing waits for them.
+    expect(shared.fetchEvents).not.toHaveBeenCalled();
+    expect(shared.subscribe).toHaveBeenCalledWith([{
       kinds: [30078],
       authors: [appPubkey],
       '#d': [`iris-drive/${PROFILE_ID}/main/root`],
       limit: 1,
-    }]);
+    }], { closeAfterHistory: true });
     const current = treeRootRegistry.get(PROFILE_ID, 'main');
     expect(current).not.toBeNull();
     expect(current!.updatedAt).toBe(100);

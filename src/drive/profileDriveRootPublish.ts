@@ -101,7 +101,7 @@ export async function publishNostrIdentityDriveRootIfAvailable(
     publishedAt?: number;
     publishedAtMs?: number;
     appKeySeq?: number;
-    /** Wait until a relay has the root: only for handing a Drive to a device being approved. */
+    /** Wait until the root is stored for sending (no relay is waited for): for handing a Drive to a device being approved. */
     awaitRelay?: boolean;
   } = {},
 ): Promise<boolean> {

@@ -650,7 +650,10 @@ export async function approveDriveDeviceApprovalBootstrap(
   const deviceAppKeyPubkey = npubToPubkey(bootstrap.deviceAppKeyNpub);
   if (!deviceAppKeyPubkey) throw new Error('Invalid Drive device approval stable key');
 
-  const rosterOps = await currentDriveRosterOps(session);
+  // The roster this device holds, which relay answers keep current as they
+  // arrive. Asking the relays again here would hold the approval up for as
+  // long as the slowest of them takes to answer.
+  const rosterOps = [...session.rosterOps];
   const approvedAt = nextDriveRosterOpCreatedAt(session.profileId, rosterOps);
   const label = bootstrap.label?.trim();
   const deviceLabels = await collectDriveDeviceLabels(session, rosterOps);
@@ -730,24 +733,21 @@ async function resolveCurrentDriveRootForApproval(
 ): Promise<{ hash: Hash; key: Hash }> {
   const resolverKey = `${profileId}/${DRIVE_ROOT_NAME}`;
   const { resolveDriveRootProjectionNow } = await import('../stores/treeRootResolver');
-  let timeout: ReturnType<typeof setTimeout> | null = null;
-  try {
-    const applied = await Promise.race([
-      resolveDriveRootProjectionNow(resolverKey),
-      new Promise<never>((_, reject) => {
-        timeout = setTimeout(() => {
-          reject(new Error('Could not resolve the current Drive before approving this device'));
-        }, DRIVE_ROOT_APPROVAL_RESOLVE_TIMEOUT_MS);
-      }),
-    ]);
-    const current = treeRootRegistry.getByKey(resolverKey);
-    if (!applied || !current?.hash || !current.key) {
-      throw new Error('The current Drive projection is incomplete');
-    }
+  // Rebuilt from the roots this device holds; no relay is waited for.
+  const applied = await resolveDriveRootProjectionNow(resolverKey);
+  const current = treeRootRegistry.getByKey(resolverKey);
+  if (applied && current?.hash && current.key) {
     return { hash: current.hash, key: current.key };
-  } finally {
-    if (timeout) clearTimeout(timeout);
   }
+  // A page opened straight on the approval holds nothing of the Drive yet.
+  // Take the first copy that arrives, from this device's own store or from
+  // whichever relay answers first.
+  const { waitForTreeRoot } = await import('../stores/treeRoot');
+  const arrived = await waitForTreeRoot(profileId, DRIVE_ROOT_NAME, DRIVE_ROOT_APPROVAL_RESOLVE_TIMEOUT_MS);
+  if (!arrived?.key) {
+    throw new Error('Could not resolve the current Drive before approving this device');
+  }
+  return { hash: arrived.hash, key: arrived.key };
 }
 
 async function uploadDriveRootForApproval(
