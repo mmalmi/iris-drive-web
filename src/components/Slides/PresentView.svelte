@@ -166,11 +166,7 @@
   {#if ended || !slide}
     <div class="end" data-testid="present-end">{slides.length ? 'End of presentation' : 'No slides'}</div>
   {:else if slideWidth > 0}
-    {#key slide.id}
-      <div class="showing">
-        <SlideView {slide} {theme} {urls} width={slideWidth} />
-      </div>
-    {/key}
+    <SlideView {slide} {theme} {urls} width={slideWidth} />
   {/if}
 
   <div class="controls" data-present-controls>
@@ -208,22 +204,6 @@
 
   .present.quiet {
     cursor: none;
-  }
-
-  .showing {
-    animation: appear 0.18s ease-out;
-  }
-
-  @keyframes appear {
-    from {
-      opacity: 0.4;
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .showing {
-      animation: none;
-    }
   }
 
   .end {

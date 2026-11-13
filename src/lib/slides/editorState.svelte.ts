@@ -517,10 +517,12 @@ export class SlidesEditorState {
   }
 
   #applyEditOptions(editor: Editor, options: StartEditingOptions): void {
+    // Focus now, not a frame later: keys pressed straight after a click belong to the text.
+    editor.view.focus();
     const position = options.point ? editor.view.posAtCoords({ left: options.point.x, top: options.point.y }) : null;
-    if (options.selectAll) editor.chain().focus().selectAll().run();
-    else if (position) editor.chain().focus().setTextSelection(position.pos).run();
-    else editor.commands.focus('end');
+    if (options.selectAll) editor.commands.selectAll();
+    else if (position) editor.commands.setTextSelection(position.pos);
+    else editor.commands.setTextSelection(editor.state.doc.content.size);
     if (options.insert) editor.commands.insertContent(options.insert);
     options.then?.(editor);
   }

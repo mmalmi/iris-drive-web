@@ -22,7 +22,12 @@
       onImage: file => void editorState.addImage(file),
     });
     // The text is laid out in slide units whatever the zoom, so its height is too.
-    editorState.measureEditing = () => (host.parentElement?.scrollHeight ?? 0);
+    editorState.measureEditing = () => {
+      const box = host.closest<HTMLElement>('.el-text');
+      if (!box || !host.parentElement) return 0;
+      const style = getComputedStyle(box);
+      return host.parentElement.offsetHeight + Number.parseFloat(style.paddingTop) + Number.parseFloat(style.paddingBottom);
+    };
     editorState.attachEditor(editor);
     return () => {
       editorState.measureEditing = undefined;

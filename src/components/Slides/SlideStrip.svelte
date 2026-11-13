@@ -301,9 +301,15 @@
     pointer-events: auto;
   }
 
-  .item:hover .more,
-  .item.current .more {
+  .item:hover .more {
     display: flex;
+  }
+
+  /* Without a pointer to hover with, the slide being worked on shows it. */
+  @media (hover: none) {
+    .item.current .more {
+      display: flex;
+    }
   }
 
   .dragging .more {

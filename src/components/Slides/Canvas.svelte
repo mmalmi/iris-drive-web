@@ -361,7 +361,10 @@
                   <div class="rotate-stem"></div>
                   <div class="knob knob-rotate" data-handle="rotate" title="Rotate"></div>
                   {#each HANDLES as handle (handle)}
-                    <div class="knob knob-square" data-handle={handle} style={handleStyle(handle, element)}></div>
+                    <!-- On a box that is small on screen the middle handles would crowd the corners. -->
+                    {#if handle.length === 2 || ((handle === 'n' || handle === 's') ? element.w : element.h) * scale >= 44}
+                      <div class="knob knob-square" data-handle={handle} style={handleStyle(handle, element)}></div>
+                    {/if}
                   {/each}
                 {/if}
               </div>

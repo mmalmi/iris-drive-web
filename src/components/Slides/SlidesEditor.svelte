@@ -108,11 +108,14 @@
       present();
       return;
     }
-    if (where === 'text') {
+    if (where === 'text' || current.editingId) {
       if (key === 'Escape') {
         done();
         current.stopEditing();
         focusCanvas();
+      } else if (where !== 'text') {
+        // A box is being typed in but the cursor is elsewhere: keys must not act on the box itself.
+        current.textEditor?.view.focus();
       }
       return;
     }

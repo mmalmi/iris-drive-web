@@ -32,9 +32,11 @@ export async function slidePoint(page: Page, x: number, y: number): Promise<{ x:
   return { x: box.x + x * scale, y: box.y + y * scale };
 }
 
-export async function clickSlide(page: Page, x: number, y: number, options: { modifiers?: Array<'Shift' | 'ControlOrMeta'> } = {}): Promise<void> {
+export async function clickSlide(page: Page, x: number, y: number, modifier?: 'Shift' | 'ControlOrMeta'): Promise<void> {
   const point = await slidePoint(page, x, y);
-  await page.mouse.click(point.x, point.y, options);
+  if (modifier) await page.keyboard.down(modifier);
+  await page.mouse.click(point.x, point.y);
+  if (modifier) await page.keyboard.up(modifier);
 }
 
 /** Drags from one point of the slide to another, in a few steps the way a hand does. */
@@ -65,6 +67,38 @@ export async function typeInBox(page: Page, index: number, text: string): Promis
   await elements(page, 'text').nth(index).click();
   await expect(sheet(page).locator('.ProseMirror')).toBeFocused();
   await page.keyboard.type(text);
+}
+
+/** Selects words in the text box being typed in the way a hand does: a click where they start, Shift and a click where they end. */
+export async function selectWords(page: Page, words: string): Promise<void> {
+  const rect = await sheet(page).locator('.ProseMirror').evaluate((root, wanted) => {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const at = node.textContent?.indexOf(wanted) ?? -1;
+      if (at < 0) continue;
+      const range = document.createRange();
+      range.setStart(node, at);
+      range.setEnd(node, at + wanted.length);
+      const box = range.getBoundingClientRect();
+      return { left: box.left, right: box.right, y: box.top + box.height / 2 };
+    }
+    throw new Error(`"${wanted}" is not in the text box`);
+  }, words);
+  await page.mouse.click(rect.left + 0.5, rect.y);
+  await page.keyboard.down('Shift');
+  await page.mouse.click(rect.right - 0.5, rect.y);
+  await page.keyboard.up('Shift');
+  await expect.poll(() => page.evaluate(() => window.getSelection()?.toString())).toBe(words);
+  await settle(page);
+}
+
+/**
+ * Waits as long as a person takes between moving the cursor and the next key.
+ * The browser tells the editor where the cursor went a frame after it moved.
+ */
+export async function settle(page: Page): Promise<void> {
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  await page.waitForTimeout(200);
 }
 
 export async function expectSlidesSaved(page: Page): Promise<void> {

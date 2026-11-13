@@ -148,10 +148,6 @@
     margin: 0;
   }
 
-  .slide-surface :global(.slide-text > * + *) {
-    margin-top: 0.35em;
-  }
-
   .slide-surface :global(.slide-text ul),
   .slide-surface :global(.slide-text ol) {
     margin: 0;
