@@ -3,15 +3,13 @@
   import { onMount, onDestroy } from 'svelte';
   import DocumentHeader from '../Viewer/DocumentHeader.svelte';
   import { DriveDocument, STORED_ORIGIN } from '../../lib/yjs';
-  import { exportCsv, importCsv } from '../../lib/sheets/commands';
   import { SheetController } from '../../lib/sheets/controller.svelte';
   import FormulaBar from './FormulaBar.svelte';
   import PopupMenu, { type MenuItem } from './PopupMenu.svelte';
   import SheetGrid from './SheetGrid.svelte';
   import SheetTabs from './SheetTabs.svelte';
   import SheetToolbar from './SheetToolbar.svelte';
-
-  const MAX_IMPORT_BYTES = 20 * 1024 * 1024;
+  import { IMPORT_ACCEPT, downloadCsv, downloadXlsx, importFile, isSheetFile, localeMenu } from './sheetFiles';
 
   interface Props {
     dirName: string;
@@ -29,6 +27,8 @@
   let ready = $state(false);
   let fileInput: HTMLInputElement | undefined = $state();
   let menu = $state.raw<{ x: number; y: number; items: MenuItem[] } | null>(null);
+  /** True while a file is dragged over the spreadsheet. */
+  let dropping = $state(false);
 
   onMount(() => {
     void (async () => {
@@ -71,16 +71,25 @@
     const sheet = ctl.sheet;
     const items: MenuItem[] = [];
     if (ctl.canEdit) {
-      items.push({ label: 'Import CSV', icon: 'i-lucide-file-up', action: () => fileInput?.click(), testId: 'sheet-import-csv' });
+      items.push({ label: 'Import CSV or Excel file', icon: 'i-lucide-file-up', action: () => fileInput?.click(), testId: 'sheet-import-csv' });
     }
-    items.push({ label: 'Download as CSV', icon: 'i-lucide-download', action: downloadCsv, testId: 'sheet-download-csv' });
+    items.push(
+      { label: 'Download as Excel', icon: 'i-lucide-file-spreadsheet', action: () => void downloadXlsx(ctl, drive.title), testId: 'sheet-download-xlsx' },
+      { label: 'Download as CSV', icon: 'i-lucide-download', action: () => downloadCsv(ctl, drive.title), testId: 'sheet-download-csv' },
+    );
     if (ctl.canEdit) {
       items.push(
+        {
+          label: 'Numbers and dates',
+          icon: 'i-lucide-languages',
+          divider: true,
+          action: () => queueMicrotask(() => { menu = { x: bounds.right - 300, y: bounds.bottom + 4, items: localeMenu(ctl) }; }),
+          testId: 'sheet-locale',
+        },
         {
           label: 'Freeze first row',
           icon: 'i-lucide-panel-top',
           checked: sheet.freezeRows > 0,
-          divider: true,
           action: () => sheet.setFreeze(sheet.freezeRows > 0 ? 0 : 1, sheet.freezeCols),
           testId: 'sheet-freeze-row',
         },
@@ -96,33 +105,39 @@
     menu = { x: bounds.right - 220, y: bounds.bottom + 4, items };
   }
 
-  function downloadCsv(): void {
-    ctl.commitEdit();
-    const blob = new Blob([exportCsv(ctl)], { type: 'text/csv;charset=utf-8' });
-    const link = document.createElement('a');
-    const sheetName = ctl.book.nameOf(ctl.sheetId) ?? 'Sheet';
-    link.href = URL.createObjectURL(blob);
-    link.download = `${ctl.sheets.length > 1 ? `${drive.title} - ${sheetName}` : drive.title}.csv`;
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(link.href), 10_000);
-  }
-
   async function onFileChosen(event: Event): Promise<void> {
     const input = event.target as HTMLInputElement;
     const file = input.files?.[0];
     input.value = '';
-    if (!file) return;
-    if (file.size > MAX_IMPORT_BYTES) {
-      ctl.say('That file is too large to open as a sheet.');
-      return;
-    }
-    importCsv(ctl, file.name, await file.text());
-    ctl.focusGrid();
+    if (file) await importFile(ctl, file);
+  }
+
+  function ondragover(event: DragEvent): void {
+    if (!ready || !ctl.canEdit || !event.dataTransfer?.types.includes('Files')) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+    dropping = true;
+  }
+
+  function ondrop(event: DragEvent): void {
+    dropping = false;
+    const file = event.dataTransfer?.files[0];
+    if (!ready || !ctl.canEdit || !file) return;
+    event.preventDefault();
+    if (isSheetFile(file)) void importFile(ctl, file);
+    else ctl.say('Drop a CSV or Excel file to add it as a sheet.');
   }
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="flex-1 flex flex-col min-h-0 bg-surface-0" data-testid="document-editor" {onkeydown}>
+<div
+  class="relative flex-1 flex flex-col min-h-0 bg-surface-0"
+  data-testid="document-editor"
+  {onkeydown}
+  {ondragover}
+  {ondrop}
+  ondragleave={(event) => { if (!(event.currentTarget as HTMLElement).contains(event.relatedTarget as Node)) dropping = false; }}
+>
   <DocumentHeader {drive}>
     {#if ready && ctl.hasSheet}
       <button onclick={openMenu} class="btn-circle btn-ghost" title="More" aria-label="More" data-testid="sheet-more">
@@ -153,10 +168,35 @@
     <SheetGrid {ctl} />
     <SheetTabs {ctl} />
   {/if}
+  {#if dropping}
+    <div class="drop-zone" data-testid="sheet-drop-zone">
+      <span class="i-lucide-file-up text-2xl"></span>
+      Drop to add it as a sheet
+    </div>
+  {/if}
 </div>
 
-<input bind:this={fileInput} type="file" accept=".csv,.tsv,.txt,text/csv,text/tab-separated-values,text/plain" class="hidden" onchange={onFileChosen} data-testid="sheet-csv-input" />
+<input bind:this={fileInput} type="file" accept={IMPORT_ACCEPT} class="hidden" onchange={onFileChosen} data-testid="sheet-csv-input" />
 
 {#if menu}
   <PopupMenu x={menu.x} y={menu.y} items={menu.items} onclose={() => { menu = null; ctl.focusGrid(); }} />
 {/if}
+
+<style>
+  .drop-zone {
+    position: absolute;
+    inset: 8px;
+    z-index: 50;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    border: 2px dashed #916dfe;
+    border-radius: 12px;
+    background: rgb(145 109 254 / 0.12);
+    color: rgb(var(--text-1));
+    font-size: 0.95rem;
+    pointer-events: none;
+  }
+</style>
