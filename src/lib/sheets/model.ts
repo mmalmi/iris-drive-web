@@ -57,6 +57,17 @@
  *                           way to the one nearer the top left.
  *                         mr:<rowId>, mc:<colId>  [client, clock]: which of
  *                           the places a moved row is listed at counts
+ *   <sheetId>:objects Map  Pictures and charts floating over the grid
+ *                         (see objects.ts): o:<id> what it is, p:<id>
+ *                         where it is, so moving one and changing it at
+ *                         once both stay.
+ *   <sheetId>:rules Map   Conditional formats and data validation, one
+ *                         entry per rule (see rules.ts).
+ *   <sheetId>:notes Map   Comments on cells, one entry per message
+ *                         (see comments.ts).
+ *
+ * Older builds leave the last three alone and simply do not show them, so
+ * they did not need a new format version.
  *
  * Whole values are replaced, last writer wins: one cell's content, one
  * cell's style, one width.
@@ -224,6 +235,17 @@ export class Axis {
     return from <= to && to < this.ids.length ? [from, to] : null;
   }
 
+  /**
+   * Where an id is now: its position, or for a deleted one the position of
+   * the living id that took its place (the last one at the end). -1 when unknown.
+   */
+  near(id: string): number {
+    const position = this.positions.get(id);
+    if (position !== undefined) return position;
+    const slot = this.slots.get(id);
+    return slot === undefined || this.ids.length === 0 ? -1 : Math.min(slot, this.ids.length - 1);
+  }
+
   private place(id: string): { at: number; alive: boolean; order: number } | null {
     const position = this.positions.get(id);
     if (position !== undefined) return { at: position, alive: true, order: position };
@@ -232,7 +254,8 @@ export class Axis {
   }
 }
 
-type SheetPart = 'rows' | 'cols' | 'cells' | 'styles' | 'props';
+type SheetPart = 'rows' | 'cols' | 'cells' | 'styles' | 'props' | 'objects' | 'rules' | 'notes';
+const SHEET_PARTS: SheetPart[] = ['rows', 'cols', 'cells', 'styles', 'props', 'objects', 'rules', 'notes'];
 
 /** What one transaction changed, for whoever redraws or recalculates. */
 export interface SheetChange {
@@ -243,6 +266,12 @@ export interface SheetChange {
   styles: boolean;
   /** Widths, heights or frozen panes. */
   props: boolean;
+  /** Pictures or charts. */
+  objects: boolean;
+  /** Conditional formats or data validation. */
+  rules: boolean;
+  /** Comments. */
+  notes: boolean;
 }
 
 export interface BookChange {
@@ -260,6 +289,9 @@ export class Sheet {
   readonly cells: Y.Map<CellRaw>;
   readonly styles: Y.Map<CellStyle>;
   readonly props: Y.Map<unknown>;
+  readonly objects: Y.Map<unknown>;
+  readonly rules: Y.Map<unknown>;
+  readonly notes: Y.Map<unknown>;
   readonly rows = new Axis();
   readonly cols = new Axis();
   private readonly doc: Y.Doc;
@@ -277,11 +309,14 @@ export class Sheet {
     this.cells = doc.getMap(`${id}:cells`);
     this.styles = doc.getMap(`${id}:styles`);
     this.props = doc.getMap(`${id}:props`);
+    this.objects = doc.getMap(`${id}:objects`);
+    this.rules = doc.getMap(`${id}:rules`);
+    this.notes = doc.getMap(`${id}:notes`);
     this.rebuildAxes();
   }
 
   get types(): Y.AbstractType<unknown>[] {
-    return [this.rowOrder, this.colOrder, this.cells, this.styles, this.props] as Y.AbstractType<unknown>[];
+    return [this.rowOrder, this.colOrder, this.cells, this.styles, this.props, this.objects, this.rules, this.notes] as Y.AbstractType<unknown>[];
   }
 
   rebuildAxes(): void {
@@ -870,8 +905,7 @@ export class Book {
     if (!sheet) {
       sheet = new Sheet(this.doc, id);
       this.loaded.set(id, sheet);
-      const parts: SheetPart[] = ['rows', 'cols', 'cells', 'styles', 'props'];
-      sheet.types.forEach((type, index) => this.owners.set(type, { sheet: sheet as Sheet, part: parts[index] }));
+      sheet.types.forEach((type, index) => this.owners.set(type, { sheet: sheet as Sheet, part: SHEET_PARTS[index] }));
       for (const listener of this.onNewSheet) listener(sheet);
     }
     return sheet;
@@ -941,8 +975,9 @@ export class Book {
     const sheet = this.sheet(id);
     this.transact(() => {
       this.meta.set(`gone:${id}`, true);
-      for (const key of [...sheet.cells.keys()]) sheet.cells.delete(key);
-      for (const key of [...sheet.styles.keys()]) sheet.styles.delete(key);
+      for (const map of [sheet.cells, sheet.styles, sheet.objects, sheet.rules, sheet.notes] as Array<Y.Map<unknown>>) {
+        for (const key of [...map.keys()]) map.delete(key);
+      }
     });
   }
 
@@ -979,7 +1014,7 @@ export class Book {
     const entry = (sheet: Sheet): SheetChange => {
       let found = change.bySheet.get(sheet.id);
       if (!found) {
-        found = { cells: new Set(), axes: false, styles: false, props: false };
+        found = { cells: new Set(), axes: false, styles: false, props: false, objects: false, rules: false, notes: false };
         change.bySheet.set(sheet.id, found);
       }
       return found;
@@ -1001,6 +1036,8 @@ export class Book {
         found.styles = true;
       } else if (part === 'rows' || part === 'cols') {
         found.axes = true;
+      } else if (part === 'objects' || part === 'rules' || part === 'notes') {
+        found[part] = true;
       } else {
         found.props = true;
         for (const key of keys) {

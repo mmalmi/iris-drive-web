@@ -8,12 +8,9 @@
   import type { CellPos } from '../../lib/sheets/address';
   import {
     autoFitColumn,
-    copiedHtml,
-    copySelection,
     fillDownToNeighbours,
     fillInto,
     moveSelectedTo,
-    pasteText,
     resizeFrom,
   } from '../../lib/sheets/commands';
   import type { SheetController } from '../../lib/sheets/controller.svelte';
@@ -43,6 +40,9 @@
   import { listenToTouch, watchKeyboard, type TouchHost } from './gridTouch';
   import { installTestHandle } from './testHandle';
   import { selectForMenu, selectionMenu } from './menus';
+  import ObjectLayer from './ObjectLayer.svelte';
+  import { copyCells, pasteInto } from './gridClipboard';
+  import './grid.css';
 
   interface Props {
     ctl: SheetController;
@@ -63,6 +63,7 @@
   let scrollY = $state(0);
   let pixelRatio = $state(1);
   let theme = $state.raw<GridTheme | null>(null);
+  let dark = $state(false);
   let focused = $state(false);
   let resizing = $state.raw<SizeOverride | null>(null);
   let cursor = $state('default');
@@ -105,6 +106,15 @@
     return { row: rect.r1, c1: rect.c1, c2: rect.c2, active };
   });
   let filterMenu = $state.raw<{ colId: string; x: number; y: number } | null>(null);
+  /** The chart whose settings are open. */
+  let chartPanel = $state<string | null>(null);
+  $effect(() => {
+    // A chart made elsewhere in the app asks for its settings this way.
+    if (ctl.chartAsked) {
+      chartPanel = ctl.chartAsked;
+      ctl.chartAsked = null;
+    }
+  });
 
   /** Opens the filter's choices when a point is on the button in one of its header cells. */
   function openFilterAt(hit: Hit, x: number, y: number): boolean {
@@ -178,11 +188,13 @@
     };
     measure();
     theme = readTheme(root);
+    dark = matchMedia('(prefers-color-scheme: dark)').matches;
     const observer = new ResizeObserver(measure);
     observer.observe(scroller);
     const scheme = matchMedia('(prefers-color-scheme: dark)');
     const onScheme = () => {
       if (root) theme = readTheme(root);
+      dark = scheme.matches;
     };
     scheme.addEventListener('change', onScheme);
     const trackShift = (event: KeyboardEvent) => {
@@ -314,14 +326,13 @@
   function oncopy(event: ClipboardEvent): void {
     if (ctl.edit) return;
     event.preventDefault();
-    event.clipboardData?.setData('text/plain', copySelection(ctl, event.type === 'cut'));
-    event.clipboardData?.setData('text/html', copiedHtml(ctl));
+    copyCells(ctl, event);
   }
 
   function onpaste(event: ClipboardEvent): void {
     if (ctl.edit) return;
     event.preventDefault();
-    pasteText(ctl, event.clipboardData?.getData('text/plain') ?? '', shiftHeld);
+    pasteInto(ctl, event.clipboardData, shiftHeld);
   }
 
   // --- Pointer ---
@@ -390,6 +401,7 @@
     if (touchMode || event.button !== 0) return;
     event.preventDefault();
     menu = null;
+    ctl.selectedObject = null;
     const { x, y } = localPoint(event);
     lastPointer = { x, y };
     const hit = hitTest(view, x, y);
@@ -557,6 +569,7 @@
     if (!view) return;
     const hit = hitTest(view, x, y);
     menu = null;
+    ctl.selectedObject = null;
     if (!(ctl.edit && ctl.pointing) && openFilterAt(hit, x, y)) return;
     if (ctl.edit) {
       if (hit.area === 'cell' && ctl.pointing) {
@@ -683,6 +696,17 @@
       {#if ctl.canEdit && layout}
         <AddRowsButton {ctl} top={addRowsTop} left={layout.headerWidth + 8} />
       {/if}
+      {#if view && theme}
+        <ObjectLayer
+          {ctl}
+          view={{ ...view, scrollX, scrollY }}
+          background={theme.sheet}
+          {dark}
+          touch={touchMode}
+          onmenu={(x, y, items) => { menu = { x, y, items }; }}
+          oneditchart={(id) => { chartPanel = id; }}
+        />
+      {/if}
     </div>
   </div>
 
@@ -703,7 +727,7 @@
     onselect={onEditorSelect}
     onkeyup={onEditorSelect}
     onpointerup={onEditorSelect}
-    onfocus={() => { focused = true; }}
+    onfocus={() => { focused = true; ctl.selectedObject = null; }}
     onblur={() => { focused = false; }}
   ></textarea>
 
@@ -718,6 +742,12 @@
 
   <FindBar {ctl} />
 
+  {#if chartPanel && ctl.canEdit}
+    {#await import('./ChartPanel.svelte') then { default: ChartPanel }}
+      <ChartPanel {ctl} id={chartPanel} onclose={() => { chartPanel = null; }} />
+    {/await}
+  {/if}
+
   <div class="sr-only" aria-live="polite" data-testid="sheet-active-cell" data-cell={ctl.selectionName}>{ctl.selectionName} {activeText}</div>
 </div>
 
@@ -728,76 +758,3 @@
 {#if filterMenu}
   <FilterMenu {ctl} colId={filterMenu.colId} x={filterMenu.x} y={filterMenu.y} onclose={() => { filterMenu = null; closeMenu(); }} />
 {/if}
-
-<style>
-  .grid-root {
-    position: relative;
-    flex: 1;
-    min-height: 0;
-    min-width: 0;
-    outline: none;
-    overflow: clip;
-    background: rgb(var(--surface-1));
-  }
-
-  .scroller {
-    position: absolute;
-    inset: 0;
-    overflow: auto;
-    overscroll-behavior: contain;
-  }
-
-  .sizer {
-    position: relative;
-  }
-
-  canvas {
-    position: sticky;
-    top: 0;
-    left: 0;
-    display: block;
-    touch-action: pan-x pan-y;
-    user-select: none;
-    -webkit-user-select: none;
-    -webkit-touch-callout: none;
-  }
-
-  .cell-editor {
-    position: absolute;
-    z-index: 2;
-    margin: 0;
-    padding: 2px 4px 2px 5px;
-    border: 2px solid #916dfe;
-    border-radius: 2px;
-    background: rgb(var(--surface-0));
-    color: rgb(var(--text-1));
-    resize: none;
-    overflow: hidden;
-    outline: none;
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-    box-shadow: 0 2px 10px rgb(0 0 0 / 0.25);
-    opacity: 0;
-    pointer-events: none;
-  }
-
-  @media (prefers-color-scheme: light) {
-    .cell-editor {
-      background: #fff;
-    }
-  }
-
-  .cell-editor.visible {
-    opacity: 1;
-    pointer-events: auto;
-  }
-
-  .sr-only {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
-  }
-</style>

@@ -5,7 +5,8 @@ import type { CopiedCells, SheetController } from './controller.svelte';
 import { inputToStored } from './edit';
 import { planFill } from './fill';
 import { changeDecimals, isDateFormat, localeFor } from './format';
-import { cellKey, encodeText, isFormula, MAX_COLS, MAX_ROWS, type CellRaw, type CellStyle, type Sheet, type StylePatch } from './model';
+import { cellKey, decodeRaw, encodeText, isFormula, MAX_COLS, MAX_ROWS, type CellRaw, type CellStyle, type Sheet, type StylePatch } from './model';
+import { addObject, listObjects, removeObject } from './objects';
 import { transplant } from './refs';
 import { CELL_PAD_X, DEFAULT_POINTS, fontOf, textWidth } from './render';
 import { followMovedCells, moveKeepingRanges, requalify, widenRangesAtEdge } from './structure';
@@ -84,7 +85,19 @@ export function copySelection(ctl: SheetController, cut = false): string {
   const text = writeClipboardTable(lines);
   const rowIds = rows.map(row => sheet.rows.ids[row]);
   const colIds = sheet.cols.ids.slice(rect.c1, rect.c2 + 1);
-  ctl.copied = { sheetId: sheet.id, rect, rows, rowIds, colIds, cut: cut && ctl.canEdit, text, lines, cells };
+  // Pictures and charts whose corner is in the copied cells go along.
+  const objects: CopiedCells['objects'] = [];
+  for (const object of listObjects(sheet)) {
+    const at = rows.indexOf(object.row);
+    if (at < 0 || object.col < rect.c1 || object.col > rect.c2) continue;
+    const { dx, dy, width, height } = object.placement;
+    objects.push({ id: object.id, content: object.content, row: at, col: object.col - rect.c1, dx, dy, width, height });
+  }
+  // Merged blocks wholly copied, with none of their rows left out by a filter.
+  const merges = sheet.merges()
+    .filter(m => m.c1 >= rect.c1 && m.c2 <= rect.c2 && rows.includes(m.r1) && rows.includes(m.r2) && rows.indexOf(m.r2) - rows.indexOf(m.r1) === m.r2 - m.r1)
+    .map(m => ({ r1: rows.indexOf(m.r1), c1: m.c1 - rect.c1, r2: rows.indexOf(m.r2), c2: m.c2 - rect.c1 }));
+  ctl.copied = { sheetId: sheet.id, rect, rows, rowIds, colIds, cut: cut && ctl.canEdit, text, lines, cells, merges, objects };
   return text;
 }
 
@@ -92,16 +105,38 @@ function escapeHtml(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+function borderCss(value: string | undefined): string {
+  if (!value) return '';
+  const kind = value[0];
+  const color = value.slice(1) || '#000000';
+  return `${kind === 'k' ? 3 : kind === 'm' ? 2 : 1}px ${kind === 'd' ? 'dashed' : kind === 'o' ? 'dotted' : 'solid'} ${color}`;
+}
+
 /**
  * What was just copied as an HTML table, so that word processors and other
- * spreadsheets receive it with its bold, colours and alignment.
+ * spreadsheets receive it with its bold, colours, alignment, borders and
+ * merged cells. Another Iris spreadsheet reads the exact looks and values
+ * from data attributes. `pictureHtml` gives the <img> for a copied picture
+ * or chart, placed in the cell its corner is in.
  */
-export function copiedHtml(ctl: SheetController): string {
+export function copiedHtml(ctl: SheetController, pictureHtml?: (object: CopiedCells['objects'][number]) => string): string {
   const copied = ctl.copied;
   if (!copied) return '';
+  const covered = new Set<string>();
+  const spans = new Map<string, { rows: number; cols: number }>();
+  for (const m of copied.merges) {
+    spans.set(`${m.r1}:${m.c1}`, { rows: m.r2 - m.r1 + 1, cols: m.c2 - m.c1 + 1 });
+    for (let r = m.r1; r <= m.r2; r += 1) for (let c = m.c1; c <= m.c2; c += 1) if (r !== m.r1 || c !== m.c1) covered.add(`${r}:${c}`);
+  }
   const rows = copied.lines.map((line, r) => {
     const cells = line.map((text, c) => {
-      const style = copied.cells[r]?.[c]?.style ?? {};
+      if (covered.has(`${r}:${c}`)) return '';
+      const cell = copied.cells[r]?.[c];
+      const source = ctl.book.nameOf(copied.sheetId) !== undefined ? ctl.book.sheet(copied.sheetId) : null;
+      const at = copied.rows[r];
+      // A number format a formula implies goes along as if it were the cell's own.
+      const implied = source && at !== undefined && !cell?.style?.nf ? ctl.engine.formatAt(source, at, copied.rect.c1 + c) : undefined;
+      const style: CellStyle = implied ? { ...cell?.style, nf: implied } : cell?.style ?? {};
       const css = [
         style.b ? 'font-weight:bold' : '',
         style.i ? 'font-style:italic' : '',
@@ -109,12 +144,25 @@ export function copiedHtml(ctl: SheetController): string {
         style.c ? `color:${style.c}` : '',
         style.bg ? `background-color:${style.bg}` : '',
         style.a ? `text-align:${style.a === 'l' ? 'left' : style.a === 'r' ? 'right' : 'center'}` : '',
+        style.va ? `vertical-align:${style.va === 't' ? 'top' : style.va === 'm' ? 'middle' : 'bottom'}` : '',
+        style.fs ? `font-size:${style.fs}pt` : '',
+        style.w ? 'white-space:normal' : '',
+        style.bt ? `border-top:${borderCss(style.bt)}` : '',
+        style.bb ? `border-bottom:${borderCss(style.bb)}` : '',
+        style.bl ? `border-left:${borderCss(style.bl)}` : '',
+        style.br ? `border-right:${borderCss(style.br)}` : '',
       ].filter(Boolean).join(';');
-      return `<td${css ? ` style="${css}"` : ''}>${escapeHtml(text).replace(/\n/g, '<br>')}</td>`;
+      const span = spans.get(`${r}:${c}`);
+      // The value itself, so another spreadsheet need not read it back from text written for one locale.
+      const value = source && at !== undefined ? ctl.engine.valueAt(source, at, copied.rect.c1 + c) : decodeRaw(cell?.raw as CellRaw | undefined);
+      const exact = typeof value === 'number' || typeof value === 'boolean' ? ` data-iris-value="${escapeHtml(JSON.stringify(value))}"` : '';
+      const looks = Object.keys(style).length > 0 ? ` data-iris-style="${escapeHtml(JSON.stringify(style))}"` : '';
+      const pictures = pictureHtml ? copied.objects.filter(object => object.row === r && object.col === c).map(pictureHtml).join('') : '';
+      return `<td${span && span.rows > 1 ? ` rowspan="${span.rows}"` : ''}${span && span.cols > 1 ? ` colspan="${span.cols}"` : ''}${css ? ` style="${css}"` : ''}${exact}${looks}>${pictures}${escapeHtml(text).replace(/\n/g, '<br>')}</td>`;
     });
     return `<tr>${cells.join('')}</tr>`;
   });
-  return `<table>${rows.join('')}</table>`;
+  return `<table data-iris-sheet="1" style="border-collapse:collapse">${rows.join('')}</table>`;
 }
 
 /**
@@ -147,6 +195,7 @@ export function pasteText(ctl: SheetController, text: string, valuesOnly = false
   const moved = new Map<string, string>();
   ctl.book.transact(() => {
     ensureSize(sheet, target.r2 + 1, target.c2 + 1);
+    if (copied && !valuesOnly) sheet.unmerge(target);
     if (copied?.cut && source) {
       for (const rowId of copied.rowIds) {
         for (const colId of copied.colIds) {
@@ -192,6 +241,22 @@ export function pasteText(ctl: SheetController, text: string, valuesOnly = false
     }
     // Formulas that read the cut cells now read them where they went.
     if (source && moved.size > 0) followMovedCells(ctl.book, source, sheet, moved);
+    // Pictures and charts come along once, at the first copy; cut ones move.
+    if (copied && source && !valuesOnly) {
+      for (const object of copied.objects) {
+        const row = target.r1 + object.row;
+        const col = target.c1 + object.col;
+        if (row >= sheet.rows.length || col >= sheet.cols.length) continue;
+        if (copied.cut) removeObject(source, object.id);
+        // A chart on another sheet keeps showing the cells it showed.
+        const content = object.content.kind === 'chart' && source !== sheet && !object.content.sheet ? { ...object.content, sheet: source.id } : object.content;
+        addObject(sheet, content, { row: sheet.rows.ids[row], col: sheet.cols.ids[col], dx: object.dx, dy: object.dy, width: object.width, height: object.height });
+      }
+      for (const m of copied.merges) {
+        const block = { r1: target.r1 + m.r1, c1: target.c1 + m.c1, r2: target.r1 + m.r2, c2: target.c1 + m.c2 };
+        if (block.r2 <= target.r2 && block.c2 <= target.c2) sheet.merge(block);
+      }
+    }
   });
   if (copied?.cut) ctl.copied = null;
   ctl.setSelection({ row: target.r1, col: target.c1 }, { row: target.r2, col: target.c2 });

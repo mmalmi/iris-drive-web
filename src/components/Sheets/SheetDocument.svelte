@@ -24,6 +24,11 @@
   // svelte-ignore state_referenced_locally
   const drive = new DriveDocument(dirName);
   const ctl = new SheetController(drive.ydoc);
+  // Pictures are kept with the spreadsheet's attachments.
+  ctl.media = {
+    urlOf: file => drive.attachmentUrls.get(file),
+    store: file => drive.addAttachment(file),
+  };
 
   let ready = $state(false);
   let fileInput: HTMLInputElement | undefined = $state();

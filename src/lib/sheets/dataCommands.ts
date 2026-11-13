@@ -14,7 +14,7 @@ import { cellKey, isFormula, type CellRaw } from './model';
 import { transplant } from './refs';
 
 /** The block of filled cells around the active cell, or the whole filled area when the cell is empty. */
-function dataRegion(ctl: SheetController): Rect | null {
+export function dataRegion(ctl: SheetController): Rect | null {
   const sheet = ctl.sheet;
   const used = sheet.usedRect();
   if (!used) return null;
