@@ -13,10 +13,8 @@ import {
   LOCAL_ORIGIN,
   SLIDE_HEIGHT,
   SLIDE_WIDTH,
-  elementToJson,
   newId,
   richTextIsEmpty,
-  richTextToPlain,
   type ElementInit,
   type ElementJson,
   type ElementProps,
@@ -31,31 +29,14 @@ import { DEFAULT_LAYOUT, layoutById } from './layouts';
 import { DEFAULT_THEME, paletteFor, textStyle, themeById, type Palette, type Theme } from './themes';
 import { MAX_FONT_SIZE, MIN_FONT_SIZE, selectAllText } from './richText';
 import { comparePositions } from './order';
-import { cellPlace, newTable, stepCell } from './table';
+import { cellPlace, cellRect, newTable, rectKeys, stepCell, type CellRect } from './table';
 import { growTable } from './tableEditing';
 import { readTransition, type Transition } from './motion';
 import { imageSize, reuse } from './slideData';
+import type { ClipboardPayload } from './clipboard';
 
 /** Transaction origin of a table cell made because someone began typing where none was; not something to undo. */
 const CELL_ORIGIN = 'slides-cell';
-
-export const CLIPBOARD_TYPE = 'application/x-iris-slides';
-
-interface ClipboardSlide {
-  layout: string;
-  background?: string;
-  transition?: Transition;
-  build?: boolean;
-  notes: string;
-  elements: ElementJson[];
-}
-
-export interface ClipboardPayload {
-  kind: 'iris-slides';
-  version: 1;
-  elements?: ElementJson[];
-  slides?: ClipboardSlide[];
-}
 
 export interface StartEditingOptions {
   /** Where on the screen the cursor should go. */
@@ -115,7 +96,6 @@ export class SlidesEditorState {
   readonly #undo: Y.UndoManager;
   #lastAction = '';
   #pendingEdit: StartEditingOptions | null = null;
-  #pasteCount = 0;
   readonly #deviceId: string;
 
   slides = $state.raw<Slide[]>([]);
@@ -137,6 +117,8 @@ export class SlidesEditorState {
   editingCell = $state<string | null>(null);
   /** The cell of the selected table that row and column changes act on: the one typed in last. */
   tableCell = $state<string | null>(null);
+  /** Cells of a table picked together, from the one the pick started at to the one it reached. */
+  cellRange = $state.raw<{ id: string; anchor: string; focus: string } | null>(null);
   textEditor = $state.raw<Editor | null>(null);
   /** Goes up whenever the text editor's cursor or content changes. */
   editorTick = $state(0);
@@ -161,6 +143,21 @@ export class SlidesEditorState {
   readonly selectedText: SlideElement[] = $derived(this.selected.filter(element => element.type === 'text' || element.type === 'shape' || element.type === 'table'));
   /** The table that is selected, when one is, alone. */
   readonly selectedTable: SlideElement | null = $derived(this.selected.length === 1 && this.selected[0]!.type === 'table' ? this.selected[0]! : null);
+  /** The rectangle of cells picked in the selected table, grown to hold whole merged blocks. */
+  readonly pickedRect: CellRect | null = $derived.by(() => {
+    const table = this.selectedTable;
+    const range = this.cellRange;
+    if (!table?.table || !range || range.id !== table.id) return null;
+    return cellRect(table.table, range.anchor, range.focus);
+  });
+  /** The keys of the picked cells, when more than one is picked. */
+  readonly pickedCells: string[] | null = $derived.by(() => {
+    const table = this.selectedTable;
+    const rect = this.pickedRect;
+    if (!table?.table || !rect) return null;
+    const keys = rectKeys(table.table, rect).filter(key => !table.table!.covered.has(key));
+    return keys.length > 1 || (keys.length === 1 && table.table.merges.has(keys[0]!)) ? rectKeys(table.table, rect) : null;
+  });
 
   constructor(ydoc: Y.Doc, options: SlidesEditorOptions) {
     this.deck = new Deck(ydoc);
@@ -277,6 +274,12 @@ export class SlidesEditorState {
   #settleSeed(): void {
     if (!this.canEdit) return;
     const seeds = this.slides.filter(slide => slide.seed);
+    // A deck that a file was brought into in place of its first slide has no use for one that arrives late.
+    if (this.deck.meta.get('seedless') === true) {
+      const late = seeds.filter(slide => untouched(slide) && slide.seedBy === this.#deviceId && this.slides.length > 1);
+      if (late.length) this.deck.ydoc.transact(() => late.forEach(slide => this.deck.slides.delete(slide.id)), SEED_ORIGIN);
+      return;
+    }
     if (seeds.length < 2) return;
     const blank = seeds.filter(untouched);
     // Something written on is kept; otherwise the first by id.
@@ -345,6 +348,16 @@ export class SlidesEditorState {
   get editingFrame(): ElementProps | null {
     const element = this.editing;
     return element && this.editingHeight ? this.#grown(element, this.editingHeight) : null;
+  }
+
+  /** True while the deck holds nothing anyone made: only the slide a new deck gives itself, untouched. */
+  get isBlank(): boolean {
+    return this.slides.every(untouched);
+  }
+
+  /** Forgets what undo could take back, as after a file was brought into a new deck. */
+  forgetHistory(): void {
+    this.#undo.clear();
   }
 
   undo(): void {
@@ -486,7 +499,10 @@ export class SlidesEditorState {
 
   select(ids: string[]): void {
     if (this.editingId && !(ids.length === 1 && ids[0] === this.editingId)) this.stopEditing();
-    if (!(ids.length === 1 && ids[0] === this.selection[0] && this.selection.length === 1)) this.tableCell = null;
+    if (!(ids.length === 1 && ids[0] === this.selection[0] && this.selection.length === 1)) {
+      this.tableCell = null;
+      this.cellRange = null;
+    }
     this.selection = ids;
     this.area = 'canvas';
   }
@@ -576,7 +592,7 @@ export class SlidesEditorState {
   }
 
   /** Stores an image with the deck and puts it on the slide, centred on `at` when given. */
-  async addImage(file: File, at?: { x: number; y: number }): Promise<void> {
+  async addImage(file: File, at?: { x: number; y: number }, most: { w: number; h: number } = { w: 760, h: 520 }): Promise<void> {
     if (!this.canEdit || !this.currentId || !file.type.startsWith('image/')) return;
     if (file.size > 20 * 1024 * 1024) {
       this.notice = 'Images can be up to 20 MB.';
@@ -586,7 +602,7 @@ export class SlidesEditorState {
     const slideId = this.currentId;
     try {
       const [src, size] = await Promise.all([this.#options.addAttachment(file), imageSize(file)]);
-      const scale = Math.min(1, 760 / size.width, 520 / size.height);
+      const scale = Math.min(1, most.w / size.width, most.h / size.height);
       const w = Math.max(24, Math.round(size.width * scale));
       const h = Math.max(24, Math.round(size.height * scale));
       const spot = at ? { x: Math.round(at.x - w / 2), y: Math.round(at.y - h / 2) } : this.#place(w, h);
@@ -674,6 +690,7 @@ export class SlidesEditorState {
     this.#undo.stopCapturing();
     this.#lastAction = '';
     if (this.selection.length !== 1 || this.selection[0] !== id) this.tableCell = null;
+    this.cellRange = null;
     this.selection = [id];
     this.area = 'canvas';
     if (sameBox && this.textEditor) {
@@ -752,6 +769,11 @@ export class SlidesEditorState {
     this.#undo.stopCapturing();
   }
 
+  /** The cells formatting acts on in a table when several are picked; undefined means all of an element's text. */
+  #pickedFor(element: SlideElement): ReadonlySet<string> | undefined {
+    return element.type === 'table' && this.cellRange?.id === element.id && this.pickedCells ? new Set(this.pickedCells) : undefined;
+  }
+
   /** Moves typing on to the next box that holds text (the previous one when `back`), in the order they were made. */
   editNext(back = false): void {
     const editing = this.editing;
@@ -791,7 +813,7 @@ export class SlidesEditorState {
     void this.revision;
     if (this.textEditor && this.editingId) return this.textEditor.isActive(mark);
     const boxes = this.selectedText;
-    return boxes.length > 0 && !!this.currentId && boxes.every(element => this.deck.allTextHasMark(this.currentId!, element.id, mark));
+    return boxes.length > 0 && !!this.currentId && boxes.every(element => this.deck.allTextHasMark(this.currentId!, element.id, mark, this.#pickedFor(element)));
   }
 
   toggleMark(mark: TextMark): void {
@@ -803,7 +825,7 @@ export class SlidesEditorState {
     const on = !this.markActive(mark);
     const slideId = this.currentId;
     this.#act(() => this.deck.transact(() => {
-      for (const element of this.selectedText) this.deck.formatAllText(slideId, element.id, mark, on ? {} : null);
+      for (const element of this.selectedText) this.deck.formatAllText(slideId, element.id, mark, on ? {} : null, this.#pickedFor(element));
     }), '', this.selectedText.map(element => element.id));
   }
 
@@ -837,6 +859,14 @@ export class SlidesEditorState {
   /** Sets a property of whole boxes and clears the same formatting from the words inside, so it shows everywhere. */
   #formatBoxes(mark: 'color' | 'fontSize', props: ElementProps): void {
     const slideId = this.currentId!;
+    const table = this.selectedTable;
+    const cells = table ? this.#pickedFor(table) : undefined;
+    if (table && cells) {
+      // Picked cells of a table get the formatting on their words; the rest of the table keeps its own.
+      const value = mark === 'color' ? (props.color ? { color: props.color } : null) : { size: props.fontSize };
+      this.#act(() => this.deck.formatAllText(slideId, table.id, mark, value, cells), mark);
+      return;
+    }
     const changes: Record<string, ElementProps> = {};
     for (const element of this.selectedText) changes[element.id] = props;
     this.#act(() => this.deck.transact(() => {
@@ -896,6 +926,12 @@ export class SlidesEditorState {
       return;
     }
     const slideId = this.currentId;
+    const table = this.selectedTable;
+    const cells = table ? this.#pickedFor(table) : undefined;
+    if (table && cells) {
+      this.#act(() => this.deck.clearParagraphAttribute(slideId, table.id, 'textAlign', cells, align));
+      return;
+    }
     const changes: Record<string, ElementProps> = {};
     for (const element of this.selectedText) changes[element.id] = { align };
     this.#act(() => this.deck.transact(() => {
@@ -931,33 +967,6 @@ export class SlidesEditorState {
 
   // Clipboard
 
-  copyPayload(): { payload: ClipboardPayload; text: string } | null {
-    if (this.area === 'strip' || this.selection.length === 0) {
-      if (this.area !== 'strip') return null;
-      const slides = this.slides.filter(slide => this.pickedSlides.includes(slide.id));
-      if (slides.length === 0) return null;
-      return {
-        payload: {
-          kind: 'iris-slides',
-          version: 1,
-          slides: slides.map(slide => ({
-            layout: slide.layout,
-            ...(slide.background ? { background: slide.background } : {}),
-            ...(slide.transition ? { transition: slide.transition } : {}),
-            ...(slide.build ? { build: true } : {}),
-            notes: slide.notes?.toString() ?? '',
-            elements: slide.elements.map(elementToJson),
-          })),
-        },
-        text: slides.map(slide => slide.elements.map(element => richTextToPlain(element.content)).filter(Boolean).join('\n')).join('\n\n'),
-      };
-    }
-    return {
-      payload: { kind: 'iris-slides', version: 1, elements: this.selected.map(elementToJson) },
-      text: this.selected.map(element => richTextToPlain(element.content)).filter(Boolean).join('\n'),
-    };
-  }
-
   cut(): void {
     if (this.area === 'strip') this.deleteSlides();
     else this.deleteSelected();
@@ -980,9 +989,12 @@ export class SlidesEditorState {
         this.pickedSlides = ids;
       }
     } else if (payload.elements?.length) {
-      // Each paste of the same thing steps a little further, so copies do not hide each other.
-      this.#pasteCount += 1;
-      const offset = 24 * this.#pasteCount;
+      // Pasted where it was, unless that spot is taken: then a step aside, as often as needed, so copies do not hide each other.
+      const first = payload.elements[0]!;
+      const fx = typeof first.x === 'number' ? first.x : 0;
+      const fy = typeof first.y === 'number' ? first.y : 0;
+      let offset = 0;
+      while (offset < 24 * 40 && this.current?.elements.some(element => Math.abs(element.x - fx - offset) < 2 && Math.abs(element.y - fy - offset) < 2)) offset += 24;
       this.#add(payload.elements.map(element => ({
         ...element,
         x: (typeof element.x === 'number' ? element.x : 0) + offset,
@@ -991,17 +1003,13 @@ export class SlidesEditorState {
     }
   }
 
-  /** Forget how many times the clipboard was pasted; called when something new is copied. */
-  resetPasteOffset(): void {
-    this.#pasteCount = 0;
-  }
-
-  pasteText(value: string): void {
+  /** Words as a new text box: in the middle of the slide, or at the top left of `at` and as wide. */
+  pasteText(value: string, at?: { x: number; y: number; w: number }): void {
     const trimmed = value.replace(/\r\n?/g, '\n').trim();
     if (!trimmed) return;
-    const w = 640;
+    const w = at?.w ?? 640;
     // A guess at the height; the box is given the room its text needs once it has been drawn.
     const h = 64;
-    this.#add([{ type: 'text', ...this.#place(w, h), w, h, rot: 0, text: trimmed }]);
+    this.#add([{ type: 'text', ...(at ? { x: at.x, y: at.y } : this.#place(w, h)), w, h, rot: 0, text: trimmed }]);
   }
 }

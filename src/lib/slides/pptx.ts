@@ -15,7 +15,7 @@
 import { strToU8, zipSync } from 'fflate';
 import * as Y from 'yjs';
 import { SLIDE_HEIGHT, SLIDE_WIDTH, type Slide, type SlideElement } from './model';
-import { cellKey } from './table';
+import { cellKey, cellPlace, edgeBorder, type CellBorder, type Side } from './table';
 import { paletteFor, readableOn, resolveColour, textStyle, type Palette, type Theme } from './themes';
 import { cssColour, validFontSize } from './richText';
 
@@ -241,9 +241,12 @@ function lineXml(element: SlideElement, palette: Palette, writer: Writer): strin
 function pictureXml(element: SlideElement, image: PptxImage, target: string, writer: Writer): string {
   const id = writer.id++;
   const rel = writer.rel(`${REL}/image`, target);
-  // Pictures fill their frame and are cropped to it, as on the slide.
+  // Pictures fill their frame and are cropped to it, as on the slide: as they were cropped, or else to fill it.
   let crop = '';
-  if (image.width && image.height && element.w > 0 && element.h > 0) {
+  if (element.crop) {
+    const [l, t, r, b] = element.crop.map(share => Math.round(share * 100000));
+    crop = `<a:srcRect l="${l}" t="${t}" r="${r}" b="${b}"/>`;
+  } else if (image.width && image.height && element.w > 0 && element.h > 0) {
     const frame = element.w / element.h;
     const picture = image.width / image.height;
     if (picture > frame) {
@@ -254,7 +257,8 @@ function pictureXml(element: SlideElement, image: PptxImage, target: string, wri
       crop = `<a:srcRect t="${cut}" b="${cut}"/>`;
     }
   }
-  return `<p:pic><p:nvPicPr><p:cNvPr id="${id}" name="Picture ${id}"/><p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr><p:nvPr/></p:nvPicPr><p:blipFill><a:blip r:embed="${rel}"/>${crop}<a:stretch><a:fillRect/></a:stretch></p:blipFill><p:spPr>${xfrm(element)}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:pic>`;
+  const alt = element.alt ? ` descr="${esc(element.alt)}"` : '';
+  return `<p:pic><p:nvPicPr><p:cNvPr id="${id}" name="Picture ${id}"${alt}/><p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr><p:nvPr/></p:nvPicPr><p:blipFill><a:blip r:embed="${rel}"/>${crop}<a:stretch><a:fillRect/></a:stretch></p:blipFill><p:spPr>${xfrm(element)}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:pic>`;
 }
 
 function tableXml(element: SlideElement, theme: Theme, layout: string, palette: Palette, writer: Writer): string {
@@ -263,24 +267,41 @@ function tableXml(element: SlideElement, theme: Theme, layout: string, palette: 
   const look = lookOf(element, theme, layout);
   const style = textStyle(element, theme, layout);
   const line = resolveColour(element.stroke, palette, palette.muted);
-  const lineXmlFor = (side: string) => line
-    ? `<a:${side} w="${emu(element.strokeWidth ?? 1.5)}"><a:solidFill><a:srgbClr val="${hex(line) ?? '888888'}"/></a:solidFill></a:${side}>`
-    : `<a:${side}><a:noFill/></a:${side}>`;
+  const fallback: CellBorder | null = line ? { width: element.strokeWidth ?? 1.5, colour: line } : null;
+  const lineXmlFor = (tag: string, border: CellBorder | null) => border
+    ? `<a:${tag} w="${emu(border.width)}"><a:solidFill><a:srgbClr val="${hex(resolveColour(border.colour, palette, line)) ?? '888888'}"/></a:solidFill></a:${tag}>`
+    : `<a:${tag}><a:noFill/></a:${tag}>`;
+  const keyAt = (r: number, c: number) => (table.rows[r] && table.cols[c] ? cellKey(table.rows[r]!.id, table.cols[c]!.id) : null);
+  /** The line along one side of a cell, as the slide draws it. */
+  const sideOf = (r: number, c: number, side: Side) => {
+    const [other, otherSide]: [string | null, Side] = side === 't' ? [keyAt(r - 1, c), 'b'] : side === 'b' ? [keyAt(r + 1, c), 't'] : side === 'l' ? [keyAt(r, c - 1), 'r'] : [keyAt(r, c + 1), 'l'];
+    return edgeBorder(table, keyAt(r, c), side, other, otherSide, fallback);
+  };
   const colTotal = table.cols.reduce((sum, col) => sum + col.size, 0);
   const rowTotal = table.rows.reduce((sum, row) => sum + row.size, 0);
   const grid = table.cols.map(col => `<a:gridCol w="${emu(element.w * col.size / colTotal)}"/>`).join('');
   const anchor = style.valign === 'middle' ? 'ctr' : style.valign === 'bottom' ? 'b' : 't';
   const rows = table.rows.map((row, index) => {
     const header = index === 0 && !!element.header;
-    const cells = table.cols.map((col) => {
-      const cell = table.cells.get(cellKey(row.id, col.id));
+    const cells = table.cols.map((col, colIndex) => {
+      const key = cellKey(row.id, col.id);
+      const cell = table.cells.get(key);
+      // A merged block is written PowerPoint's way: its first cell spans, the rest say they are merged into it.
+      const block = table.merges.get(key);
+      const owner = table.covered.get(key);
+      const ownerPlace = owner ? cellPlace(table, owner) : null;
+      const merge = block
+        ? `${block.cols > 1 ? ` gridSpan="${block.cols}"` : ''}${block.rows > 1 ? ` rowSpan="${block.rows}"` : ''}`
+        : ownerPlace
+          ? `${ownerPlace.col !== colIndex ? ' hMerge="1"' : ''}${ownerPlace.row !== index ? ' vMerge="1"' : ''}`
+          : '';
       const own = resolveColour(cell?.fill, palette);
       const fill = own ?? (header ? palette.accent : null);
       const colour = fill ? (!own && header ? palette.onAccent : element.color ? style.color : readableOn(fill, palette)) : style.color;
       const cellLook = { ...look, colour, bold: header || look.bold };
       const body = `<a:txBody><a:bodyPr/><a:lstStyle/>${paragraphsXml(cell?.content, cellLook, palette)}</a:txBody>`;
-      const props = `<a:tcPr marL="${emu(12)}" marR="${emu(12)}" marT="${emu(6)}" marB="${emu(6)}" anchor="${anchor}">${lineXmlFor('lnL')}${lineXmlFor('lnR')}${lineXmlFor('lnT')}${lineXmlFor('lnB')}${fill ? solid(fill) : '<a:noFill/>'}</a:tcPr>`;
-      return `<a:tc>${body}${props}</a:tc>`;
+      const props = `<a:tcPr marL="${emu(12)}" marR="${emu(12)}" marT="${emu(6)}" marB="${emu(6)}" anchor="${anchor}">${lineXmlFor('lnL', sideOf(index, colIndex, 'l'))}${lineXmlFor('lnR', sideOf(index, colIndex, 'r'))}${lineXmlFor('lnT', sideOf(index, colIndex, 't'))}${lineXmlFor('lnB', sideOf(index, colIndex, 'b'))}${fill ? solid(fill) : '<a:noFill/>'}</a:tcPr>`;
+      return `<a:tc${merge}>${body}${props}</a:tc>`;
     }).join('');
     return `<a:tr h="${emu(element.h * row.size / rowTotal)}">${cells}</a:tr>`;
   }).join('');

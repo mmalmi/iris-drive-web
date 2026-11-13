@@ -15,11 +15,20 @@
   let { editorState, onPickImage }: Props = $props();
 
   type MenuName = 'layout' | 'shape' | 'size' | 'colour' | 'align' | 'fill' | 'border' | 'arrange' | 'relayout' | 'background' | 'theme' | 'motion'
-    | 'table' | 'tableEdit' | 'cellFill';
+    | 'table' | 'tableEdit' | 'cellFill' | 'cellLines' | 'slideMore';
   let open = $state<Record<MenuName, boolean>>({
     layout: false, shape: false, size: false, colour: false, align: false, fill: false, border: false, arrange: false, relayout: false, background: false, theme: false, motion: false,
-    table: false, tableEdit: false, cellFill: false,
+    table: false, tableEdit: false, cellFill: false, cellLines: false, slideMore: false,
   });
+  /** Where the menus of the slide open when they were chosen from the one button that stands for them on a crowded row. */
+  let compactAnchor = $state<HTMLElement | null>(null);
+
+  function openSlideMenu(name: 'relayout' | 'background' | 'motion' | 'theme', from: HTMLElement | null): void {
+    const wasOpen = open[name];
+    close();
+    compactAnchor = from;
+    open[name] = !wasOpen;
+  }
   let anchors = $state<Partial<Record<MenuName, HTMLElement>>>({});
 
   let palette = $derived(editorState.palette);
@@ -42,7 +51,7 @@
   let fill = $derived(shapes[0] ? resolveColour(shapes[0].fill, palette, palette.accent) : null);
   let stroke = $derived(outlined[0] ? resolveColour(outlined[0].stroke, palette, outlined[0].type === 'line' ? palette.text : outlined[0].type === 'table' ? palette.muted : null) : null);
   let cellFill = $derived(table ? activeCell(editorState)?.fill : undefined);
-  let cellChosen = $derived(!!table && !!activeCell(editorState));
+  let cellChosen = $derived(!!table && (!!activeCell(editorState) || !!editorState.pickedCells));
 
   const SHAPES: Array<{ shape: ShapeKind; label: string; icon: string }> = [
     { shape: 'rect', label: 'Rectangle', icon: 'i-lucide-square' },
@@ -100,10 +109,26 @@
   let moreBefore = $state(false);
   let moreAfter = $state(false);
 
+  /** Whether the slide's four buttons are folded into one, because the row has no room for them. */
+  let folded = $state(false);
+  /** How wide the four were when last shown. */
+  let unfoldedWidth = 0;
+
   function measureOverflow(): void {
     if (!bar) return;
     moreBefore = bar.scrollLeft > 1;
     moreAfter = bar.scrollLeft + bar.clientWidth < bar.scrollWidth - 1;
+    if (narrow) return;
+    const wide = [...bar.querySelectorAll<HTMLElement>('.slide-wide > *')].reduce((sum, button) => sum + button.offsetWidth + 2, 0);
+    if (!folded) {
+      if (wide > 0) unfoldedWidth = wide;
+      if (bar.scrollWidth > bar.clientWidth + 1) folded = true;
+      return;
+    }
+    // Unfolded again once the room left over would hold the four, with a little to spare.
+    const spare = (bar.querySelector<HTMLElement>(':scope > .spacer')?.offsetWidth ?? 0) - 8;
+    const compact = bar.querySelector<HTMLElement>('.slide-compact')?.offsetWidth ?? 0;
+    if (unfoldedWidth > 0 && spare >= unfoldedWidth - compact + 12) folded = false;
   }
 
   $effect(() => {
@@ -134,6 +159,7 @@
   class:busy={selected.length > 0 || !!firstText}
   class:more-before={moreBefore}
   class:more-after={moreAfter}
+  class:folded
   bind:this={bar}
   role="toolbar"
   tabindex="-1"
@@ -317,9 +343,15 @@
         <span class="ink"><span class="i-lucide-paint-bucket"></span><span class="ink-bar" class:ink-none={!cellFill} style:background={resolveColour(cellFill, palette) ?? undefined}></span></span>{#if narrow}<span class="label">Cell fill</span>{/if}
       </button>
     {/if}
-    <button class="tool" bind:this={anchors.border} onclick={() => (open.border = !open.border)} title={boxed ? 'Border' : 'Line'} aria-label={boxed ? 'Border' : 'Line'} aria-expanded={open.border} data-testid="shape-border">
-      <span class="ink"><span class="i-lucide-pen-line"></span><span class="ink-bar" class:ink-none={!stroke} style:background={stroke ?? undefined}></span></span>{#if narrow}<span class="label">{boxed ? 'Border' : 'Line'}</span>{/if}
-    </button>
+    {#if table}
+      <button class="tool" bind:this={anchors.cellLines} onclick={() => (open.cellLines = !open.cellLines)} title="Cell lines" aria-label="Cell lines" aria-expanded={open.cellLines} data-testid="shape-border">
+        <span class="ink"><span class="i-lucide-grid-3x3"></span><span class="ink-bar" class:ink-none={!stroke} style:background={stroke ?? undefined}></span></span>{#if narrow}<span class="label">Lines</span>{/if}
+      </button>
+    {:else}
+      <button class="tool" bind:this={anchors.border} onclick={() => (open.border = !open.border)} title={boxed ? 'Border' : 'Line'} aria-label={boxed ? 'Border' : 'Line'} aria-expanded={open.border} data-testid="shape-border">
+        <span class="ink"><span class="i-lucide-pen-line"></span><span class="ink-bar" class:ink-none={!stroke} style:background={stroke ?? undefined}></span></span>{#if narrow}<span class="label">{boxed ? 'Border' : 'Line'}</span>{/if}
+      </button>
+    {/if}
 {/snippet}
 
 {#snippet selectionTools()}
@@ -344,19 +376,32 @@
 {/snippet}
 
 {#snippet slideTools()}
-  <button class="tool labelled" bind:this={anchors.relayout} onclick={() => (open.relayout = !open.relayout)} disabled={noSlide} title="Slide layout" aria-label="Slide layout" aria-expanded={open.relayout} data-testid="slide-layout">
-    <span class="i-lucide-layout-template"></span><span class="label roomy">Layout</span>
-  </button>
-  <button class="tool labelled" bind:this={anchors.background} onclick={() => (open.background = !open.background)} disabled={noSlide} title="Slide background" aria-label="Slide background" aria-expanded={open.background} data-testid="slide-background">
-    <span class="i-lucide-paint-roller"></span><span class="label roomy">Background</span>
-  </button>
-  <button class="tool labelled" class:on={!!(editorState.current?.transition || editorState.current?.build)} bind:this={anchors.motion} onclick={() => (open.motion = !open.motion)} disabled={noSlide} title="Transition" aria-label="Transition" aria-expanded={open.motion} data-testid="slide-motion">
-    <span class="i-lucide-sparkles"></span><span class="label roomy">Transition</span>
-  </button>
-  <button class="tool labelled" bind:this={anchors.theme} onclick={() => (open.theme = !open.theme)} title="Theme" aria-label="Theme" aria-expanded={open.theme} data-testid="deck-theme">
-    <span class="i-lucide-palette"></span><span class="label roomy">Theme</span>
+  <!-- On a row crowded with what can be done to a selection, these four fold into one button. -->
+  <span class="slide-wide">
+    <button class="tool labelled" bind:this={anchors.relayout} onclick={() => openSlideMenu('relayout', null)} disabled={noSlide} title="Slide layout" aria-label="Slide layout" aria-expanded={open.relayout} data-testid="slide-layout">
+      <span class="i-lucide-layout-template"></span><span class="label roomy">Layout</span>
+    </button>
+    <button class="tool labelled" bind:this={anchors.background} onclick={() => openSlideMenu('background', null)} disabled={noSlide} title="Slide background" aria-label="Slide background" aria-expanded={open.background} data-testid="slide-background">
+      <span class="i-lucide-paint-roller"></span><span class="label roomy">Background</span>
+    </button>
+    <button class="tool labelled" class:on={!!(editorState.current?.transition || editorState.current?.build)} bind:this={anchors.motion} onclick={() => openSlideMenu('motion', null)} disabled={noSlide} title="Transition" aria-label="Transition" aria-expanded={open.motion} data-testid="slide-motion">
+      <span class="i-lucide-sparkles"></span><span class="label roomy">Transition</span>
+    </button>
+    <button class="tool labelled" bind:this={anchors.theme} onclick={() => openSlideMenu('theme', null)} title="Theme" aria-label="Theme" aria-expanded={open.theme} data-testid="deck-theme">
+      <span class="i-lucide-palette"></span><span class="label roomy">Theme</span>
+    </button>
+  </span>
+  <button class="tool labelled slide-compact" bind:this={anchors.slideMore} onclick={() => (open.slideMore = !open.slideMore)} disabled={noSlide} title="Layout, background, transition and theme" aria-label="Layout, background, transition and theme" aria-expanded={open.slideMore} data-testid="slide-options">
+    <span class="i-lucide-palette"></span><span class="i-lucide-chevron-down text-xs"></span>
   </button>
 {/snippet}
+
+<Popover bind:open={open.slideMore} anchor={anchors.slideMore} label="Layout, background, transition and theme">
+  <button class="menu-item" onclick={() => openSlideMenu('relayout', anchors.slideMore ?? null)} data-testid="slide-options-layout"><span class="i-lucide-layout-template"></span>Layout</button>
+  <button class="menu-item" onclick={() => openSlideMenu('background', anchors.slideMore ?? null)} data-testid="slide-options-background"><span class="i-lucide-paint-roller"></span>Background</button>
+  <button class="menu-item" onclick={() => openSlideMenu('motion', anchors.slideMore ?? null)} data-testid="slide-options-motion"><span class="i-lucide-sparkles"></span>Transition</button>
+  <button class="menu-item" onclick={() => openSlideMenu('theme', anchors.slideMore ?? null)} data-testid="slide-options-theme"><span class="i-lucide-palette"></span>Theme</button>
+</Popover>
 
 <Popover bind:open={open.shape} anchor={anchors.shape} label="Shapes">
   {#each SHAPES as item (item.shape)}
@@ -393,15 +438,16 @@
   <ColourPanel value={shapes[0]?.fill} {palette} themeChoice="Theme colour" allowNone onPick={colour => pick(() => editorState.updateSelected({ fill: colour ?? undefined }))} />
 </Popover>
 
-{#if open.table || open.tableEdit || open.cellFill}
+{#if open.table || open.tableEdit || open.cellFill || open.cellLines}
   {#await loadTableMenus() then { default: TableMenus }}
     <TableMenus
       {editorState}
       {palette}
-      anchors={{ table: anchors.table, lines: anchors.tableEdit, fill: anchors.cellFill }}
+      anchors={{ table: anchors.table, lines: anchors.tableEdit, fill: anchors.cellFill, borders: anchors.cellLines }}
       bind:insertOpen={open.table}
       bind:linesOpen={open.tableEdit}
       bind:fillOpen={open.cellFill}
+      bind:bordersOpen={open.cellLines}
       onDone={close}
     />
   {/await}
@@ -463,7 +509,7 @@
     <SlideMenus
       {editorState}
       {palette}
-      anchors={{ layout: anchors.layout, relayout: anchors.relayout, background: anchors.background, theme: anchors.theme, motion: anchors.motion }}
+      anchors={{ layout: anchors.layout, relayout: compactAnchor ?? anchors.relayout, background: compactAnchor ?? anchors.background, theme: compactAnchor ?? anchors.theme, motion: compactAnchor ?? anchors.motion }}
       bind:layoutOpen={open.layout}
       bind:relayoutOpen={open.relayout}
       bind:backgroundOpen={open.background}
@@ -638,11 +684,28 @@
     background: currentColor;
   }
 
-  /* The words beside the last three icons make way when the row fills up with what can be done to a selection. */
+  .slide-wide {
+    display: contents;
+  }
+
+  .slide-compact {
+    display: none;
+  }
+
+  /* The words beside the last icons make way when the row fills up with what can be done to a selection. */
   @container (max-width: 1300px) {
     .busy .roomy {
       display: none;
     }
+  }
+
+  /* When that is still not enough, the slide's four buttons become one. */
+  .folded .slide-wide {
+    display: none;
+  }
+
+  .folded .slide-compact {
+    display: inline-flex;
   }
 
   @media (max-width: 639px) {

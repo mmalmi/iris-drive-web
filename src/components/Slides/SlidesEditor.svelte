@@ -8,7 +8,8 @@
   import { onMount, onDestroy } from 'svelte';
   import DocumentHeader from '../Viewer/DocumentHeader.svelte';
   import { DriveDocument } from '../../lib/yjs';
-  import { SlidesEditorState, CLIPBOARD_TYPE, type ClipboardPayload } from '../../lib/slides/editorState.svelte';
+  import { SlidesEditorState } from '../../lib/slides/editorState.svelte';
+  import { createClipboard, eventPlace } from './clipboardEvents';
   import type { Point } from '../../lib/slides/geometry';
   import Canvas from './Canvas.svelte';
   import SlideStrip from './SlideStrip.svelte';
@@ -17,6 +18,7 @@
   import SlideStack from './SlideStack.svelte';
   import Popover from './Popover.svelte';
   import { isPresenterWindow, presenterUrl } from '../../lib/slides/presentSync';
+  import { stretchCells } from '../../lib/slides/tableEditing';
 
   interface Props {
     dirName: string;
@@ -28,8 +30,13 @@
   let editorState = $state.raw<SlidesEditorState | null>(null);
   let root: HTMLElement | undefined = $state();
   let imageInput: HTMLInputElement | undefined = $state();
-  /** What was last copied here, for browsers that keep only plain text on the clipboard. */
-  let copied: { payload: ClipboardPayload; text: string } | null = null;
+  const clipboard = createClipboard({
+    state: () => editorState,
+    urls: drive.attachmentUrls,
+    addAttachment: file => drive.addAttachment(file),
+    root: () => root,
+  });
+  const { onCopy, onCut, onPaste, menuCopy, menuPaste } = clipboard;
 
   let canEdit = $derived(!!editorState?.canEdit);
 
@@ -62,6 +69,9 @@
       if (!presenterWindow) created.startDeck();
       editorState = created;
       if (!presenterWindow) setTimeout(() => void presentViewLoaded(), 1500);
+      // `?import=<file name>` asks for a PowerPoint file beside the deck to be brought in.
+      const requested = presenterWindow ? null : new URLSearchParams(window.location.hash.split('?')[1] ?? '').get('import');
+      if (requested) void importFromFolder(requested);
     })();
     narrowScreen.addEventListener('change', onNarrowChange);
     if (presenterWindow) return;
@@ -119,6 +129,67 @@
     }
   }
 
+  let importing = $state('');
+  let pptxInput: HTMLInputElement | undefined = $state();
+
+  /**
+   * Brings a PowerPoint file into the deck: in place of a new, untouched
+   * deck, otherwise after its last slide, as one step undo takes back. The
+   * code that reads it is fetched only now.
+   */
+  async function importPowerPoint(file: Blob, name: string, fromRoute = false): Promise<void> {
+    const current = editorState;
+    if (!current?.canEdit || importing) return;
+    moreOpen = false;
+    current.stopEditing();
+    importing = name;
+    current.notice = '';
+    try {
+      const { importPptx } = await import('../../lib/slides/pptxImport');
+      const replace = current.isBlank;
+      const result = await importPptx(file, { ydoc: drive.ydoc, addAttachment: picture => drive.addAttachment(picture) }, { replace });
+      if (fromRoute) current.forgetHistory();
+      if (result.firstId) current.goTo(result.firstId);
+      if (result.skipped.length) current.notice = `Left out of ${name}: ${result.skipped.join(', ')}.`;
+    } catch (error) {
+      console.error('[Slides] Could not bring in the PowerPoint file:', error);
+      current.notice = error instanceof Error && /PowerPoint|slides/.test(error.message) ? error.message : `Could not bring in ${name}.`;
+    } finally {
+      importing = '';
+    }
+  }
+
+  /** The file the address asks for, from the folder the deck is in. */
+  async function importFromFolder(name: string): Promise<void> {
+    const { forgetImportRequest, readSiblingFile } = await import('./pptxFiles');
+    const bytes = name.includes('/') ? null : await readSiblingFile(name).catch(() => null);
+    forgetImportRequest();
+    if (!bytes) {
+      if (editorState) editorState.notice = `Could not find ${name} beside this presentation.`;
+      return;
+    }
+    await importPowerPoint(new Blob([bytes as BlobPart]), name, true);
+  }
+
+  function onPptxPicked(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';
+    if (file) void importPowerPoint(file, file.name);
+  }
+
+  function hasFiles(event: DragEvent): boolean {
+    return !!event.dataTransfer && [...event.dataTransfer.types].includes('Files');
+  }
+
+  /** A PowerPoint file dropped anywhere on the editor is brought in; pictures are left to the slide. */
+  function onDropFile(event: DragEvent): void {
+    const files = [...(event.dataTransfer?.files ?? [])].filter(file => /\.pptx$/i.test(file.name));
+    if (!files.length || !editorState?.canEdit) return;
+    event.preventDefault();
+    void importPowerPoint(files[0]!, files[0]!.name);
+  }
+
   function print(): void {
     moreOpen = false;
     editorState?.stopEditing();
@@ -129,15 +200,8 @@
     root?.querySelector<HTMLElement>('[data-testid="slide-canvas"]')?.focus({ preventScroll: true });
   }
 
-  /** Where a key or clipboard event happened: in a text box, in some other field, or neither. */
   function place(target: EventTarget | null): 'text' | 'field' | 'editor' | 'elsewhere' {
-    const element = target instanceof Element ? target : null;
-    if (!element || element === document.body || element === document.documentElement) return 'editor';
-    if (!root?.contains(element)) return 'elsewhere';
-    if (element.closest('.ProseMirror')) return 'text';
-    // A control with keys of its own, such as the line above the notes, keeps them.
-    if (element.closest('input, textarea, select, [contenteditable="true"], [role="separator"]')) return 'field';
-    return 'editor';
+    return eventPlace(root, target);
   }
 
   function onKeyDown(event: KeyboardEvent): void {
@@ -205,6 +269,24 @@
       done();
       current.armTool(null);
       return;
+    }
+    // In a selected table: Shift and the arrows pick cells, Delete empties the picked ones, Escape lets go of them.
+    if (current.canEdit && !strip && current.selectedTable && (current.tableCell || current.cellRange)) {
+      if (event.shiftKey && !mod && !event.altKey && key.startsWith('Arrow')) {
+        done();
+        stretchCells(current, key === 'ArrowDown' ? 1 : key === 'ArrowUp' ? -1 : 0, key === 'ArrowRight' ? 1 : key === 'ArrowLeft' ? -1 : 0);
+        return;
+      }
+      if ((key === 'Delete' || key === 'Backspace') && current.pickedCells) {
+        done();
+        void import('../../lib/slides/tableCells').then(cells => cells.clearPicked(current));
+        return;
+      }
+      if (key === 'Escape' && current.cellRange) {
+        done();
+        current.cellRange = null;
+        return;
+      }
     }
     if (key === 'Home' || key === 'End') {
       const target = key === 'Home' ? current.slides[0] : current.slides[current.slides.length - 1];
@@ -284,91 +366,6 @@
     }
   }
 
-  function copyTo(event: ClipboardEvent): boolean {
-    const current = editorState;
-    if (!current || current.presenting || place(event.target) !== 'editor') return false;
-    // Selected words elsewhere on the page are copied as usual.
-    if (!window.getSelection()?.isCollapsed) return false;
-    const data = current.copyPayload();
-    if (!data || !event.clipboardData) return false;
-    event.preventDefault();
-    event.clipboardData.setData(CLIPBOARD_TYPE, JSON.stringify(data.payload));
-    event.clipboardData.setData('text/plain', data.text || ' ');
-    copied = data;
-    current.resetPasteOffset();
-    return true;
-  }
-
-  function onCopy(event: ClipboardEvent): void {
-    copyTo(event);
-  }
-
-  function onCut(event: ClipboardEvent): void {
-    if (editorState?.canEdit && copyTo(event)) editorState.cut();
-  }
-
-  function onPaste(event: ClipboardEvent): void {
-    const current = editorState;
-    if (!current?.canEdit || current.presenting || place(event.target) !== 'editor' || !event.clipboardData) return;
-    const raw = event.clipboardData.getData(CLIPBOARD_TYPE);
-    if (raw) {
-      try {
-        const payload = JSON.parse(raw) as ClipboardPayload;
-        if (payload?.kind === 'iris-slides') {
-          event.preventDefault();
-          current.paste(payload);
-          return;
-        }
-      } catch {
-        // Not ours after all; fall through to what else the clipboard holds.
-      }
-    }
-    const images = [...event.clipboardData.files].filter(file => file.type.startsWith('image/'));
-    if (images.length) {
-      event.preventDefault();
-      for (const file of images) void current.addImage(file);
-      return;
-    }
-    const text = event.clipboardData.getData('text/plain');
-    if (!text) return;
-    event.preventDefault();
-    if (copied && (copied.text || ' ') === text) current.paste(copied.payload);
-    else current.pasteText(text);
-  }
-
-  /** Copy and cut from a menu, where there is no clipboard event to fill. */
-  function menuCopy(cut: boolean): void {
-    const current = editorState;
-    const data = current?.copyPayload();
-    if (!current || !data) return;
-    copied = data;
-    current.resetPasteOffset();
-    void navigator.clipboard?.writeText(data.text || ' ').catch(() => {});
-    if (cut && current.canEdit) current.cut();
-  }
-
-  /** Paste from a menu: what the clipboard holds if the browser lets it be read, otherwise what was last copied here. */
-  async function menuPaste(): Promise<void> {
-    const current = editorState;
-    if (!current?.canEdit) return;
-    let text: string | null = null;
-    try {
-      for (const item of await navigator.clipboard.read()) {
-        const image = item.types.find(type => type.startsWith('image/'));
-        if (image) {
-          const blob = await item.getType(image);
-          void current.addImage(new File([blob], `pasted.${image.split('/')[1] ?? 'png'}`, { type: image }));
-          return;
-        }
-        if (item.types.includes('text/plain')) text = await (await item.getType('text/plain')).text();
-      }
-    } catch {
-      text = await navigator.clipboard?.readText?.().catch(() => null) ?? null;
-    }
-    if (copied && (text === null || text === (copied.text || ' '))) current.paste(copied.payload);
-    else if (text) current.pasteText(text);
-  }
-
   function addImages(files: File[], at?: Point): void {
     files.forEach((file, index) => {
       void editorState?.addImage(file, at ? { x: at.x + index * 24, y: at.y + index * 24 } : undefined);
@@ -382,7 +379,16 @@
   }
 </script>
 
-<div class="flex-1 flex flex-col min-h-0 bg-surface-0" data-testid="document-editor" bind:this={root}>
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div
+  class="flex-1 flex flex-col min-h-0 bg-surface-0"
+  data-testid="document-editor"
+  bind:this={root}
+  ondragover={event => {
+    if (canEdit && hasFiles(event)) event.preventDefault();
+  }}
+  ondrop={onDropFile}
+>
   <DocumentHeader {drive}>
     {#if editorState && editorState.slides.length > 0 && !presenterWindow}
       <button onclick={present} class="btn-ghost flex items-center gap-1.5 max-sm:px-2.5" title="Present" aria-label="Present" data-testid="present">
@@ -404,6 +410,11 @@
     <button class="menu-item" onclick={() => void savePowerPoint()} disabled={exporting} data-testid="slides-pptx-button">
       <span class={exporting ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-file-down'}></span>Download as PowerPoint
     </button>
+    {#if canEdit}
+      <button class="menu-item" onclick={() => pptxInput?.click()} disabled={!!importing} data-testid="slides-pptx-import">
+        <span class="i-lucide-file-up"></span>Import PowerPoint
+      </button>
+    {/if}
   </Popover>
 
   {#if !editorState}
@@ -426,8 +437,15 @@
       <div class="shrink-0 px-4 py-1.5 text-xs text-text-1 bg-warning/20" role="status">
         This presentation was made with a newer version of Iris Drive. It can be viewed here, not changed.
       </div>
+    {:else if importing}
+      <div class="shrink-0 px-4 py-1.5 text-xs text-text-1 bg-surface-2 flex items-center gap-2" role="status" data-testid="slides-importing">
+        <span class="i-lucide-loader-2 animate-spin"></span>Bringing in {importing}…
+      </div>
     {:else if editorState.notice}
-      <div class="shrink-0 px-4 py-1.5 text-xs text-text-1 bg-warning/20" role="alert">{editorState.notice}</div>
+      <div class="shrink-0 px-4 py-1.5 text-xs text-text-1 bg-warning/20 flex items-center gap-2" role="alert" data-testid="slides-notice">
+        <span class="flex-1">{editorState.notice}</span>
+        <button class="btn-circle btn-ghost w-6 h-6 min-h-0" onclick={() => editorState && (editorState.notice = '')} title="Dismiss" aria-label="Dismiss"><span class="i-lucide-x text-xs"></span></button>
+      </div>
     {/if}
 
     {#if editorState.slides.length === 0}
@@ -488,3 +506,4 @@
 </div>
 
 <input bind:this={imageInput} type="file" accept="image/*" multiple onchange={onImagesPicked} class="hidden" data-testid="slides-image-input" />
+<input bind:this={pptxInput} type="file" accept=".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation" onchange={onPptxPicked} class="hidden" data-testid="slides-pptx-input" />

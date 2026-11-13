@@ -2,6 +2,7 @@
   /** The menu of the slide itself, opened with a right click: what can be done with what is selected, or pasting. */
   import type { SlidesEditorState } from '../../lib/slides/editorState.svelte';
   import Popover from './Popover.svelte';
+  import { cellChoice, clearPicked, mergePicked, unmergePicked } from '../../lib/slides/tableCells';
 
   interface Props {
     editorState: SlidesEditorState;
@@ -36,7 +37,27 @@
   <button class="menu-item" onclick={() => run(onPaste)} data-testid="element-menu-paste">
     <span class="i-lucide-clipboard"></span>Paste<span class="keys">{modifier}V</span>
   </button>
+  {#if editorState.selectedTable}
+    {@const choice = cellChoice(editorState)}
+    <div class="menu-divider"></div>
+    {#if choice.canMerge}
+      <button class="menu-item" onclick={() => run(() => mergePicked(editorState))} data-testid="element-menu-merge">
+        <span class="i-lucide-table-cells-merge"></span>Merge cells
+      </button>
+    {/if}
+    {#if choice.canUnmerge}
+      <button class="menu-item" onclick={() => run(() => unmergePicked(editorState))} data-testid="element-menu-unmerge">
+        <span class="i-lucide-table-cells-split"></span>Unmerge cells
+      </button>
+    {/if}
+    {#if editorState.pickedCells}
+      <button class="menu-item" onclick={() => run(() => clearPicked(editorState))} data-testid="element-menu-clear-cells">
+        <span class="i-lucide-eraser"></span>Clear cells<span class="keys">Delete</span>
+      </button>
+    {/if}
+  {/if}
   {#if editorState.selection.length > 0}
+    <div class="menu-divider"></div>
     <button class="menu-item" onclick={() => run(() => editorState.duplicateSelected())} data-testid="element-menu-duplicate">
       <span class="i-lucide-copy-plus"></span>Duplicate<span class="keys">{modifier}D</span>
     </button>

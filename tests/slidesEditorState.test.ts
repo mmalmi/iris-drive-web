@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 import * as Y from 'yjs';
 import { SlidesEditorState } from '../src/lib/slides/editorState.svelte';
 import { Deck, richTextToPlain } from '../src/lib/slides/model';
+import { copyPayload } from '../src/lib/slides/clipboard';
 
 /** Each editor is a browser of its own unless told otherwise. */
 function open(ydoc = new Y.Doc(), canEdit = true, deviceId = `device-${Math.random()}`): SlidesEditorState {
@@ -324,7 +325,7 @@ describe('the editor\'s view of a deck', () => {
     state.addSlide('blank');
     state.addShape('rect');
     const x = state.selected[0]!.x;
-    const copied = state.copyPayload()!;
+    const copied = copyPayload(state)!;
     expect(copied.payload.elements).toHaveLength(1);
     state.paste(JSON.parse(JSON.stringify(copied.payload)));
     state.paste(JSON.parse(JSON.stringify(copied.payload)));
@@ -336,7 +337,7 @@ describe('the editor\'s view of a deck', () => {
 
     state.area = 'strip';
     state.setNotes('remember this');
-    const slides = state.copyPayload()!;
+    const slides = copyPayload(state)!;
     expect(slides.payload.slides).toHaveLength(1);
     state.goTo(state.slides[0]!.id);
     state.paste(JSON.parse(JSON.stringify(slides.payload)));

@@ -4,7 +4,7 @@
    * scaled as a whole, so it looks the same on the canvas, in a thumbnail
    * and on a projector.
    */
-  import { SLIDE_HEIGHT, SLIDE_WIDTH, type Frame, type Slide } from '../../lib/slides/model';
+  import { SLIDE_HEIGHT, SLIDE_WIDTH, type ElementOverride, type Slide } from '../../lib/slides/model';
   import { paletteFor, resolveColour, type Theme } from '../../lib/slides/themes';
   import type { SlidesEditorState } from '../../lib/slides/editorState.svelte';
   import ElementView from './ElementView.svelte';
@@ -17,7 +17,7 @@
     /** Width on screen, in CSS pixels. */
     width: number;
     /** Frames to draw in place of the stored ones, while something is being dragged. */
-    overrides?: Record<string, Partial<Frame>>;
+    overrides?: Record<string, ElementOverride>;
     editorState?: SlidesEditorState;
     /** While presenting: how many steps of the slide's build have been taken. Everything shows when undefined. */
     step?: number;
@@ -112,6 +112,17 @@
     -webkit-user-drag: none;
   }
 
+  .slide-surface :global(.el-image-crop) {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .slide-surface :global(.el-image-crop img) {
+    position: absolute;
+    max-width: none;
+    -webkit-user-drag: none;
+  }
+
   .slide-surface :global(.el-image-missing) {
     background: rgb(128 128 128 / 0.18);
   }
@@ -142,7 +153,6 @@
     display: grid;
   }
 
-  /* Each cell draws its lines centred on its edges, so neighbours share one line however thick. */
   .slide-surface :global(.el-cell) {
     position: relative;
     display: flex;
@@ -155,12 +165,29 @@
     /* Set here, where each cell's own share is known, so a crowded cell shrinks alone. */
     font-size: calc(var(--cell-size, 22px) * var(--fit, 1));
     overflow-wrap: break-word;
-    outline: var(--line-width) solid var(--line);
-    outline-offset: calc(var(--line-width) / -2);
+  }
+
+  /* The lines of a table lie over its cells, centred on their edges, so neighbours share one line however thick. */
+  .slide-surface :global(.el-table-lines) {
+    position: absolute;
+    left: 0;
+    top: 0;
+    overflow: visible;
+    pointer-events: none;
   }
 
   .slide-surface :global(.el-cell-editing) {
     box-shadow: inset 0 0 0 2px #916dfe;
+  }
+
+  .slide-surface :global(.el-cell-picked)::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    /* A blue wash shows on light cells and on cells filled with the theme's own colour alike. */
+    background: rgb(40 120 255 / 0.28);
+    box-shadow: inset 0 0 0 2px rgb(40 120 255 / 0.9);
+    pointer-events: none;
   }
 
   .slide-surface :global(.el-text-inner) {
