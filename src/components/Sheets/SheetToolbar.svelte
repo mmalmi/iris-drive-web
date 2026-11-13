@@ -1,10 +1,22 @@
 <script lang="ts">
   /** Formatting controls for the spreadsheet. */
-  import { adjustDecimals, applyStyle, clearFormatting, toggleStyle } from '../../lib/sheets/commands';
+  import {
+    adjustDecimals,
+    applyBorders,
+    applyStyle,
+    clearFormatting,
+    hasMerges,
+    mergeSelection,
+    setFontSize,
+    toggleStyle,
+    unmergeSelection,
+  } from '../../lib/sheets/commands';
+  import { DEFAULT_POINTS } from '../../lib/sheets/render';
   import { columnName } from '../../lib/sheets/address';
   import type { SheetController } from '../../lib/sheets/controller.svelte';
   import { sortSelection, sortTarget, toggleFilter } from '../../lib/sheets/dataCommands';
   import { NUMBER_FORMATS, TEXT_FORMAT, formatKind } from '../../lib/sheets/format';
+  import BorderMenu from './BorderMenu.svelte';
   import ColorMenu from './ColorMenu.svelte';
   import PopupMenu, { type MenuItem } from './PopupMenu.svelte';
   import { MOD, selectionMenu } from './menus';
@@ -34,9 +46,20 @@
     if (kind !== 'currency') return kind;
     return format?.includes('€') ? 'euro' : format?.includes('£') ? 'pound' : 'dollar';
   });
-  let align = $derived(style.a || '');
+  let align = $derived((style.a || '') as '' | 'l' | 'c' | 'r');
+  let vertical = $derived((style.va || 'b') as '' | 't' | 'm' | 'b');
+  let points = $derived(style.fs ?? DEFAULT_POINTS);
+  let merged = $derived.by(() => {
+    void ctl.revision;
+    return ctl.hasSheet && hasMerges(ctl);
+  });
+  const SIZES = [8, 9, 10, 11, 12, 14, 18, 24, 36];
+
+  const ALIGN_ICONS = { '': 'i-lucide-align-left', l: 'i-lucide-align-left', c: 'i-lucide-align-center', r: 'i-lucide-align-right' } as const;
+  const VERTICAL_ICONS = { '': 'i-lucide-arrow-down-to-line', t: 'i-lucide-arrow-up-to-line', m: 'i-lucide-fold-vertical', b: 'i-lucide-arrow-down-to-line' } as const;
 
   let colorMenu = $state.raw<{ x: number; y: number; kind: 'c' | 'bg' } | null>(null);
+  let borderMenu = $state.raw<{ x: number; y: number } | null>(null);
   let moreMenu = $state.raw<{ x: number; y: number; items: MenuItem[] } | null>(null);
 
   function keepFocus(event: MouseEvent): void {
@@ -99,8 +122,42 @@
     if (colorMenu) applyStyle(ctl, colorMenu.kind === 'c' ? { c: color } : { bg: color });
   }
 
-  function setAlign(value: 'l' | 'c' | 'r'): void {
-    applyStyle(ctl, { a: align === value ? null : value });
+  function below(event: MouseEvent): { x: number; y: number } {
+    const bounds = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    return { x: bounds.left, y: bounds.bottom + 4 };
+  }
+
+  function openAlign(event: MouseEvent): void {
+    const choose = (value: 'l' | 'c' | 'r') => applyStyle(ctl, { a: align === value ? null : value });
+    moreMenu = {
+      ...below(event),
+      items: [
+        { label: 'Left', icon: 'i-lucide-align-left', checked: align === 'l', action: () => choose('l'), testId: 'align-left' },
+        { label: 'Centre', icon: 'i-lucide-align-center', checked: align === 'c', action: () => choose('c'), testId: 'align-centre' },
+        { label: 'Right', icon: 'i-lucide-align-right', checked: align === 'r', action: () => choose('r'), testId: 'align-right' },
+        { label: 'Top', icon: VERTICAL_ICONS.t, checked: vertical === 't', divider: true, action: () => applyStyle(ctl, { va: 't' }), testId: 'align-top' },
+        { label: 'Middle', icon: VERTICAL_ICONS.m, checked: vertical === 'm', action: () => applyStyle(ctl, { va: 'm' }), testId: 'align-middle' },
+        { label: 'Bottom', icon: VERTICAL_ICONS.b, checked: vertical === 'b', action: () => applyStyle(ctl, { va: null }), testId: 'align-bottom' },
+      ],
+    };
+  }
+
+  function openMerge(event: MouseEvent): void {
+    const rect = ctl.selection;
+    const one = rect.r1 === rect.r2 && rect.c1 === rect.c2;
+    moreMenu = {
+      ...below(event),
+      items: [
+        { label: 'Merge all', icon: 'i-lucide-table-cells-merge', action: () => mergeSelection(ctl, 'all'), disabled: one, testId: 'merge-all' },
+        { label: 'Merge each row', icon: 'i-lucide-rows-3', action: () => mergeSelection(ctl, 'across'), disabled: rect.c1 === rect.c2, testId: 'merge-across' },
+        { label: 'Unmerge', icon: 'i-lucide-table-cells-split', action: () => unmergeSelection(ctl), disabled: !merged, testId: 'merge-none' },
+      ],
+    };
+  }
+
+  function setSize(event: Event): void {
+    setFontSize(ctl, Number((event.target as HTMLSelectElement).value));
+    ctl.focusGrid();
   }
 </script>
 
@@ -135,6 +192,12 @@
     <span class="i-lucide-decimals-arrow-right"></span>
   </button>
 
+  <select class="size-select" value={points} onchange={setSize} aria-label="Font size" title="Font size" data-testid="sheet-font-size">
+    {#each SIZES.includes(points) ? SIZES : [...SIZES, points].sort((a, b) => a - b) as size (size)}
+      <option value={size}>{size}</option>
+    {/each}
+  </select>
+
   <span class="divider"></span>
 
   <button onclick={() => toggleStyle(ctl, 'b')} class="tool" class:on={!!style.b} title="Bold ({MOD}B)" aria-label="Bold" aria-pressed={!!style.b}>
@@ -155,16 +218,18 @@
     <span class="chip" class:empty={!style.bg} style="background: {style.bg || 'transparent'}"></span>
   </button>
 
+  <button onclick={event => { borderMenu = borderMenu ? null : below(event); }} class="tool" title="Borders" aria-label="Borders" data-testid="sheet-borders">
+    <span class="i-lucide-grid-2x2"></span>
+  </button>
+  <button onclick={openMerge} class="tool" class:on={merged} title="Merge cells" aria-label="Merge cells" data-testid="sheet-merge">
+    <span class="i-lucide-table-cells-merge"></span>
+  </button>
+
   <span class="divider"></span>
 
-  <button onclick={() => setAlign('l')} class="tool" class:on={align === 'l'} title="Align left" aria-label="Align left" aria-pressed={align === 'l'}>
-    <span class="i-lucide-align-left"></span>
-  </button>
-  <button onclick={() => setAlign('c')} class="tool" class:on={align === 'c'} title="Align centre" aria-label="Align centre" aria-pressed={align === 'c'}>
-    <span class="i-lucide-align-center"></span>
-  </button>
-  <button onclick={() => setAlign('r')} class="tool" class:on={align === 'r'} title="Align right" aria-label="Align right" aria-pressed={align === 'r'}>
-    <span class="i-lucide-align-right"></span>
+  <button onclick={openAlign} class="tool pair" title="Alignment" aria-label="Alignment" data-testid="sheet-align">
+    <span class={ALIGN_ICONS[align]}></span>
+    <span class="small {VERTICAL_ICONS[vertical]}"></span>
   </button>
   <button onclick={() => toggleStyle(ctl, 'w')} class="tool" class:on={!!style.w} title="Wrap text" aria-label="Wrap text" aria-pressed={!!style.w}>
     <span class="i-lucide-wrap-text"></span>
@@ -202,6 +267,10 @@
     onpick={pickColor}
     onclose={() => { colorMenu = null; }}
   />
+{/if}
+
+{#if borderMenu}
+  <BorderMenu x={borderMenu.x} y={borderMenu.y} onpick={(where, line) => applyBorders(ctl, where, line)} onclose={() => { borderMenu = null; }} />
 {/if}
 
 {#if moreMenu}
@@ -287,7 +356,44 @@
     text-overflow: ellipsis;
   }
 
-  .format-select:hover {
+  .format-select:hover,
+  .size-select:hover {
     background: rgb(var(--surface-2));
+  }
+
+  .size-select {
+    flex: none;
+    width: 52px;
+    height: 32px;
+    padding: 0 4px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: rgb(var(--text-1));
+    font-size: 0.85rem;
+    cursor: pointer;
+  }
+
+  .tool.pair {
+    gap: 1px;
+    padding: 0 5px;
+  }
+
+  .small {
+    font-size: 0.8rem;
+    color: rgb(var(--text-2));
+  }
+
+  /* Room for a finger. */
+  @media (pointer: coarse) {
+    .tool {
+      min-width: 40px;
+      height: 40px;
+    }
+
+    .format-select,
+    .size-select {
+      height: 40px;
+    }
   }
 </style>

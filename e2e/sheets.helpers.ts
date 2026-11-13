@@ -125,3 +125,38 @@ export async function expectSaved(page: Page): Promise<void> {
 export function activeCell(page: Page) {
   return page.getByTestId('sheet-active-cell');
 }
+
+/** Where hands-on screenshots go: SHEETS_SHOTS when set, else the test's own output folder. */
+export function shotPath(testInfo: { outputPath: (name: string) => string }, name: string): string {
+  const folder = process.env.SHEETS_SHOTS;
+  return folder ? `${folder}/${name}` : testInfo.outputPath(name);
+}
+
+/**
+ * A finger on the screen: pressed at the first point, held for `holdMs`,
+ * moved through the others and lifted. Needs a context with touch.
+ */
+export async function touchPath(page: Page, points: Array<{ x: number; y: number }>, holdMs = 0): Promise<void> {
+  const session = await page.context().newCDPSession(page);
+  const at = (point: { x: number; y: number }) => [{ x: Math.round(point.x), y: Math.round(point.y), id: 1 }];
+  await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: at(points[0]) });
+  if (holdMs > 0) await page.waitForTimeout(holdMs);
+  for (let index = 1; index < points.length; index += 1) {
+    const from = points[index - 1];
+    const to = points[index];
+    for (let step = 1; step <= 4; step += 1) {
+      await session.send('Input.dispatchTouchEvent', {
+        type: 'touchMove',
+        touchPoints: at({ x: from.x + ((to.x - from.x) * step) / 4, y: from.y + ((to.y - from.y) * step) / 4 }),
+      });
+    }
+  }
+  await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await session.detach();
+}
+
+/** Taps a cell with a finger. */
+export async function tapCell(page: Page, name: string): Promise<void> {
+  const { x, y } = await cellCenter(page, name);
+  await page.touchscreen.tap(x, y);
+}

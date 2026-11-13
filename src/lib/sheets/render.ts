@@ -2,7 +2,24 @@
 import { columnName, type CellPos, type Rect } from './address';
 import type { Engine } from './engine';
 import { formatGeneral } from './format';
-import { FILL_HANDLE, FILTER_BUTTON, FILTER_BUTTON_INSET, HEADER_HEIGHT, columnX, frozenHeight, frozenWidth, panesOf, rowY, type Pane, type Viewport } from './layout';
+import {
+  FILL_HANDLE,
+  FILTER_BUTTON,
+  FILTER_BUTTON_INSET,
+  HEADER_HEIGHT,
+  TOUCH_FILL,
+  TOUCH_HANDLE,
+  columnX,
+  frozenHeight,
+  frozenWidth,
+  panesOf,
+  rowY,
+  touchHandles,
+  type Pane,
+  type Point,
+  type Viewport,
+} from './layout';
+import { readBorder } from './borders';
 import type { CellStyle, Sheet } from './model';
 import { isError, type Scalar } from './values';
 
@@ -55,10 +72,33 @@ export interface GridScene extends Viewport {
   filtered: boolean;
   /** Where rows or columns being dragged by their header would be dropped. */
   dropLine: { axis: 'row' | 'col'; position: number } | null;
+  /** Handles sized for a finger, after the last touch. */
+  touch: boolean;
+}
+
+
+/** The font size in points when a cell has none of its own. */
+export const DEFAULT_POINTS = 10;
+/** Room under the last line of text, and above the first. */
+const TEXT_PAD_Y = 7;
+
+/** A cell's font size in pixels. */
+export function fontPx(style: CellStyle): number {
+  return style.fs ? Math.round(style.fs * 13) / 10 : FONT_SIZE;
 }
 
 export function fontOf(style: CellStyle): string {
-  return `${style.i ? 'italic ' : ''}${style.b ? '700 ' : ''}${FONT_SIZE}px ${FONT_FAMILY}`;
+  return `${style.i ? 'italic ' : ''}${style.b ? '700 ' : ''}${fontPx(style)}px ${FONT_FAMILY}`;
+}
+
+/** The distance from one line of a cell's text to the next. */
+export function lineHeightOf(style: CellStyle): number {
+  return style.fs ? Math.round(fontPx(style) * 1.3) : LINE_HEIGHT;
+}
+
+/** Room under the text's baseline when it sits at the bottom of its cell. */
+function textBottom(px: number): number {
+  return px === FONT_SIZE ? TEXT_BOTTOM : Math.round(4 + px * 0.22);
 }
 
 let measuring: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null = null;
@@ -120,9 +160,12 @@ export function wrapText(text: string, font: string, maxWidth: number | null): s
 
 /** The height a row needs to show every line of its wrapped cells; 0 when the usual height will do. */
 export function heightForText(text: string, style: CellStyle, columnWidth: number): number {
-  if (!style.w && !text.includes('\n')) return 0;
-  const lines = wrapText(text, fontOf(style), style.w ? Math.max(8, columnWidth - CELL_PAD_X * 2) : null);
-  return lines.length > 1 ? lines.length * LINE_HEIGHT + TEXT_BOTTOM : 0;
+  if (!style.w && !text.includes('\n') && !style.fs) return 0;
+  const lines = style.w || text.includes('\n')
+    ? wrapText(text, fontOf(style), style.w ? Math.max(8, columnWidth - CELL_PAD_X * 2) : null)
+    : [text];
+  const needed = lines.length * lineHeightOf(style) + TEXT_PAD_Y;
+  return lines.length > 1 || needed > 24 ? needed : 0;
 }
 
 /**
@@ -164,20 +207,25 @@ function drawCellText(
   row: number,
   col: number,
   occupied: (col: number) => boolean,
+  /** The block of merged cells the text spreads over, on the canvas. */
+  area?: { x: number; y: number; width: number; height: number },
 ): void {
   const { sheet, engine, cols, rows } = scene;
-  if (rows.size(row) === 0 || cols.size(col) === 0) return;
+  if (!area && (rows.size(row) === 0 || cols.size(col) === 0)) return;
   const value = engine.valueAt(sheet, row, col);
   if (value === null || value === '') return;
   const style = sheet.styleAt(row, col);
   let text = engine.textAt(sheet, row, col);
   if (text === '') return;
   const font = fontOf(style);
+  const px = fontPx(style);
+  const lineHeight = lineHeightOf(style);
   const align = alignOf(style, value);
-  const x = pane.offsetX + cols.start(col);
-  const y = pane.offsetY + rows.start(row);
-  const width = cols.size(col);
-  const height = rows.size(row);
+  const x = area ? area.x : pane.offsetX + cols.start(col);
+  const y = area ? area.y : pane.offsetY + rows.start(row);
+  const width = area ? area.width : cols.size(col);
+  const height = area ? area.height : rows.size(row);
+  if (width <= 0 || height <= 0) return;
   const inner = width - CELL_PAD_X * 2;
   const lines = style.w || text.includes('\n') ? wrapText(text, font, style.w ? Math.max(8, inner) : null) : null;
 
@@ -191,7 +239,7 @@ function drawCellText(
         // rounded until it fits; otherwise the cell shows that it does not fit.
         const rounded = engine.formatAt(sheet, row, col) ? null : roundedToFit(value, inner, font);
         text = rounded ?? '#'.repeat(Math.max(1, Math.floor(inner / textWidth('#', font))));
-      } else if (!isError(value) && typeof value !== 'boolean') {
+      } else if (!area && !isError(value) && typeof value !== 'boolean') {
         // Long text runs over the empty cells beside it.
         if (align !== 'r') {
           let next = col + 1;
@@ -226,20 +274,94 @@ function drawCellText(
   ctx.textAlign = align === 'l' ? 'left' : align === 'r' ? 'right' : 'center';
   const textX = align === 'l' ? x + CELL_PAD_X : align === 'r' ? x + width - CELL_PAD_X : x + width / 2;
   const shown = lines ?? [text];
-  const firstBaseline = shown.length * LINE_HEIGHT + TEXT_BOTTOM > height
-    ? y + LINE_HEIGHT - 3
-    : y + height - TEXT_BOTTOM - (shown.length - 1) * LINE_HEIGHT;
+  const block = shown.length * lineHeight;
+  // Where the first line's baseline sits within its line.
+  const inLine = lineHeight - Math.round((lineHeight - px) / 2) - Math.round(px * 0.2);
+  const topBaseline = y + 2 + inLine;
+  let firstBaseline: number;
+  if (block + TEXT_PAD_Y > height || style.va === 't') firstBaseline = topBaseline;
+  else if (style.va === 'm') firstBaseline = Math.max(topBaseline, y + Math.round((height - 1 - block) / 2) + inLine);
+  else firstBaseline = y + height - textBottom(px) - (shown.length - 1) * lineHeight;
+  const thickness = Math.max(1, Math.round(px / 13));
   shown.forEach((line, index) => {
-    const baseline = firstBaseline + index * LINE_HEIGHT;
+    const baseline = firstBaseline + index * lineHeight;
     ctx.fillText(line, textX, baseline);
     if (style.s || style.u) {
       const lineWidth = textWidth(line, font);
       const left = align === 'l' ? textX : align === 'r' ? textX - lineWidth : textX - lineWidth / 2;
-      ctx.fillRect(left, style.s ? Math.round(baseline - FONT_SIZE * 0.32) : Math.round(baseline + 2), lineWidth, 1);
-      if (style.s && style.u) ctx.fillRect(left, Math.round(baseline + 2), lineWidth, 1);
+      ctx.fillRect(left, style.s ? Math.round(baseline - px * 0.32) : Math.round(baseline + 2), lineWidth, thickness);
+      if (style.s && style.u) ctx.fillRect(left, Math.round(baseline + 2), lineWidth, thickness);
     }
   });
   ctx.restore();
+}
+
+/** Draws one border line along a row or column edge. `at` is the grid line's pixel. */
+function drawLine(ctx: CanvasRenderingContext2D, value: string, color: string, horizontal: boolean, at: number, from: number, length: number): void {
+  const line = readBorder(value);
+  if (!line) return;
+  ctx.fillStyle = color;
+  ctx.strokeStyle = color;
+  if (line.kind === 'd' || line.kind === 'o') {
+    ctx.save();
+    ctx.lineWidth = 1;
+    ctx.setLineDash(line.kind === 'd' ? [4, 2] : [1, 2]);
+    ctx.beginPath();
+    if (horizontal) {
+      ctx.moveTo(from, at + 0.5);
+      ctx.lineTo(from + length, at + 0.5);
+    } else {
+      ctx.moveTo(at + 0.5, from);
+      ctx.lineTo(at + 0.5, from + length);
+    }
+    ctx.stroke();
+    ctx.restore();
+    return;
+  }
+  const thickness = line.kind === 'k' ? 3 : line.kind === 'm' ? 2 : 1;
+  const start = at - Math.floor(thickness / 2);
+  const reach = from - Math.floor(thickness / 2);
+  if (horizontal) ctx.fillRect(reach, start, length + thickness - 1, thickness);
+  else ctx.fillRect(start, reach, thickness, length + thickness - 1);
+}
+
+function drawBorders(ctx: CanvasRenderingContext2D, scene: GridScene, theme: GridTheme, pane: Pane): void {
+  const { sheet, rows, cols } = scene;
+  /** A line without a colour of its own is drawn in the text colour, so it shows in either theme. */
+  const colorOf = (value: string, row: number, col: number) => {
+    const color = readBorder(value)?.color;
+    if (color) return color;
+    const fill = sheet.styleAt(row, col).bg;
+    return fill ? readableOn(fill, theme.text) : theme.text;
+  };
+  const inside = (row: number, col: number, row2: number, col2: number) => {
+    const m = sheet.mergeAt(row, col);
+    return m !== null && row2 >= m.r1 && row2 <= m.r2 && col2 >= m.c1 && col2 <= m.c2;
+  };
+  for (let row = pane.rowFrom; row <= pane.rowTo; row += 1) {
+    if (rows.size(row) === 0) continue;
+    const top = pane.offsetY + rows.start(row) - 1;
+    const bottom = pane.offsetY + rows.end(row) - 1;
+    for (let col = pane.colFrom; col <= pane.colTo; col += 1) {
+      if (cols.size(col) === 0) continue;
+      const left = pane.offsetX + cols.start(col) - 1;
+      const right = pane.offsetX + cols.end(col) - 1;
+      const width = cols.size(col);
+      const height = rows.size(row);
+      const below = sheet.borderAt(row, col, 'bb');
+      if (below && !inside(row, col, row + 1, col)) drawLine(ctx, below, colorOf(below, row, col), true, bottom, left, width + 1);
+      const after = sheet.borderAt(row, col, 'br');
+      if (after && !inside(row, col, row, col + 1)) drawLine(ctx, after, colorOf(after, row, col), false, right, top, height + 1);
+      if (row === pane.rowFrom) {
+        const above = sheet.borderAt(row, col, 'bt');
+        if (above && !inside(row, col, row - 1, col)) drawLine(ctx, above, colorOf(above, row, col), true, top, left, width + 1);
+      }
+      if (col === pane.colFrom) {
+        const before = sheet.borderAt(row, col, 'bl');
+        if (before && !inside(row, col, row, col - 1)) drawLine(ctx, before, colorOf(before, row, col), false, left, top, height + 1);
+      }
+    }
+  }
 }
 
 function drawPaneCells(ctx: CanvasRenderingContext2D, scene: GridScene, theme: GridTheme, pane: Pane): void {
@@ -262,19 +384,38 @@ function drawPaneCells(ctx: CanvasRenderingContext2D, scene: GridScene, theme: G
     if (cols.size(col) > 0) ctx.fillRect(pane.offsetX + cols.end(col) - 1, pane.y, 1, bottom - pane.y);
   }
 
+  const merges = sheet.merges().filter(m => m.r1 <= pane.rowTo && m.r2 >= pane.rowFrom && m.c1 <= pane.colTo && m.c2 >= pane.colFrom);
+  const merged = (row: number, col: number) => merges.length > 0 && sheet.mergeAt(row, col) !== null;
+
   // Fills cover the lines around their cell, so a coloured block reads as one.
   for (let row = pane.rowFrom; row <= pane.rowTo; row += 1) {
     for (let col = pane.colFrom; col <= pane.colTo; col += 1) {
       const fill = sheet.styleAt(row, col).bg;
-      if (!fill || rows.size(row) === 0 || cols.size(col) === 0) continue;
+      if (!fill || rows.size(row) === 0 || cols.size(col) === 0 || merged(row, col)) continue;
       ctx.fillStyle = fill;
       ctx.fillRect(pane.offsetX + cols.start(col) - 1, pane.offsetY + rows.start(row) - 1, cols.size(col) + 1, rows.size(row) + 1);
     }
   }
 
+  // A merged block is one cell: its first cell's fill, no lines inside.
+  const areaOf = (m: Rect) => ({
+    x: pane.offsetX + cols.start(m.c1),
+    y: pane.offsetY + rows.start(m.r1),
+    width: cols.end(m.c2) - cols.start(m.c1),
+    height: rows.end(m.r2) - rows.start(m.r1),
+  });
+  for (const m of merges) {
+    const area = areaOf(m);
+    if (area.width <= 0 || area.height <= 0) continue;
+    const fill = sheet.styleAt(m.r1, m.c1).bg;
+    ctx.fillStyle = fill || theme.sheet;
+    if (fill) ctx.fillRect(area.x - 1, area.y - 1, area.width + 1, area.height + 1);
+    else ctx.fillRect(area.x, area.y, area.width - 1, area.height - 1);
+  }
+
   for (let row = pane.rowFrom; row <= pane.rowTo; row += 1) {
     if (rows.size(row) === 0) continue;
-    const occupied = (col: number) => !sheet.isEmpty(row, col) || (editing !== null && editing.row === row && editing.col === col);
+    const occupied = (col: number) => !sheet.isEmpty(row, col) || merged(row, col) || (editing !== null && editing.row === row && editing.col === col);
     // Text from a cell left of the view may run into it.
     let first = pane.colFrom;
     for (let col = pane.colFrom - 1; col >= Math.max(0, pane.colFrom - OVERFLOW_REACH); col -= 1) {
@@ -292,10 +433,16 @@ function drawPaneCells(ctx: CanvasRenderingContext2D, scene: GridScene, theme: G
     }
     for (let col = first; col <= last; col += 1) {
       if (editing && editing.row === row && editing.col === col) continue;
-      if (sheet.isEmpty(row, col)) continue;
+      if (sheet.isEmpty(row, col) || merged(row, col)) continue;
       drawCellText(ctx, scene, theme, pane, row, col, occupied);
     }
   }
+  for (const m of merges) {
+    if (editing && editing.row === m.r1 && editing.col === m.c1) continue;
+    if (!sheet.isEmpty(m.r1, m.c1)) drawCellText(ctx, scene, theme, pane, m.r1, m.c1, () => true, areaOf(m));
+  }
+
+  if (sheet.hasBorders()) drawBorders(ctx, scene, theme, pane);
 
   const header = scene.filterHeader;
   if (header && header.row >= pane.rowFrom && header.row <= pane.rowTo && rows.size(header.row) > 0) {
@@ -366,28 +513,35 @@ function drawPaneOverlays(ctx: CanvasRenderingContext2D, scene: GridScene, theme
     ctx.setLineDash([]);
   }
 
-  const { selection, active } = scene;
-  const single = selection.r1 === selection.r2 && selection.c1 === selection.c2;
+  const { selection, active, sheet } = scene;
+  const activeRect = sheet.mergeAt(active.row, active.col) ?? { r1: active.row, c1: active.col, r2: active.row, c2: active.col };
+  const single = selection.r1 === activeRect.r1 && selection.r2 === activeRect.r2 && selection.c1 === activeRect.c1 && selection.c2 === activeRect.c2;
   const box = scene.showSelection ? rectInPane(scene, pane, selection) : null;
   if (box) {
     if (!single) {
       ctx.fillStyle = theme.accentSoft;
       ctx.fillRect(box.x, box.y, box.width - 1, box.height - 1);
       // The cell that typing goes into stays clear inside the tinted range.
-      const activeBox = rectInPane(scene, pane, { r1: active.row, c1: active.col, r2: active.row, c2: active.col });
+      const activeBox = rectInPane(scene, pane, activeRect);
       if (activeBox) {
-        const style = scene.sheet.styleAt(active.row, active.col);
+        const style = sheet.styleAt(active.row, active.col);
         ctx.fillStyle = style.bg || theme.sheet;
         ctx.fillRect(activeBox.x, activeBox.y, activeBox.width - 1, activeBox.height - 1);
-        if (!(scene.editing && scene.editing.row === active.row && scene.editing.col === active.col) && !scene.sheet.isEmpty(active.row, active.col)) {
-          drawCellText(ctx, scene, theme, pane, active.row, active.col, () => true);
+        if (!(scene.editing && scene.editing.row === active.row && scene.editing.col === active.col) && !sheet.isEmpty(active.row, active.col)) {
+          const many = activeRect.r2 > activeRect.r1 || activeRect.c2 > activeRect.c1;
+          drawCellText(ctx, scene, theme, pane, active.row, active.col, () => true, many ? {
+            x: pane.offsetX + scene.cols.start(activeRect.c1),
+            y: pane.offsetY + scene.rows.start(activeRect.r1),
+            width: scene.cols.end(activeRect.c2) - scene.cols.start(activeRect.c1),
+            height: scene.rows.end(activeRect.r2) - scene.rows.start(activeRect.r1),
+          } : undefined);
         }
       }
     }
     ctx.strokeStyle = scene.focused ? theme.accent : theme.mutedText;
     strokeInside(ctx, box, single ? 2 : 1);
     if (!single) {
-      const activeBox = rectInPane(scene, pane, { r1: active.row, c1: active.col, r2: active.row, c2: active.col });
+      const activeBox = rectInPane(scene, pane, activeRect);
       if (activeBox) strokeInside(ctx, activeBox, 2);
     }
   }
@@ -412,7 +566,7 @@ function drawPaneOverlays(ctx: CanvasRenderingContext2D, scene: GridScene, theme
     }
   }
 
-  if (scene.showHandle && box) {
+  if (scene.showHandle && box && !scene.touch) {
     const corner = rectInPane(scene, pane, { r1: selection.r2, c1: selection.c2, r2: selection.r2, c2: selection.c2 });
     if (corner) {
       const x = corner.x + corner.width - 1 - Math.floor(FILL_HANDLE / 2);
@@ -422,6 +576,46 @@ function drawPaneOverlays(ctx: CanvasRenderingContext2D, scene: GridScene, theme
       ctx.fillStyle = theme.accent;
       ctx.fillRect(x, y, FILL_HANDLE, FILL_HANDLE);
     }
+  }
+  ctx.restore();
+}
+
+/**
+ * On a touch screen: round handles at two corners to stretch the selection,
+ * and a square under it to fill. Drawn last, so they show over the headers.
+ */
+function drawTouchHandles(ctx: CanvasRenderingContext2D, scene: GridScene, theme: GridTheme): void {
+  if (!scene.touch || !scene.showSelection || scene.editing) return;
+  const handles = touchHandles(scene, scene.selection);
+  const reach = TOUCH_HANDLE / 2;
+  const shown = (point: Point | null): point is Point => point !== null
+    && point.x >= scene.headerWidth - reach && point.y >= HEADER_HEIGHT - reach
+    && point.x <= scene.width + reach && point.y <= scene.height + reach;
+  ctx.save();
+  for (const point of [handles.start, handles.end]) {
+    if (!shown(point)) continue;
+    ctx.beginPath();
+    ctx.arc(point.x, point.y, reach, 0, Math.PI * 2);
+    ctx.fillStyle = theme.accent;
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = theme.sheet;
+    ctx.stroke();
+  }
+  if (scene.showHandle && shown(handles.fill) && handles.fill.y > HEADER_HEIGHT + TOUCH_FILL) {
+    // A square hanging from the middle of the bottom edge, like a tab to pull.
+    const size = TOUCH_FILL - 2;
+    const { x, y } = handles.fill;
+    ctx.fillStyle = theme.accent;
+    ctx.fillRect(x - 1, y - TOUCH_FILL, 2, TOUCH_FILL - size / 2);
+    ctx.fillStyle = theme.sheet;
+    ctx.beginPath();
+    ctx.roundRect(x - size / 2 - 2, y - size / 2 - 2, size + 4, size + 4, 4);
+    ctx.fill();
+    ctx.fillStyle = theme.accent;
+    ctx.beginPath();
+    ctx.roundRect(x - size / 2, y - size / 2, size, size, 2);
+    ctx.fill();
   }
   ctx.restore();
 }
@@ -510,6 +704,7 @@ export function drawGrid(ctx: CanvasRenderingContext2D, scene: GridScene, theme:
   for (const pane of panes) drawPaneCells(ctx, scene, theme, pane);
   for (const pane of panes) drawPaneOverlays(ctx, scene, theme, pane);
   drawHeaders(ctx, scene, theme, panes);
+  drawTouchHandles(ctx, scene, theme);
   if (scene.dropLine) {
     const { axis, position } = scene.dropLine;
     ctx.fillStyle = theme.accent;

@@ -236,6 +236,57 @@ export function overFillHandle(view: Viewport, selection: Rect, x: number, y: nu
   return Math.abs(x - cx) <= FILL_HANDLE && Math.abs(y - cy) <= FILL_HANDLE;
 }
 
+/** Where the menu of a filter button opens, when a point is on the button in a cell; else null. */
+export function filterButtonAt(view: Viewport, row: number, col: number, x: number, y: number): Point | null {
+  const right = columnX(view, col) + view.cols.size(col);
+  const bottom = rowY(view, row) + view.rows.size(row);
+  const reach = FILTER_BUTTON + FILTER_BUTTON_INSET * 2;
+  return x < right - reach || y < bottom - reach ? null : { x: right - reach, y: bottom + 2 };
+}
+
+/** Size of the round handles a touch screen shows at two corners of the selection, and of its fill square. */
+export const TOUCH_HANDLE = 16;
+export const TOUCH_FILL = 14;
+/** How far from a handle's centre a finger still takes it. */
+export const TOUCH_REACH = 22;
+
+export interface Point {
+  x: number;
+  y: number;
+}
+
+/**
+ * Where the handles for a finger are: round ones at the top left and bottom
+ * right corner of the selection, and the fill square under the middle of its
+ * bottom edge. Null for one hidden behind frozen rows or columns.
+ */
+export function touchHandles(view: Viewport, selection: Rect): { start: Point | null; end: Point | null; fill: Point | null } {
+  const box = rectOnScreen(view, selection);
+  const frozenX = view.headerWidth + frozenWidth(view);
+  const frozenY = HEADER_HEIGHT + frozenHeight(view);
+  const shown = (point: Point, row: number, col: number): Point | null => {
+    if (col >= view.freezeCols && point.x < frozenX - 1) return null;
+    if (row >= view.freezeRows && point.y < frozenY - 1) return null;
+    return point;
+  };
+  return {
+    start: shown({ x: box.x - 1, y: box.y - 1 }, selection.r1, selection.c1),
+    end: shown({ x: box.x + box.width - 1, y: box.y + box.height - 1 }, selection.r2, selection.c2),
+    // Hanging under the bottom edge, clear of a finger tapping the cell above.
+    fill: shown({ x: Math.round(box.x + box.width / 2), y: box.y + box.height - 1 + TOUCH_FILL }, selection.r2, selection.c1),
+  };
+}
+
+/** Which touch handle a point is on, the fill square first. */
+export function overTouchHandle(view: Viewport, selection: Rect, x: number, y: number, withFill: boolean): 'start' | 'end' | 'fill' | null {
+  const handles = touchHandles(view, selection);
+  const near = (point: Point | null, reach: number) => point !== null && Math.hypot(point.x - x, point.y - y) <= reach;
+  if (withFill && near(handles.fill, TOUCH_REACH - 6)) return 'fill';
+  if (near(handles.end, TOUCH_REACH)) return 'end';
+  if (near(handles.start, TOUCH_REACH)) return 'start';
+  return null;
+}
+
 /** The selection stretched to a cell outside it, up, down, left or right; null for a cell inside. */
 export function stretchTo(selection: Rect, row: number, col: number): Rect | null {
   if (rectContains(selection, row, col)) return null;

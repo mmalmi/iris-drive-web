@@ -5,9 +5,8 @@
    * over the cell being edited.
    */
   import { onMount, tick } from 'svelte';
-  import { rectContains, type CellPos } from '../../lib/sheets/address';
+  import type { CellPos } from '../../lib/sheets/address';
   import {
-    appendRows,
     autoFitColumn,
     copiedHtml,
     copySelection,
@@ -15,35 +14,35 @@
     fillInto,
     moveSelectedTo,
     pasteText,
+    resizeFrom,
   } from '../../lib/sheets/commands';
   import type { SheetController } from '../../lib/sheets/controller.svelte';
   import { buildLayout, placeEditor, readTheme, type SizeOverride } from '../../lib/sheets/gridView';
   import {
-    FILTER_BUTTON,
-    FILTER_BUTTON_INSET,
     HEADER_HEIGHT,
-    columnX,
     dropPosition,
+    filterButtonAt,
     frozenHeight,
     frozenWidth,
     hitTest,
     overFillHandle,
-    rowY,
     scrollToShow,
     stretchTo,
     type Hit,
     type Viewport,
   } from '../../lib/sheets/layout';
   import { MIN_COL_WIDTH, MIN_ROW_HEIGHT } from '../../lib/sheets/model';
-  import { LINE_HEIGHT, drawGrid, fontOf, type GridTheme } from '../../lib/sheets/render';
+  import { drawGrid, fontOf, lineHeightOf, type GridTheme } from '../../lib/sheets/render';
   import { filterRect } from '../../lib/sheets/filter';
+  import AddRowsButton from './AddRowsButton.svelte';
   import FilterMenu from './FilterMenu.svelte';
   import FindBar from './FindBar.svelte';
   import FormulaHelp from './FormulaHelp.svelte';
   import PopupMenu, { type MenuItem } from './PopupMenu.svelte';
   import { handleEditingKey, handleGridKey } from './gridKeys';
+  import { listenToTouch, watchKeyboard, type TouchHost } from './gridTouch';
   import { installTestHandle } from './testHandle';
-  import { selectionMenu } from './menus';
+  import { selectForMenu, selectionMenu } from './menus';
 
   interface Props {
     ctl: SheetController;
@@ -70,6 +69,10 @@
   let menu = $state.raw<{ x: number; y: number; items: MenuItem[] } | null>(null);
   let dropLine = $state.raw<{ axis: 'row' | 'col'; position: number } | null>(null);
   let shiftHeld = false;
+  /** The last press came from a finger: handles are sized for one, a tap selects, dragging scrolls. */
+  let touchMode = $state(false);
+  /** How much of the grid's bottom an on-screen keyboard covers. */
+  let keyboardInset = $state(0);
 
   let layout = $derived.by(() => {
     void ctl.layoutRevision;
@@ -107,18 +110,16 @@
   function openFilterAt(hit: Hit, x: number, y: number): boolean {
     const header = filterHeader;
     if (!view || !canvas || !header || hit.area !== 'cell' || hit.row !== header.row || hit.col < header.c1 || hit.col > header.c2) return false;
-    const right = columnX(view, hit.col) + view.cols.size(hit.col);
-    const bottom = rowY(view, hit.row) + view.rows.size(hit.row);
-    const reach = FILTER_BUTTON + FILTER_BUTTON_INSET * 2;
-    if (x < right - reach || y < bottom - reach) return false;
+    const button = filterButtonAt(view, hit.row, hit.col, x, y);
+    if (!button) return false;
     const bounds = canvas.getBoundingClientRect();
     if (ctl.edit) ctl.commitEdit();
-    filterMenu = { colId: ctl.sheet.cols.ids[hit.col], x: bounds.left + right - reach, y: bounds.top + bottom + 2 };
+    filterMenu = { colId: ctl.sheet.cols.ids[hit.col], x: bounds.left + button.x, y: bounds.top + button.y };
     return true;
   }
 
   let contentWidth = $derived(layout ? layout.headerWidth + layout.cols.total + RIGHT_ROOM : 0);
-  let contentHeight = $derived(layout ? HEADER_HEIGHT + layout.rows.total + BOTTOM_ROOM : 0);
+  let contentHeight = $derived(layout ? HEADER_HEIGHT + layout.rows.total + BOTTOM_ROOM + keyboardInset : 0);
 
   // --- Drawing ---
 
@@ -146,12 +147,13 @@
       marks: ctl.find ? ctl.findMatches : [],
       filterHeader,
       filtered: ctl.visibility.filtered.size > 0,
+      touch: touchMode,
     }, theme, pixelRatio);
   }
 
   $effect(() => {
     // Everything the picture depends on; any change asks for one redraw.
-    void [view, theme, pixelRatio, focused, dropLine, filterHeader, ctl.find, ctl.revision, ctl.anchor, ctl.focus, ctl.active, ctl.edit, ctl.copied, ctl.fillTarget, ctl.canEdit];
+    void [view, theme, pixelRatio, focused, dropLine, filterHeader, touchMode, ctl.find, ctl.revision, ctl.anchor, ctl.focus, ctl.active, ctl.edit, ctl.copied, ctl.fillTarget, ctl.canEdit];
     if (!frame) frame = requestAnimationFrame(draw);
   });
 
@@ -193,7 +195,9 @@
       void tick().then(() => {
         if (!view || !scroller) return;
         // Where the grid really is: the copy in `view` lags a frame behind fast key presses.
-        const target = scrollToShow({ ...view, scrollX: scroller.scrollLeft, scrollY: scroller.scrollTop }, row, col);
+        // Above an on-screen keyboard, not under it.
+        const room = Math.max(HEADER_HEIGHT + 30, view.height - keyboardInset);
+        const target = scrollToShow({ ...view, height: room, scrollX: scroller.scrollLeft, scrollY: scroller.scrollTop }, row, col);
         if (target.scrollX !== scroller.scrollLeft || target.scrollY !== scroller.scrollTop) scroller.scrollTo(target.scrollX, target.scrollY);
       });
     };
@@ -204,7 +208,19 @@
     ctl.focusGrid = () => editor?.focus({ preventScroll: true });
     if (!matchMedia('(pointer: coarse)').matches) ctl.focusGrid();
 
+    // An on-screen keyboard shrinks what can be seen; the cell being typed into stays above it.
+    const stopKeyboard = watchKeyboard(scroller, (inset) => {
+      if (inset === keyboardInset) return;
+      keyboardInset = inset;
+      const edit = ctl.edit;
+      if (edit && edit.sheetId === ctl.sheetId) ctl.reveal(edit.row, edit.col);
+    });
+
+    const stopTouch = canvas ? listenToTouch(canvas, touchHost) : () => {};
+
     return () => {
+      stopKeyboard();
+      stopTouch();
       observer.disconnect();
       scheme.removeEventListener('change', onScheme);
       window.removeEventListener('keydown', trackShift, true);
@@ -226,10 +242,12 @@
   let editorBox = $derived.by(() => {
     const edit = ctl.edit;
     if (!view) return null;
+    const room = height - keyboardInset;
     if (edit && edit.sheetId === ctl.sheetId) {
-      return placeEditor(view, { row: edit.row, col: edit.col }, ctl.sheet.styleAt(edit.row, edit.col), edit.text);
+      const rect = ctl.sheet.mergeAt(edit.row, edit.col) ?? { r1: edit.row, c1: edit.col, r2: edit.row, c2: edit.col };
+      return placeEditor(view, rect, ctl.sheet.styleAt(edit.row, edit.col), edit.text, room);
     }
-    return placeEditor(view, ctl.active, ctl.activeStyle, null);
+    return placeEditor(view, ctl.activeRect, ctl.activeStyle, null, room);
   });
 
   // The textarea shows what the controller holds, also when a click on a cell or the bar changed it.
@@ -310,6 +328,7 @@
 
   type Drag =
     | { kind: 'select'; scope: 'cells' | 'rows' | 'cols' }
+    | { kind: 'extend'; fixed: CellPos }
     | { kind: 'point'; anchor: CellPos }
     | { kind: 'fill' }
     | { kind: 'move'; axis: 'row' | 'col'; origin: number; moved: boolean; hit: Hit }
@@ -318,10 +337,8 @@
   let lastPointer = { x: 0, y: 0 };
   let autoScrollTimer: ReturnType<typeof setInterval> | undefined;
   let lastTap = { time: 0, row: -1, col: -1 };
-  /** The last press came from a finger: scrolling is the browser's, a tap selects. */
-  let touching = false;
 
-  function localPoint(event: MouseEvent): { x: number; y: number } {
+  function localPoint(event: { clientX: number; clientY: number }): { x: number; y: number } {
     const bounds = (canvas as HTMLCanvasElement).getBoundingClientRect();
     return { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
   }
@@ -361,10 +378,16 @@
     return { kind: 'select', scope: 'cells' };
   }
 
+  /** Where a formula being typed points to for a press on a cell: a merged block by its first cell. */
+  function pointedCell(hit: Hit): CellPos {
+    const merge = ctl.sheet.mergeAt(hit.row, hit.col);
+    return merge ? { row: merge.r1, col: merge.c1 } : { row: hit.row, col: hit.col };
+  }
+
   function onpointerdown(event: PointerEvent): void {
     if (!view || !canvas) return;
-    touching = event.pointerType === 'touch';
-    if (touching || event.button !== 0) return;
+    touchMode = event.pointerType === 'touch';
+    if (touchMode || event.button !== 0) return;
     event.preventDefault();
     menu = null;
     const { x, y } = localPoint(event);
@@ -374,8 +397,9 @@
 
     if (ctl.edit) {
       if (hit.area === 'cell' && ctl.pointing) {
-        ctl.pointDrag({ row: hit.row, col: hit.col }, { row: hit.row, col: hit.col });
-        drag = { kind: 'point', anchor: { row: hit.row, col: hit.col } };
+        const cell = pointedCell(hit);
+        ctl.pointDrag(cell, cell);
+        drag = { kind: 'point', anchor: cell };
         canvas.setPointerCapture(event.pointerId);
         return;
       }
@@ -415,6 +439,8 @@
       if (drag.moved) resizing = { axis: drag.axis, index: drag.index, size: Math.max(least, Math.round(drag.startSize + delta)) };
     } else if (drag.kind === 'point') {
       ctl.pointDrag(drag.anchor, { row: hit.row, col: hit.col });
+    } else if (drag.kind === 'extend') {
+      ctl.setSelection(drag.fixed, { row: hit.row, col: hit.col }, ctl.active);
     } else if (drag.kind === 'fill') {
       ctl.fillTarget = stretchTo(ctl.selection, hit.row, hit.col);
     } else if (drag.kind === 'move') {
@@ -480,22 +506,19 @@
 
   function onpointerup(event: PointerEvent): void {
     if (!drag) return;
+    if (canvas?.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+    finishDrag();
+  }
+
+  function finishDrag(): void {
+    if (!drag) return;
     const finished = drag;
     drag = null;
     stopAutoScroll();
-    if (canvas?.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
     if (finished.kind === 'resize') {
       const size = resizing?.size;
       resizing = null;
-      if (size !== undefined && finished.moved) {
-        const rect = ctl.selection;
-        // Dragging one of several selected columns sizes them all alike.
-        const many = finished.axis === 'col'
-          ? ctl.scope === 'cols' && finished.index >= rect.c1 && finished.index <= rect.c2
-          : ctl.scope === 'rows' && finished.index >= rect.r1 && finished.index <= rect.r2;
-        if (finished.axis === 'col') ctl.sheet.setColWidth(many ? rect.c1 : finished.index, many ? rect.c2 : finished.index, size);
-        else ctl.sheet.setRowHeight(many ? rect.r1 : finished.index, many ? rect.r2 : finished.index, size);
-      }
+      if (size !== undefined && finished.moved) resizeFrom(ctl, finished.axis, finished.index, size);
     } else if (finished.kind === 'fill') {
       const target = ctl.fillTarget;
       ctl.fillTarget = null;
@@ -525,21 +548,28 @@
 
   /** A tap on a touch screen selects; a second tap on the same cell opens it for typing. */
   function onclick(event: MouseEvent): void {
-    if (!view || !touching) return;
+    if (!view || !touchMode) return;
     const { x, y } = localPoint(event);
+    tapAt(x, y);
+  }
+
+  function tapAt(x: number, y: number): void {
+    if (!view) return;
     const hit = hitTest(view, x, y);
     menu = null;
     if (!(ctl.edit && ctl.pointing) && openFilterAt(hit, x, y)) return;
     if (ctl.edit) {
       if (hit.area === 'cell' && ctl.pointing) {
-        ctl.pointDrag({ row: hit.row, col: hit.col }, { row: hit.row, col: hit.col });
+        const cell = pointedCell(hit);
+        ctl.pointDrag(cell, cell);
         return;
       }
       ctl.commitEdit();
     }
     const now = performance.now();
-    const again = hit.area === 'cell' && lastTap.row === hit.row && lastTap.col === hit.col && now - lastTap.time < 450;
-    lastTap = { time: now, row: hit.row, col: hit.col };
+    const cell = pointedCell(hit);
+    const again = hit.area === 'cell' && lastTap.row === cell.row && lastTap.col === cell.col && now - lastTap.time < 450;
+    lastTap = { time: now, row: cell.row, col: cell.col };
     if (again && ctl.canEdit) {
       if (ctl.startEdit()) ctl.focusGrid();
       return;
@@ -552,28 +582,48 @@
   function oncontextmenu(event: MouseEvent): void {
     if (!view) return;
     event.preventDefault();
-    if (ctl.edit) ctl.commitEdit();
+    // A long press brings its own menu up (see gridTouch.ts).
+    if (touchMode) return;
     const { x, y } = localPoint(event);
-    const hit = hitTest(view, x, y);
-    const rect = ctl.selection;
-    let target: 'cell' | 'row' | 'col' = 'cell';
-    if (hit.area === 'colHeader') {
-      target = 'col';
-      if (ctl.scope !== 'cols' || hit.col < rect.c1 || hit.col > rect.c2) ctl.selectCols(hit.col, hit.col);
-    } else if (hit.area === 'rowHeader') {
-      target = 'row';
-      if (ctl.scope !== 'rows' || hit.row < rect.r1 || hit.row > rect.r2) ctl.selectRows(hit.row, hit.row);
-    } else if (hit.area === 'corner') {
-      ctl.selectAll();
-    } else if (!rectContains(rect, hit.row, hit.col)) {
-      ctl.select({ row: hit.row, col: hit.col });
-    } else if (ctl.scope === 'rows') {
-      target = 'row';
-    } else if (ctl.scope === 'cols') {
-      target = 'col';
-    }
-    menu = { x: event.clientX, y: event.clientY, items: selectionMenu(ctl, target) };
+    openMenuAt(hitTest(view, x, y), event.clientX, event.clientY);
   }
+
+  /** Selects what a right click or long press is on, unless it is already selected, and shows what can be done with it. */
+  function openMenuAt(hit: Hit, clientX: number, clientY: number): void {
+    if (ctl.edit) ctl.commitEdit();
+    menu = { x: clientX, y: clientY, items: selectionMenu(ctl, selectForMenu(ctl, hit), touchMode) };
+  }
+
+  // --- Touch (see gridTouch.ts) ---
+
+  const touchHost: TouchHost = {
+    get ctl() { return ctl; },
+    view: () => view,
+    local: localPoint,
+    touched: (x, y) => {
+      touchMode = true;
+      lastPointer = { x, y };
+    },
+    grab: (what) => {
+      menu = null;
+      drag = what.kind === 'resize' ? { ...what, moved: false } : what;
+    },
+    dragging: () => drag !== null,
+    dragTo: (x, y) => {
+      lastPointer = { x, y };
+      dragTo(x, y);
+      autoScroll();
+    },
+    release: finishDrag,
+    letGo: () => {
+      drag = null;
+      resizing = null;
+    },
+    tap: tapAt,
+    longPress: (x, y, clientX, clientY) => {
+      if (view) openMenuAt(hitTest(view, x, y), clientX, clientY);
+    },
+  };
 
   function closeMenu(): void {
     menu = null;
@@ -611,6 +661,8 @@
   aria-rowcount={layout?.rows.count}
   aria-colcount={layout?.cols.count}
   onkeydown={onRootKeydown}
+  onfocus={() => { focused = true; }}
+  onblur={() => { focused = false; }}
   oncopy={oncopy}
   oncut={oncopy}
   onpaste={onpaste}
@@ -629,16 +681,7 @@
         {oncontextmenu}
       ></canvas>
       {#if ctl.canEdit && layout}
-        <button
-          type="button"
-          class="add-rows"
-          style="top: {addRowsTop}px; left: {layout.headerWidth + 8}px"
-          onclick={() => appendRows(ctl, 100)}
-          data-testid="sheet-add-rows"
-        >
-          <span class="i-lucide-plus"></span>
-          Add 100 rows
-        </button>
+        <AddRowsButton {ctl} top={addRowsTop} left={layout.headerWidth + 8} />
       {/if}
     </div>
   </div>
@@ -647,7 +690,7 @@
     bind:this={editor}
     class="cell-editor"
     class:visible={editorBox?.visible}
-    style="left: {editorBox?.x ?? 0}px; top: {editorBox?.y ?? 0}px; width: {editorBox?.visible ? editorBox.width : 1}px; height: {editorBox?.visible ? editorBox.height : 1}px; font: {fontOf(editorBox?.style ?? {})}; color: {editorBox?.style.c || 'inherit'}; text-align: {editorBox?.style.a === 'r' ? 'right' : editorBox?.style.a === 'c' ? 'center' : 'left'}; line-height: {LINE_HEIGHT}px"
+    style="left: {editorBox?.x ?? 0}px; top: {editorBox?.y ?? 0}px; width: {editorBox?.visible ? editorBox.width : 1}px; height: {editorBox?.visible ? editorBox.height : 1}px; font: {fontOf(editorBox?.style ?? {})}; color: {editorBox?.style.c || 'inherit'}; text-align: {editorBox?.style.a === 'r' ? 'right' : editorBox?.style.a === 'c' ? 'center' : 'left'}; line-height: {lineHeightOf(editorBox?.style ?? {})}px"
     rows="1"
     spellcheck="false"
     autocomplete="off"
@@ -667,7 +710,7 @@
   {#if editorBox?.visible && ctl.edit?.source === 'cell'}
     <FormulaHelp
       {ctl}
-      place={editorBox.y + editorBox.height + 150 > height
+      place={editorBox.y + editorBox.height + 150 > height - keyboardInset
         ? `left: ${Math.min(editorBox.x, Math.max(0, width - 300))}px; bottom: ${height - editorBox.y + 4}px`
         : `left: ${Math.min(editorBox.x, Math.max(0, width - 300))}px; top: ${editorBox.y + editorBox.height + 4}px`}
     />
@@ -714,6 +757,9 @@
     left: 0;
     display: block;
     touch-action: pan-x pan-y;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
   }
 
   .cell-editor {
@@ -744,26 +790,6 @@
   .cell-editor.visible {
     opacity: 1;
     pointer-events: auto;
-  }
-
-  .add-rows {
-    position: absolute;
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    height: 30px;
-    padding: 0 12px;
-    border: 1px solid rgb(var(--surface-3));
-    border-radius: 15px;
-    background: rgb(var(--surface-0));
-    color: rgb(var(--text-2));
-    font-size: 0.8rem;
-    cursor: pointer;
-  }
-
-  .add-rows:hover {
-    background: rgb(var(--surface-2));
-    color: rgb(var(--text-1));
   }
 
   .sr-only {

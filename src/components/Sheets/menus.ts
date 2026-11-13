@@ -4,12 +4,14 @@
  * The icon names here are only found by the style generator because of this marker:
  * @unocss-include
  */
-import { rectCols, rectRows } from '../../lib/sheets/address';
+import { rectCols, rectContains, rectRows } from '../../lib/sheets/address';
+import type { Hit } from '../../lib/sheets/layout';
 import {
   autoFitColumn,
   clearContents,
   copySelection,
   deleteSelected,
+  fillWithin,
   insertBeside,
   moveSelected,
   pasteText,
@@ -42,8 +44,8 @@ function plural(count: number, one: string, many: string): string {
   return count === 1 ? one : `${count} ${many}`;
 }
 
-/** Menu entries for the selection. `target` is what was right-clicked. */
-export function selectionMenu(ctl: SheetController, target: 'cell' | 'row' | 'col'): MenuItem[] {
+/** Menu entries for the selection. `target` is what was right-clicked or long-pressed; `touch` adds what a keyboard would otherwise do. */
+export function selectionMenu(ctl: SheetController, target: 'cell' | 'row' | 'col', touch = false): MenuItem[] {
   const copy: MenuItem = { label: 'Copy', icon: 'i-lucide-copy', hint: `${MOD}C`, action: () => void copyToClipboard(ctl, false), testId: 'menu-copy' };
   if (!ctl.canEdit) return [copy];
 
@@ -51,12 +53,16 @@ export function selectionMenu(ctl: SheetController, target: 'cell' | 'row' | 'co
   const rows = rectRows(rect);
   const cols = rectCols(rect);
   const sheet = ctl.sheet;
-  const items: MenuItem[] = [
-    { label: 'Cut', icon: 'i-lucide-scissors', hint: `${MOD}X`, action: () => void copyToClipboard(ctl, true), testId: 'menu-cut' },
+  const items: MenuItem[] = [];
+  if (touch && target === 'cell') {
+    items.push({ label: 'Edit cell', icon: 'i-lucide-pencil', action: () => { if (ctl.startEdit()) ctl.focusGrid(); }, testId: 'menu-edit' });
+  }
+  items.push(
+    { label: 'Cut', icon: 'i-lucide-scissors', hint: `${MOD}X`, action: () => void copyToClipboard(ctl, true), testId: 'menu-cut', divider: items.length > 0 },
     copy,
     { label: 'Paste', icon: 'i-lucide-clipboard', hint: `${MOD}V`, action: () => void pasteFromClipboard(ctl), testId: 'menu-paste' },
     { label: 'Paste values only', icon: 'i-lucide-clipboard-type', hint: `${MOD}⇧V`, action: () => void pasteFromClipboard(ctl, true) },
-  ];
+  );
   const rowItems: MenuItem[] = [
     { label: `Insert ${plural(rows, 'row', 'rows')} above`, icon: 'i-lucide-arrow-up-to-line', action: () => insertBeside(ctl, 'row', false), divider: true, testId: 'menu-insert-row-above' },
     { label: `Insert ${plural(rows, 'row', 'rows')} below`, icon: 'i-lucide-arrow-down-to-line', action: () => insertBeside(ctl, 'row', true), testId: 'menu-insert-row-below' },
@@ -92,7 +98,45 @@ export function selectionMenu(ctl: SheetController, target: 'cell' | 'row' | 'co
       clear,
     );
   } else {
-    items.push(...rowItems, ...colItems, { ...deleteRow, divider: true }, deleteCol, clear);
+    // Filling copies the first row or column of the selection over the rest, so it needs more than one.
+    const fills: MenuItem[] = [
+      ...(rows > 1 ? [{ label: 'Fill down', icon: 'i-lucide-arrow-down-from-line', hint: `${MOD}D`, action: () => fillWithin(ctl, 'down'), testId: 'menu-fill-down' }] : []),
+      ...(cols > 1 ? [{ label: 'Fill right', icon: 'i-lucide-arrow-right-from-line', hint: `${MOD}R`, action: () => fillWithin(ctl, 'right'), testId: 'menu-fill-right' }] : []),
+    ];
+    if (fills.length > 0) fills[0].divider = true;
+    items.push(
+      ...fills,
+      ...rowItems,
+      ...colItems,
+      { ...deleteRow, divider: true },
+      deleteCol,
+      clear,
+    );
   }
   return items;
+}
+
+/**
+ * Selects what a right click or long press landed on, unless it is part of
+ * the selection already, and says what the menu is for.
+ */
+export function selectForMenu(ctl: SheetController, hit: Hit): 'cell' | 'row' | 'col' {
+  const rect = ctl.selection;
+  if (hit.area === 'colHeader') {
+    if (ctl.scope !== 'cols' || hit.col < rect.c1 || hit.col > rect.c2) ctl.selectCols(hit.col, hit.col);
+    return 'col';
+  }
+  if (hit.area === 'rowHeader') {
+    if (ctl.scope !== 'rows' || hit.row < rect.r1 || hit.row > rect.r2) ctl.selectRows(hit.row, hit.row);
+    return 'row';
+  }
+  if (hit.area === 'corner') {
+    ctl.selectAll();
+    return 'cell';
+  }
+  if (!rectContains(rect, hit.row, hit.col)) {
+    ctl.select({ row: hit.row, col: hit.col });
+    return 'cell';
+  }
+  return ctl.scope === 'rows' ? 'row' : ctl.scope === 'cols' ? 'col' : 'cell';
 }
