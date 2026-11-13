@@ -19,8 +19,6 @@ export interface RouteInfo {
   isPermalink: boolean;
   /** All query params from URL - use params.get('k'), params.get('t'), etc. */
   params: URLSearchParams;
-  /** Branches to compare (from ?compare=base...head or ?merge=1&base=&head=) */
-  compareBranches: { base: string; head: string } | null;
 }
 
 const NOSTR_IDENTITY_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -57,18 +55,6 @@ export function parseRouteFromHash(hash: string): RouteInfo {
   const path = queryIndex === -1 ? hashPath : hashPath.slice(0, queryIndex);
   const parts = path.split('/').filter(Boolean).map(safeDecodeURIComponent);
   const params = getQueryParamsFromHash(hash);
-  let compareBranches: { base: string; head: string } | null = null;
-  const compare = params.get('compare');
-  const mergeBase = params.get('base');
-  const mergeHead = params.get('head');
-  const isMergeView = params.get('merge') === '1';
-  if (compare?.includes('...')) {
-    const [base, head] = compare.split('...');
-    if (base && head) compareBranches = { base, head };
-  } else if (isMergeView && mergeBase && mergeHead) {
-    compareBranches = { base: mergeBase, head: mergeHead };
-  }
-
   const emptyParams = new URLSearchParams();
 
   // nhash route: /nhash1.../path...
@@ -82,7 +68,6 @@ export function parseRouteFromHash(hash: string): RouteInfo {
         path: parts.slice(1),
         isPermalink: true,
         params,
-        compareBranches,
       };
     } catch {
       // Invalid nhash, fall through.
@@ -100,7 +85,6 @@ export function parseRouteFromHash(hash: string): RouteInfo {
         path: decoded.path || [],
         isPermalink: false,
         params,
-        compareBranches,
       };
     } catch {
       // Invalid npath, fall through.
@@ -109,7 +93,7 @@ export function parseRouteFromHash(hash: string): RouteInfo {
 
   // Special routes (no tree context)
   if (NON_TREE_ROUTES.has(parts[0])) {
-    return { npub: null, treeName: null, cid: null, path: [], isPermalink: false, params: emptyParams, compareBranches: null };
+    return { npub: null, treeName: null, cid: null, path: [], isPermalink: false, params: emptyParams };
   }
 
   // User / NostrIdentity routes
@@ -118,7 +102,7 @@ export function parseRouteFromHash(hash: string): RouteInfo {
 
     // Special user routes (profile, follows, followers, edit)
     if (USER_ROUTES.has(parts[1])) {
-      return { npub, treeName: null, cid: null, path: [], isPermalink: false, params: emptyParams, compareBranches: null };
+      return { npub, treeName: null, cid: null, path: [], isPermalink: false, params: emptyParams };
     }
 
     // Tree route: #/npub/treeName/path...
@@ -130,16 +114,15 @@ export function parseRouteFromHash(hash: string): RouteInfo {
         path: parts.slice(2),
         isPermalink: false,
         params,
-        compareBranches,
       };
     }
 
     // User view: #/npub
-    return { npub, treeName: null, cid: null, path: [], isPermalink: false, params: emptyParams, compareBranches: null };
+    return { npub, treeName: null, cid: null, path: [], isPermalink: false, params: emptyParams };
   }
 
   // Home route
-  return { npub: null, treeName: null, cid: null, path: [], isPermalink: false, params: emptyParams, compareBranches: null };
+  return { npub: null, treeName: null, cid: null, path: [], isPermalink: false, params: emptyParams };
 }
 
 /** Parse route info from the browser's current hash. */
