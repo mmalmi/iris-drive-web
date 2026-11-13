@@ -1,4 +1,6 @@
-import { finalizeEvent, getPublicKey, verifyEvent, type Event } from 'nostr-tools';
+import { finalizeEvent, getPublicKey, nip44, verifyEvent, type Event } from 'nostr-tools';
+import { sha256 } from '@noble/hashes/sha2.js';
+import { bytesToHex } from '@noble/hashes/utils.js';
 import type {
   NostrIdentityId,
   ShareAccessSnapshot,
@@ -33,6 +35,64 @@ export const SHARE_JOIN_LABEL = 'iris-drive/share-join';
 export const SHARE_JOIN_ROUTE = '/share-join/';
 /** Tells a person's devices that a folder was shared with them directly. */
 export const SHARE_ADDED_LABEL = 'iris-drive/share-added';
+
+/** What a device is told when it is added to a folder directly. */
+export interface ShareAddedNotice {
+  v: 1;
+  share_id: NostrIdentityId;
+  owner_profile_id: NostrIdentityId;
+  name: string;
+  role: Exclude<ShareRole, 'admin'>;
+}
+
+/** Names the notice for one device without naming the folder, so a newer one replaces it. */
+function shareAddedDTag(shareId: string, devicePubkey: string): string {
+  return bytesToHex(sha256(new TextEncoder().encode(`${SHARE_ADDED_LABEL}\n${shareId}\n${devicePubkey}`)));
+}
+
+/**
+ * One notice per device, readable only by that device: relays and anyone
+ * else see a label and the device it is for, not which folder, its name or
+ * who shares it.
+ */
+export function buildShareAddedNotices(
+  signerSecretKey: Uint8Array,
+  notice: ShareAddedNotice,
+  devicePubkeys: string[],
+  createdAt: number,
+): Event[] {
+  return [...new Set(devicePubkeys)].map((devicePubkey) => finalizeEvent({
+    kind: KIND_DRIVE_ROOT,
+    created_at: createdAt,
+    content: nip44.encrypt(JSON.stringify(notice), nip44.getConversationKey(signerSecretKey, devicePubkey)),
+    tags: [
+      ['d', shareAddedDTag(notice.share_id, devicePubkey)],
+      ['l', SHARE_ADDED_LABEL],
+      ['p', devicePubkey],
+    ],
+  }, signerSecretKey));
+}
+
+/** The notice, if the event is one for this device and reads as one; otherwise null. */
+export function readShareAddedNotice(event: Event, deviceSecretKey: Uint8Array): ShareAddedNotice | null {
+  const devicePubkey = getPublicKey(deviceSecretKey);
+  const tag = (name: string) => event.tags.filter(([key]) => key === name).map(([, value]) => value);
+  if (event.kind !== KIND_DRIVE_ROOT || !tag('l').includes(SHARE_ADDED_LABEL)) return null;
+  if (tag('p').length !== 1 || tag('p')[0] !== devicePubkey) return null;
+  if (event.content.length > 4096) return null;
+  try {
+    if (!verifyEvent(event)) return null;
+    const notice = JSON.parse(nip44.decrypt(event.content, nip44.getConversationKey(deviceSecretKey, event.pubkey))) as Partial<ShareAddedNotice>;
+    if (notice.v !== 1 || !UUID.test(notice.share_id ?? '') || !UUID.test(notice.owner_profile_id ?? '')
+      || (notice.role !== 'editor' && notice.role !== 'reader') || typeof notice.name !== 'string'
+      || tag('d')[0] !== shareAddedDTag(notice.share_id!, devicePubkey)) {
+      return null;
+    }
+    return { v: 1, share_id: notice.share_id!, owner_profile_id: notice.owner_profile_id!, name: notice.name.slice(0, 200), role: notice.role };
+  } catch {
+    return null;
+  }
+}
 
 export interface ShareJoinLink {
   v: 1;

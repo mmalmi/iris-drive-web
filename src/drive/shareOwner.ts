@@ -1,6 +1,6 @@
 import { get } from 'svelte/store';
 import { LinkType, type CID } from '@hashtree/core';
-import { finalizeEvent, type Event } from 'nostr-tools';
+import type { Event } from 'nostr-tools';
 import { nostr, nostrStore } from '../nostr';
 import { getCurrentNostrIdentitySession, getSecretKey } from '../nostr/auth';
 import { saveOwnTreeRoot } from '../nostr/trees';
@@ -10,7 +10,6 @@ import { getTree } from '../store';
 import { getTreeRootSync, waitForTreeRoot } from '../stores/treeRoot';
 import { ownDisplayName } from './ownDisplayName';
 import {
-  KIND_DRIVE_ROOT,
   projectNostrIdentityRoster,
   shareRecipientsForResolvedRecipient,
   type NostrIdentityId,
@@ -28,7 +27,7 @@ import {
 import {
   encodeShareJoinLink,
   joinRequestNeedsApproval,
-  SHARE_ADDED_LABEL,
+  buildShareAddedNotices,
   shareJoinLinkPubkey,
   shareJoinRequestFilter,
   shareRecipientsFromJoinRequest,
@@ -204,14 +203,6 @@ export async function removeShareMember(shareId: NostrIdentityId, profileId: Nos
   await applyAccessChange(shareId, revokeShareMember(ownRecord(shareId).folder, secretKey, profileId, now()));
 }
 
-export interface ShareAddedNotice {
-  v: 1;
-  share_id: NostrIdentityId;
-  owner_profile_id: NostrIdentityId;
-  name: string;
-  role: Exclude<ShareRole, 'admin'>;
-}
-
 /** Changes to who has access, applied one at a time. */
 let accessChanges: Promise<void> = Promise.resolve();
 
@@ -247,24 +238,14 @@ export async function addPersonToShare(
   accessChanges = change.catch(() => undefined);
   await change;
   const { folder } = ownRecord(shareId);
-  const notice: ShareAddedNotice = {
+  const notices = buildShareAddedNotices(secretKey, {
     v: 1,
     share_id: shareId,
     owner_profile_id: folder.owner_profile_id,
     name: folder.display_name,
     role,
-  };
-  await publishEvent(finalizeEvent({
-    kind: KIND_DRIVE_ROOT,
-    created_at: now(),
-    content: JSON.stringify(notice),
-    tags: [
-      ['d', `${SHARE_ADDED_LABEL}/${shareId}/${resolved.profile_id}`],
-      ['l', SHARE_ADDED_LABEL],
-      ['i', shareId],
-      ...resolved.app_pubkeys.map((appPubkey) => ['p', appPubkey]),
-    ],
-  }, secretKey));
+  }, resolved.app_pubkeys, now());
+  await Promise.all(notices.map((event) => publishEvent(event)));
 }
 
 /** Add the person behind a join request, if the request is valid and still needed. */

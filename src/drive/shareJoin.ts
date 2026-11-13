@@ -1,5 +1,5 @@
 import { get } from 'svelte/store';
-import { verifyEvent, type Event } from 'nostr-tools';
+import type { Event } from 'nostr-tools';
 import { nostr, nostrStore } from '../nostr';
 import { getCurrentNostrIdentitySession, getSecretKey } from '../nostr/auth';
 import { publishEvent } from '../lib/nostrPublish';
@@ -9,6 +9,7 @@ import { recipientEvidenceForAppKey, SHARE_ACCESS_LABEL } from './shareAdmin';
 import {
   buildShareJoinRequest,
   folderFromAccessEventForJoin,
+  readShareAddedNotice,
   SHARE_ADDED_LABEL,
   type ShareJoinLink,
 } from './shareJoinLink';
@@ -94,7 +95,6 @@ export function joinedShare(link: ShareJoinLink, records: AcceptedShareRecord[])
     && record.local_profile_id === context.session.profileId) ?? null;
 }
 
-const UUID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
 /** How long a folder someone shared is looked for before it is left until Drive opens again. */
 const ADDED_WAIT_MS = 120_000;
 
@@ -110,23 +110,18 @@ export function watchSharesAddedToMe(): () => void {
   const consider = (event: Event) => {
     const context = visitorContext();
     if (!context) return;
-    let notice: { v?: number; share_id?: string; owner_profile_id?: string; name?: unknown; role?: unknown };
-    try {
-      if (!verifyEvent(event)) return;
-      notice = JSON.parse(event.content);
-    } catch {
-      return;
-    }
-    const shareId = notice.share_id ?? '';
-    if (notice.v !== 1 || !UUID.test(shareId) || !UUID.test(notice.owner_profile_id ?? '') || waiting.has(shareId)) return;
+    // Only this device can read it; anything else is ignored.
+    const notice = readShareAddedNotice(event, context.secretKey);
+    if (!notice || waiting.has(notice.share_id)) return;
+    const shareId = notice.share_id;
     if (get(acceptedShares).some((record) => record.share_id === shareId && record.local_profile_id === context.session.profileId)) return;
     const link: ShareJoinLink = {
       v: 1,
       share_id: shareId,
-      owner_profile_id: notice.owner_profile_id!,
+      owner_profile_id: notice.owner_profile_id,
       admin: event.pubkey,
-      name: typeof notice.name === 'string' ? notice.name.slice(0, 200) : 'Shared folder',
-      role: notice.role === 'reader' ? 'reader' : 'editor',
+      name: notice.name || 'Shared folder',
+      role: notice.role,
       key: '',
     };
     const stopWaiting = waitUntilJoined(link, () => done());

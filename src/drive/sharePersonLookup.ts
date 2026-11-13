@@ -44,12 +44,15 @@ export async function publishOwnShareAcceptance(): Promise<void> {
   } catch {
     // Without storage it is sent again next time, which is harmless.
   }
+  // It repeats what the profile's public device list already says (this key
+  // is an app key of this profile), signed by the key itself. Dated when the
+  // device was added, so it does not tell when the device was last used.
   const acceptance = signNostrIdentityFacetAcceptance({
     signerSecretKey: secretKey,
     profileId: session.profileId,
     purposes: ['app_key'],
     rosterOpId: added.op_id,
-    acceptedAt: Math.floor(Date.now() / 1000),
+    acceptedAt: added.content.created_at,
   });
   await publishEvent(JSON.parse(acceptance.event_json) as Event);
   try {
