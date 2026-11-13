@@ -3,6 +3,7 @@
  * so the same picture shows on the sheet, goes onto the clipboard and could
  * go into a file.
  */
+import { escapeHtml } from '../markup';
 import { formatGeneral, formatValue, isDateFormat, type NumberLocale } from './format';
 import type { Engine } from './engine';
 import type { Sheet } from './model';
@@ -88,10 +89,6 @@ export function chartData(sheet: Sheet, engine: Engine, chart: ChartContent): Ch
   return { labels, series, format: valueFormat };
 }
 
-function escape(text: string): string {
-  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
-
 /** A short width guess for text, without measuring: good enough to lay out labels. */
 function guessWidth(text: string, size: number): number {
   return text.length * size * 0.56;
@@ -133,7 +130,7 @@ function bar(x: number, y: number, width: number, height: number, end: 'top' | '
   else if (end === 'bottom') d = `M${x},${y}V${y + height - r}Q${x},${y + height} ${x + r},${y + height}H${x + width - r}Q${x + width},${y + height} ${x + width},${y + height - r}V${y}Z`;
   else if (end === 'right') d = `M${x},${y}H${x + width - r}Q${x + width},${y} ${x + width},${y + r}V${y + height - r}Q${x + width},${y + height} ${x + width - r},${y + height}H${x}Z`;
   else d = `M${x + width},${y}H${x + r}Q${x},${y} ${x},${y + r}V${y + height - r}Q${x},${y + height} ${x + r},${y + height}H${x + width}Z`;
-  return `<path d="${d}" fill="${fill}"><title>${escape(title)}</title></path>`;
+  return `<path d="${d}" fill="${fill}"><title>${escapeHtml(title)}</title></path>`;
 }
 
 export interface ChartPicture {
@@ -152,11 +149,11 @@ export function chartSvg(chart: ChartContent, data: ChartData | null, picture: C
   const color = (index: number) => theme.series[index % theme.series.length];
   let top = 12;
   if (chart.title) {
-    parts.push(`<text x="${width / 2}" y="${top + 13}" text-anchor="middle" font-size="14" font-weight="600" fill="${theme.text}">${escape(cut(chart.title, width - 24, 14))}</text>`);
+    parts.push(`<text x="${width / 2}" y="${top + 13}" text-anchor="middle" font-size="14" font-weight="600" fill="${theme.text}">${escapeHtml(cut(chart.title, width - 24, 14))}</text>`);
     top += 26;
   }
   const empty = (message: string) => {
-    parts.push(`<text x="${width / 2}" y="${(top + height) / 2}" text-anchor="middle" font-size="12" fill="${theme.muted}">${escape(message)}</text>`);
+    parts.push(`<text x="${width / 2}" y="${(top + height) / 2}" text-anchor="middle" font-size="12" fill="${theme.muted}">${escapeHtml(message)}</text>`);
   };
   const series = data?.series ?? [];
   const labels = data?.labels ?? [];
@@ -183,8 +180,8 @@ export function chartSvg(chart: ChartContent, data: ChartData | null, picture: C
         const point = (a: number) => `${cx + radius * Math.cos(a)},${cy + radius * Math.sin(a)}`;
         const title = `${labels[index]}: ${write(values[index])} (${Math.round(share * 100)}%)`;
         const path = share >= 0.9999
-          ? `<circle cx="${cx}" cy="${cy}" r="${radius}" fill="${color(order)}"><title>${escape(title)}</title></circle>`
-          : `<path d="M${cx},${cy}L${point(angle)}A${radius},${radius} 0 ${large} 1 ${point(next)}Z" fill="${color(order)}" stroke="${theme.background}" stroke-width="2" stroke-linejoin="round"><title>${escape(title)}</title></path>`;
+          ? `<circle cx="${cx}" cy="${cy}" r="${radius}" fill="${color(order)}"><title>${escapeHtml(title)}</title></circle>`
+          : `<path d="M${cx},${cy}L${point(angle)}A${radius},${radius} 0 ${large} 1 ${point(next)}Z" fill="${color(order)}" stroke="${theme.background}" stroke-width="2" stroke-linejoin="round"><title>${escapeHtml(title)}</title></path>`;
         parts.push(path);
         // The share on slices big enough to hold it.
         if (share >= 0.06 && radius > 40) {
@@ -198,7 +195,7 @@ export function chartSvg(chart: ChartContent, data: ChartData | null, picture: C
         shown.slice(0, 12).forEach(({ index }, order) => {
           const y = startY + order * 18;
           parts.push(`<rect x="${width - legendWidth}" y="${y}" width="10" height="10" rx="2" fill="${color(order)}"/>`);
-          parts.push(`<text x="${width - legendWidth + 16}" y="${y + 9}" font-size="11" fill="${theme.muted}">${escape(cut(labels[index], legendWidth - 22, 11))}</text>`);
+          parts.push(`<text x="${width - legendWidth + 16}" y="${y + 9}" font-size="11" fill="${theme.muted}">${escapeHtml(cut(labels[index], legendWidth - 22, 11))}</text>`);
         });
       } else if (legendBelow) {
         let x = 12;
@@ -211,7 +208,7 @@ export function chartSvg(chart: ChartContent, data: ChartData | null, picture: C
             y += 18;
           }
           if (y > height - 14) return;
-          parts.push(`<rect x="${x}" y="${y}" width="10" height="10" rx="2" fill="${color(order)}"/><text x="${x + 16}" y="${y + 9}" font-size="11" fill="${theme.muted}">${escape(label)}</text>`);
+          parts.push(`<rect x="${x}" y="${y}" width="10" height="10" rx="2" fill="${color(order)}"/><text x="${x + 16}" y="${y + 9}" font-size="11" fill="${theme.muted}">${escapeHtml(label)}</text>`);
           x += itemWidth;
         });
       }
@@ -239,7 +236,7 @@ export function chartSvg(chart: ChartContent, data: ChartData | null, picture: C
         const mark = chart.type === 'line'
           ? `<line x1="${x}" x2="${x + 12}" y1="${y + 5}" y2="${y + 5}" stroke="${color(index)}" stroke-width="2"/>`
           : `<rect x="${x}" y="${y}" width="10" height="10" rx="2" fill="${color(index)}"/>`;
-        legendItems.push(`${mark}<text x="${x + 16}" y="${y + 9}" font-size="11" fill="${theme.muted}">${escape(label)}</text>`);
+        legendItems.push(`${mark}<text x="${x + 16}" y="${y + 9}" font-size="11" fill="${theme.muted}">${escapeHtml(label)}</text>`);
         x += itemWidth;
       });
       legendHeight = y + 18 + 8;
@@ -265,10 +262,10 @@ export function chartSvg(chart: ChartContent, data: ChartData | null, picture: C
         const at = scale(tick);
         if (horizontal) {
           parts.push(`<line x1="${at}" x2="${at}" y1="${plot.top}" y2="${plot.bottom}" stroke="${theme.grid}" stroke-width="1"/>`);
-          parts.push(`<text x="${at}" y="${plot.bottom + 14}" text-anchor="middle" font-size="11" fill="${theme.muted}">${escape(tickTexts[index])}</text>`);
+          parts.push(`<text x="${at}" y="${plot.bottom + 14}" text-anchor="middle" font-size="11" fill="${theme.muted}">${escapeHtml(tickTexts[index])}</text>`);
         } else {
           parts.push(`<line x1="${plot.left}" x2="${plot.right}" y1="${at}" y2="${at}" stroke="${theme.grid}" stroke-width="1"/>`);
-          parts.push(`<text x="${plot.left - 6}" y="${at + 4}" text-anchor="end" font-size="11" fill="${theme.muted}">${escape(tickTexts[index])}</text>`);
+          parts.push(`<text x="${plot.left - 6}" y="${at + 4}" text-anchor="end" font-size="11" fill="${theme.muted}">${escapeHtml(tickTexts[index])}</text>`);
         }
       });
       const zero = scale(Math.max(low, Math.min(0, high)));
@@ -278,8 +275,8 @@ export function chartSvg(chart: ChartContent, data: ChartData | null, picture: C
       labels.forEach((label, index) => {
         if (index % every !== 0) return;
         const middle = (horizontal ? plot.top : plot.left) + band * (index + 0.5);
-        if (horizontal) parts.push(`<text x="${plot.left - 6}" y="${middle + 4}" text-anchor="end" font-size="11" fill="${theme.muted}">${escape(cut(label, labelRoom - 10, 11))}</text>`);
-        else parts.push(`<text x="${middle}" y="${plot.bottom + 15}" text-anchor="middle" font-size="11" fill="${theme.muted}">${escape(cut(label, band * every - 4, 11))}</text>`);
+        if (horizontal) parts.push(`<text x="${plot.left - 6}" y="${middle + 4}" text-anchor="end" font-size="11" fill="${theme.muted}">${escapeHtml(cut(label, labelRoom - 10, 11))}</text>`);
+        else parts.push(`<text x="${middle}" y="${plot.bottom + 15}" text-anchor="middle" font-size="11" fill="${theme.muted}">${escapeHtml(cut(label, band * every - 4, 11))}</text>`);
       });
       if (chart.type === 'line') {
         series.forEach((s, index) => {
@@ -295,7 +292,7 @@ export function chartSvg(chart: ChartContent, data: ChartData | null, picture: C
             const y = scale(value);
             path += `${pen ? 'L' : 'M'}${x.toFixed(1)},${y.toFixed(1)}`;
             pen = true;
-            if (labels.length <= 40) dots.push(`<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="4" fill="${color(index)}" stroke="${theme.background}" stroke-width="2"><title>${escape(`${s.name}, ${labels[point]}: ${write(value)}`)}</title></circle>`);
+            if (labels.length <= 40) dots.push(`<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="4" fill="${color(index)}" stroke="${theme.background}" stroke-width="2"><title>${escapeHtml(`${s.name}, ${labels[point]}: ${write(value)}`)}</title></circle>`);
           });
           parts.push(`<path d="${path}" fill="none" stroke="${color(index)}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`);
           parts.push(...dots);

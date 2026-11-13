@@ -5,6 +5,7 @@
   import { settingsStore } from '../../stores/settings';
   import { DEFAULT_IMGPROXY_CONFIG } from '../../utils/imgproxy';
   import { renderMarkdownHtml, type RenderMarkdownOptions } from '../../lib/markdown';
+  import { escapeHtml } from '../../lib/markup';
   import {
     clearMarkdownCopyButtonTimers,
     handleMarkdownCopyButtonClick,
@@ -47,15 +48,6 @@
       .trim()
       .replace(/[^\w\s-]/g, '')
       .replace(/\s+/g, '-');
-  }
-
-  function escapeHtml(value: string): string {
-    return value
-      .replaceAll('&', '&amp;')
-      .replaceAll('<', '&lt;')
-      .replaceAll('>', '&gt;')
-      .replaceAll('"', '&quot;')
-      .replaceAll("'", '&#39;');
   }
 
   function getCodeLanguage(token: Tokens.Code): string {

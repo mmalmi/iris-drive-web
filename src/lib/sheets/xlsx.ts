@@ -9,6 +9,7 @@
  * comments and conditional formats are left out. Loaded only when used.
  */
 import { unzipSync, zipSync, strFromU8, strToU8 } from 'fflate';
+import { escapeXml } from '../markup';
 import { columnIndex, columnName, parseRectName, quoteSheetName } from './address';
 import { defineName, findName, listNames, resolveName } from './names';
 import { readBorder } from './borders';
@@ -447,12 +448,6 @@ function fillSheet(book: Book, sheet: Sheet, imported: ImportedSheet, names: Map
 }
 
 // --- Writing a file ---
-
-function escapeXml(text: string): string {
-  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
-    // Characters XML cannot hold at all.
-    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '');
-}
 
 const KIND_NAMES: Record<string, string> = { s: 'thin', m: 'medium', k: 'thick', d: 'dashed', o: 'dotted' };
 

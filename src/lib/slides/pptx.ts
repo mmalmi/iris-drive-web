@@ -18,6 +18,7 @@ import { SLIDE_HEIGHT, SLIDE_WIDTH, type Slide, type SlideElement } from './mode
 import { cellKey, cellPlace, edgeBorder, type CellBorder, type Side } from './table';
 import { paletteFor, readableOn, resolveColour, textStyle, type Palette, type Theme } from './themes';
 import { cssColour, validFontSize } from './richText';
+import { escapeXml } from '../markup';
 
 /** One slide unit in EMU: a 1280-unit slide is PowerPoint's 13.333-inch widescreen. */
 const EMU = 9525;
@@ -48,12 +49,6 @@ const NS_R = 'http://schemas.openxmlformats.org/officeDocument/2006/relationship
 const NS_P = 'http://schemas.openxmlformats.org/presentationml/2006/main';
 const REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
 const PKG_REL = 'http://schemas.openxmlformats.org/package/2006/relationships';
-
-function esc(value: string): string {
-  // Characters XML 1.0 cannot hold are dropped.
-  return value.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f￾￿]/g, '')
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
 
 function emu(value: number): number {
   return Math.round(value * EMU);
@@ -118,7 +113,7 @@ function runXml(text: string, attributes: Record<string, unknown>, look: TextLoo
     on('strike') ? 'strike="sngStrike"' : '',
     'dirty="0"',
   ].filter(Boolean).join(' ');
-  return `<a:r><a:rPr ${props}>${fill ? `<a:solidFill><a:srgbClr val="${fill}"/></a:solidFill>` : ''}<a:latin typeface="${esc(look.font)}"/></a:rPr><a:t>${esc(text)}</a:t></a:r>`;
+  return `<a:r><a:rPr ${props}>${fill ? `<a:solidFill><a:srgbClr val="${fill}"/></a:solidFill>` : ''}<a:latin typeface="${escapeXml(look.font)}"/></a:rPr><a:t>${escapeXml(text)}</a:t></a:r>`;
 }
 
 function themeColour(value: string | null, palette: Palette): string | null {
@@ -209,7 +204,7 @@ function textShape(element: SlideElement, theme: Theme, layout: string, palette:
   const id = writer.id++;
   const name = element.role ? `${element.role[0]!.toUpperCase()}${element.role.slice(1)} ${id}` : `Text ${id}`;
   const body = bodyXml(element.content, look, palette, { valign: style.valign, inset: [12, 8], fit: element.role ? 'shrink' : 'grow' });
-  return `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="${esc(name)}"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr><p:spPr>${xfrm(element)}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/></p:spPr>${body}</p:sp>`;
+  return `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="${escapeXml(name)}"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr><p:spPr>${xfrm(element)}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/></p:spPr>${body}</p:sp>`;
 }
 
 function shapeXml(element: SlideElement, theme: Theme, layout: string, palette: Palette, writer: Writer): string {
@@ -257,7 +252,7 @@ function pictureXml(element: SlideElement, image: PptxImage, target: string, wri
       crop = `<a:srcRect t="${cut}" b="${cut}"/>`;
     }
   }
-  const alt = element.alt ? ` descr="${esc(element.alt)}"` : '';
+  const alt = element.alt ? ` descr="${escapeXml(element.alt)}"` : '';
   return `<p:pic><p:nvPicPr><p:cNvPr id="${id}" name="Picture ${id}"${alt}/><p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr><p:nvPr/></p:nvPicPr><p:blipFill><a:blip r:embed="${rel}"/>${crop}<a:stretch><a:fillRect/></a:stretch></p:blipFill><p:spPr>${xfrm(element)}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:pic>`;
 }
 
@@ -316,11 +311,11 @@ function transitionXml(slide: Slide): string {
 }
 
 function relsXml(rels: Array<{ id: string; type: string; target: string }>): string {
-  return `${XML_HEAD}<Relationships xmlns="${PKG_REL}">${rels.map(rel => `<Relationship Id="${rel.id}" Type="${rel.type}" Target="${esc(rel.target)}"/>`).join('')}</Relationships>`;
+  return `${XML_HEAD}<Relationships xmlns="${PKG_REL}">${rels.map(rel => `<Relationship Id="${rel.id}" Type="${rel.type}" Target="${escapeXml(rel.target)}"/>`).join('')}</Relationships>`;
 }
 
 function notesXml(slideIndex: number, text: string): string {
-  const paragraphs = text.split('\n').map(line => (line ? `<a:p><a:r><a:rPr lang="en-US" dirty="0"/><a:t>${esc(line)}</a:t></a:r></a:p>` : '<a:p><a:endParaRPr lang="en-US" dirty="0"/></a:p>')).join('');
+  const paragraphs = text.split('\n').map(line => (line ? `<a:p><a:r><a:rPr lang="en-US" dirty="0"/><a:t>${escapeXml(line)}</a:t></a:r></a:p>` : '<a:p><a:endParaRPr lang="en-US" dirty="0"/></a:p>')).join('');
   return `${XML_HEAD}<p:notes xmlns:a="${NS_A}" xmlns:r="${NS_R}" xmlns:p="${NS_P}"><p:cSld><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/>`
     + `<p:sp><p:nvSpPr><p:cNvPr id="2" name="Slide Image ${slideIndex}"/><p:cNvSpPr><a:spLocks noGrp="1" noRot="1" noChangeAspect="1"/></p:cNvSpPr><p:nvPr><p:ph type="sldImg"/></p:nvPr></p:nvSpPr><p:spPr/></p:sp>`
     + `<p:sp><p:nvSpPr><p:cNvPr id="3" name="Notes ${slideIndex}"/><p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr><p:ph type="body" idx="1"/></p:nvPr></p:nvSpPr><p:spPr/><p:txBody><a:bodyPr/><a:lstStyle/>${paragraphs}</p:txBody></p:sp>`
@@ -332,15 +327,15 @@ const CLR_MAP = 'bg1="lt1" tx1="dk1" bg2="lt2" tx2="dk2" accent1="accent1" accen
 function themeXml(theme: Theme, name: string): string {
   const base = theme.base;
   const scheme = (tag: string, colour: string) => `<a:${tag}><a:srgbClr val="${hex(colour) ?? '000000'}"/></a:${tag}>`;
-  const font = esc(fontFor(theme.bodyFont));
-  const titleFont = esc(fontFor(theme.titleFont));
+  const font = escapeXml(fontFor(theme.bodyFont));
+  const titleFont = escapeXml(fontFor(theme.titleFont));
   const fills = '<a:solidFill><a:schemeClr val="phClr"/></a:solidFill>';
-  return `${XML_HEAD}<a:theme xmlns:a="${NS_A}" name="${esc(name)}"><a:themeElements><a:clrScheme name="${esc(theme.name)}">`
+  return `${XML_HEAD}<a:theme xmlns:a="${NS_A}" name="${escapeXml(name)}"><a:themeElements><a:clrScheme name="${escapeXml(theme.name)}">`
     + scheme('dk1', base.text) + scheme('lt1', hex(base.background) ? base.background : '#ffffff') + scheme('dk2', base.muted) + scheme('lt2', '#eeeeee')
     + scheme('accent1', base.accent) + scheme('accent2', '#2f9e44') + scheme('accent3', '#f08c00') + scheme('accent4', '#1c7ed6') + scheme('accent5', '#c2255c') + scheme('accent6', '#0ca678')
     + scheme('hlink', base.accent) + scheme('folHlink', base.muted)
-    + `</a:clrScheme><a:fontScheme name="${esc(theme.name)}"><a:majorFont><a:latin typeface="${titleFont}"/><a:ea typeface=""/><a:cs typeface=""/></a:majorFont><a:minorFont><a:latin typeface="${font}"/><a:ea typeface=""/><a:cs typeface=""/></a:minorFont></a:fontScheme>`
-    + `<a:fmtScheme name="${esc(theme.name)}"><a:fillStyleLst>${fills}${fills}${fills}</a:fillStyleLst>`
+    + `</a:clrScheme><a:fontScheme name="${escapeXml(theme.name)}"><a:majorFont><a:latin typeface="${titleFont}"/><a:ea typeface=""/><a:cs typeface=""/></a:majorFont><a:minorFont><a:latin typeface="${font}"/><a:ea typeface=""/><a:cs typeface=""/></a:minorFont></a:fontScheme>`
+    + `<a:fmtScheme name="${escapeXml(theme.name)}"><a:fillStyleLst>${fills}${fills}${fills}</a:fillStyleLst>`
     + '<a:lnStyleLst><a:ln w="6350"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln><a:ln w="12700"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln><a:ln w="19050"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln></a:lnStyleLst>'
     + '<a:effectStyleLst><a:effectStyle><a:effectLst/></a:effectStyle><a:effectStyle><a:effectLst/></a:effectStyle><a:effectStyle><a:effectLst/></a:effectStyle></a:effectStyleLst>'
     + `<a:bgFillStyleLst>${fills}${fills}${fills}</a:bgFillStyleLst></a:fmtScheme></a:themeElements><a:objectDefaults/><a:extraClrSchemeLst/></a:theme>`;
@@ -449,7 +444,7 @@ export async function deckToPptx(options: PptxOptions): Promise<Uint8Array> {
     put('ppt/theme/theme2.xml', themeXml(theme, 'Notes'));
   }
   const now = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
-  put('docProps/core.xml', `${XML_HEAD}<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:title>${esc(options.title)}</dc:title><dcterms:created xsi:type="dcterms:W3CDTF">${now}</dcterms:created><dcterms:modified xsi:type="dcterms:W3CDTF">${now}</dcterms:modified></cp:coreProperties>`);
+  put('docProps/core.xml', `${XML_HEAD}<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:title>${escapeXml(options.title)}</dc:title><dcterms:created xsi:type="dcterms:W3CDTF">${now}</dcterms:created><dcterms:modified xsi:type="dcterms:W3CDTF">${now}</dcterms:modified></cp:coreProperties>`);
   put('docProps/app.xml', `${XML_HEAD}<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"><Application>Iris Drive</Application><Slides>${slides.length}</Slides></Properties>`);
   put('_rels/.rels', relsXml([
     { id: 'rId1', type: `${REL}/officeDocument`, target: 'ppt/presentation.xml' },

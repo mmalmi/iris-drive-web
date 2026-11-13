@@ -1,4 +1,5 @@
 /** The actions that change a spreadsheet's content, each one undo step. */
+import { escapeHtml } from '../markup';
 import { rectCols, rectRows, type Rect } from './address';
 import { setBorders, type BorderPlace } from './borders';
 import type { CopiedCells, SheetController } from './controller.svelte';
@@ -99,10 +100,6 @@ export function copySelection(ctl: SheetController, cut = false): string {
     .map(m => ({ r1: rows.indexOf(m.r1), c1: m.c1 - rect.c1, r2: rows.indexOf(m.r2), c2: m.c2 - rect.c1 }));
   ctl.copied = { sheetId: sheet.id, rect, rows, rowIds, colIds, cut: cut && ctl.canEdit, text, lines, cells, merges, objects };
   return text;
-}
-
-function escapeHtml(text: string): string {
-  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 function borderCss(value: string | undefined): string {
