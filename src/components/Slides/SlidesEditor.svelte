@@ -36,7 +36,7 @@
     addAttachment: file => drive.addAttachment(file),
     root: () => root,
   });
-  const { onCopy, onCut, onPaste, menuCopy, menuPaste } = clipboard;
+  const { onCopy, onCut, onPaste, onBlur, menuCopy, menuPaste } = clipboard;
 
   let canEdit = $derived(!!editorState?.canEdit);
 
@@ -79,6 +79,7 @@
     document.addEventListener('copy', onCopy);
     document.addEventListener('cut', onCut);
     document.addEventListener('paste', onPaste);
+    window.addEventListener('blur', onBlur);
   });
 
   onDestroy(() => {
@@ -87,6 +88,7 @@
     document.removeEventListener('copy', onCopy);
     document.removeEventListener('cut', onCut);
     document.removeEventListener('paste', onPaste);
+    window.removeEventListener('blur', onBlur);
     editorState?.stopEditing();
     editorState?.destroy();
     drive.destroy();
