@@ -150,6 +150,37 @@ describe('profile Drive root durability before publish', () => {
     expect(times[2]).toBeGreaterThan(times[1]);
   });
 
+  it('publishes versions in the order they were made, even when a later one uploads faster', async () => {
+    activateProfile();
+    const tree = new HashTree({ store: new MemoryStore() });
+    shared.tree = tree;
+    const uploads: Array<() => void> = [];
+    shared.adapter = {
+      pushToBlossom: vi.fn(() => new Promise((resolve) => {
+        uploads.push(() => resolve({ pushed: 1, skipped: 0, failed: 0 }));
+      })),
+    };
+    const { publishNostrIdentityDriveRootIfAvailable } = await import('../src/drive/profileDriveRootPublish');
+    const older = await rootWithFile(tree, 'added.txt', 'added');
+    const newer = await rootWithFile(tree, 'renamed.txt', 'renamed');
+
+    const first = publishNostrIdentityDriveRootIfAvailable('main', older);
+    const second = publishNostrIdentityDriveRootIfAvailable('main', newer);
+    // The newer version must not start its upload, let alone be announced, before the older one is out.
+    await vi.waitFor(() => expect(uploads).toHaveLength(1));
+    expect(shared.publish).not.toHaveBeenCalled();
+    uploads[0]();
+    await first;
+    await vi.waitFor(() => expect(uploads).toHaveLength(2));
+    uploads[1]();
+    await second;
+
+    const events = shared.publish.mock.calls.map(([event]) => event as { created_at: number; id: string });
+    expect(events).toHaveLength(2);
+    expect(events[1].created_at).toBeGreaterThan(events[0].created_at);
+    expect(shared.adapter.pushToBlossom.mock.calls[0][0]).not.toEqual(shared.adapter.pushToBlossom.mock.calls[1][0]);
+  });
+
   it('does not announce a prepared tombstone root when any block upload fails', async () => {
     const { secretKey, appKeyPubkey } = activateProfile();
     const tree = new HashTree({ store: new MemoryStore() });

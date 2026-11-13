@@ -118,17 +118,45 @@ async function rewrapShareRoot(shareId: string): Promise<void> {
   if (root?.key) await publishNostrIdentityDriveRootIfAvailable('main', root, { rootScopeId: shareId });
 }
 
-export async function publishNostrIdentityDriveRootIfAvailable(
+interface DriveRootPublishOptions {
+  rootScopeId?: string;
+  publishedAt?: number;
+  publishedAtMs?: number;
+  appKeySeq?: number;
+  /** Wait until the root is stored for sending (no relay is waited for): for handing a Drive to a device being approved. */
+  awaitRelay?: boolean;
+}
+
+const publishQueues = new Map<string, Promise<unknown>>();
+
+/**
+ * Publishes a version of a Drive. Versions of one Drive go out one at a time,
+ * in the order they were asked for: each is given its time only once its
+ * blocks are uploaded, so two running side by side could finish in the wrong
+ * order and leave the older content with the later time, which is the one
+ * relays and other devices keep.
+ */
+export function publishNostrIdentityDriveRootIfAvailable(
   driveId: string,
   rootCid: CID,
-  options: {
-    rootScopeId?: string;
-    publishedAt?: number;
-    publishedAtMs?: number;
-    appKeySeq?: number;
-    /** Wait until the root is stored for sending (no relay is waited for): for handing a Drive to a device being approved. */
-    awaitRelay?: boolean;
-  } = {},
+  options: DriveRootPublishOptions = {},
+): Promise<boolean> {
+  const scope = options.rootScopeId ?? getCurrentNostrIdentitySession()?.profileId ?? '';
+  const queueKey = `${scope}/${driveId}`;
+  const publishing = (publishQueues.get(queueKey) ?? Promise.resolve())
+    .catch(() => {})
+    .then(() => publishDriveRootNow(driveId, rootCid, options));
+  publishQueues.set(queueKey, publishing);
+  void publishing.catch(() => {}).then(() => {
+    if (publishQueues.get(queueKey) === publishing) publishQueues.delete(queueKey);
+  });
+  return publishing;
+}
+
+async function publishDriveRootNow(
+  driveId: string,
+  rootCid: CID,
+  options: DriveRootPublishOptions,
 ): Promise<boolean> {
   const session = getCurrentNostrIdentitySession();
   const secretKey = getSecretKey();
