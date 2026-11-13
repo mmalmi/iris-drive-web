@@ -33,26 +33,9 @@ const nostrStore = {
   },
 };
 
-vi.mock('dexie', () => {
-  class DexieMock {
-    linkKeys = {
-      toArray: vi.fn().mockResolvedValue([]),
-      put: vi.fn().mockResolvedValue(undefined),
-    };
-
-    constructor(_name: string) {}
-
-    version(_version: number) {
-      return {
-        stores: (_schema: Record<string, string>) => this,
-      };
-    }
-  }
-
-  return {
-    default: DexieMock,
-  };
-});
+vi.mock('../src/lib/keyValueStore', () => ({
+  keyValueStore: () => ({ get: vi.fn().mockResolvedValue(undefined), put: vi.fn().mockResolvedValue(undefined), all: vi.fn().mockResolvedValue([]) }),
+}));
 
 vi.mock('../src/refResolver', () => ({
   getRefResolver: () => ({

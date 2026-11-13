@@ -1,4 +1,4 @@
-import { toHex } from '@fips/core';
+import { toHex } from '@hashtree/core';
 import { getPublicKey, nip19 } from 'nostr-tools';
 import { projectNostrIdentityRoster } from '../drive/protocolProfileProjection';
 import type { SignedNostrIdentityRosterOp } from '../drive/protocolTypes';

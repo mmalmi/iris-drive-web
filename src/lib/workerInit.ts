@@ -11,7 +11,6 @@ import {
   setWorkerAdapterInstance,
   type BackendAdapter,
 } from '../workerAdapter';
-import { initNativeBackend } from '../nativeAdapter';
 import {
   settingsStore,
   waitForSettingsLoaded,
@@ -29,11 +28,17 @@ import { setupTreeRootRegistryBridge } from './workerTreeRootBridge';
 import { initializePublishFn } from '../treeRootCache';
 import { setupMediaStreaming } from './mediaStreamingSetup';
 import type { WorkerNostrFilter } from '@hashtree/core';
-import {
-  attachDriveFipsProvider,
-  startDriveFipsRuntime,
-  stopDriveFipsRuntime,
-} from './driveFipsRuntime';
+// The peer network is a large download. It is loaded when it first starts,
+// so the first screen does not wait for it.
+let fipsRuntimeModule: Promise<typeof import('./driveFipsRuntime')> | null = null;
+function loadFipsRuntime(): Promise<typeof import('./driveFipsRuntime')> {
+  fipsRuntimeModule ??= import('./driveFipsRuntime');
+  return fipsRuntimeModule;
+}
+async function stopDriveFipsRuntime(): Promise<void> {
+  // Nothing to stop when it never loaded.
+  if (fipsRuntimeModule) await (await fipsRuntimeModule).stopDriveFipsRuntime();
+}
 import {
   createDriveFipsRosterAuthorizationSource,
   resolveDriveFipsIdentity,
@@ -123,6 +128,7 @@ function startFipsForAdapter(
 
     try {
       const authorizedAppKeyPubkeys = await driveFipsAuthorizedAppKeySource(identity);
+      const { startDriveFipsRuntime, attachDriveFipsProvider } = await loadFipsRuntime();
       const runtime = await startDriveFipsRuntime({
         relays,
         ...bootstrapOptions,
@@ -350,6 +356,8 @@ export async function initHashtreeBackend(identity: WorkerInitIdentity): Promise
       let adapter: BackendAdapter | null = null;
       if (backendMode === 'native') {
         logT('Starting native backend');
+        // Only the desktop app has a native backend; browsers never load it.
+        const { initNativeBackend } = await import('../nativeAdapter');
         adapter = await initNativeBackend(config);
         setWorkerAdapterInstance(adapter);
         logT('Native backend ready');

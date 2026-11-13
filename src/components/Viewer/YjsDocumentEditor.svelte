@@ -9,8 +9,8 @@
     ATTACHMENT_SCHEME,
     DriveDocument,
     attachmentFilename,
-    createYjsTiptapEditor,
   } from '../../lib/yjs';
+  import { createYjsTiptapEditor } from '../../lib/yjs/tiptapEditor';
 
   const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 

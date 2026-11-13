@@ -9,23 +9,13 @@ import { writable, get, type Readable } from 'svelte/store';
 import { getRefResolver } from '../refResolver';
 import { toHex, type Hash, type RefResolverListEntry, type TreeVisibility } from '@hashtree/core';
 import { nostrStore, type NostrState } from '../nostr';
-import Dexie from 'dexie';
+import { keyValueStore } from '../lib/keyValueStore';
 import { getAllLocalRoots, onCacheUpdate } from '../treeRootCache';
 import { isActiveNostrIdentityRouteScope } from '../drive/profileRoute';
 
-// Dexie database for link keys
-class LinkKeysDB extends Dexie {
-  linkKeys!: Dexie.Table<{ key: string; linkKey: string }, string>;
-
-  constructor() {
-    super('hashtree-link-keys');
-    this.version(1).stores({
-      linkKeys: 'key', // key = "npub/treeName"
-    });
-  }
-}
-
-const db = new LinkKeysDB();
+// Link keys persist in IndexedDB (the database Dexie created in earlier
+// versions), keyed by "npub/treeName".
+const db = { linkKeys: keyValueStore<{ key: string; linkKey: string }>('hashtree-link-keys', 'linkKeys') };
 
 // In-memory cache for sync access (populated from DB)
 let linkKeysCache: Record<string, string> = {};
@@ -47,7 +37,7 @@ async function loadCache(): Promise<void> {
   if (cacheLoadPromise) return cacheLoadPromise;
   cacheLoadPromise = (async () => {
     try {
-      const all = await db.linkKeys.toArray();
+      const all = await db.linkKeys.all();
       linkKeysCache = Object.fromEntries(all.map(e => [e.key, e.linkKey]));
     } catch {
       // Ignore errors

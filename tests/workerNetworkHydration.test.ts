@@ -4,11 +4,8 @@ const state = vi.hoisted(() => ({
   get: vi.fn(), put: vi.fn(), initWorker: vi.fn(), initNative: vi.fn(), endpoints: vi.fn(),
 }));
 
-vi.mock('dexie', () => ({
-  default: class {
-    settings = { get: state.get, put: state.put };
-    version() { return { stores: () => { this.settings = { get: state.get, put: state.put }; return this; } }; }
-  },
+vi.mock('../src/lib/keyValueStore', () => ({
+  keyValueStore: () => ({ get: state.get, put: state.put, all: async () => [] }),
 }));
 vi.mock('../src/workerAdapter', () => ({
   initWorkerAdapter: state.initWorker, getWorkerAdapter: () => null, setWorkerAdapterInstance: vi.fn(),

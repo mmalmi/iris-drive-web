@@ -20,7 +20,7 @@ import {
   type MeshHistoryCursor,
   type MeshPeerInfo,
 } from './lib/meshStats';
-import { getDriveFipsRuntime } from './lib/driveFipsRuntime';
+import { getLoadedDriveFipsRuntime } from './lib/driveFipsRuntimeRef';
 
 // Re-export LinkType for e2e tests that can't import 'hashtree' directly
 export { LinkType };
@@ -277,7 +277,7 @@ export function stopWebRTC(): void {
 }
 
 function fipsPeers(): PeerInfo[] {
-  const stats = getDriveFipsRuntime()?.getStats();
+  const stats = getLoadedDriveFipsRuntime()?.getStats();
   if (!stats) return [];
   return stats.peers.map((peer) => ({
     id: `fips:webrtc:${peer.peerId}`,

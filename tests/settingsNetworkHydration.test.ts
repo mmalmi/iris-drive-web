@@ -3,11 +3,8 @@ import { DEFAULT_PUBLIC_RELAYS } from '@iris/hashtree-app/defaultRelays';
 
 const persistence = vi.hoisted(() => ({ get: vi.fn(), put: vi.fn() }));
 
-vi.mock('dexie', () => ({
-  default: class {
-    settings = persistence;
-    version() { return { stores: () => { this.settings = persistence; return this; } }; }
-  },
+vi.mock('../src/lib/keyValueStore', () => ({
+  keyValueStore: () => ({ get: persistence.get, put: persistence.put, all: async () => [] }),
 }));
 
 beforeEach(() => {

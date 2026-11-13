@@ -6,15 +6,10 @@
   import { matchRoute } from '../lib/router.svelte';
   import { matchDirectContentRoute } from '../lib/directContentRoute';
 
-  // Pages other than the file views load when first opened.
-  import UsersPage from './UsersPage.svelte';
-
-  // Route handlers
+  // Only the Drive itself is part of the first download; every other page
+  // loads when it is first opened.
   import HomeRoute from '../routes/HomeRoute.svelte';
-  import RecentRoute from '../routes/RecentRoute.svelte';
-  import SharedWithMeRoute from '../routes/SharedWithMeRoute.svelte';
   import TreeRoute from '../routes/TreeRoute.svelte';
-  import UserRoute from '../routes/UserRoute.svelte';
 
   // Route definitions with patterns
   // Note: More specific routes must come before less specific ones
@@ -115,9 +110,13 @@
       <ShareJoinRoute payload={route.params.payload || ''} />
     {/await}
   {:else if route.id === 'recent'}
-    <RecentRoute />
+    {#await import('../routes/RecentRoute.svelte') then { default: RecentRoute }}
+      <RecentRoute />
+    {/await}
   {:else if route.id === 'sharedWithMe'}
-    <SharedWithMeRoute />
+    {#await import('../routes/SharedWithMeRoute.svelte') then { default: SharedWithMeRoute }}
+      <SharedWithMeRoute />
+    {/await}
   {:else if route.id === 'settings'}
     {#await import('./settings/SettingsLayout.svelte') then { default: SettingsLayout }}
       <SettingsLayout />
@@ -127,7 +126,9 @@
       <WalletPage />
     {/await}
   {:else if route.id === 'users'}
-    <UsersPage mode={route.params.usersMode === 'no_existing' ? 'no_existing' : route.params.usersMode === 'create' ? 'create' : route.params.usersMode === 'existing' ? 'existing' : 'list'} />
+    {#await import('./UsersPage.svelte') then { default: UsersPage }}
+      <UsersPage mode={route.params.usersMode === 'no_existing' ? 'no_existing' : route.params.usersMode === 'create' ? 'create' : route.params.usersMode === 'existing' ? 'existing' : 'list'} />
+    {/await}
   {:else if route.id === 'follows'}
     {#await import('./FollowsPage.svelte') then { default: FollowsPage }}
       <FollowsPage npub={route.params.npub} />
@@ -143,7 +144,9 @@
   {:else if route.id === 'tree'}
     <TreeRoute npub={route.params.npub} treeName={route.params.treeName} wild={route.params.wild} />
   {:else if route.id === 'user'}
-    <UserRoute id={route.params.id || route.params.npub} wild={route.params.wild} />
+    {#await import('../routes/UserRoute.svelte') then { default: UserRoute }}
+      <UserRoute id={route.params.id || route.params.npub} wild={route.params.wild} />
+    {/await}
   {:else}
     <HomeRoute />
   {/if}

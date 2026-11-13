@@ -1,3 +1,5 @@
+// The tiptap editor setup is imported from './tiptapEditor' directly: exported
+// here, it would pull the whole text editor into spreadsheets too.
 export {
   ATTACHMENTS_DIRECTORY,
   ATTACHMENT_SCHEME,
@@ -11,6 +13,5 @@ export {
   type DocumentChange,
 } from './documentStore';
 export { connectDocumentTabs } from './tabSync';
-export { createYjsTiptapEditor } from './tiptapEditor';
 export { DriveDocument, type SaveStatus } from './driveDocument.svelte';
 export { TAB_ORIGIN } from './tabSync';

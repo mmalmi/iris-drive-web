@@ -3,7 +3,7 @@
    * WalletPage - Cashu wallet interface
    * Shows balance, receive/send, and mint management
    */
-  import { walletStore, addMint, createReceiveQuote, receiveToken, DEFAULT_MINT } from '../stores/wallet';
+  import { walletStore, addMint, createReceiveQuote, receiveToken, initWallet, DEFAULT_MINT } from '../stores/wallet';
   import { getBtcUsdRate, satsToUsd } from '../utils/btcRate';
   import { nostrStore } from '../nostr';
   import { getSecretKey } from '../nostr/auth';
@@ -14,6 +14,17 @@
 
   let isLoggedIn = $derived($nostrStore.isLoggedIn);
   let hasSecretKey = $derived(getSecretKey() !== null);
+
+  // The wallet starts when this page is first opened, not on every sign-in.
+  $effect(() => {
+    if (!$nostrStore.isLoggedIn || !$nostrStore.pubkey) return;
+    const key = getSecretKey();
+    if (key) {
+      initWallet(key).catch((e) => {
+        console.error('Wallet initialization failed:', e);
+      });
+    }
+  });
 
   let activeTab = $state<Tab>('balance');
   let btcRate = $state<number | null>(null);

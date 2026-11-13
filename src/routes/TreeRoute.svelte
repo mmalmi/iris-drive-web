@@ -3,7 +3,6 @@
   import { onDestroy } from 'svelte';
   import FileBrowser from '../components/FileBrowser.svelte';
   import Viewer from '../components/Viewer/Viewer.svelte';
-  import StreamView from '../components/stream/StreamView.svelte';
   import { nostrStore } from '../nostr';
   import { routeStore, addRecent, isViewingFileStore, currentHash } from '../stores';
   import { updateRecentVisibility } from '../stores/recents';
@@ -219,7 +218,9 @@
   ? 'flex flex-1 flex-col min-w-0 min-h-0'
   : 'hidden'}>
   {#if showStreamView}
-    <StreamView />
+    {#await import('../components/stream/StreamView.svelte') then { default: StreamView }}
+      <StreamView />
+    {/await}
   {:else}
     <Viewer />
   {/if}

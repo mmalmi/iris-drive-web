@@ -7,6 +7,7 @@ import { hkdf } from '@noble/hashes/hkdf.js';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { Manager } from 'coco-cashu-core';
 import { IndexedDbRepositories } from 'coco-cashu-indexeddb';
+import { registerWalletStop } from '../lib/walletLifecycle';
 
 export const DEFAULT_MINT = 'https://mint.coinos.io';
 
@@ -160,6 +161,8 @@ export async function initWallet(nostrSecretKey: Uint8Array): Promise<void> {
     }));
   }
 }
+
+registerWalletStop(() => disposeWallet());
 
 /**
  * Dispose the wallet

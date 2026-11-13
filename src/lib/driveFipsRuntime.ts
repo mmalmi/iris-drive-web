@@ -19,6 +19,7 @@ import {
   type SessionEvent,
 } from '@fips/core';
 import { decodeDriveFipsSecretKey } from './driveFipsIdentity';
+import { registerDriveFipsRuntimeGetter } from './driveFipsRuntimeRef';
 
 export const IRIS_DRIVE_FIPS_DISCOVERY_SCOPE = DEFAULT_FIPS_DISCOVERY_APP;
 
@@ -189,6 +190,8 @@ export async function stopDriveFipsRuntime(): Promise<void> {
 export function getDriveFipsRuntime(): DriveFipsRuntime | null {
   return activeRuntime;
 }
+
+registerDriveFipsRuntimeGetter(getDriveFipsRuntime);
 
 export class DriveFipsRuntime {
   private readonly options: DriveFipsRuntimeOptions;

@@ -5,7 +5,6 @@
   import { nostrStore } from '../../nostr';
   import { getQueryParamsFromHash } from '../../lib/router.svelte';
   import DirectoryActions from './DirectoryActions.svelte';
-  import ViewerFileView from './ViewerFileView.svelte';
   import { documentKind, documentTitle, routeDocumentFolderName } from '../../lib/documentNames';
   import { buildSitesHref, isHtmlFilename } from '../../lib/siteHref';
   import {
@@ -302,28 +301,31 @@
     {/if}
   {/key}
 {:else if urlFileName && (isEditing || entryFromStore)}
-  <ViewerFileView
-    entry={entryFromStore}
-    {urlFileName}
-    {isEditing}
-    routePath={route.path}
-    routeNpub={route.npub}
-    routeTreeName={route.treeName}
-    routeIsPermalink={route.isPermalink}
-    linkKey={route.params.get('k')}
-    {backUrl}
-    {viewedNpub}
-    {targetNpub}
-    currentTreeVisibility={currentTree?.visibility}
-    {rootCid}
-    {canEdit}
-    {permalinkUrl}
-    {latestVersionUrl}
-    {openSiteHref}
-    filesCount={filesOnly.length}
-    {prevFile}
-    {nextFile}
-  />
+  <!-- File views and their viewers (code, media, archives) load when a file is opened. -->
+  {#await import('./ViewerFileView.svelte') then { default: ViewerFileView }}
+    <ViewerFileView
+      entry={entryFromStore}
+      {urlFileName}
+      {isEditing}
+      routePath={route.path}
+      routeNpub={route.npub}
+      routeTreeName={route.treeName}
+      routeIsPermalink={route.isPermalink}
+      linkKey={route.params.get('k')}
+      {backUrl}
+      {viewedNpub}
+      {targetNpub}
+      currentTreeVisibility={currentTree?.visibility}
+      {rootCid}
+      {canEdit}
+      {permalinkUrl}
+      {latestVersionUrl}
+      {openSiteHref}
+      filesCount={filesOnly.length}
+      {prevFile}
+      {nextFile}
+    />
+  {/await}
 {:else if urlFileName}
   <div class="flex-1 flex items-center justify-center bg-surface-0 text-muted">
     {#if resolvingPath || entriesLoading}

@@ -2,7 +2,7 @@
  * Settings store with Dexie persistence (Svelte version)
  */
 import { writable, get } from 'svelte/store';
-import Dexie, { type Table } from 'dexie';
+import { keyValueStore } from '../lib/keyValueStore';
 import {
   DEFAULT_EDITOR_SETTINGS,
   DEFAULT_IMGPROXY_SETTINGS,
@@ -23,19 +23,8 @@ import type {
 
 export * from './settingsDefaults';
 
-// Dexie database for settings persistence
-class SettingsDB extends Dexie {
-  settings!: Table<{ key: string; value: unknown }>;
-
-  constructor() {
-    super('hashtree-settings');
-    this.version(1).stores({
-      settings: '&key',
-    });
-  }
-}
-
-const db = new SettingsDB();
+// Settings persist in IndexedDB (the database Dexie created in earlier versions).
+const db = { settings: keyValueStore<{ key: string; value: unknown }>('hashtree-settings', 'settings') };
 
 export interface SettingsState {
   // Legacy settings (kept for compatibility)

@@ -83,5 +83,18 @@ export function filesManualChunks(id: string): string | undefined {
   if (id.includes('dexie')) {
     return 'dexie';
   }
+  // Needed at start; kept out of the 'dexie' chunk, which only the peer
+  // network uses, so that chunk loads with it instead of before the first screen.
+  if (/node_modules\/(@hashtree\/core|@msgpack\/msgpack)\//.test(id)) {
+    return 'hashtree';
+  }
+  // The text editor goes only to documents and presentations; spreadsheets
+  // share just the Yjs part.
+  if (/node_modules\/(@tiptap|prosemirror-|linkifyjs|rope-sequence|orderedmap|w3c-keyname)/.test(id)) {
+    return 'richtext';
+  }
+  if (/node_modules\/(yjs|lib0|y-protocols)\//.test(id)) {
+    return 'yjs';
+  }
   return resolveSharedVendorChunk(id);
 }

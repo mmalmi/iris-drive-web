@@ -41,8 +41,7 @@ import { treeRootRegistry } from '../TreeRootRegistry';
 import { profileDriveProjection } from '../drive/profileDriveProjection';
 import { needsMigrations, runMigrations } from '../migrations';
 // The wallet is not needed to show the Drive; it loads once an account is signed in.
-const initWallet = (key: Uint8Array) => import('../stores/wallet').then(wallet => wallet.initWallet(key));
-const disposeWallet = () => import('../stores/wallet').then(wallet => wallet.disposeWallet());
+import { stopLoadedWallet } from '../lib/walletLifecycle';
 import {
   createDriveDeviceApprovalDraft,
   buildDriveDeviceApprovalAppliedAckEvent,
@@ -455,11 +454,6 @@ export async function loginWithNsec(nsec: string, save = true): Promise<boolean>
     const nsecHex = Array.from(secretKey).map(b => b.toString(16).padStart(2, '0')).join('');
     await initOrUpdateBackendIdentity(pk, nsecHex);
 
-    // Initialize wallet with secret key
-    initWallet(secretKey).catch(e => {
-      console.error('Wallet initialization failed:', e);
-    });
-
     // Run migrations in background (delay to allow relays to connect)
     if (needsMigrations()) {
       const npub = nip19.npubEncode(pk);
@@ -534,8 +528,9 @@ async function runPostLoginSetup(
     console.error('Backend identity setup failed:', e);
   }
 
-  initWallet(nextKey).catch(e => {
-    console.error('Wallet initialization failed:', e);
+  // A wallet started for the previous account must not keep running with it.
+  stopLoadedWallet().catch(e => {
+    console.error('Wallet disposal failed:', e);
   });
 
   try {
@@ -1315,7 +1310,7 @@ export function logout() {
   }
 
   // Dispose wallet
-  disposeWallet().catch(e => {
+  stopLoadedWallet().catch(e => {
     console.error('Wallet disposal failed:', e);
   });
 
