@@ -23,7 +23,7 @@ import {
   type Node,
   type RefSpec,
 } from './formula';
-import { formatKind, formatValue } from './format';
+import { NUMBER_FORMATS, formatKind, formatValue, type NumberLocale } from './format';
 import { cellKey, decodeRaw, isFormula, type Book, type BookChange, type Sheet } from './model';
 import { resolveRef } from './refs';
 import { SheetError, err, isError, type Scalar } from './values';
@@ -173,7 +173,12 @@ export class Engine {
   textAt(sheet: Sheet, row: number, col: number): string {
     const value = this.valueAt(sheet, row, col);
     if (value === null) return '';
-    return formatValue(value, this.formatAt(sheet, row, col));
+    return formatValue(value, this.formatAt(sheet, row, col), this.book.numberLocale);
+  }
+
+  /** How numbers and dates are written in this spreadsheet. */
+  get locale(): NumberLocale {
+    return this.book.numberLocale;
   }
 
   // --- Following changes ---
@@ -510,8 +515,8 @@ export class Engine {
         return undefined;
       }
       case 'call': {
-        if (DATE_RESULT.has(node.name)) return 'yyyy-mm-dd';
-        if (node.name === 'NOW') return 'yyyy-mm-dd hh:mm';
+        if (DATE_RESULT.has(node.name)) return NUMBER_FORMATS.date;
+        if (node.name === 'NOW') return NUMBER_FORMATS.dateTime;
         if (node.name === 'TIME' || node.name === 'TIMEVALUE') return 'hh:mm:ss';
         const index = SAME_AS_ARGUMENT[node.name];
         if (index === undefined) return undefined;

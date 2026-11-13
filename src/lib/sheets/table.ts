@@ -95,10 +95,17 @@ function guessDelimiter(text: string): string {
   return best;
 }
 
-export function parseCsv(text: string): string[][] {
-  return parseDelimited(text, guessDelimiter(text));
+/** A CSV file's rows, and the separator it used: ";" usually means numbers are written with a decimal comma. */
+export function readCsv(text: string): { rows: string[][]; delimiter: string } {
+  const delimiter = guessDelimiter(text);
+  return { rows: parseDelimited(text, delimiter), delimiter };
 }
 
-export function writeCsv(rows: string[][]): string {
-  return `${writeDelimited(rows, ',', '\r\n')}\r\n`;
+export function parseCsv(text: string): string[][] {
+  return readCsv(text).rows;
+}
+
+/** Comma-separated, or semicolon-separated where numbers have a decimal comma, as spreadsheets there expect. */
+export function writeCsv(rows: string[][], delimiter = ','): string {
+  return `${writeDelimited(rows, delimiter, '\r\n')}\r\n`;
 }

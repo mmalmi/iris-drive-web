@@ -35,6 +35,7 @@
     { value: 'euro', label: 'Euro', pattern: NUMBER_FORMATS.euro },
     { value: 'pound', label: 'Pound', pattern: NUMBER_FORMATS.pound },
     { value: 'date', label: 'Date', pattern: NUMBER_FORMATS.date },
+    { value: 'isoDate', label: 'Date, year first', pattern: NUMBER_FORMATS.isoDate },
     { value: 'time', label: 'Time', pattern: NUMBER_FORMATS.time },
     { value: 'dateTime', label: 'Date and time', pattern: NUMBER_FORMATS.dateTime },
   ];
@@ -43,6 +44,7 @@
   let format = $derived(ctl.activeFormat);
   let formatChoice = $derived.by(() => {
     const kind = formatKind(format);
+    if (kind === 'date' && format === NUMBER_FORMATS.isoDate) return 'isoDate';
     if (kind !== 'currency') return kind;
     return format?.includes('€') ? 'euro' : format?.includes('£') ? 'pound' : 'dollar';
   });

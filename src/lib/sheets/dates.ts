@@ -81,13 +81,23 @@ function monthFromName(name: string): number {
   return index + 1;
 }
 
+/** The order a locale writes a date's day, month and year in. */
+export type DateOrder = 'dmy' | 'mdy' | 'ymd';
+
 const TIME = String.raw`(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\s*([AaPp])\.?[Mm]\.?)?`;
 const TIME_ONLY = new RegExp(`^${TIME}$`);
-const DATE_PATTERNS: Array<{ pattern: RegExp; read: (m: RegExpExecArray) => [number, number, number] | null }> = [
+const DATE_PATTERNS: Array<{ pattern: RegExp; read: (m: RegExpExecArray, order: DateOrder) => [number, number, number] | null }> = [
   // 2026-11-13, 2026/11/13
   { pattern: /^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/, read: m => [Number(m[1]), Number(m[2]), Number(m[3])] },
-  // 11/13/2026
-  { pattern: /^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})(?!\d)/, read: m => [fullYear(m[3]), Number(m[1]), Number(m[2])] },
+  // 11/13/2026, or 13/11/2026 where the day comes first. A first number above 12 can only be a day.
+  {
+    pattern: /^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})(?!\d)/,
+    read: (m, order) => {
+      const [first, second] = [Number(m[1]), Number(m[2])];
+      const dayFirst = order === 'dmy' ? second <= 12 || first > 12 : first > 12 && second <= 12;
+      return dayFirst ? [fullYear(m[3]), second, first] : [fullYear(m[3]), first, second];
+    },
+  },
   // 13.11.2026
   { pattern: /^(\d{1,2})\.(\d{1,2})\.(\d{2}|\d{4})(?!\d)/, read: m => [fullYear(m[3]), Number(m[2]), Number(m[1])] },
   // 13 Nov 2026, 13 November 2026
@@ -119,10 +129,12 @@ function timeFromMatch(hourText: string, minuteText: string, secondText: string 
 export interface ParsedDate {
   serial: number;
   kind: 'date' | 'time' | 'datetime';
+  /** For a date with slashes: whether its day came first. */
+  order?: DateOrder;
 }
 
-/** Reads a date, a time or both as a person would type them. */
-export function parseDateText(input: string): ParsedDate | null {
+/** Reads a date, a time or both as a person would type them; `order` says how to read 1/2/2026. */
+export function parseDateText(input: string, order: DateOrder = 'mdy'): ParsedDate | null {
   const text = input.trim();
   const onlyTime = TIME_ONLY.exec(text);
   if (onlyTime) {
@@ -132,15 +144,16 @@ export function parseDateText(input: string): ParsedDate | null {
   for (const { pattern, read } of DATE_PATTERNS) {
     const match = pattern.exec(text);
     if (!match) continue;
-    const ymd = read(match);
+    const ymd = read(match, order);
     if (!ymd || !isValidYmd(ymd[0], ymd[1], ymd[2])) return null;
     const days = serialFromYmd(ymd[0], ymd[1], ymd[2]);
+    const slashes = /^\d{1,2}\//.test(text) ? { order: (Number(match[1]) === ymd[2] && Number(match[2]) === ymd[1] ? 'dmy' : 'mdy') as DateOrder } : {};
     const rest = text.slice(match[0].length).replace(/^[T ]\s*/, '');
-    if (!rest) return { serial: days, kind: 'date' };
+    if (!rest) return { serial: days, kind: 'date', ...slashes };
     const timeMatch = TIME_ONLY.exec(rest);
     if (!timeMatch) return null;
     const time = timeFromMatch(timeMatch[1], timeMatch[2], timeMatch[3], timeMatch[4]);
-    return time === null ? null : { serial: days + time, kind: 'datetime' };
+    return time === null ? null : { serial: days + time, kind: 'datetime', ...slashes };
   }
   return null;
 }

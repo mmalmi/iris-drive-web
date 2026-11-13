@@ -90,16 +90,18 @@ test.describe('a spreadsheet on a phone', () => {
     await page.keyboard.press('Enter');
     await expectCell(page, 'B6', '11');
 
-    // The fill square under the selection continues a series.
-    await typeTable(page, 'D1', [['1'], ['2']]);
-    await tapCell(page, 'D1');
-    const d1 = await cellBox(page, 'D1');
-    await touchPath(page, [{ x: d1.x + d1.width - 1, y: d1.y + d1.height - 1 }, await cellCenter(page, 'D2')]);
-    await expect(activeCell(page)).toHaveAttribute('data-cell', 'D1:D2');
-    const d2 = await cellBox(page, 'D2');
-    await touchPath(page, [{ x: d2.x + d2.width / 2, y: d2.y + d2.height + 13 }, await cellCenter(page, 'D5')]);
-    await expectCell(page, 'D5', '5');
-    await expect(activeCell(page)).toHaveAttribute('data-cell', 'D1:D5');
+    // The fill square off the selection's corner continues a series.
+    await typeTable(page, 'C1', [['1'], ['2']]);
+    await tapCell(page, 'C1');
+    const c1 = await cellBox(page, 'C1');
+    await touchPath(page, [{ x: c1.x + c1.width - 1, y: c1.y + c1.height - 1 }, await cellCenter(page, 'C2')]);
+    await expect(activeCell(page)).toHaveAttribute('data-cell', 'C1:C2');
+    const c2 = await cellBox(page, 'C2');
+    expect(c2.x + c2.width + 24).toBeLessThan(390);
+    await touchPath(page, [{ x: c2.x + c2.width + 16, y: c2.y + c2.height + 16 }, await cellCenter(page, 'C5')]);
+    await expectCell(page, 'C5', '5');
+    await expect(activeCell(page)).toHaveAttribute('data-cell', 'C1:C5');
+    await page.screenshot({ path: shotPath(testInfo, 'touch-filled.png') });
 
     // A finger on the border between two column headers resizes.
     const a1 = await cellBox(page, 'A1');

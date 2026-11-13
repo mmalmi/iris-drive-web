@@ -79,6 +79,8 @@ test.describe('working in a spreadsheet', () => {
     await expectCell(page, 'B3', '15.2.2027');
     await clickCell(page, 'B3');
     await page.getByTestId('sheet-number-format').selectOption('date');
+    await expectCell(page, 'B3', '2/15/2027');
+    await page.getByTestId('sheet-number-format').selectOption('isoDate');
     await expectCell(page, 'B3', '2027-02-15');
 
     // Colour, italic, strikethrough; then undo of a look, and clearing all of them.

@@ -9,11 +9,12 @@ import {
   formatGeneral,
   formatKind,
   formatValue,
+  localeFor,
   parseInput,
   roundTo,
 } from '../src/lib/sheets/format';
 import { callAt, completionAt } from '../src/lib/sheets/formula/docs';
-import { AxisLayout, dropPosition, hitTest, panesOf, scrollToShow, stretchTo, type Viewport } from '../src/lib/sheets/layout';
+import { AxisLayout, dropPosition, hitTest, overTouchHandle, panesOf, scrollToShow, stretchTo, touchHandles, type Viewport } from '../src/lib/sheets/layout';
 import { parseClipboardTable, parseCsv, writeClipboardTable, writeCsv } from '../src/lib/sheets/table';
 import { SheetError } from '../src/lib/sheets/values';
 
@@ -50,7 +51,7 @@ describe('dates', () => {
   it('reads dates as people type them', () => {
     const day = serialFromYmd(2026, 11, 13);
     for (const text of ['2026-11-13', '2026/11/13', '11/13/2026', '13.11.2026', '13 Nov 2026', '13 November 2026', 'Nov 13, 2026', '13.11.26']) {
-      expect(parseDateText(text), text).toEqual({ serial: day, kind: 'date' });
+      expect(parseDateText(text), text).toMatchObject({ serial: day, kind: 'date' });
     }
     expect(parseDateText('2026-11-13 18:30')).toEqual({ serial: day + 0.770_833_333_333_333_3, kind: 'datetime' });
     expect(parseDateText('2026-11-13T06:00:00')?.serial).toBe(day + 0.25);
@@ -149,7 +150,8 @@ describe('typed input', () => {
     expect(parseInput('true')).toEqual({ value: true });
     expect(parseInput('2026-11-13')).toEqual({ value: 46339, format: 'yyyy-mm-dd' });
     expect(parseInput('13.11.2026')).toEqual({ value: 46339, format: 'd.m.yyyy' });
-    expect(parseInput('11/13/2026')).toEqual({ value: 46339, format: 'm/d/yyyy' });
+    // Written as the locale writes dates, a date is shown in each reader's own way.
+    expect(parseInput('11/13/2026')).toEqual({ value: 46339, format: NUMBER_FORMATS.date });
     expect(parseInput('9:30')).toEqual({ value: 9.5 / 24, format: 'hh:mm' });
   });
 
@@ -174,6 +176,54 @@ describe('typed input', () => {
     expect(editTextOf("'quoted")).toBe("''quoted");
     expect(editTextOf(true)).toBe('TRUE');
     expect(editTextOf('42', '@')).toBe('42');
+  });
+});
+
+describe('the way a locale writes numbers and dates', () => {
+  const de = localeFor('de-DE');
+  const gb = localeFor('en-GB');
+  const fr = localeFor('fr-FR');
+
+  it('learns the decimal sign, grouping and date order from the browser', () => {
+    expect(de).toMatchObject({ decimal: ',', group: '.', dateOrder: 'dmy', datePattern: 'd.m.yyyy', timePattern: 'hh:mm' });
+    expect(gb).toMatchObject({ decimal: '.', dateOrder: 'dmy', datePattern: 'dd/mm/yyyy' });
+    expect(localeFor('en-US')).toMatchObject({ decimal: '.', dateOrder: 'mdy', datePattern: 'm/d/yyyy' });
+    expect(localeFor('xx-not-a-locale')).toMatchObject({ decimal: '.' });
+  });
+
+  it('shows numbers and dates the local way', () => {
+    expect(formatValue(1234567.891, '#,##0.00', de)).toBe('1.234.567,89');
+    expect(formatValue(0.125, '0.0%', de)).toBe('12,5%');
+    expect(formatValue(2.5, undefined, de)).toBe('2,5');
+    expect(formatValue(1234.5, '#,##0.00', fr)).toBe(`1${fr.group}234,50`);
+    expect(formatValue(46339, NUMBER_FORMATS.date, de)).toBe('13.11.2026');
+    expect(formatValue(46339, NUMBER_FORMATS.date, gb)).toBe('13/11/2026');
+    expect(formatValue(46339.5, NUMBER_FORMATS.dateTime, de)).toBe('13.11.2026 12:00');
+    // An explicit pattern stays as it is wherever it is read.
+    expect(formatValue(46339, 'yyyy-mm-dd', de)).toBe('2026-11-13');
+  });
+
+  it('reads what is typed the local way', () => {
+    expect(parseInput('1,5', undefined, de)).toEqual({ value: 1.5 });
+    expect(parseInput('1.234,5', undefined, de)).toEqual({ value: 1234.5, format: '#,##0.0' });
+    expect(parseInput('1.500', undefined, de)).toEqual({ value: 1500, format: '#,##0' });
+    expect(parseInput('3.14159', undefined, de)).toEqual({ value: 3.14159 });
+    expect(parseInput('-2,25 €', undefined, de)).toEqual({ value: -2.25, format: '#,##0.00 €' });
+    expect(parseInput('12,5%', undefined, de)).toEqual({ value: 0.125, format: '0.0%' });
+    expect(parseInput('1 234,5', undefined, fr)).toMatchObject({ value: 1234.5 });
+    expect(parseInput('13.11.2026', undefined, de)).toEqual({ value: 46339, format: NUMBER_FORMATS.date });
+    expect(parseInput('1/2/2026', undefined, gb).value).toBe(serialFromYmd(2026, 2, 1));
+    expect(parseInput('1/2/2026').value).toBe(serialFromYmd(2026, 1, 2));
+    // A first number above 12 can only be a day, wherever it is typed.
+    expect(parseInput('13/11/2026')).toEqual({ value: 46339, format: 'd/m/yyyy' });
+  });
+
+  it('gives back text to edit that reads as the same value', () => {
+    expect(editTextOf(1.5, undefined, de)).toBe('1,5');
+    expect(editTextOf(0.125, '0.0%', de)).toBe('12,5%');
+    expect(editTextOf(46339, NUMBER_FORMATS.date, de)).toBe('13.11.2026');
+    expect(editTextOf('1,5', undefined, de)).toBe("'1,5");
+    for (const value of [1.5, 1234.5, -0.25]) expect(parseInput(editTextOf(value, undefined, de), undefined, de).value).toBe(value);
   });
 });
 
@@ -273,6 +323,21 @@ describe('positions on screen', () => {
     freezeCols: 0,
     headerWidth: 46,
     ...changes,
+  });
+
+  it('puts handles for a finger at the corners, and the fill square beside the lower one, on screen', () => {
+    const selection = { r1: 1, c1: 0, r2: 1, c2: 0 };
+    const handles = touchHandles(view(), selection);
+    expect(handles.start).toEqual({ x: 45, y: 47 });
+    expect(handles.end).toEqual({ x: 145, y: 71 });
+    expect(handles.fill).toEqual({ x: 162, y: 88 });
+    // A tap in the middle of the cell takes no handle; a finger nearest the fill square takes that.
+    expect(overTouchHandle(view(), selection, 95, 60, true)).toBeNull();
+    expect(overTouchHandle(view(), selection, 158, 84, true)).toBe('fill');
+    expect(overTouchHandle(view(), selection, 147, 73, true)).toBe('end');
+    expect(overTouchHandle(view(), selection, 158, 84, false)).toBe('end');
+    // At the right edge of the screen the fill square goes to the left of the corner.
+    expect(touchHandles(view({ width: 150 }), selection).fill?.x).toBe(128);
   });
 
   it('finds rows and columns by distance', () => {

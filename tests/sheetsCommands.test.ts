@@ -637,6 +637,30 @@ describe('rows, columns and sheets', () => {
     expect(exportCsv(ctl)).toBe('Rent,$900.00\r\nFood,$300.00\r\nTotal,"$1,200.00"\r\n');
   });
 
+  it('a spreadsheet set to a locale with a decimal comma reads, shows and exchanges numbers that way', () => {
+    const { ctl, type, get, show } = open();
+    ctl.book.setLocale('de-DE');
+    type('A1', '1,5');
+    type('A2', '1.234,5');
+    type('A3', '13.11.2026');
+    type('A4', '=SUM(A1:A2)');
+    expect(get('A1')).toBe(1.5);
+    expect(show('A2')).toBe('1.234,5');
+    expect(show('A3')).toBe('13.11.2026');
+    expect(show('A4')).toBe('1.236,0');
+    ctl.setSelection({ row: 0, col: 0 });
+    expect(ctl.barText).toBe('1,5');
+    expect(exportCsv(ctl)).toBe('1,5\r\n1.234,5\r\n13.11.2026\r\n1.236,0\r\n');
+    // Back to following the reader's browser, which in tests writes numbers as in English.
+    ctl.book.setLocale(null);
+    expect(show('A2')).toBe('1,234.5');
+    expect(show('A3')).toBe('11/13/2026');
+    // A file separated by semicolons is read with decimal commas.
+    importCsv(ctl, 'Prices.csv', 'Item;Price\r\nTea;2,50\r\nCake;1.234,00\r\n');
+    expect(get('B2')).toBe(2.5);
+    expect(get('B3')).toBe(1234);
+  });
+
   it('names the selection and goes where a typed name says', () => {
     const { ctl } = open();
     expect(ctl.goToName('c7')).toBe(true);
