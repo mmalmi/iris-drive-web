@@ -63,6 +63,7 @@
  */
 import * as Y from 'yjs';
 import type { Rect } from './address';
+import { browserLocale, localeFor, type NumberLocale } from './format';
 
 export const FORMAT_VERSION = 1;
 /** Transaction origin of this person's own edits; undo steps through these only. */
@@ -821,6 +822,24 @@ export class Book {
     this.listeners.clear();
   }
 
+  /** The locale the spreadsheet is set to, or null when it follows each reader's browser. */
+  get localeSetting(): string | null {
+    const tag = this.meta.get('locale');
+    return typeof tag === 'string' && tag ? tag : null;
+  }
+
+  /** How numbers and dates are written and read here. */
+  get numberLocale(): NumberLocale {
+    return localeFor(this.localeSetting ?? browserLocale());
+  }
+
+  setLocale(tag: string | null): void {
+    this.transact(() => {
+      if (tag) this.meta.set('locale', tag);
+      else this.meta.delete('locale');
+    });
+  }
+
   /** True when the document was written by a newer app than this one understands. */
   get tooNew(): boolean {
     const version = this.meta.get('version');
@@ -916,7 +935,9 @@ export class Book {
 
   /** Deletes a sheet. The last one stays. */
   removeSheet(id: string): void {
-    if (this.sheets.length <= 1) return;
+    // Counted from the document, which may have sheets added in the same step.
+    const living = new Set(this.order.toArray().filter(other => this.meta.get(`gone:${other}`) !== true));
+    if (living.size <= 1) return;
     const sheet = this.sheet(id);
     this.transact(() => {
       this.meta.set(`gone:${id}`, true);
@@ -939,7 +960,8 @@ export class Book {
     });
   }
 
-  private refreshSheets(): void {
+  /** Reads the list of sheets again, for a step that added sheets and now names them in formulas. */
+  refreshSheets(): void {
     const seen = new Set<string>();
     const sheets: SheetInfo[] = [];
     for (const id of this.order.toArray()) {

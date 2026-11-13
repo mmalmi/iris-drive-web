@@ -4,12 +4,12 @@ import { setBorders, type BorderPlace } from './borders';
 import type { CopiedCells, SheetController } from './controller.svelte';
 import { inputToStored } from './edit';
 import { planFill } from './fill';
-import { changeDecimals, isDateFormat } from './format';
+import { changeDecimals, isDateFormat, localeFor } from './format';
 import { cellKey, encodeText, isFormula, MAX_COLS, MAX_ROWS, type CellRaw, type CellStyle, type Sheet, type StylePatch } from './model';
 import { transplant } from './refs';
 import { CELL_PAD_X, DEFAULT_POINTS, fontOf, textWidth } from './render';
 import { followMovedCells, moveKeepingRanges, requalify, widenRangesAtEdge } from './structure';
-import { parseClipboardTable, parseCsv, writeClipboardTable, writeCsv } from './table';
+import { parseClipboardTable, readCsv, writeClipboardTable, writeCsv } from './table';
 import { isError } from './values';
 
 function ownStyle(sheet: Sheet, row: number, col: number): CellStyle | undefined {
@@ -558,7 +558,10 @@ export function duplicateSheet(ctl: SheetController, id: string): void {
 /** Puts a CSV file's content on a new sheet named after the file. */
 export function importCsv(ctl: SheetController, fileName: string, text: string): void {
   if (!ctl.canEdit) return;
-  const table = parseCsv(text);
+  const { rows: table, delimiter } = readCsv(text);
+  // A file separated by semicolons comes from where a comma is the decimal sign.
+  const own = ctl.book.numberLocale;
+  const locale = delimiter === ';' && own.decimal === '.' ? localeFor('de-DE') : own;
   const rows = table.length;
   const cols = Math.max(1, ...table.map(row => row.length));
   if (rows > MAX_ROWS || cols > MAX_COLS) {
@@ -575,7 +578,7 @@ export function importCsv(ctl: SheetController, fileName: string, text: string):
     table.forEach((line, row) => {
       line.forEach((cell, col) => {
         if (cell === '') return;
-        const stored = inputToStored(cell, ctl.book, sheet);
+        const stored = inputToStored(cell, ctl.book, sheet, undefined, locale);
         const key = cellKey(sheet.rows.ids[row], sheet.cols.ids[col]);
         if (stored.raw !== null) sheet.cells.set(key, stored.raw);
         if (stored.format) sheet.styles.set(key, { nf: stored.format });
@@ -597,5 +600,5 @@ export function exportCsv(ctl: SheetController): string {
       lines.push(line);
     }
   }
-  return writeCsv(lines);
+  return writeCsv(lines, ctl.book.numberLocale.decimal === ',' ? ';' : ',');
 }

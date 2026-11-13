@@ -137,8 +137,8 @@ describe('typing into cells', () => {
     put('B3', '=SUM(B1:B2)');
     put('B4', '=B3*2');
     put('B5', '=B3/B1');
-    expect(show('A1')).toBe('2026-11-13');
-    expect(show('A2')).toBe('2026-11-20');
+    expect(show('A1')).toBe('11/13/2026');
+    expect(show('A2')).toBe('11/20/2026');
     expect(show('A3')).toBe('7');
     expect(show('B3')).toBe('$9.75');
     expect(show('B4')).toBe('$19.50');

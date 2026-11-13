@@ -5,10 +5,16 @@
  * `yyyy-mm-dd`, the same notation other spreadsheets use, so formats can be
  * carried over when files are exchanged. No pattern means "automatic".
  */
-import { DAY_NAMES, MONTH_NAMES, parseDateText, partsFromSerial } from './dates';
+import { DAY_NAMES, MONTH_NAMES, parseDateText, partsFromSerial, type DateOrder } from './dates';
 import { isError, numberToText, textToNumber, type Scalar } from './values';
 
 export const TEXT_FORMAT = '@';
+
+/**
+ * A date written the way the reader's locale writes dates. The part after
+ * the marker is what an app that does not know the marker shows instead.
+ */
+const LOCAL_DATE = '[$-x-date]';
 
 export const NUMBER_FORMATS = {
   number: '#,##0.00',
@@ -16,10 +22,79 @@ export const NUMBER_FORMATS = {
   dollar: '$#,##0.00',
   euro: '€#,##0.00',
   pound: '£#,##0.00',
-  date: 'yyyy-mm-dd',
+  date: `${LOCAL_DATE}yyyy-mm-dd`,
+  isoDate: 'yyyy-mm-dd',
   time: 'hh:mm:ss',
-  dateTime: 'yyyy-mm-dd hh:mm',
+  dateTime: `${LOCAL_DATE}yyyy-mm-dd hh:mm`,
 } as const;
+
+/** How a locale writes numbers and dates. */
+export interface NumberLocale {
+  /** Such as "de-DE". */
+  tag: string;
+  decimal: string;
+  group: string;
+  dateOrder: DateOrder;
+  /** A short date as a format pattern, such as "dd.mm.yyyy". */
+  datePattern: string;
+  /** The time of day as a format pattern, "hh:mm" or "h:mm AM/PM". */
+  timePattern: string;
+}
+
+/** How numbers and dates read when nothing else is known: as in American English. */
+export const DEFAULT_LOCALE: NumberLocale = {
+  tag: 'en-US',
+  decimal: '.',
+  group: ',',
+  dateOrder: 'mdy',
+  datePattern: 'm/d/yyyy',
+  timePattern: 'h:mm AM/PM',
+};
+
+const locales = new Map<string, NumberLocale>();
+
+/** How the locale named by a tag such as "fi-FI" writes numbers and dates; the default for one the browser does not know. */
+export function localeFor(tag: string): NumberLocale {
+  let found = locales.get(tag);
+  if (found) return found;
+  try {
+    const numberParts = new Intl.NumberFormat(tag).formatToParts(12345.6);
+    const dateParts = new Intl.DateTimeFormat(tag, { year: 'numeric', month: 'numeric', day: 'numeric' }).formatToParts(new Date(2026, 1, 5));
+    let datePattern = '';
+    let order = '';
+    for (const part of dateParts) {
+      if (part.type === 'day') datePattern += part.value.length > 1 ? 'dd' : 'd';
+      else if (part.type === 'month') datePattern += part.value.length > 1 ? 'mm' : 'm';
+      else if (part.type === 'year') datePattern += 'yyyy';
+      else if (part.type === 'literal') datePattern += part.value.replace(/[^./\- ]/g, '');
+      if (part.type === 'day' || part.type === 'month' || part.type === 'year') order += part.type[0];
+    }
+    const hour12 = new Intl.DateTimeFormat(tag, { hour: 'numeric' }).resolvedOptions().hour12 === true;
+    found = {
+      tag,
+      decimal: numberParts.find(part => part.type === 'decimal')?.value ?? '.',
+      group: numberParts.find(part => part.type === 'group')?.value ?? ',',
+      dateOrder: order === 'dmy' || order === 'ymd' ? order : 'mdy',
+      datePattern: /^[dmy./\- ]+$/.test(datePattern) && order.length === 3 ? datePattern : DEFAULT_LOCALE.datePattern,
+      timePattern: hour12 ? 'h:mm AM/PM' : 'hh:mm',
+    };
+  } catch {
+    found = { ...DEFAULT_LOCALE, tag };
+  }
+  locales.set(tag, found);
+  return found;
+}
+
+/** The browser's own locale, which a spreadsheet without one of its own follows. */
+export function browserLocale(): string {
+  return typeof window !== 'undefined' && navigator.language ? navigator.language : DEFAULT_LOCALE.tag;
+}
+
+/** A pattern with the locale's own way of writing a date put in for the marker. */
+function localized(pattern: string, locale: NumberLocale): string {
+  if (!pattern.startsWith(LOCAL_DATE)) return pattern;
+  return /[hs]/i.test(pattern.slice(LOCAL_DATE.length)) ? `${locale.datePattern} ${locale.timePattern}` : locale.datePattern;
+}
 
 export type FormatKind = 'auto' | 'text' | 'number' | 'percent' | 'currency' | 'date' | 'time' | 'dateTime';
 
@@ -141,8 +216,8 @@ export function roundTo(value: number, decimals: number): number {
   return value < 0 ? -back : back;
 }
 
-function group(digits: string): string {
-  return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+function group(digits: string, separator: string): string {
+  return digits.replace(/\B(?=(\d{3})+(?!\d))/g, separator);
 }
 
 function formatDateSection(section: Section, serial: number): string {
@@ -191,7 +266,7 @@ function formatDateSection(section: Section, serial: number): string {
   return out;
 }
 
-function formatNumberSection(section: Section, value: number, showSign: boolean): string {
+function formatNumberSection(section: Section, value: number, showSign: boolean, locale: NumberLocale): string {
   const { parts } = section;
   const digitIndexes = parts.flatMap((part, index) => (part.kind === 'digit' ? [index] : []));
   if (digitIndexes.length === 0) {
@@ -231,7 +306,7 @@ function formatNumberSection(section: Section, value: number, showSign: boolean)
   if (exponent) {
     const [mantissa, power] = magnitude.toExponential(decimals).split('e');
     const sign = power.startsWith('-') ? '-' : exponent.plus ? '+' : '';
-    body = `${mantissa}E${sign}${power.replace(/^[+-]/, '').padStart(exponent.digits, '0')}`;
+    body = `${mantissa.replace('.', locale.decimal)}E${sign}${power.replace(/^[+-]/, '').padStart(exponent.digits, '0')}`;
   } else {
     magnitude = roundTo(magnitude, decimals);
     const fixed = magnitude.toFixed(decimals);
@@ -239,8 +314,8 @@ function formatNumberSection(section: Section, value: number, showSign: boolean)
     while (fraction.length > minDecimals && fraction.endsWith('0')) fraction = fraction.slice(0, -1);
     if (whole === '0' && minIntegers === 0 && fraction) whole = '';
     whole = whole.padStart(minIntegers, '0');
-    if (grouped) whole = group(whole);
-    body = fraction ? `${whole}.${fraction}` : whole;
+    if (grouped) whole = group(whole, locale.group);
+    body = fraction ? `${whole}${locale.decimal}${fraction}` : whole;
   }
 
   let prefix = '';
@@ -256,19 +331,23 @@ function formatNumberSection(section: Section, value: number, showSign: boolean)
 }
 
 /** A number shown without a format: enough digits to be exact, not more than fit a cell. */
-export function formatGeneral(value: number): string {
+export function formatGeneral(value: number, locale: NumberLocale = DEFAULT_LOCALE): string {
   if (!Number.isFinite(value)) return String(value);
   const magnitude = Math.abs(value);
+  let text: string;
   if (magnitude !== 0 && (magnitude >= 1e15 || magnitude < 1e-9)) {
     const [mantissa, power] = value.toExponential(5).split('e');
-    return `${Number(mantissa)}E${power.startsWith('-') ? '-' : '+'}${power.replace(/^[+-]/, '').padStart(2, '0')}`;
+    text = `${Number(mantissa)}E${power.startsWith('-') ? '-' : '+'}${power.replace(/^[+-]/, '').padStart(2, '0')}`;
+  } else {
+    text = numberToText(Number(value.toPrecision(10)));
   }
-  return numberToText(Number(value.toPrecision(10)));
+  return locale.decimal === '.' ? text : text.replace('.', locale.decimal);
 }
 
 /** The text a cell shows for a value under a number format. */
-export function formatValue(value: Scalar, pattern?: string): string {
+export function formatValue(value: Scalar, format?: string, locale: NumberLocale = DEFAULT_LOCALE): string {
   if (value === null) return '';
+  const pattern = format && localized(format, locale);
   if (isError(value)) return value.code;
   if (typeof value === 'boolean') return value ? 'TRUE' : 'FALSE';
   if (typeof value === 'string') {
@@ -278,9 +357,9 @@ export function formatValue(value: Scalar, pattern?: string): string {
     if (!textSection) return value;
     return textSection.parts.map(p => (p.kind === 'literal' ? p.text : p.kind === 'text' ? value : '')).join('');
   }
-  if (isGeneral(pattern)) return formatGeneral(value);
+  if (isGeneral(pattern)) return formatGeneral(value, locale);
   const sections = sectionsOf(pattern as string);
-  if (sections[0].parts.some(part => part.kind === 'text')) return formatGeneral(value);
+  if (sections[0].parts.some(part => part.kind === 'text')) return formatGeneral(value, locale);
   let section = sections[0];
   let showSign = true;
   if (value < 0 && sections.length >= 2) {
@@ -289,8 +368,8 @@ export function formatValue(value: Scalar, pattern?: string): string {
   } else if (value === 0 && sections.length >= 3) {
     section = sections[2];
   }
-  if (section.isDate) return value < 0 ? formatGeneral(value) : formatDateSection(section, value);
-  return formatNumberSection(section, value, showSign);
+  if (section.isDate) return value < 0 ? formatGeneral(value, locale) : formatDateSection(section, value);
+  return formatNumberSection(section, value, showSign, locale);
 }
 
 export function formatKind(pattern: string | undefined): FormatKind {
@@ -341,7 +420,37 @@ const GROUPED_NUMBER = /^[+-]?\d{1,3}(?:,\d{3})+(?:\.\d*)?$/;
 const COMMA_DECIMAL = /^[+-]?\d+,\d+$/;
 const CURRENCY_SIGNS = '$€£¥';
 
-function readNumber(text: string): { value: number; decimals: number; grouped: boolean } | null {
+const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const groupedPatterns = new Map<string, RegExp>();
+
+/** "1.234,5" where the decimal sign is a comma, with any space typed for a space that groups digits. */
+function groupedIn(locale: NumberLocale): RegExp {
+  let pattern = groupedPatterns.get(locale.tag);
+  if (!pattern) {
+    const group = /\s/.test(locale.group) ? '[\\s\u00a0\u202f]' : escape(locale.group);
+    pattern = new RegExp(`^[+-]?\\d{1,3}(?:${group}\\d{3})+(?:${escape(locale.decimal)}\\d*)?$`);
+    groupedPatterns.set(locale.tag, pattern);
+  }
+  return pattern;
+}
+
+function readNumber(text: string, locale: NumberLocale = DEFAULT_LOCALE): { value: number; decimals: number; grouped: boolean } | null {
+  if (locale.decimal !== '.') {
+    // A comma (or other sign) for the decimal point; a point alone still reads as one, as in "3.14".
+    const plain = new RegExp(`^[+-]?(?:\\d+${escape(locale.decimal)}?\\d*|${escape(locale.decimal)}\\d+)$`);
+    if (plain.test(text)) {
+      const [, fraction = ''] = text.split(locale.decimal);
+      return { value: Number(text.replace(locale.decimal, '.')), decimals: fraction.length, grouped: false };
+    }
+    if (groupedIn(locale).test(text)) {
+      const [whole, fraction = ''] = text.split(locale.decimal);
+      return { value: Number(`${whole.replace(/\D/g, '')}.${fraction || '0'}`) * (text.startsWith('-') ? -1 : 1), decimals: fraction.length, grouped: true };
+    }
+    if (PLAIN_NUMBER.test(text) && !/^[+-]?\d{1,3}\.\d{3}$/.test(text)) {
+      return { value: Number(text), decimals: /[eE]/.test(text) ? 0 : (text.split('.')[1]?.length ?? 0), grouped: false };
+    }
+    return null;
+  }
   if (PLAIN_NUMBER.test(text)) {
     return { value: Number(text), decimals: /[eE]/.test(text) ? 0 : (text.split('.')[1]?.length ?? 0), grouped: false };
   }
@@ -360,7 +469,7 @@ function decimalsPattern(decimals: number): string {
 }
 
 /** Turns what was typed into a cell into a value. Formulas are handled by the caller. */
-export function parseInput(input: string, currentFormat?: string): ParsedInput {
+export function parseInput(input: string, currentFormat?: string, locale: NumberLocale = DEFAULT_LOCALE): ParsedInput {
   if (input === '') return { value: null };
   if (currentFormat === TEXT_FORMAT) return { value: input };
   if (input.startsWith("'")) return { value: input.slice(1) };
@@ -370,53 +479,64 @@ export function parseInput(input: string, currentFormat?: string): ParsedInput {
   if (upper === 'TRUE') return { value: true };
   if (upper === 'FALSE') return { value: false };
 
-  const plain = readNumber(text);
+  const plain = readNumber(text, locale);
   if (plain) return plain.grouped ? { value: plain.value, format: `#,##0${decimalsPattern(plain.decimals)}` } : { value: plain.value };
 
   if (text.endsWith('%')) {
-    const number = readNumber(text.slice(0, -1).trim());
+    const number = readNumber(text.slice(0, -1).trim(), locale);
     if (number) return { value: number.value / 100, format: `0${decimalsPattern(number.decimals)}%` };
   }
 
   const negative = text.startsWith('-');
   const unsigned = negative ? text.slice(1).trim() : text;
   if (CURRENCY_SIGNS.includes(unsigned[0])) {
-    const number = readNumber(unsigned.slice(1).trim());
+    const number = readNumber(unsigned.slice(1).trim(), locale);
     if (number && number.value >= 0) {
       return { value: negative ? -number.value : number.value, format: `${unsigned[0]}#,##0.00` };
     }
   }
   if (CURRENCY_SIGNS.includes(unsigned[unsigned.length - 1])) {
-    const number = readNumber(unsigned.slice(0, -1).trim());
+    const number = readNumber(unsigned.slice(0, -1).trim(), locale);
     if (number && number.value >= 0) {
       return { value: negative ? -number.value : number.value, format: `#,##0.00 ${unsigned[unsigned.length - 1]}` };
     }
   }
 
-  const date = parseDateText(text);
+  const date = parseDateText(text, locale.dateOrder);
   if (date) {
     if (date.kind === 'time') return { value: date.serial, format: /:\d\d:\d\d/.test(text) ? 'hh:mm:ss' : 'hh:mm' };
-    const dayPattern = /^\d{1,2}\.\d/.test(text) ? 'd.m.yyyy' : /^\d{1,2}\/\d/.test(text) ? 'm/d/yyyy' : 'yyyy-mm-dd';
+    // Written the way the locale writes dates, a date is shown to each reader the way theirs does.
+    const separator = locale.datePattern.replace(/[dmy]/g, '')[0] ?? '';
+    const typedSeparator = /^\d+([./-])/.exec(text)?.[1] ?? '';
+    const sameOrder = date.order === undefined || date.order === locale.dateOrder;
+    if (typedSeparator === separator && sameOrder && (separator !== '-' || locale.dateOrder !== 'ymd' || !/^\d{4}-/.test(text))) {
+      return { value: date.serial, format: date.kind === 'date' ? NUMBER_FORMATS.date : NUMBER_FORMATS.dateTime };
+    }
+    const slashOrder = date.order === 'dmy' ? 'd/m/yyyy' : 'm/d/yyyy';
+    const dayPattern = /^\d{1,2}\.\d/.test(text) ? 'd.m.yyyy' : /^\d{1,2}\/\d/.test(text) ? slashOrder : 'yyyy-mm-dd';
     return { value: date.serial, format: date.kind === 'date' ? dayPattern : `${dayPattern} hh:mm` };
   }
   return { value: input };
 }
 
 /** The text to edit for a stored value: typing it back gives the same value. */
-export function editTextOf(value: number | string | boolean | null, pattern?: string): string {
+export function editTextOf(value: number | string | boolean | null, pattern?: string, locale: NumberLocale = DEFAULT_LOCALE): string {
   if (value === null) return '';
   if (typeof value === 'boolean') return value ? 'TRUE' : 'FALSE';
   if (typeof value === 'number') {
     const kind = formatKind(pattern);
-    if (kind === 'date' && Number.isInteger(value) && value >= 0) return formatValue(value, pattern === 'd.m.yyyy' || pattern === 'm/d/yyyy' ? pattern : 'yyyy-mm-dd');
-    if (kind === 'dateTime' && value >= 0) return formatValue(value, 'yyyy-mm-dd hh:mm:ss');
+    const local = pattern?.startsWith(LOCAL_DATE) === true;
+    const typed = pattern === 'd.m.yyyy' || pattern === 'm/d/yyyy' || pattern === 'd/m/yyyy' ? pattern : 'yyyy-mm-dd';
+    if (kind === 'date' && Number.isInteger(value) && value >= 0) return formatValue(value, local ? locale.datePattern : typed);
+    if (kind === 'dateTime' && value >= 0) return formatValue(value, `${local ? locale.datePattern : 'yyyy-mm-dd'} hh:mm:ss`);
     if (kind === 'time' && value >= 0 && value < 1) return formatValue(value, 'hh:mm:ss');
-    if (kind === 'percent') return `${numberToText(roundTo(value * 100, 10))}%`;
-    return numberToText(value);
+    const decimal = (text: string) => (locale.decimal === '.' ? text : text.replace('.', locale.decimal));
+    if (kind === 'percent') return `${decimal(numberToText(roundTo(value * 100, 10)))}%`;
+    return decimal(numberToText(value));
   }
   if (pattern === TEXT_FORMAT) return value;
   // Text that would be read as something else keeps its meaning behind an apostrophe.
-  const reparsed = parseInput(value);
+  const reparsed = parseInput(value, undefined, locale);
   const needsMark = value.startsWith('=') || value.startsWith("'") || typeof reparsed.value !== 'string';
   return needsMark ? `'${value}` : value;
 }

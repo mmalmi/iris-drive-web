@@ -1,5 +1,5 @@
 /** Typing into cells: from typed text to stored content and back. */
-import { editTextOf, parseInput, TEXT_FORMAT } from './format';
+import { editTextOf, parseInput, TEXT_FORMAT, type NumberLocale } from './format';
 import { decodeRaw, encodeText, isFormula, type Book, type CellRaw, type Sheet } from './model';
 import { toDisplay, toStored } from './refs';
 
@@ -22,11 +22,11 @@ export interface StoredInput {
 }
 
 /** What to store for text typed into a cell of `sheet`. */
-export function inputToStored(text: string, book: Book, sheet: Sheet, currentFormat?: string): StoredInput {
+export function inputToStored(text: string, book: Book, sheet: Sheet, currentFormat?: string, locale: NumberLocale = book.numberLocale): StoredInput {
   if (text.startsWith('=') && text.length > 1 && currentFormat !== TEXT_FORMAT) {
     return { raw: toStored(closeBrackets(text), book, sheet) };
   }
-  const parsed = parseInput(text, currentFormat);
+  const parsed = parseInput(text, currentFormat, locale);
   if (parsed.value === null) return { raw: null };
   if (typeof parsed.value === 'string') return { raw: parsed.value === '' ? null : encodeText(parsed.value) };
   return { raw: parsed.value, format: parsed.format };
@@ -47,5 +47,5 @@ export function editTextAt(book: Book, sheet: Sheet, row: number, col: number): 
   const raw = sheet.rawAt(row, col);
   if (raw === undefined) return '';
   if (isFormula(raw)) return toDisplay(raw, book, sheet);
-  return editTextOf(decodeRaw(raw), sheet.styleAt(row, col).nf);
+  return editTextOf(decodeRaw(raw), sheet.styleAt(row, col).nf, book.numberLocale);
 }

@@ -1,13 +1,14 @@
 /** Draws the grid on a canvas: only the cells in view, each frame from scratch. */
 import { columnName, type CellPos, type Rect } from './address';
 import type { Engine } from './engine';
-import { formatGeneral } from './format';
+import { formatGeneral, type NumberLocale } from './format';
 import {
   FILL_HANDLE,
   FILTER_BUTTON,
   FILTER_BUTTON_INSET,
   HEADER_HEIGHT,
   TOUCH_FILL,
+  TOUCH_FILL_OFFSET,
   TOUCH_HANDLE,
   columnX,
   frozenHeight,
@@ -180,11 +181,11 @@ export function readableOn(fill: string, fallback: string): string {
 }
 
 /** A number with as many digits as fit a width, or null when even its whole part does not. */
-function roundedToFit(value: number, width: number, font: string): string | null {
+function roundedToFit(value: number, width: number, font: string, locale: NumberLocale): string | null {
   for (let digits = 9; digits >= 1; digits -= 1) {
-    const text = formatGeneral(Number(value.toPrecision(digits)));
+    const text = formatGeneral(Number(value.toPrecision(digits)), locale);
     // Rounding away digits before the decimal point would show a different number.
-    if (!text.includes('.') && !text.includes('E') && Math.abs(value) >= 10 ** digits) return null;
+    if (!text.includes(locale.decimal) && !text.includes('E') && Math.abs(value) >= 10 ** digits) return null;
     if (textWidth(text, font) <= width) return text;
   }
   return null;
@@ -237,7 +238,7 @@ function drawCellText(
       if (typeof value === 'number') {
         // A number cut short reads as another number. Without a format it is
         // rounded until it fits; otherwise the cell shows that it does not fit.
-        const rounded = engine.formatAt(sheet, row, col) ? null : roundedToFit(value, inner, font);
+        const rounded = engine.formatAt(sheet, row, col) ? null : roundedToFit(value, inner, font, engine.locale);
         text = rounded ?? '#'.repeat(Math.max(1, Math.floor(inner / textWidth('#', font))));
       } else if (!area && !isError(value) && typeof value !== 'boolean') {
         // Long text runs over the empty cells beside it.
@@ -606,11 +607,16 @@ function drawTouchHandles(ctx: CanvasRenderingContext2D, scene: GridScene, theme
     ctx.stroke();
   }
   if (scene.showHandle && shown(handles.fill) && handles.fill.y > HEADER_HEIGHT + TOUCH_FILL) {
-    // A square hanging from the middle of the bottom edge, like a tab to pull.
+    // A square tied to the bottom right corner, like the one a mouse pulls, made larger.
     const size = TOUCH_FILL - 2;
     const { x, y } = handles.fill;
-    ctx.fillStyle = theme.accent;
-    ctx.fillRect(x - 1, y - TOUCH_FILL, 2, TOUCH_FILL - size / 2);
+    ctx.strokeStyle = theme.accent;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    const toLeft = handles.end !== null && x < handles.end.x;
+    ctx.moveTo(x + (toLeft ? TOUCH_FILL_OFFSET - 6 : 6 - TOUCH_FILL_OFFSET), y - TOUCH_FILL_OFFSET + 6);
+    ctx.lineTo(x, y);
+    ctx.stroke();
     ctx.fillStyle = theme.sheet;
     ctx.beginPath();
     ctx.roundRect(x - size / 2 - 2, y - size / 2 - 2, size + 4, size + 4, 4);
