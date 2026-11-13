@@ -195,6 +195,8 @@ function syncDriveRootAuthorization(
     authorization.fingerprint,
   );
   state.authorizationFingerprint = authorization.fingerprint;
+  // Other writers or this device's own access changed: ask the relays again soon.
+  if (changed && previousFingerprint !== undefined) kickDriveRootBackfill(key);
   const projectionChanged = profileDriveProjection.pruneUnauthorized(
     rootScopeId,
     driveId,
@@ -652,10 +654,7 @@ function subscribeToDriveRootScope(key: string, rootScopeId: string, driveId: st
     kinds: [KIND_DRIVE_ROOT],
     '#d': [driveRootDTag(rootScopeId, driveId), rootScopeId],
   };
-  const opts = {
-    closeAfterHistory: false,
-
-  };
+  const opts = { closeAfterHistory: false };
 
   const attachSub = () => {
     const sub = nostr.subscribe(filter, opts);
@@ -676,13 +675,18 @@ function subscribeToDriveRootScope(key: string, rootScopeId: string, driveId: st
   fetchSnapshot();
   const backfill = startDriveRootBackfillPoll(key, fetchSnapshot);
   let lastConnectedRelays = useNostrStore.getState().connectedRelays;
+  let lastRosterOps = getCurrentNostrIdentitySession()?.rosterOps;
   const relayUnsub = useNostrStore.subscribe((state: NostrState) => {
+    // A device was approved or removed, or this one was let in: their roots,
+    // passed over until now, are asked for at once and then soon again.
+    const rosterOps = getCurrentNostrIdentitySession()?.rosterOps;
+    if (rosterOps !== lastRosterOps) {
+      lastRosterOps = rosterOps;
+      fetchSnapshot();
+      backfill.kick();
+    }
     if (state.connectedRelays > 0 && lastConnectedRelays === 0) {
-      try {
-        sub.stop();
-      } catch {
-        // ignore
-      }
+      try { sub.stop(); } catch { /* already stopped */ }
       sub = attachSub();
       backfill.now();
     }
