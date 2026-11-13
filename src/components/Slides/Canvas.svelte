@@ -36,6 +36,7 @@
   import type { SlidesEditorState } from '../../lib/slides/editorState.svelte';
   import SlideView from './SlideView.svelte';
   import Overlay from './Overlay.svelte';
+  import { writePng } from '../../lib/clipboardPng';
 
   interface Props {
     editorState: SlidesEditorState;
@@ -49,6 +50,15 @@
 
   const DRAG_START = 4;
   const SNAP_DISTANCE = 7;
+
+  /** "Copy image": the selected picture as itself, other selections or the whole slide as drawn. */
+  function copyImage(): void {
+    const png = import('./clipboardCopy').then(copy => copy.pngOfSelection(editorState, stage, urls));
+    writePng(png).catch((error: unknown) => {
+      console.error('[Slides] Could not copy the image:', error);
+      editorState.notice = 'The image could not be copied.';
+    });
+  }
 
   type Drag =
     | { kind: 'move'; start: Point; frames: Record<string, Frame>; moved: boolean; clicked: string | null; wasSelected: boolean; cell: string | null }
@@ -559,7 +569,7 @@
 <!-- The menu of the slide is loaded apart, the first time it is opened. -->
 {#if menuOpen}
   {#await import('./ElementMenu.svelte') then { default: ElementMenu }}
-    <ElementMenu {editorState} bind:open={menuOpen} at={menuAt} {onCopy} {onPaste} onDone={() => stage?.focus({ preventScroll: true })} />
+    <ElementMenu {editorState} bind:open={menuOpen} at={menuAt} {onCopy} {onPaste} onCopyImage={copyImage} onDone={() => stage?.focus({ preventScroll: true })} />
   {/await}
 {/if}
 

@@ -11,7 +11,7 @@
   import { MIN_OBJECT_SIZE, listObjects, placeObject, raiseObject, removeObject, type SheetObject } from '../../lib/sheets/objects';
   import type { MenuItem } from './PopupMenu.svelte';
   import { chartsNow, loadCharts } from './chartLoader';
-  import { copyObject } from './objectClipboard';
+  import { copyObject, copyObjectImage } from './objectClipboard';
 
   interface Props {
     ctl: SheetController;
@@ -235,6 +235,7 @@
     const items: MenuItem[] = [];
     if (object.content.kind === 'chart' && ctl.canEdit) items.push({ label: 'Edit chart', icon: 'i-lucide-chart-column', action: () => oneditchart(object.id), testId: 'object-edit-chart' });
     items.push({ label: 'Copy', icon: 'i-lucide-copy', action: () => void copyObject(ctl, object), testId: 'object-copy' });
+    items.push({ label: 'Copy image', icon: 'i-lucide-image', action: () => copyObjectImage(ctl, object), testId: 'object-copy-image' });
     if (ctl.canEdit) {
       items.push({ label: 'Cut', icon: 'i-lucide-scissors', action: () => void copyObject(ctl, object, true), testId: 'object-cut' });
       if (object.content.kind === 'picture') {

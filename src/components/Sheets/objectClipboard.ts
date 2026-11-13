@@ -7,6 +7,7 @@
 import type { SheetController } from '../../lib/sheets/controller.svelte';
 import type { CopiedCells } from '../../lib/sheets/controller.svelte';
 import { chartsNow, loadCharts } from './chartLoader';
+import { pngAt } from '../../lib/clipboardPng';
 import { addObject, removeObject, type ChartContent, type SheetObject } from '../../lib/sheets/objects';
 
 /** The object this tab copied last, to paste it as itself rather than as a picture. */
@@ -25,19 +26,6 @@ function lightChartSvg(ctl: SheetController, chart: ChartContent, width: number,
   return chartSvg(chart, chartData(dataSheet, ctl.engine, chart), { width, height, theme: LIGHT_CHART, locale: ctl.engine.locale });
 }
 
-/** A picture's pixels as PNG, from where it is shown. */
-async function picturePng(url: string): Promise<Blob> {
-  const blob = await (await fetch(url)).blob();
-  if (blob.type === 'image/png') return blob;
-  const bitmap = await createImageBitmap(blob);
-  const canvas = document.createElement('canvas');
-  canvas.width = bitmap.width;
-  canvas.height = bitmap.height;
-  canvas.getContext('2d')?.drawImage(bitmap, 0, 0);
-  bitmap.close();
-  return new Promise((resolve, reject) => canvas.toBlob(png => (png ? resolve(png) : reject(new Error('No picture'))), 'image/png'));
-}
-
 async function pngOf(ctl: SheetController, object: SheetObject): Promise<Blob> {
   const { content, placement } = object;
   if (content.kind === 'chart') {
@@ -48,7 +36,7 @@ async function pngOf(ctl: SheetController, object: SheetObject): Promise<Blob> {
   }
   const url = ctl.media?.urlOf(content.file);
   if (!url) throw new Error('The picture is not loaded yet');
-  return picturePng(url);
+  return pngAt(url);
 }
 
 function dataUrl(blob: Blob): Promise<string> {
@@ -81,6 +69,18 @@ export async function copyObject(ctl: SheetController, object: SheetObject, cut 
     removeObject(ctl.sheet, object.id);
     ctl.selectedObject = null;
   }
+}
+
+/** "Copy image": only the picture, as PNG, for apps that would take the HTML over it. */
+export function copyObjectImage(ctl: SheetController, object: SheetObject): void {
+  if (typeof ClipboardItem === 'undefined' || typeof navigator.clipboard?.write !== 'function') {
+    ctl.say('This browser cannot copy pictures.');
+    return;
+  }
+  navigator.clipboard.write([new ClipboardItem({ 'image/png': pngOf(ctl, object) })]).catch((error: unknown) => {
+    console.error('[Sheets] Could not copy the image:', error);
+    ctl.say('That image could not be copied.');
+  });
 }
 
 /** Pastes this tab's own copied object as itself, when the HTML is that copy. Returns whether it did. */

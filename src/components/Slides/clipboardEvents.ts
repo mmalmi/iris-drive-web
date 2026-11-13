@@ -53,7 +53,7 @@ export function createClipboard(options: ClipboardOptions) {
    */
   function writeFull(data: Copied): void {
     if (typeof ClipboardItem === 'undefined' || !('write' in (navigator.clipboard ?? {}))) return;
-    const made = import('./clipboardCopy').then(copy => copy.makeClipboard(data, options.root()));
+    const made = import('./clipboardCopy').then(copy => copy.makeClipboard(data, options.root(), options.urls));
     const items: Record<string, Blob | Promise<Blob>> = {
       'text/plain': new Blob([data.text || ' '], { type: 'text/plain' }),
       'text/html': made.then(parts => parts.html),
