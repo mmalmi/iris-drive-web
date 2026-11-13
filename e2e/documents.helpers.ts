@@ -1,5 +1,6 @@
 import { expect, type Page } from './fixtures';
 import {
+  chooseNew,
   clearAllStorage,
   configureBlossomServers,
   presetLocalRelayInDB,
@@ -50,7 +51,7 @@ export async function createDriveProfile(page: Page, name = 'Document Test'): Pr
 
 /** Creates a document in the folder that is open and waits for its editor. */
 export async function createDocument(page: Page, title: string): Promise<void> {
-  await page.getByTestId('new-document').filter({ visible: true }).first().click();
+  await chooseNew(page, 'Document');
   await page.getByPlaceholder('Document name...').fill(title);
   await page.getByPlaceholder('Document name...').press('Enter');
   await expect(page.getByTestId('document-title')).toHaveText(title, { timeout: 30_000 });

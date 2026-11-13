@@ -5,7 +5,7 @@
  * (not files) across all visibility types: public, linkvis, and private.
  */
 import { test, expect } from './fixtures';
-import { setupPageErrorHandler, navigateToPublicFolder, disableOthersPool, configureBlossomServers, waitForAppReady } from './test-utils.js';
+import { setupPageErrorHandler, navigateToPublicFolder, disableOthersPool, configureBlossomServers, waitForAppReady, chooseNew, expectFolderEditable } from './test-utils.js';
 
 test.describe('Subdirectory Creation', () => {
   // Increase timeout for all tests since new user setup now creates 3 default folders
@@ -41,10 +41,7 @@ test.describe('Subdirectory Creation', () => {
     await page.getByTestId('home-link').click();
 
     // Wait for tree list to load with New Folder button
-    await expect(page.getByRole('button', { name: 'New Folder' })).toBeVisible({ timeout: 10000 });
-
-    // Create a public tree (default visibility)
-    await page.getByRole('button', { name: 'New Folder' }).click();
+    await chooseNew(page, 'Folder', { timeoutMs: 10000 });
     await page.locator('input[placeholder="Folder name..."]').fill('public-parent');
     await page.getByRole('button', { name: 'Create' }).click();
     await page.waitForTimeout(1000);
@@ -53,7 +50,7 @@ test.describe('Subdirectory Creation', () => {
     await expect(page.getByText(/Drop or click to add|Empty directory/).first()).toBeVisible({ timeout: 5000 });
 
     // Create a subfolder
-    await page.getByRole('button', { name: /Folder/ }).first().click();
+    await chooseNew(page, 'Folder');
     await page.locator('input[placeholder="Folder name..."]').fill('subfolder');
     await page.getByRole('button', { name: 'Create' }).click();
     await page.waitForTimeout(1000);
@@ -77,16 +74,13 @@ test.describe('Subdirectory Creation', () => {
     await page.getByTestId('home-link').click();
 
     // Wait for tree list to load with New Folder button
-    await expect(page.getByRole('button', { name: 'New Folder' })).toBeVisible({ timeout: 10000 });
-
-    // Create a public tree
-    await page.getByRole('button', { name: 'New Folder' }).click();
+    await chooseNew(page, 'Folder', { timeoutMs: 10000 });
     await page.locator('input[placeholder="Folder name..."]').fill('public-nav');
     await page.getByRole('button', { name: 'Create' }).click();
     await page.waitForTimeout(1000);
 
     // Create a subfolder
-    await page.getByRole('button', { name: /Folder/ }).first().click();
+    await chooseNew(page, 'Folder');
     await page.locator('input[placeholder="Folder name..."]').fill('child-folder');
     await page.getByRole('button', { name: 'Create' }).click();
     await page.waitForTimeout(1000);
@@ -113,16 +107,13 @@ test.describe('Subdirectory Creation', () => {
     await page.getByTestId('home-link').click();
 
     // Wait for tree list to load with New Folder button
-    await expect(page.getByRole('button', { name: 'New Folder' })).toBeVisible({ timeout: 10000 });
-
-    // Create a public tree
-    await page.getByRole('button', { name: 'New Folder' }).click();
+    await chooseNew(page, 'Folder', { timeoutMs: 10000 });
     await page.locator('input[placeholder="Folder name..."]').fill('public-nested');
     await page.getByRole('button', { name: 'Create' }).click();
     await page.waitForTimeout(1000);
 
     // Create first subfolder
-    await page.getByRole('button', { name: /Folder/ }).first().click();
+    await chooseNew(page, 'Folder');
     await page.locator('input[placeholder="Folder name..."]').fill('level1');
     await page.getByRole('button', { name: 'Create' }).click();
     await page.waitForTimeout(1000);
@@ -135,7 +126,7 @@ test.describe('Subdirectory Creation', () => {
     await expect(page.getByText(/Drop or click to add|Empty directory/).first()).toBeVisible({ timeout: 10000 });
 
     // Create second subfolder inside level1
-    await page.getByRole('button', { name: /Folder/ }).first().click({ timeout: 10000 });
+    await chooseNew(page, 'Folder', { timeoutMs: 10000 });
     await page.locator('input[placeholder="Folder name..."]').fill('level2');
     await page.getByRole('button', { name: 'Create' }).click();
     await page.waitForTimeout(1000);
@@ -154,7 +145,7 @@ test.describe('Subdirectory Creation', () => {
     await expect(page.getByText(/Drop or click to add|Empty directory/).first()).toBeVisible({ timeout: 10000 });
 
     // Create third subfolder
-    await page.getByRole('button', { name: /Folder/ }).first().click({ timeout: 10000 });
+    await chooseNew(page, 'Folder', { timeoutMs: 10000 });
     await page.locator('input[placeholder="Folder name..."]').fill('level3');
     await page.getByRole('button', { name: 'Create' }).click();
     await page.waitForTimeout(1000);
@@ -171,15 +162,12 @@ test.describe('Subdirectory Creation', () => {
     await page.getByTestId('home-link').click();
 
     // Wait for tree list to load with New Folder button
-    await expect(page.getByRole('button', { name: 'New Folder' })).toBeVisible({ timeout: 10000 });
-
-    // Create a public tree
-    await page.getByRole('button', { name: 'New Folder' }).click();
+    await chooseNew(page, 'Folder', { timeoutMs: 10000 });
     await page.locator('input[placeholder="Folder name..."]').fill('public-buttons-test');
     await page.getByRole('button', { name: 'Create' }).click();
 
     // Create a subfolder
-    await page.getByRole('button', { name: /Folder/ }).first().click();
+    await chooseNew(page, 'Folder');
     await page.locator('input[placeholder="Folder name..."]').fill('subdir');
     await page.getByRole('button', { name: 'Create' }).click();
     await page.waitForTimeout(500);
@@ -191,8 +179,7 @@ test.describe('Subdirectory Creation', () => {
     await expect(page.getByText(/Drop or click to add|Empty directory/).first()).toBeVisible({ timeout: 5000 });
 
     // CRITICAL: File and Folder buttons should be visible inside subdirectory
-    await expect(page.getByRole('button', { name: 'New File' })).toBeVisible({ timeout: 5000 });
-    await expect(page.getByRole('button', { name: 'New Folder' })).toBeVisible({ timeout: 5000 });
+    await expectFolderEditable(page, 5000);
   });
 
   test('subdirectory in link-visible tree should show as folder', async ({ page }) => {
@@ -200,10 +187,7 @@ test.describe('Subdirectory Creation', () => {
     await page.getByTestId('home-link').click();
 
     // Wait for tree list to load with New Folder button
-    await expect(page.getByRole('button', { name: 'New Folder' })).toBeVisible({ timeout: 10000 });
-
-    // Create an link-visible tree
-    await page.getByRole('button', { name: 'New Folder' }).click();
+    await chooseNew(page, 'Folder', { timeoutMs: 10000 });
     await page.locator('input[placeholder="Folder name..."]').fill('linkvis-parent');
     await page.getByRole('button', { name: /link-visible/i }).click();
     await page.getByRole('button', { name: 'Create' }).click();
@@ -215,10 +199,10 @@ test.describe('Subdirectory Creation', () => {
     await expect(page.getByText(/Drop or click to add|Empty directory/).first()).toBeVisible({ timeout: 10000 });
 
     // Wait for New Folder button to be visible inside the tree
-    await expect(page.getByRole('button', { name: /Folder/ }).first()).toBeVisible({ timeout: 10000 });
+    await expectFolderEditable(page, 10000);
 
     // Create a subfolder
-    await page.getByRole('button', { name: /Folder/ }).first().click();
+    await chooseNew(page, 'Folder');
     await page.locator('input[placeholder="Folder name..."]').fill('secret-docs');
     await page.getByRole('button', { name: 'Create' }).click();
 
@@ -241,17 +225,14 @@ test.describe('Subdirectory Creation', () => {
     await page.getByTestId('home-link').click();
 
     // Wait for tree list to load with New Folder button
-    await expect(page.getByRole('button', { name: 'New Folder' })).toBeVisible({ timeout: 10000 });
-
-    // Create a private tree
-    await page.getByRole('button', { name: 'New Folder' }).click();
+    await chooseNew(page, 'Folder', { timeoutMs: 10000 });
     await page.locator('input[placeholder="Folder name..."]').fill('private-parent');
     await page.getByRole('button', { name: /private/i }).click();
     await page.getByRole('button', { name: 'Create' }).click();
     await page.waitForTimeout(1000);
 
     // Create a subfolder
-    await page.getByRole('button', { name: /Folder/ }).first().click();
+    await chooseNew(page, 'Folder');
     await page.locator('input[placeholder="Folder name..."]').fill('private-docs');
     await page.getByRole('button', { name: 'Create' }).click();
     await page.waitForTimeout(500);

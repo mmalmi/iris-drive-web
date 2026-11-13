@@ -1,5 +1,6 @@
 import { expect, test, type Page } from './fixtures';
 import { createDriveProfile, prepareFreshSession } from './documents.helpers';
+import { chooseNew } from './test-utils';
 
 /** A 30 × 20 PNG picture made in the page, as a screenshot tool would copy it. */
 async function copyScreenshot(page: Page): Promise<void> {
@@ -36,7 +37,7 @@ async function backToFolder(page: Page): Promise<void> {
 }
 
 async function addFiles(page: Page, files: Array<{ name: string; mimeType: string; buffer: Buffer }>): Promise<void> {
-  await page.getByTestId('folder-toolbar').first().locator('input[type="file"]:not([webkitdirectory])').setInputFiles(files);
+  await page.getByTestId('upload-files-input').setInputFiles(files);
   for (const file of files) await expect(row(page, file.name)).toBeVisible({ timeout: 30_000 });
 }
 
@@ -125,7 +126,7 @@ test.describe('the system clipboard and drag and drop in a Drive folder', () => 
     await backToFolder(page);
     const before = await fileList(page).locator('a').count();
     await page.evaluate(() => navigator.clipboard.writeText('Holiday'));
-    await page.getByTitle('New Folder').filter({ visible: true }).first().click();
+    await chooseNew(page, 'Folder');
     const name = page.getByPlaceholder('Folder name...');
     await name.focus();
     await page.keyboard.press('ControlOrMeta+v');

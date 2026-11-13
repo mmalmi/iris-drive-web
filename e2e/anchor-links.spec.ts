@@ -1,24 +1,23 @@
-import { saveTextFile } from './test-utils.js';
+import { saveTextFile, chooseNew, expectFolderEditable } from './test-utils.js';
 import type { Page } from '@playwright/test';
 import { test, expect } from './fixtures';
 import { navigateToPublicFolder, goToTreeList, setupFreshUser } from './test-utils.js';
 
 async function createAndEnterTree(page: Page, name: string) {
   await goToTreeList(page);
-  await expect(page.getByRole('button', { name: 'New Folder' })).toBeVisible({ timeout: 10000 });
-  await page.getByRole('button', { name: 'New Folder' }).click();
+  await chooseNew(page, 'Folder', { timeoutMs: 10000 });
   await page.locator('input[placeholder="Folder name..."]').fill(name);
   await page.getByRole('button', { name: 'Create' }).click();
   const folderLink = page.locator('a').filter({ hasText: name }).first();
   await expect(folderLink).toBeVisible({ timeout: 10000 });
   await folderLink.click();
   await expect(page).toHaveURL(new RegExp(`/${name}(?:[?#]|$)`), { timeout: 30000 });
-  await expect(page.getByRole('button', { name: 'New File' })).toBeVisible({ timeout: 30000 });
+  await expectFolderEditable(page, 30000);
   await expect(page.getByText('Empty directory')).toBeVisible({ timeout: 10000 });
 }
 
 async function createFile(page: Page, name: string, content: string = '') {
-  await page.getByRole('button', { name: /File/ }).first().click();
+  await chooseNew(page, 'Text file');
   await page.locator('input[placeholder="File name..."]').fill(name);
   await page.getByRole('button', { name: 'Create' }).click();
   const doneButton = page.getByRole('button', { name: 'Done' });

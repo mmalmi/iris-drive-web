@@ -1,12 +1,11 @@
-import { saveTextFile } from './test-utils.js';
+import { saveTextFile, chooseNew } from './test-utils.js';
 import { test, expect } from './fixtures';
 import { setupPageErrorHandler, navigateToPublicFolder, goToTreeList, safeReload, waitForAppReady } from './test-utils.js';
 
 // Helper to create tree and navigate into it
 async function createAndEnterTree(page: any, name: string) {
   await goToTreeList(page);
-  await expect(page.getByRole('button', { name: 'New Folder' })).toBeVisible({ timeout: 10000 });
-  await page.getByRole('button', { name: 'New Folder' }).click();
+  await chooseNew(page, 'Folder', { timeoutMs: 10000 });
   await page.locator('input[placeholder="Folder name..."]').fill(name);
   await page.getByRole('button', { name: 'Create' }).click();
   await expect(page.getByText('Empty directory')).toBeVisible({ timeout: 10000 });
@@ -40,7 +39,7 @@ test.describe('LIVE Indicator', () => {
     await createAndEnterTree(page, 'live-test');
 
     // Create file - after clicking Done, it should auto-navigate to the file
-    await page.getByRole('button', { name: /File/ }).first().click();
+    await chooseNew(page, 'Text file');
     await page.locator('input[placeholder="File name..."]').fill('test.txt');
     await page.getByRole('button', { name: 'Create' }).click();
     await expect(page.getByRole('button', { name: 'Done' })).toBeVisible({ timeout: 5000 });

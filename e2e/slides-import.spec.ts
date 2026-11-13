@@ -108,7 +108,7 @@ test.describe('PowerPoint files brought in', () => {
     const deckUrl = page.url();
     const folderUrl = deckUrl.replace(/\/[^/]+$/, '');
     await page.goto(folderUrl);
-    await page.locator('input[type="file"]').first().setInputFiles({ name: 'Old house.pptx', mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', buffer: Buffer.from(inheritedPptx()) });
+    await page.getByTestId('upload-files-input').setInputFiles({ name: 'Old house.pptx', mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', buffer: Buffer.from(inheritedPptx()) });
     await expect(page.locator('[data-testid="file-list"] a:has-text("Old house.pptx")')).toBeAttached({ timeout: 30_000 });
     await page.goto(`${deckUrl}?import=${encodeURIComponent('Old house.pptx')}`);
     await expect(sheet(page)).toContainText('Old house', { timeout: 30_000 });

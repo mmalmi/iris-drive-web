@@ -2,6 +2,8 @@ import fs from 'node:fs/promises';
 import { unzipSync } from 'fflate';
 import { test, expect, type Page } from './fixtures';
 import {
+  chooseNew,
+  expectFolderEditable,
   configureBlossomServers,
   presetLocalRelayInDB,
   waitForAppReady,
@@ -31,11 +33,11 @@ async function createProfile(page: Page) {
   await page.getByTestId('generate-new-account').click();
   await page.getByTestId('identity-create-name').fill('Alice');
   await page.getByTestId('create-new-after-recovery-miss').click();
-  await expect(page.locator('label[title="Add files"]:visible')).toBeVisible();
+  await expectFolderEditable(page);
 }
 
 async function upload(page: Page, name: string, buffer: Buffer) {
-  await page.locator('label[title="Add files"]:visible input[type="file"]')
+  await page.getByTestId('upload-files-input')
     .setInputFiles({ name, mimeType: 'application/octet-stream', buffer });
   await expect(page.getByTestId('viewer-header')).toContainText(name);
 }
@@ -104,7 +106,7 @@ test.describe('basic file-sharing journeys', () => {
     await createProfile(page);
     await upload(page, 'private-notes.txt', Buffer.from('Outside the shared folder.'));
     await page.getByTestId('viewer-back').click();
-    await page.getByRole('button', { name: 'New Folder', exact: true }).click();
+    await chooseNew(page, 'Folder');
     await page.getByPlaceholder('Folder name...').fill('Weekend picnic');
     await page.getByRole('button', { name: 'Create', exact: true }).click();
     await page.getByRole('link', { name: 'Weekend picnic', exact: true }).click();
@@ -123,7 +125,7 @@ test.describe('basic file-sharing journeys', () => {
       await guest.goto(`/${hash}`);
       await expect(guest.getByRole('link', { name: /Plan.txt/ })).toBeVisible();
       await expect(guest.getByText('private-notes.txt')).toHaveCount(0);
-      await expect(guest.getByRole('button', { name: 'New File', exact: true })).toHaveCount(0);
+      await expect(guest.locator('[data-testid="new-menu"]:visible')).toHaveCount(0);
       await expect(guest.getByRole('button', { name: 'Delete', exact: true })).toHaveCount(0);
       await guest.getByRole('link', { name: /Plan.txt/ }).click();
       await expect(guest.getByText('Meet by the lake at noon.', { exact: true })).toBeVisible();

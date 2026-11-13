@@ -59,7 +59,7 @@ test.describe('profile file sharing', () => {
 
     const fileName = 'shared-profile-file.txt';
     const fileContent = 'Loaded from an immutable profile-drive share.';
-    await page.locator('label[title="Add files"]:visible input[type="file"]')
+    await page.getByTestId('upload-files-input')
       .setInputFiles({
         name: fileName,
         mimeType: 'text/plain',

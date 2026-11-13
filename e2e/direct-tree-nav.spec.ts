@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures';
-import { waitForRelayConnected } from './test-utils.js';
+import { waitForRelayConnected, chooseNew } from './test-utils.js';
 import { observeDirectNavigationHttp, takeDirectNavigationHttpObservations } from './direct-tree-nav.diagnostics';
 import {
   configureExplicitFipsPair,
@@ -41,7 +41,7 @@ test.describe.serial('Direct Tree Navigation', () => {
     const user1 = await initUser(page1, relayUrl, { enableOthersPool: true });
 
     // Create a folder and file
-    await page1.getByRole('button', { name: 'New Folder' }).click();
+    await chooseNew(page1, 'Folder');
     const folderInput = page1.locator('input[placeholder="Folder name..."]');
     await folderInput.waitFor({ timeout: 5000 });
     await folderInput.fill('webrtc-nav-test');
@@ -236,7 +236,7 @@ test.describe.serial('Direct Tree Navigation', () => {
     const user1 = await initUser(page1, relayUrl, { enableOthersPool: true });
 
     // Create folder
-    await page1.getByRole('button', { name: 'New Folder' }).click();
+    await chooseNew(page1, 'Folder');
     const folderInput = page1.locator('input[placeholder="Folder name..."]');
     await folderInput.waitFor({ timeout: 5000 });
     await folderInput.fill('webrtc-dir-test');

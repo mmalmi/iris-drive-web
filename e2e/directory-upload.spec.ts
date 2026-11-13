@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures';
-import { setupPageErrorHandler, navigateToPublicFolder, disableOthersPool } from './test-utils.js';
+import { setupPageErrorHandler, navigateToPublicFolder, disableOthersPool, chooseNew, openNewMenu } from './test-utils.js';
 
 test.describe('Directory upload features', () => {
   test.describe.configure({ timeout: 90000 });
@@ -9,14 +9,12 @@ test.describe('Directory upload features', () => {
     await disableOthersPool(page);
   });
 
-  test('should show Add Folder button when in a folder (if browser supports it)', async ({ page }) => {
+  test('should offer Upload folder in a folder (if browser supports it)', async ({ page }) => {
     await navigateToPublicFolder(page, { timeoutMs: 60000, requireRelay: false });
 
     // Navigate to tree list and create a folder
     await page.getByTestId('home-link').click();
-    const newFolderButton = page.getByRole('button', { name: 'New Folder' }).first();
-    await expect(newFolderButton).toBeVisible({ timeout: 5000 });
-    await newFolderButton.click();
+    await chooseNew(page, 'Folder', { timeoutMs: 5000 });
 
     const input = page.locator('input[placeholder="Folder name..."]');
     await input.waitFor({ timeout: 5000 });
@@ -29,20 +27,10 @@ test.describe('Directory upload features', () => {
     // Wait for the folder to be created
     await expect(page.locator('text=Empty directory')).toBeVisible({ timeout: 10000 });
 
-    // The Add Folder button should be visible (browsers that support webkitdirectory)
-    const addFolderButtons = page.locator('label:has-text("Add Folder")');
-
-    // Check if directory upload is supported (it should be in Chromium-based browsers)
-    const count = await addFolderButtons.count();
-    if (count > 0) {
-      const anyVisible = await addFolderButtons.evaluateAll((buttons) =>
-        buttons.some((b) => {
-          const style = window.getComputedStyle(b);
-          return style.display !== 'none' && style.visibility !== 'hidden';
-        })
-      );
-      expect(anyVisible).toBe(true);
-    }
+    // Chromium supports webkitdirectory, so the New menu offers Upload folder
+    const menu = await openNewMenu(page);
+    await expect(menu.getByRole('menuitem', { name: 'Upload folder', exact: true })).toBeVisible();
+    await page.keyboard.press('Escape');
   });
 
   test('should have webkitdirectory attribute on directory input', async ({ page }) => {
@@ -50,9 +38,7 @@ test.describe('Directory upload features', () => {
 
     // Navigate to tree list and create a folder
     await page.getByTestId('home-link').click();
-    const newFolderButton = page.getByRole('button', { name: 'New Folder' }).first();
-    await expect(newFolderButton).toBeVisible({ timeout: 5000 });
-    await newFolderButton.click();
+    await chooseNew(page, 'Folder', { timeoutMs: 5000 });
 
     const input = page.locator('input[placeholder="Folder name..."]');
     await input.waitFor({ timeout: 5000 });
@@ -63,24 +49,16 @@ test.describe('Directory upload features', () => {
     await expect(page.locator('.fixed.inset-0.bg-black')).not.toBeVisible({ timeout: 10000 });
     await expect(page.locator('text=Empty directory')).toBeVisible({ timeout: 10000 });
 
-    // Find the directory input by looking for an input with webkitdirectory attribute
-    const dirInput = page.locator('input[type="file"][webkitdirectory]');
-
-    const count = await dirInput.count();
-    if (count > 0) {
-      // Verify at least one input exists with the correct attribute
-      expect(count).toBeGreaterThan(0);
-    }
+    // The folder's directory input takes whole folders
+    await expect(page.getByTestId('upload-folder-input')).toHaveAttribute('webkitdirectory', '');
   });
 
-  test('should show both Add and Add Folder buttons', async ({ page }) => {
+  test('should offer both Upload files and Upload folder', async ({ page }) => {
     await navigateToPublicFolder(page, { timeoutMs: 60000, requireRelay: false });
 
     // Navigate to tree list and create a folder
     await page.getByTestId('home-link').click();
-    const newFolderButton = page.getByRole('button', { name: 'New Folder' }).first();
-    await expect(newFolderButton).toBeVisible({ timeout: 5000 });
-    await newFolderButton.click();
+    await chooseNew(page, 'Folder', { timeoutMs: 5000 });
 
     const input = page.locator('input[placeholder="Folder name..."]');
     await input.waitFor({ timeout: 5000 });
@@ -91,25 +69,11 @@ test.describe('Directory upload features', () => {
     await expect(page.locator('.fixed.inset-0.bg-black')).not.toBeVisible({ timeout: 10000 });
     await expect(page.locator('text=Empty directory')).toBeVisible({ timeout: 10000 });
 
-    // Both buttons should exist
-    // Add button (green btn-success class)
-    const addButtons = page.locator('label.btn-success:has-text("Add")');
-    const addCount = await addButtons.count();
-    expect(addCount).toBeGreaterThan(0);
-
-    // Add Folder button (btn-ghost)
-    const addFolderButtons = page.locator('label.btn-ghost:has-text("Add Folder")');
-    const folderCount = await addFolderButtons.count();
-
-    if (folderCount > 0) {
-      const anyFolderVisible = await addFolderButtons.evaluateAll((buttons) =>
-        buttons.some((b) => {
-          const style = window.getComputedStyle(b);
-          return style.display !== 'none' && style.visibility !== 'hidden';
-        })
-      );
-      expect(anyFolderVisible).toBe(true);
-    }
+    // Both are in the New menu
+    const menu = await openNewMenu(page);
+    await expect(menu.getByRole('menuitem', { name: 'Upload files', exact: true })).toBeVisible();
+    await expect(menu.getByRole('menuitem', { name: 'Upload folder', exact: true })).toBeVisible();
+    await page.keyboard.press('Escape');
   });
 
   test('should upload nested directory structure correctly', async ({ page }) => {
@@ -117,9 +81,7 @@ test.describe('Directory upload features', () => {
 
     // Navigate to tree list and create a folder
     await page.getByTestId('home-link').click();
-    const newFolderButton = page.getByRole('button', { name: 'New Folder' }).first();
-    await expect(newFolderButton).toBeVisible({ timeout: 5000 });
-    await newFolderButton.click();
+    await chooseNew(page, 'Folder', { timeoutMs: 5000 });
 
     const input = page.locator('input[placeholder="Folder name..."]');
     await input.waitFor({ timeout: 5000 });

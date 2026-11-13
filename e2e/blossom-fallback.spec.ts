@@ -111,7 +111,7 @@ test.describe('Blossom Fallback Behavior', () => {
     console.log('Fresh user setup complete');
 
     // Upload the video file
-    const fileInput = page.locator('input[type="file"][multiple]').first();
+    const fileInput = page.getByTestId('upload-files-input');
     await fileInput.setInputFiles(TEST_VIDEO);
     console.log('File input set');
 
@@ -170,7 +170,7 @@ test.describe('Blossom Fallback Behavior', () => {
     await setupFreshUser(page);
 
     // Upload
-    const fileInput = page.locator('input[type="file"][multiple]').first();
+    const fileInput = page.getByTestId('upload-files-input');
     await fileInput.setInputFiles(TEST_VIDEO);
 
     await waitForUploadedVideo(page, 'Big_Buck_Bunny_360_10s_1MB.mp4', 60000);

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from './fixtures';
-import { flushPendingPublishes } from './test-utils';
+import { chooseNew, flushPendingPublishes } from './test-utils';
 import {
   createDocument,
   createDriveProfile,
@@ -196,7 +196,7 @@ test.describe('sharing from the browser', () => {
   test('a visitor without an account creates one and lands in the shared folder, read-only for a view link', async ({ page, browser, relayUrl }) => {
     await prepareFreshSession(page, relayUrl);
     await createDriveProfile(page, 'Owner');
-    await page.locator('button[title="New Folder"]').filter({ visible: true }).first().click();
+    await chooseNew(page, 'Folder');
     await page.getByPlaceholder('Folder name...').fill('Trip');
     await page.getByPlaceholder('Folder name...').press('Enter');
     await page.getByRole('link', { name: /^Trip\b/ }).first().click();

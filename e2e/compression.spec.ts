@@ -1,4 +1,4 @@
-import { saveTextFile } from './test-utils.js';
+import { saveTextFile, chooseNew } from './test-utils.js';
 import { test, expect } from './fixtures';
 import { setupPageErrorHandler, navigateToPublicFolder, disableOthersPool, goToTreeList, openFolderMenu } from './test-utils.js';
 import * as fs from 'fs';
@@ -7,9 +7,7 @@ import * as path from 'path';
 async function createFolderAndOpen(page: any, folderName: string): Promise<void> {
   await goToTreeList(page);
 
-  const newFolderButton = page.getByRole('button', { name: 'New Folder' }).first();
-  await expect(newFolderButton).toBeVisible({ timeout: 5000 });
-  await newFolderButton.click();
+  await chooseNew(page, 'Folder', { timeoutMs: 5000 });
 
   const input = page.locator('input[placeholder="Folder name..."]');
   await input.waitFor({ timeout: 5000 });
@@ -191,7 +189,7 @@ test.describe('Compression features', () => {
     const folderUrl = page.url();
 
     // Create a file in the folder
-    await page.getByRole('button', { name: 'New File' }).click();
+    await chooseNew(page, 'Text file');
     const fileInput = page.locator('input[placeholder="File name..."]');
     await fileInput.waitFor({ timeout: 5000 });
     await fileInput.fill('test-file.txt');
@@ -234,7 +232,7 @@ test.describe('Compression features', () => {
     const buffer = fs.readFileSync(zipPath);
 
     // Upload the ZIP file
-    const fileInput = page.locator('input[type="file"]:not([webkitdirectory])').first();
+    const fileInput = page.getByTestId('upload-files-input');
     await fileInput.waitFor({ state: 'attached', timeout: 5000 });
     await fileInput.setInputFiles({
       name: 'dosgame.zip',

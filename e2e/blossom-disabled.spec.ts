@@ -47,7 +47,7 @@ test.describe('Blossom Disabled', () => {
 
     try {
       // Upload file
-      const fileInput = page.locator('input[type="file"]').first();
+      const fileInput = page.getByTestId('upload-files-input');
       await fileInput.setInputFiles(testFilePath);
 
       // Wait for file to appear in the tree (may be hidden on smaller layouts)
@@ -106,7 +106,7 @@ test.describe('Blossom Disabled', () => {
     fs.writeFileSync(testFilePath, 'Test content for disabled read/write');
 
     try {
-      const fileInput = page.locator('input[type="file"]').first();
+      const fileInput = page.getByTestId('upload-files-input');
       await fileInput.setInputFiles(testFilePath);
 
       await expect(page.locator('[data-testid="file-list"] a:has-text("test-file2.txt")')).toBeAttached({ timeout: 10000 });

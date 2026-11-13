@@ -8,7 +8,7 @@ import { test, expect, Page } from './fixtures';
 import * as path from 'path';
 import * as fs from 'fs';
 import { fileURLToPath } from 'url';
-import { setupPageErrorHandler, navigateToPublicFolder, disableOthersPool, waitForAppReady } from './test-utils.js';
+import { setupPageErrorHandler, navigateToPublicFolder, disableOthersPool, waitForAppReady, chooseNew, expectFolderEditable } from './test-utils.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -35,7 +35,7 @@ async function setupFreshUser(page: Page) {
   await disableOthersPool(page);
   // Page ready - navigateToPublicFolder handles waiting
   await navigateToPublicFolder(page, { requireRelay: false });
-  await expect(page.locator('button[title="New File"]:visible').first()).toBeVisible({ timeout: 10000 });
+  await expectFolderEditable(page, 10000);
 }
 
 test.describe('Offline Upload', () => {
@@ -66,7 +66,7 @@ test.describe('Offline Upload', () => {
     await context.setOffline(true);
 
     // Upload the video via hidden file input
-    const fileInput = page.locator('input[type="file"][multiple]').first();
+    const fileInput = page.getByTestId('upload-files-input');
     await fileInput.setInputFiles(TEST_VIDEO);
     console.log('File upload triggered');
 
@@ -123,10 +123,7 @@ test.describe('Offline Upload', () => {
     await context.setOffline(true);
     console.log('Going offline...');
 
-    // Click New Folder button
-    const newFolderBtn = page.locator('button[title="New Folder"]:visible').first();
-    await expect(newFolderBtn).toBeVisible({ timeout: 10000 });
-    await newFolderBtn.click();
+    await chooseNew(page, 'Folder', { timeoutMs: 10000 });
 
     // Enter folder name in modal
     const input = page.locator('input[placeholder="Folder name..."]');

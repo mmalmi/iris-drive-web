@@ -45,10 +45,16 @@ test.describe('documents in a Drive', () => {
     // folder list settles, then typing the way a person does.
     await page.evaluate((profileId) => {
       window.location.hash = `/${profileId}/main`;
+      // Once the folder's own header is there, New, then Document.
       const open = () => {
-        const button = [...document.querySelectorAll<HTMLElement>('[data-testid="new-document"]')].find(node => node.offsetParent);
-        if (button) button.click();
-        else requestAnimationFrame(open);
+        const item = document.querySelector<HTMLElement>('[data-testid="new-document"]');
+        if (item) {
+          item.click();
+          return;
+        }
+        const button = [...document.querySelectorAll<HTMLElement>('[data-testid="new-menu"]')].find(node => node.offsetParent);
+        if (button && document.querySelector('[data-testid="upload-files-input"]') && button.getAttribute('aria-expanded') !== 'true') button.click();
+        requestAnimationFrame(open);
       };
       open();
     }, owner.profileId);
@@ -217,7 +223,7 @@ test.describe('documents in a Drive', () => {
     });
     await prepareFreshSession(page, relayUrl);
     await createDriveProfile(page);
-    await page.locator('label[title="Add files"]:visible input[type="file"]').setInputFiles({
+    await page.getByTestId('upload-files-input').setInputFiles({
       name: 'neighbour.txt', mimeType: 'text/plain', buffer: Buffer.from('still here'),
     });
     await expect(page.getByTestId('viewer-header')).toContainText('neighbour.txt', { timeout: 30_000 });

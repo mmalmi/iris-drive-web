@@ -1,4 +1,4 @@
-import { saveTextFile } from './test-utils.js';
+import { saveTextFile, chooseNew } from './test-utils.js';
 import { openFolderMenu } from './test-utils.js';
 import { test, expect } from './fixtures';
 import {
@@ -259,7 +259,7 @@ test.describe('Hashtree Explorer', () => {
     await createAndEnterTree(page, 'delete-folder-test');
 
     // Create a folder
-    await page.getByRole('button', { name: /Folder/ }).first().click();
+    await chooseNew(page, 'Folder');
     await page.locator('input[placeholder="Folder name..."]').fill('to-delete-folder');
     await page.getByRole('button', { name: 'Create' }).click();
     await page.waitForTimeout(500);
@@ -458,7 +458,7 @@ test.describe('Hashtree Explorer', () => {
     // Create tree via modal
     await createAndEnterTree(page, 'modal-test');
 
-    await page.getByRole('button', { name: /File/ }).first().click();
+    await chooseNew(page, 'Text file');
     await expect(page.locator('input[placeholder="File name..."]')).toBeVisible();
 
     // Click outside the modal

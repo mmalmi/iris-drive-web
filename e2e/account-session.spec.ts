@@ -1,5 +1,6 @@
 import { expect, test, type Page } from './fixtures';
 import {
+  chooseNew,
   clearAllStorage,
   configureBlossomServers,
   presetLocalRelayInDB,
@@ -37,7 +38,7 @@ async function createProfile(page: Page): Promise<void> {
 }
 
 async function uploadTextFile(page: Page, name: string, content: string): Promise<void> {
-  await page.getByRole('button', { name: 'New File' }).click();
+  await chooseNew(page, 'Text file');
   const nameInput = page.locator('input[placeholder="File name..."]');
   await expect(nameInput).toBeVisible({ timeout: 10_000 });
   await nameInput.fill(name);

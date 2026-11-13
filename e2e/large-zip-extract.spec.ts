@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures';
-import { setupPageErrorHandler, navigateToPublicFolder, disableOthersPool } from './test-utils.js';
+import { setupPageErrorHandler, navigateToPublicFolder, disableOthersPool, chooseNew } from './test-utils.js';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -38,11 +38,9 @@ test.describe('Large ZIP extraction', () => {
     console.log(`ZIP file size: ${stats.size} bytes`);
 
     // Upload the ZIP file using file path
-    const addFiles = page.locator('label[title="Add files"]:visible');
-    await expect(addFiles).toHaveCount(1);
     const [fileChooser] = await Promise.all([
       page.waitForEvent('filechooser'),
-      addFiles.click(),
+      chooseNew(page, 'Upload files'),
     ]);
 
     await fileChooser.setFiles(zipPath);

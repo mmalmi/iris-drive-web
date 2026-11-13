@@ -1,4 +1,4 @@
-import { saveTextFile } from './test-utils.js';
+import { saveTextFile, chooseNew, expectFolderEditable } from './test-utils.js';
 import { openFolderMenu } from './test-utils.js';
 import { test, expect } from './fixtures';
 import { disableOthersPool, ensureLoggedIn, waitForAppReady } from './test-utils.js';
@@ -26,10 +26,7 @@ test.describe('Permalink Navigation', () => {
     test.slow(); // File operations can be slow under parallel load
     // Create content in the current profile's actual home folder.
     await page.getByTestId('home-link').click();
-    await expect(page.getByRole('button', { name: 'New File', exact: true })).toBeVisible({ timeout: 5000 });
-
-    // Create a file
-    await page.getByRole('button', { name: 'New File', exact: true }).click();
+    await chooseNew(page, 'Text file', { timeoutMs: 5000 });
     await expect(page.locator('input[placeholder="File name..."]')).toBeVisible({ timeout: 3000 });
     await page.locator('input[placeholder="File name..."]').fill('permalink-test.txt');
     await page.getByRole('button', { name: 'Create' }).click();
@@ -70,10 +67,8 @@ test.describe('Permalink Navigation', () => {
     test.slow(); // File operations can be slow under parallel load
     // Navigate to public folder
     await page.getByRole('link', { name: 'public' }).first().click();
-    await expect(page.getByRole('button', { name: /New File/i })).toBeVisible({ timeout: 5000 });
-
     // Create a file so directory isn't empty
-    await page.getByRole('button', { name: /New File/i }).click();
+    await chooseNew(page, 'Text file', { timeoutMs: 5000 });
     await expect(page.locator('input[placeholder="File name..."]')).toBeVisible({ timeout: 3000 });
     await page.locator('input[placeholder="File name..."]').fill('test-in-dir.txt');
     await page.getByRole('button', { name: 'Create' }).click();
@@ -94,8 +89,8 @@ test.describe('Permalink Navigation', () => {
     await expect(backLink).toBeVisible({ timeout: 10000 });
     await backLink.click();
 
-    // Wait for directory view to load - New File button indicates we're in directory view
-    await expect(page.getByRole('button', { name: /New File/i })).toBeVisible({ timeout: 5000 });
+    // Wait for directory view to load
+    await expectFolderEditable(page, 5000);
 
     // Wait for file to appear in the file list
     await expect(page.getByTestId('file-list').locator('text=test-in-dir.txt')).toBeVisible({ timeout: 5000 });
@@ -124,18 +119,15 @@ test.describe('Permalink Navigation', () => {
   test('file in permalink directory should display correctly', async ({ page }) => {
     test.slow(); // File operations can be slow under parallel load
     // Create an linkvis (encrypted) tree
-    await page.getByRole('button', { name: /New Folder/i }).click();
+    await chooseNew(page, 'Folder');
     await expect(page.locator('input[placeholder="Folder name..."]')).toBeVisible({ timeout: 3000 });
 
     await page.locator('input[placeholder="Folder name..."]').fill('permalink-file-test');
     await page.getByRole('button', { name: /link-visible/i }).click();
     await page.getByRole('button', { name: 'Create' }).click();
 
-    // Wait for navigation into the new tree (shows empty directory or New File button)
-    await expect(page.getByRole('button', { name: /New File/i })).toBeVisible({ timeout: 10000 });
-
-    // Create a file inside the encrypted tree
-    await page.getByRole('button', { name: /New File/i }).click();
+    // Wait for navigation into the new tree, then create a file inside it
+    await chooseNew(page, 'Text file', { timeoutMs: 10000 });
     await expect(page.locator('input[placeholder="File name..."]')).toBeVisible({ timeout: 3000 });
     await page.locator('input[placeholder="File name..."]').fill('test-content.txt');
     await page.getByRole('button', { name: 'Create' }).click();
@@ -156,8 +148,8 @@ test.describe('Permalink Navigation', () => {
     await expect(backLink).toBeVisible({ timeout: 10000 });
     await backLink.click();
 
-    // Wait for directory view to load - "New File" button appears in directory view
-    await expect(page.getByRole('button', { name: /New File/i })).toBeVisible({ timeout: 10000 });
+    // Wait for directory view to load
+    await expectFolderEditable(page, 10000);
 
     // Also wait for file to appear in the list to confirm directory loaded
     await expect(page.locator('[data-testid="file-list"]').getByText('test-content.txt')).toBeVisible({ timeout: 10000 });

@@ -68,7 +68,7 @@ test('trip collaborators add, rename and delete files while a reader reconnects 
     await openProfile(page, profiles.bob!, relayUrl);
     await acceptAndOpen(page, editor.invite);
     const bytes = Buffer.from('Bring sandwiches and café supplies.');
-    await page.locator('label[title="Add files"]:visible input[type="file"]').setInputFiles({
+    await page.getByTestId('upload-files-input').setInputFiles({
       name: 'Packing café.txt', mimeType: 'text/plain', buffer: bytes,
     });
     await expect(page.getByTestId('viewer-header')).toContainText('Packing café.txt');

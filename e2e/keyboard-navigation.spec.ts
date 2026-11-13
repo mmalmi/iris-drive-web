@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures';
-import { setupPageErrorHandler, navigateToPublicFolder, goToTreeList, disableOthersPool, waitForAppReady } from './test-utils.js';
+import { setupPageErrorHandler, navigateToPublicFolder, goToTreeList, disableOthersPool, waitForAppReady, chooseNew, expectFolderEditable } from './test-utils.js';
 
 // Run keyboard tests serially - they depend on focus state which is unreliable under parallel execution
 test.describe.configure({ mode: 'serial' });
@@ -7,8 +7,7 @@ test.describe.configure({ mode: 'serial' });
 // Helper to create tree and navigate into it
 async function createAndEnterTree(page: any, name: string) {
   await goToTreeList(page);
-  await expect(page.getByRole('button', { name: 'New Folder' })).toBeVisible({ timeout: 10000 });
-  await page.getByRole('button', { name: 'New Folder' }).click();
+  await chooseNew(page, 'Folder', { timeoutMs: 10000 });
   await page.locator('input[placeholder="Folder name..."]').fill(name);
   await page.getByRole('button', { name: 'Create' }).click();
   await expect(page.getByText('Empty directory')).toBeVisible({ timeout: 10000 });
@@ -16,7 +15,7 @@ async function createAndEnterTree(page: any, name: string) {
 
 // Helper to create a file and return to parent folder
 async function createFile(page: any, name: string, content: string = '', treeName: string = '') {
-  await page.getByRole('button', { name: /File/ }).first().click();
+  await chooseNew(page, 'Text file');
   await page.locator('input[placeholder="File name..."]').fill(name);
   await page.getByRole('button', { name: 'Create' }).click();
   await expect(page.getByRole('button', { name: 'Done' })).toBeVisible({ timeout: 5000 });
@@ -118,7 +117,7 @@ test.describe('Keyboard Navigation', () => {
     await createAndEnterTree(page, 'enter-nav-test');
 
     // Create a subdirectory
-    await page.getByRole('button', { name: /Folder/ }).first().click();
+    await chooseNew(page, 'Folder');
     await page.locator('input[placeholder="Folder name..."]').fill('subdir');
     await page.getByRole('button', { name: 'Create' }).click();
     await expect(page.getByText(/Drop or click to add|Empty directory/).first()).toBeVisible({ timeout: 10000 });
@@ -160,25 +159,21 @@ test.describe('Keyboard Navigation', () => {
   test('should navigate tree list with arrow keys', async ({ page }) => {
     // Create multiple trees
     await goToTreeList(page);
-    await expect(page.getByRole('button', { name: 'New Folder' })).toBeVisible({ timeout: 10000 });
-
-    // Create first tree
-    await page.getByRole('button', { name: 'New Folder' }).click();
+    await chooseNew(page, 'Folder', { timeoutMs: 10000 });
     await page.locator('input[placeholder="Folder name..."]').fill('tree-a');
     await page.getByRole('button', { name: 'Create' }).click();
     await expect(page.getByText(/Drop or click to add|Empty directory/).first()).toBeVisible({ timeout: 10000 });
 
     // Go back and create second tree
     await page.locator('a:has-text("..")').first().click();
-    await expect(page.getByRole('button', { name: 'New Folder' })).toBeVisible({ timeout: 10000 });
-    await page.getByRole('button', { name: 'New Folder' }).click();
+    await chooseNew(page, 'Folder', { timeoutMs: 10000 });
     await page.locator('input[placeholder="Folder name..."]').fill('tree-b');
     await page.getByRole('button', { name: 'Create' }).click();
     await expect(page.getByText(/Drop or click to add|Empty directory/).first()).toBeVisible({ timeout: 10000 });
 
     // Go back to tree list
     await page.locator('a:has-text("..")').first().click();
-    await expect(page.getByRole('button', { name: 'New Folder' })).toBeVisible({ timeout: 10000 });
+    await expectFolderEditable(page, 10000);
 
     // Use first() since profile page may have multiple file-list elements
     const fileList = page.getByTestId('file-list').first();

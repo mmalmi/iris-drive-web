@@ -91,7 +91,7 @@ test.describe('pictures copied out of the editors reach other apps as pictures',
   test('a picture file copied from the Drive pastes into a document; a file that is not a picture is turned away', async ({ page, relayUrl }) => {
     await prepareFreshSession(page, relayUrl);
     await createDriveProfile(page);
-    await page.getByTestId('folder-toolbar').first().locator('input[type="file"]:not([webkitdirectory])').setInputFiles({ name: 'square.png', mimeType: 'image/png', buffer: PICTURE });
+    await page.getByTestId('upload-files-input').setInputFiles({ name: 'square.png', mimeType: 'image/png', buffer: PICTURE });
     await expect(page.getByTestId('image-viewer')).toBeVisible({ timeout: 30_000 });
     await page.keyboard.press('ControlOrMeta+c');
     await expect(page.getByText('Copied the picture square.png')).toBeVisible({ timeout: 15_000 });
