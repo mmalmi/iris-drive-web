@@ -158,24 +158,23 @@ async function applyAccessChange(shareId: NostrIdentityId, folder: SharedFolder)
   const record = ownRecord(shareId);
   if (folder === record.folder) return;
   storeRecord({ ...record, folder });
-  await publishEvent(signShareAccessSnapshot(secretKey, folder));
+  // Handed to the publisher, which keeps trying on its own. Nothing here waits
+  // for a relay to answer: one that never does would hold up everyone's access.
+  void publishEvent(signShareAccessSnapshot(secretKey, folder)).catch((error) => {
+    console.warn('[share] Could not hand the access list to the publisher:', error);
+  });
   await republishShareRoot(shareId);
 }
 
 /**
  * A folder's files are readable by the devices its latest version was wrapped
  * for. After membership changes, publish this device's version again so it is
- * wrapped for exactly the current members, and holds everything written so far.
+ * wrapped for exactly the current members. It sends what this device holds,
+ * which the relays' answers keep current as they arrive, and asks them nothing
+ * first: someone just let in is looking at a spinner until this goes out.
  */
 async function republishShareRoot(shareId: NostrIdentityId): Promise<boolean> {
-  const before = getTreeRootSync(shareId, DRIVE_ID);
-  try {
-    const { resolveDriveRootProjectionNow } = await import('../stores/treeRootResolver');
-    await resolveDriveRootProjectionNow(`${shareId}/${DRIVE_ID}`);
-  } catch {
-    // Offline or nothing newer on the relays: publish what this device has.
-  }
-  const root = getTreeRootSync(shareId, DRIVE_ID) ?? before;
+  const root = getTreeRootSync(shareId, DRIVE_ID);
   if (!root?.key) return false;
   const { publishNostrIdentityDriveRootIfAvailable } = await import('./profileDriveRootPublish');
   return publishNostrIdentityDriveRootIfAvailable(DRIVE_ID, root, { rootScopeId: shareId });

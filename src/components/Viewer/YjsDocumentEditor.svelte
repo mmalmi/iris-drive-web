@@ -11,6 +11,7 @@
   import { sharePeopleTarget } from '../../drive/sharePeople';
   import { activeNostrIdentityRootScope } from '../../drive/profileRoute';
   import { nostrStore, saveOwnTreeRoot } from '../../nostr';
+  import { flushPendingPublishes } from '../../treeRootCache';
   import { deleteCurrentFolder } from '../../actions';
   import type { CommentsStore } from '../../lib/comments';
   import type { CommentsState } from '../../lib/comments/types';
@@ -139,6 +140,9 @@
       // Another write landed while this one was prepared: redo it on the newer Drive.
       if (!sameCid(getTreeRootSync(scope, treeName), base)) continue;
       if (!saveOwnTreeRoot(scope, treeName, root)) throw new Error('This document cannot be edited here');
+      // Saves are already spaced by pauses in typing. Announce this one now
+      // rather than after the usual second, so other people see it sooner.
+      void flushPendingPublishes().catch(() => {});
       return;
     }
     throw new Error('The Drive kept changing while saving');
