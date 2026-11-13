@@ -1,4 +1,5 @@
 import { test, expect, type Route } from './fixtures';
+import { openFolderMenu } from './test-utils.js';
 import { setupPageErrorHandler, navigateToPublicFolder, disableOthersPool, configureBlossomServers } from './test-utils.js';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -36,6 +37,7 @@ test.describe('Blossom Push', () => {
     await navigateToPublicFolder(page, { timeoutMs: 60000, requireRelay: false });
 
     // Wait for Push button to be visible
+    await openFolderMenu(page);
     const pushBtn = page.getByRole('button', { name: 'Push' }).first();
     await expect(pushBtn).toBeVisible({ timeout: 10000 });
 
@@ -69,6 +71,7 @@ test.describe('Blossom Push', () => {
     await navigateToPublicFolder(page, { timeoutMs: 60000, requireRelay: false });
 
     // Click push button
+    await openFolderMenu(page);
     await page.getByRole('button', { name: 'Push' }).first().click();
 
     // Modal should appear
@@ -146,9 +149,11 @@ test.describe('Blossom Push', () => {
       await page.waitForURL(/\/#\/npub.*\/public/, { timeout: 10000 });
 
       // Wait for folder actions to be visible
+      await openFolderMenu(page);
       await expect(page.getByRole('button', { name: 'Push' }).first()).toBeVisible({ timeout: 10000 });
 
       // Click push button
+      await openFolderMenu(page);
       await page.getByRole('button', { name: 'Push' }).first().click();
 
       // Modal should appear
@@ -231,9 +236,11 @@ test.describe('Blossom Push', () => {
       await page.waitForURL(/\/#\/npub.*\/public/, { timeout: 10000 });
 
       // Wait for folder actions to be visible
+      await openFolderMenu(page);
       await expect(page.getByRole('button', { name: 'Push' }).first()).toBeVisible({ timeout: 10000 });
 
       // Click push button
+      await openFolderMenu(page);
       await page.getByRole('button', { name: 'Push' }).first().click();
 
       // Start push

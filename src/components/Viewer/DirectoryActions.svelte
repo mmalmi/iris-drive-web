@@ -215,8 +215,14 @@
     </ViewerHeader>
     <!-- Action buttons - hide when viewing locked link-visible/private directory -->
     {#if hasTreeContext && !hideActions}
-      <div class="p-3 shrink-0">
-        <FolderActions dirCid={currentDirCid} dirName={currentDirName} {canEdit} />
+      <div class="p-3 shrink-0 flex flex-wrap items-start gap-2">
+        <FolderActions
+          dirCid={currentDirCid}
+          dirName={currentDirName}
+          {canEdit}
+          toolbarClass="order-1 min-w-0 flex-1"
+          menuClass="order-2 ml-auto"
+        />
       </div>
     {/if}
 

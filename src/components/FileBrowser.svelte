@@ -292,6 +292,17 @@
   }
 
   let hasParent = $derived(currentNpub || currentPath.length > 0);
+  /** The folders above the open one, outermost first. */
+  let parentCrumbs = $derived.by(() => {
+    const crumbs: { name: string; href: string }[] = [];
+    const rootName = sharedFolder?.display_name || currentTreeName;
+    if (currentPath.length === 0 || !rootName) return crumbs;
+    crumbs.push({ name: rootName, href: buildDirHref([]) });
+    for (let depth = 1; depth < currentPath.length; depth += 1) {
+      crumbs.push({ name: currentPath[depth - 1], href: buildDirHref(currentPath.slice(0, depth)) });
+    }
+    return crumbs;
+  });
   let currentDirName = $derived(
     currentPath.length > 0
       ? currentPath[currentPath.length - 1]
@@ -316,7 +327,8 @@
     return () => window.removeEventListener('resize', checkLayout);
   });
 
-  let showDirectoryNavigationRows = $derived(compact || isFileBrowserOnly);
+  // Beside an open file the list is the only way around; on its own it has a header for that.
+  let showDirectoryNavigationRows = $derived(compact);
   let parentRowIndex = $derived(showDirectoryNavigationRows && hasParent ? 0 : -1);
   let currentDirectoryRowIndex = $derived(
     showDirectoryNavigationRows ? (hasParent ? 1 : 0) : -1
@@ -465,52 +477,78 @@
       Loading...
     </div>
   {:else}
-    {#if viewedNpub}
-      <div class="hidden lg:flex h-10 shrink-0 px-3 border-b border-surface-2 items-center gap-2 bg-surface-0">
-        {#if viewedNostrIdentityId}
-          <div class="min-w-0 flex items-center gap-2 text-sm text-text-2" data-testid="drive-profile-root-scope">
-            <span class="i-lucide-folder-root shrink-0 text-text-3"></span>
-            {#if sharedFolder}<span class="truncate">{sharedFolder.display_name}</span>{:else}<IdentityName profileId={viewedNostrIdentityId} appKeyPubkey={viewedIdentityAppKeyPubkey} />{/if}
-          </div>
-        {:else}
-          <a href="#/{viewedNpub}/profile" class="no-underline min-w-0">
-            <UserRow pubkey={npubToPubkey(viewedNpub) || viewedNpub} avatarSize={24} showBadge class="min-w-0" />
-          </a>
-        {/if}
-      </div>
-    {/if}
-    {#if !compact && (currentDirCid || canEdit)}
-      <div class="hidden lg:flex min-h-16 shrink-0 px-5 py-3 border-b border-surface-2 items-center gap-4 bg-surface-0">
-        <div class="min-w-0 flex items-center gap-2 mr-auto">
-          <span class="i-lucide-folder-open text-xl text-warning shrink-0"></span>
-          <h1 class="text-xl font-medium text-text-1 truncate">{currentDirName || sharedFolder?.display_name || currentTreeName}</h1>
-        </div>
-        <FolderActions dirCid={currentDirCid} dirName={currentDirName} {canEdit} />
-      </div>
-    {/if}
-    <div class="lg:hidden shrink-0 px-3 py-2 border-b border-surface-2 flex items-center gap-2 bg-surface-0">
-      {#if hasParent}
-        <a href={currentPath.length > 0 ? buildDirHref(currentPath.slice(0, -1)) : buildRootHref()} class="btn-ghost p-1 no-underline" title="Back">
-          <span class="i-lucide-chevron-left text-lg"></span>
-        </a>
-      {/if}
+    {#if compact}
       {#if viewedNpub}
-        {#if viewedNostrIdentityId}
-          <span class="i-lucide-folder-root text-text-3 shrink-0"></span>
-        {:else}
-          <a href="#/{viewedNpub}/profile" class="shrink-0">
-            <Avatar pubkey={npubToPubkey(viewedNpub) || ''} size={20} />
-          </a>
-        {/if}
+        <div class="hidden lg:flex h-10 shrink-0 px-3 border-b border-surface-2 items-center gap-2 bg-surface-0">
+          {#if viewedNostrIdentityId}
+            <div class="min-w-0 flex items-center gap-2 text-sm text-text-2" data-testid="drive-profile-root-scope">
+              <span class="i-lucide-folder-root shrink-0 text-text-3"></span>
+              {#if sharedFolder}<span class="truncate">{sharedFolder.display_name}</span>{:else}<IdentityName profileId={viewedNostrIdentityId} appKeyPubkey={viewedIdentityAppKeyPubkey} />{/if}
+            </div>
+          {:else}
+            <a href="#/{viewedNpub}/profile" class="no-underline min-w-0">
+              <UserRow pubkey={npubToPubkey(viewedNpub) || viewedNpub} avatarSize={24} showBadge class="min-w-0" />
+            </a>
+          {/if}
+        </div>
       {/if}
-      <VisibilityIcon visibility={currentTreeVisibility} class="text-text-3 shrink-0" />
-      <span class="i-lucide-folder-open text-warning shrink-0"></span>
-      <span class="font-medium text-text-1 truncate">{currentDirName || sharedFolder?.display_name || currentTreeName}</span>
-    </div>
-
-    {#if currentDirCid || canEdit}
-      <div class="lg:hidden px-3 py-2 border-b border-surface-2 bg-surface-0">
-        <FolderActions dirCid={currentDirCid} dirName={currentDirName} {canEdit} />
+    {:else}
+      <!-- Where you are, with sharing beside it and the adding buttons beneath. -->
+      <div
+        class="shrink-0 flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2 lg:px-5 lg:py-3 border-b border-surface-2 bg-surface-0"
+        data-testid="folder-header"
+      >
+        <div class="order-1 min-w-0 flex-1 flex items-center gap-1.5 min-h-9">
+          {#if hasParent}
+            <a
+              href={currentPath.length > 0 ? buildDirHref(currentPath.slice(0, -1)) : buildRootHref()}
+              class="lg:hidden btn-circle btn-ghost shrink-0 no-underline"
+              title="Back"
+              aria-label="Back"
+            >
+              <span class="i-lucide-chevron-left text-lg"></span>
+            </a>
+          {/if}
+          {#if viewedNpub && !viewedNostrIdentityId}
+            <a href="#/{viewedNpub}/profile" class="lg:hidden shrink-0">
+              <Avatar pubkey={npubToPubkey(viewedNpub) || ''} size={20} />
+            </a>
+          {/if}
+          <span class="i-lucide-folder-open text-lg lg:text-xl text-warning shrink-0 mr-0.5"></span>
+          <nav class="hidden lg:contents" aria-label="Folder path">
+            {#if viewedNpub && !sharedFolder}
+              {#if viewedNostrIdentityId}
+                <a
+                  href={buildRootHref()}
+                  class="min-w-8 shrink-100 truncate text-xl text-text-3 no-underline hover:text-text-1"
+                  data-testid="drive-profile-root-scope"
+                >
+                  <IdentityName profileId={viewedNostrIdentityId} appKeyPubkey={viewedIdentityAppKeyPubkey} />
+                </a>
+              {:else}
+                <a href="#/{viewedNpub}/profile" class="min-w-8 shrink-100 no-underline">
+                  <UserRow pubkey={npubToPubkey(viewedNpub) || viewedNpub} avatarSize={24} showBadge class="min-w-0" />
+                </a>
+              {/if}
+              <span class="i-lucide-chevron-right shrink-0 text-text-3"></span>
+            {/if}
+            {#each parentCrumbs as crumb (crumb.href)}
+              <a href={crumb.href} class="min-w-8 shrink-100 truncate text-xl text-text-3 no-underline hover:text-text-1">{crumb.name}</a>
+              <span class="i-lucide-chevron-right shrink-0 text-text-3"></span>
+            {/each}
+          </nav>
+          <h1 class="min-w-0 truncate text-base lg:text-xl font-medium text-text-1">{currentDirName || sharedFolder?.display_name || currentTreeName}</h1>
+          <VisibilityIcon visibility={currentTreeVisibility} class="text-text-3 shrink-0 ml-1" />
+        </div>
+        {#if currentDirCid || canEdit}
+          <FolderActions
+            dirCid={currentDirCid}
+            dirName={currentDirName}
+            {canEdit}
+            menuClass="order-2"
+            toolbarClass="order-3 basis-full"
+          />
+        {/if}
       </div>
     {/if}
 
@@ -586,7 +624,7 @@
             {@const isFolder = entry.type === LinkType.Dir && !isDocument}
             <a
               href={buildEntryHref(entry, currentNpub, currentTreeName, currentPath, rootCid, linkKey, null)}
-              class="p-3 pl-9 border-b border-surface-2 flex items-center gap-3 no-underline text-text-1 hover:bg-surface-2/50 {selectedEntry?.name === entry.name && focusedIndex < 0 ? 'bg-surface-2' : ''} {focusedIndex === idx + specialItemCount ? 'ring-2 ring-inset ring-accent' : ''} {recentlyChanged.has(entry.name) && selectedEntry?.name !== entry.name ? 'animate-pulse-live' : ''} {draggingEntry === entry.name ? 'opacity-50' : ''} {dropTargetDir === entry.name ? 'bg-accent/20' : ''}"
+              class="p-3 {showDirectoryNavigationRows ? 'pl-9' : 'lg:px-5'} border-b border-surface-2 flex items-center gap-3 no-underline text-text-1 hover:bg-surface-2/50 {selectedEntry?.name === entry.name && focusedIndex < 0 ? 'bg-surface-2' : ''} {focusedIndex === idx + specialItemCount ? 'ring-2 ring-inset ring-accent' : ''} {recentlyChanged.has(entry.name) && selectedEntry?.name !== entry.name ? 'animate-pulse-live' : ''} {draggingEntry === entry.name ? 'opacity-50' : ''} {dropTargetDir === entry.name ? 'bg-accent/20' : ''}"
               draggable={canEdit}
               ondragstart={(e) => handleEntryDragStart(e, entry.name)}
               ondragend={handleEntryDragEnd}

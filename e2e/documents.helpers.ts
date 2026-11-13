@@ -68,5 +68,5 @@ export async function typeInDocument(page: Page, text: string): Promise<void> {
 }
 
 export async function expectSaved(page: Page): Promise<void> {
-  await expect(page.getByTestId('document-save-status')).toHaveText('Saved', { timeout: 30_000 });
+  await expect(page.getByTestId('document-save-status')).toHaveAttribute('data-state', 'saved', { timeout: 30_000 });
 }

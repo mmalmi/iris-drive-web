@@ -172,10 +172,13 @@
     scrollbar-width: none;
   }
 
-  @media (min-width: 900px) {
-    .toolbar {
-      justify-content: center;
-    }
+  /* Centred while it fits; margins, unlike centring, leave both ends reachable when it scrolls. */
+  .toolbar > :global(:first-child) {
+    margin-left: auto;
+  }
+
+  .toolbar > :global(:last-child) {
+    margin-right: auto;
   }
 
   .tool {

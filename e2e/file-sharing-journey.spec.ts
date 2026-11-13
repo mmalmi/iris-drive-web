@@ -136,7 +136,7 @@ test.describe('basic file-sharing journeys', () => {
       await expect(guest.getByText('Meet by the lake at noon.', { exact: true })).toBeVisible();
       await expect(guest.getByTestId('viewer-back')).toHaveAttribute('href', hash);
       await guest.getByTestId('viewer-back').click();
-      const download = await downloadedBytes(guest, guest.getByRole('button', { name: 'ZIP', exact: true }));
+      const download = await downloadedBytes(guest, guest.getByRole('button', { name: 'Download ZIP', exact: true }));
       const files = unzipSync(download.bytes);
       expect(Object.keys(files).sort()).toEqual(['Plan.txt', 'Snacks.txt']);
       expect(new TextDecoder().decode(files['Plan.txt'])).toBe('Meet by the lake at noon.');

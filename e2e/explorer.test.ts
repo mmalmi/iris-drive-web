@@ -1,4 +1,5 @@
 import { saveTextFile } from './test-utils.js';
+import { openFolderMenu } from './test-utils.js';
 import { test, expect } from './fixtures';
 import {
   createAndEnterTree,
@@ -273,6 +274,7 @@ test.describe('Hashtree Explorer', () => {
 
     // Find and click delete button for the folder (in folder actions)
     // FolderActions renders in both FileBrowser and DirectoryActions (Viewer) - use visible one
+    await openFolderMenu(page);
     const deleteBtn = page.getByRole('button', { name: 'Delete' });
     await expect(deleteBtn).toBeVisible({ timeout: 5000 });
 
@@ -351,7 +353,8 @@ test.describe('Hashtree Explorer', () => {
     // Create tree via modal
     await createAndEnterTree(page, 'stream-test');
 
-    // Click Stream link (now a Link instead of button)
+    // Click Stream link in the folder's menu
+    await openFolderMenu(page);
     const streamLink = page.getByRole('link', { name: /Stream/ }).first();
     await expect(streamLink).toBeVisible({ timeout: 5000 });
     await streamLink.click();
@@ -367,7 +370,8 @@ test.describe('Hashtree Explorer', () => {
     await page.goBack();
     await page.waitForTimeout(500);
 
-    // Should be back in the folder - Stream link should be visible again in the toolbar
+    // Should be back in the folder - Stream link should be offered again in its menu
+    await openFolderMenu(page);
     await expect(page.getByRole('link', { name: /Stream/ }).first()).toBeVisible({ timeout: 5000 });
   });
 

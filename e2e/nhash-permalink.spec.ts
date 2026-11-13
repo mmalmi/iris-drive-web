@@ -7,6 +7,7 @@
  * - Browser 2: Navigates directly to the permalink URL
  */
 import { test, expect, type Page } from './fixtures';
+import { openFolderMenu } from './test-utils.js';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
@@ -105,6 +106,7 @@ test.describe('nhash file permalinks', () => {
     await createTextFile(page1, 'test-permalink.txt', 'Hello from permalink test!');
 
     // Find the Permalink link in preview (use exact match to avoid matching tree/file names containing "permalink")
+    await openFolderMenu(page1);
     const permalinkLink = page1.getByRole('link', { name: 'Snapshot', exact: true });
     await expect(permalinkLink).toBeVisible({ timeout: 15000 });
 
@@ -170,6 +172,7 @@ test.describe('nhash file permalinks', () => {
     }).catch(() => {});
 
     // Get the directory permalink from folder actions
+    await openFolderMenu(page1);
     const dirPermalinkLink = page1.locator('[data-testid="permalink-link"]:visible').first();
     await expect(dirPermalinkLink).toBeVisible({ timeout: 10000 });
 

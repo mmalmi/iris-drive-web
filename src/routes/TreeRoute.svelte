@@ -206,10 +206,10 @@
   });
 </script>
 
-<!-- Desktop file sidebar. -->
-{#if !isFullscreen}
+<!-- Desktop file sidebar. A document takes the whole width; its header leads back to the folder. -->
+{#if !isFullscreen && !isYjsDocument}
   <div class={hasFileSelected
-      ? 'hidden lg:flex lg:w-80 shrink-0 flex-col min-h-0'
+      ? 'hidden lg:flex lg:w-72 xl:w-80 shrink-0 flex-col min-h-0'
       : 'flex flex-1 shrink-0 flex-col min-h-0'}>
     <FileBrowser compact={showViewerPane} />
   </div>

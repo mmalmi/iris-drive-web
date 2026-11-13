@@ -291,3 +291,14 @@ export async function getCurrentDirNhash(page: any): Promise<string | null> {
     return nhashEncode(dirCid);
   });
 }
+
+/**
+ * Opens the menu beside a folder's name that holds its less common actions:
+ * Snapshot, Download ZIP, Fork, Push, Stream, Rename and Delete.
+ */
+export async function openFolderMenu(page: any): Promise<void> {
+  const menu = page.getByTestId('folder-menu').filter({ visible: true });
+  if (await menu.count()) return;
+  await page.getByTestId('folder-menu-btn').filter({ visible: true }).first().click();
+  await expect(menu).toBeVisible();
+}

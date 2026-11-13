@@ -1,4 +1,5 @@
 import { saveTextFile } from './test-utils.js';
+import { openFolderMenu } from './test-utils.js';
 import { test, expect } from './fixtures';
 import { disableOthersPool, ensureLoggedIn, waitForAppReady } from './test-utils.js';
 
@@ -101,6 +102,7 @@ test.describe('Permalink Navigation', () => {
 
     // Find the directory Permalink link - use the data-testid
     // The link may be hidden on small screens, so wait for it to exist (not necessarily visible)
+    await openFolderMenu(page);
     const dirPermalinkLink = page.locator('[data-testid="permalink-link"]').first();
     await expect(dirPermalinkLink).toHaveCount(1, { timeout: 5000 });
 
@@ -161,6 +163,7 @@ test.describe('Permalink Navigation', () => {
     await expect(page.locator('[data-testid="file-list"]').getByText('test-content.txt')).toBeVisible({ timeout: 10000 });
 
     // Get the directory permalink href - use visible link (there are two, one hidden on desktop)
+    await openFolderMenu(page);
     const dirPermalinkLink = page.getByRole('link', { name: 'Snapshot', exact: true }).first();
     await expect(dirPermalinkLink).toBeVisible({ timeout: 5000 });
     const permalinkHref = await dirPermalinkLink.getAttribute('href');

@@ -1,6 +1,6 @@
 import { saveTextFile } from './test-utils.js';
 import { test, expect } from './fixtures';
-import { setupPageErrorHandler, navigateToPublicFolder, disableOthersPool, goToTreeList } from './test-utils.js';
+import { setupPageErrorHandler, navigateToPublicFolder, disableOthersPool, goToTreeList, openFolderMenu } from './test-utils.js';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -48,7 +48,8 @@ test.describe('Compression features', () => {
 
     await createFolderAndOpen(page, 'zip-test-folder');
 
-    // The ZIP button should be visible in the folder actions (use getByRole for more reliable selection)
+    // The ZIP button is in the folder's menu
+    await openFolderMenu(page);
     const zipButton = page.getByRole('button', { name: 'ZIP' });
     await expect(zipButton).toBeVisible({ timeout: 5000 });
 
@@ -61,12 +62,12 @@ test.describe('Compression features', () => {
 
     await createFolderAndOpen(page, 'zip-icon-test');
 
-    // Check that the ZIP button exists and contains the archive icon
+    // Check that the ZIP button exists and contains the download icon
+    await openFolderMenu(page);
     const zipButton = page.getByRole('button', { name: 'ZIP' });
     await expect(zipButton).toBeVisible({ timeout: 5000 });
 
-    // The button should contain an icon with the archive class
-    const icon = zipButton.locator('span.i-lucide-archive');
+    const icon = zipButton.locator('span.i-lucide-download');
     await expect(icon).toBeAttached();
   });
 
@@ -75,7 +76,8 @@ test.describe('Compression features', () => {
 
     await createFolderAndOpen(page, 'actions-test-folder');
 
-    // All three folder action buttons should be visible (use getByRole for reliable selection)
+    // All three folder actions are in the folder's menu
+    await openFolderMenu(page);
     await expect(page.getByRole('link', { name: 'Snapshot' })).toBeVisible({ timeout: 5000 });
     await expect(page.getByRole('button', { name: 'Fork' })).toBeVisible({ timeout: 5000 });
     await expect(page.getByRole('button', { name: 'ZIP' })).toBeVisible({ timeout: 5000 });
@@ -86,7 +88,8 @@ test.describe('Compression features', () => {
 
     await createFolderAndOpen(page, 'fork-source');
 
-    // Click the Fork button (the one in folder actions)
+    // Click the Fork button (the one in the folder's menu)
+    await openFolderMenu(page);
     await page.getByRole('button', { name: 'Fork' }).click();
 
     // Fork modal should appear
@@ -118,6 +121,7 @@ test.describe('Compression features', () => {
     await createFolderAndOpen(page, 'fork-visibility-source');
 
     // Click the Fork button
+    await openFolderMenu(page);
     await page.getByRole('button', { name: 'Fork' }).click();
 
     // Fork modal should appear with visibility picker
@@ -165,6 +169,7 @@ test.describe('Compression features', () => {
     await createFolderAndOpen(page, 'existing-tree');
 
     // Fork the directory whose base name collides with the existing tree.
+    await openFolderMenu(page);
     await page.getByRole('button', { name: 'Fork' }).click();
 
     // The suggested name should be "existing-tree-2" since "existing-tree" already exists as top-level
@@ -209,21 +214,15 @@ test.describe('Compression features', () => {
     await expect(page).toHaveURL(/zip-progress-test/, { timeout: 10000 });
 
     // Wait for folder view
+    await openFolderMenu(page);
     await expect(page.getByRole('button', { name: 'ZIP' })).toBeVisible({ timeout: 5000 });
 
-    // Click ZIP button - progress toast should appear (may be brief for small files)
+    // Click ZIP - the menu closes and the download starts (too brief to watch for small files)
     await page.getByRole('button', { name: 'ZIP' }).click();
 
-    // For small files, progress may be too fast to catch, but button should change to "Zipping..."
-    // Wait for either the button text to change or download to complete
-    // The button shows "Zipping..." during the operation
-    await expect(
-      page.getByRole('button', { name: /Zipping/ })
-        .or(page.getByRole('button', { name: 'ZIP' }))
-    ).toBeVisible({ timeout: 10000 });
-
-    // Eventually button should return to ZIP (download completed)
-    await expect(page.getByRole('button', { name: 'ZIP' })).toBeVisible({ timeout: 10000 });
+    // Once the download has completed the menu offers ZIP again
+    await openFolderMenu(page);
+    await expect(page.getByRole('button', { name: 'Download ZIP' })).toBeVisible({ timeout: 10000 });
   });
 
   test('should show progress when extracting ZIP', async ({ page }) => {

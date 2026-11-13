@@ -85,11 +85,10 @@
     {/if}
 
     <div class="ml-auto flex items-center gap-1 shrink-0">
-      <span class="text-xs text-text-3 flex items-center gap-1 mr-1" role="status" data-testid="document-save-status">
-        {#if saveStatus === 'saving' || saveStatus === 'unsaved'}
-          <span class="i-lucide-loader-2 animate-spin"></span>Saving
-        {:else if saveStatus === 'saved'}
-          <span class="i-lucide-check"></span>Saved
+      <!-- Saving happens on its own; only its outcome is worth a glance. -->
+      <span class="text-xs text-text-3 flex items-center gap-1 mr-1" role="status" data-testid="document-save-status" data-state={saveStatus}>
+        {#if saveStatus === 'saving' || saveStatus === 'unsaved' || saveStatus === 'saved'}
+          <span class="i-lucide-cloud-check text-base" title={saveStatus === 'saved' ? 'Saved' : 'Saving'}></span>
         {:else if saveStatus === 'error'}
           <span class="text-danger flex items-center gap-1"><span class="i-lucide-triangle-alert"></span>Not saved, retrying</span>
         {:else if saveStatus === 'other-tab'}
@@ -184,12 +183,19 @@
 
   @media (min-width: 900px) {
     .document-page {
-      max-width: 816px;
+      max-width: min(816px, 100% - 3rem);
       margin: 1.5rem auto;
       min-height: calc(100% - 3rem);
       background: rgb(var(--surface-1));
       border: 1px solid rgb(var(--surface-2));
       border-radius: 6px;
+    }
+  }
+
+  /* A sheet of paper is lighter than the desk it lies on. */
+  @media (min-width: 900px) and (prefers-color-scheme: light) {
+    .document-page {
+      background: #fff;
     }
   }
 

@@ -4,6 +4,7 @@
  * Tests that deleting a folder removes it from the parent and stays deleted.
  */
 import { test, expect } from './fixtures';
+import { openFolderMenu } from './test-utils.js';
 import { setupPageErrorHandler, navigateToPublicFolder, goToTreeList, disableOthersPool, waitForAppReady, safeGoto, safeReload } from './test-utils.js';
 
 test.describe('Folder Deletion', () => {
@@ -28,6 +29,7 @@ test.describe('Folder Deletion', () => {
     await page.waitForURL(new RegExp(encodeURIComponent(folderName)), { timeout: 15000 });
     await expect(page.getByText('Empty directory')).toBeVisible({ timeout: 10000 });
 
+    await openFolderMenu(page);
     const deleteBtn = page.getByRole('button', { name: 'Delete' }).first();
     await expect(deleteBtn).toBeVisible({ timeout: 5000 });
     page.once('dialog', dialog => dialog.accept());
@@ -60,6 +62,7 @@ test.describe('Folder Deletion', () => {
 
     // At root of tree, should see Delete button in FolderActions
     // The button is within the folder actions toolbar
+    await openFolderMenu(page);
     const deleteBtn = page.getByRole('button', { name: 'Delete' }).first();
     await expect(deleteBtn).toBeVisible({ timeout: 5000 });
 

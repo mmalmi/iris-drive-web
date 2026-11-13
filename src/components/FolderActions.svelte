@@ -1,7 +1,8 @@
 <script lang="ts">
   /**
-   * Shared folder action buttons - used in FileBrowser and Viewer
-   * Port of React FolderActions component
+   * Folder actions, used in FileBrowser and Viewer. Renders two siblings for
+   * the parent to place: the adding and creating buttons, and the share button
+   * with a menu of the less common actions.
    */
   import { nhashEncode, toHex } from '@hashtree/core';
   import type { CID } from '@hashtree/core';
@@ -37,9 +38,13 @@
     dirCid?: CID | null;
     dirName?: string | null;
     canEdit: boolean;
+    /** Placement of the row of adding and creating buttons within the parent. */
+    toolbarClass?: string;
+    /** Placement of the share button and the menu within the parent. */
+    menuClass?: string;
   }
 
-  let { dirCid = null, dirName = null, canEdit }: Props = $props();
+  let { dirCid = null, dirName = null, canEdit, toolbarClass = '', menuClass = '' }: Props = $props();
 
   let isDownloading = $state(false);
   let zipAbortController = $state<AbortController | null>(null);
@@ -271,35 +276,45 @@
     records: $acceptedShares,
   }));
 
-  let btnClass = 'flex items-center gap-1 px-2 h-7 text-xs lg:px-3 lg:h-9 lg:text-sm';
+  let btnClass = 'flex items-center gap-1 px-2.5 h-8 text-xs whitespace-nowrap lg:gap-1.5 lg:px-3 lg:text-sm';
+  let itemClass = 'flex w-full items-center gap-3 px-4 h-10 border-none bg-transparent text-left text-sm text-text-1 no-underline cursor-pointer hover:bg-surface-2';
+
+  let menuOpen = $state(false);
+  let menuRef: HTMLDivElement | undefined = $state();
+
+  $effect(() => {
+    if (!menuOpen) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!menuRef?.contains(event.target as Node)) menuOpen = false;
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') menuOpen = false;
+    };
+    document.addEventListener('pointerdown', onPointerDown, true);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown, true);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  });
+
+  async function handleDelete() {
+    if (isSubdir && currentDirName) {
+      if (confirm(`Delete folder "${currentDirName}" and all its contents?`)) {
+        deleteCurrentFolder();
+      }
+    } else if (route.treeName) {
+      if (confirm(`Delete "${route.treeName}"? This will remove it from your tree list.`)) {
+        await deleteTree(route.treeName);
+        window.location.hash = '/';
+      }
+    }
+  }
 </script>
 
 {#if dirCid || canEdit}
-  <div class="flex flex-row flex-wrap items-center gap-1">
-    <!-- Share and permalink first -->
-    {#if dirCid?.hash}
-      <ShareButton url={shareLinks[0]?.url ?? null} latestUrl={shareLinks[1]?.url ?? null} people={peopleTarget} />
-      {#if permalinkHref}
-        <a
-          href={permalinkHref}
-          class="btn-ghost no-underline {btnClass}"
-          title={toHex(dirCid.hash)}
-          data-testid="permalink-link"
-        >
-          <span class={dirCid.key ? "i-lucide-lock text-base" : "i-lucide-link text-base"}></span>
-          Snapshot
-        </a>
-      {/if}
-      {#if latestVersionHref}
-        <a href={latestVersionHref} class="btn-ghost no-underline {btnClass}">
-          <span class="i-lucide-history text-base"></span>
-          See latest version
-        </a>
-      {/if}
-    {/if}
-
-    <!-- Edit actions -->
-    {#if canEdit}
+  {#if canEdit}
+    <div class="flex flex-wrap items-center gap-1.5 {toolbarClass}" data-testid="folder-toolbar">
       <label class="btn-success cursor-pointer {btnClass}" title="Add files">
         <span class="i-lucide-plus"></span>
         Add
@@ -313,7 +328,7 @@
 
       {#if hasDirectorySupport}
         <label class="btn-ghost cursor-pointer {btnClass}" title="Add a folder with all its contents">
-          <span class="i-lucide-folder-plus"></span>
+          <span class="i-lucide-folder-up"></span>
           Add Folder
           <input
             bind:this={dirInputRef}
@@ -324,11 +339,6 @@
           />
         </label>
       {/if}
-
-      <button onclick={() => openCreateModal('file')} class="btn-ghost {btnClass}" title="New File">
-        <span class="i-lucide-file-plus"></span>
-        New File
-      </button>
 
       <button
         onclick={() => openCreateModal('folder')}
@@ -344,70 +354,127 @@
         New Document
       </button>
 
-      {#if streamUrl}
-        <a href={streamUrl} class="btn-ghost no-underline {btnClass}" title="Stream">
-          <span class="i-lucide-video"></span>
-          Stream
+      <button onclick={() => openCreateModal('file')} class="btn-ghost {btnClass}" title="New File">
+        <span class="i-lucide-file-plus"></span>
+        New File
+      </button>
+    </div>
+  {/if}
+
+  <div class="flex shrink-0 items-center gap-1.5 {menuClass}">
+    {#if dirCid?.hash}
+      {#if latestVersionHref}
+        <a href={latestVersionHref} class="btn-ghost no-underline {btnClass}">
+          <span class="i-lucide-history text-base"></span>
+          See latest version
         </a>
       {/if}
-
-      {#if isSubdir && currentDirName}
-        <button onclick={() => openRenameModal(currentDirName!)} class="btn-ghost {btnClass}" title="Rename">
-          <span class="i-lucide-pencil"></span>
-          Rename
+      {#if !canEdit}
+        <!-- Someone who was sent a folder mostly wants to take it home. -->
+        <button
+          onclick={isDownloading ? handleCancelDownloadZip : handleDownloadZip}
+          class="btn-ghost {btnClass}"
+          title={isDownloading ? 'Cancel ZIP download' : 'Download directory as ZIP'}
+        >
+          <span class={isDownloading ? 'i-lucide-x' : 'i-lucide-download'}></span>
+          {isDownloading ? 'Cancel ZIP' : 'Download ZIP'}
         </button>
       {/if}
-
-      <button
-        onclick={async () => {
-          if (isSubdir && currentDirName) {
-            if (confirm(`Delete folder "${currentDirName}" and all its contents?`)) {
-              deleteCurrentFolder();
-            }
-          } else if (route.treeName) {
-            if (confirm(`Delete "${route.treeName}"? This will remove it from your tree list.`)) {
-              await deleteTree(route.treeName);
-              window.location.hash = '/';
-            }
-          }
-        }}
-        class="btn-ghost text-danger {btnClass}"
-        title="Delete"
-        data-testid="delete-folder-btn"
-      >
-        <span class="i-lucide-trash-2"></span>
-        Delete
-      </button>
+      <ShareButton url={shareLinks[0]?.url ?? null} latestUrl={shareLinks[1]?.url ?? null} people={peopleTarget} />
     {/if}
 
-    <!-- Secondary actions: ZIP, Fork -->
-    {#if dirCid}
+    <div class="relative" bind:this={menuRef}>
       <button
-        onclick={isDownloading ? handleCancelDownloadZip : handleDownloadZip}
-        class="btn-ghost {btnClass}"
-        title={isDownloading ? 'Cancel ZIP download' : 'Download directory as ZIP'}
+        onclick={() => { menuOpen = !menuOpen; }}
+        class="btn-circle btn-ghost"
+        title="More actions"
+        aria-label="More actions"
+        aria-haspopup="true"
+        aria-expanded={menuOpen}
+        data-testid="folder-menu-btn"
       >
-        <span class={isDownloading ? "i-lucide-x" : "i-lucide-archive"}></span>
-        {isDownloading ? 'Cancel ZIP' : 'ZIP'}
+        <span class="i-lucide-ellipsis text-base"></span>
       </button>
-      <button
-        onclick={handleFork}
-        class="btn-ghost {btnClass}"
-        title="Fork as new top-level folder"
-        data-testid="fork-folder-btn"
-      >
-        <span class="i-lucide-git-fork"></span>
-        Fork
-      </button>
-      <button
-        onclick={() => openBlossomPushModal(dirCid!, forkBaseName, true, route.npub ? (npubToPubkey(route.npub) ?? undefined) : undefined, route.treeName ?? undefined)}
-        class="btn-ghost {btnClass}"
-        title="Push to file servers"
-        data-testid="blossom-push-btn"
-      >
-        <span class="i-lucide-upload-cloud"></span>
-        Push
-      </button>
-    {/if}
+
+      {#if menuOpen}
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div
+          class="absolute right-0 top-full z-30 mt-1 min-w-52 overflow-hidden rounded-xl bg-surface-1 py-1 shadow-lg ring-1 ring-surface-3"
+          data-testid="folder-menu"
+          onclick={() => { menuOpen = false; }}
+        >
+          {#if dirCid?.hash && permalinkHref}
+            <a
+              href={permalinkHref}
+              class={itemClass}
+              title={toHex(dirCid.hash)}
+              data-testid="permalink-link"
+            >
+              <span class="{dirCid.key ? 'i-lucide-lock' : 'i-lucide-link'} text-base text-text-2"></span>
+              Snapshot
+            </a>
+          {/if}
+
+          {#if dirCid}
+            {#if canEdit}
+              <button
+                onclick={isDownloading ? handleCancelDownloadZip : handleDownloadZip}
+                class={itemClass}
+                title={isDownloading ? 'Cancel ZIP download' : 'Download directory as ZIP'}
+              >
+                <span class="{isDownloading ? 'i-lucide-x' : 'i-lucide-download'} text-base text-text-2"></span>
+                {isDownloading ? 'Cancel ZIP' : 'Download ZIP'}
+              </button>
+            {/if}
+            <button
+              onclick={handleFork}
+              class={itemClass}
+              title="Fork as new top-level folder"
+              data-testid="fork-folder-btn"
+            >
+              <span class="i-lucide-git-fork text-base text-text-2"></span>
+              Fork
+            </button>
+            <button
+              onclick={() => openBlossomPushModal(dirCid!, forkBaseName, true, route.npub ? (npubToPubkey(route.npub) ?? undefined) : undefined, route.treeName ?? undefined)}
+              class={itemClass}
+              title="Push to file servers"
+              data-testid="blossom-push-btn"
+            >
+              <span class="i-lucide-upload-cloud text-base text-text-2"></span>
+              Push
+            </button>
+          {/if}
+
+          {#if canEdit}
+            {#if streamUrl}
+              <a href={streamUrl} class={itemClass} title="Stream">
+                <span class="i-lucide-video text-base text-text-2"></span>
+                Stream
+              </a>
+            {/if}
+
+            {#if isSubdir && currentDirName}
+              <button onclick={() => openRenameModal(currentDirName!)} class={itemClass} title="Rename">
+                <span class="i-lucide-pencil text-base text-text-2"></span>
+                Rename
+              </button>
+            {/if}
+
+            <div class="my-1 border-t border-surface-3"></div>
+            <button
+              onclick={handleDelete}
+              class="{itemClass} text-danger!"
+              title="Delete"
+              data-testid="delete-folder-btn"
+            >
+              <span class="i-lucide-trash-2 text-base"></span>
+              Delete
+            </button>
+          {/if}
+        </div>
+      {/if}
+    </div>
   </div>
 {/if}
