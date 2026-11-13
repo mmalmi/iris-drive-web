@@ -20,6 +20,8 @@
   import ColorMenu from './ColorMenu.svelte';
   import PopupMenu, { type MenuItem } from './PopupMenu.svelte';
   import { MOD, selectionMenu } from './menus';
+  import { insertChart } from '../../lib/sheets/objectCommands';
+  import { insertPicture } from '../../lib/sheets/pasting';
 
   interface Props {
     ctl: SheetController;
@@ -157,6 +159,32 @@
     };
   }
 
+  let pictureInput: HTMLInputElement | undefined = $state();
+
+  function openInsert(event: MouseEvent): void {
+    moreMenu = {
+      ...below(event),
+      items: [
+        { label: 'Chart', icon: 'i-lucide-chart-column', action: addChart, testId: 'insert-chart' },
+        { label: 'Picture', icon: 'i-lucide-image', action: () => pictureInput?.click(), disabled: !ctl.media, testId: 'insert-picture' },
+      ],
+    };
+  }
+
+  function addChart(): void {
+    const id = insertChart(ctl);
+    if (id) ctl.chartAsked = id;
+  }
+
+  async function onPictureChosen(event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    const files = [...(input.files ?? [])];
+    input.value = '';
+    for (const [index, file] of files.entries()) {
+      await insertPicture(ctl, file, { row: ctl.active.row, col: ctl.active.col, dx: index * 16, dy: index * 16 });
+    }
+  }
+
   function setSize(event: Event): void {
     setFontSize(ctl, Number((event.target as HTMLSelectElement).value));
     ctl.focusGrid();
@@ -245,6 +273,9 @@
   <button onclick={openMore} class="tool" title="Rows and columns" aria-label="Rows and columns" data-testid="sheet-rows-columns">
     <span class="i-lucide-table-rows-split"></span>
   </button>
+  <button onclick={openInsert} class="tool" title="Insert" aria-label="Insert" data-testid="sheet-insert">
+    <span class="i-lucide-square-plus"></span>
+  </button>
 
   <span class="divider"></span>
   {/if}
@@ -259,6 +290,8 @@
     <span class="i-lucide-search"></span>
   </button>
 </div>
+
+<input bind:this={pictureInput} type="file" accept="image/*" multiple class="hidden" onchange={onPictureChosen} data-testid="sheet-picture-input" />
 
 {#if colorMenu}
   <ColorMenu

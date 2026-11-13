@@ -1,0 +1,73 @@
+/* The grid's look; imported by SheetGrid.svelte. */
+.grid-root {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  outline: none;
+  overflow: clip;
+  background: rgb(var(--surface-1));
+}
+
+.grid-root > .scroller {
+  position: absolute;
+  inset: 0;
+  /* Pictures and charts inside stay under the typing box and the panels. */
+  z-index: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.grid-root .sizer {
+  position: relative;
+}
+
+.grid-root canvas {
+  position: sticky;
+  top: 0;
+  left: 0;
+  display: block;
+  touch-action: pan-x pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.grid-root > .cell-editor {
+  position: absolute;
+  z-index: 2;
+  margin: 0;
+  padding: 2px 4px 2px 5px;
+  border: 2px solid #916dfe;
+  border-radius: 2px;
+  background: rgb(var(--surface-0));
+  color: rgb(var(--text-1));
+  resize: none;
+  overflow: hidden;
+  outline: none;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  box-shadow: 0 2px 10px rgb(0 0 0 / 0.25);
+  opacity: 0;
+  pointer-events: none;
+}
+
+@media (prefers-color-scheme: light) {
+  .grid-root > .cell-editor {
+    background: #fff;
+  }
+}
+
+.grid-root > .cell-editor.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.grid-root > .sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

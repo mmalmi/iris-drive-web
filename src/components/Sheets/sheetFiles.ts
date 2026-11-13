@@ -36,6 +36,34 @@ export async function importFile(ctl: SheetController, file: File): Promise<void
   ctl.focusGrid();
 }
 
+/** Whether the spreadsheet is as it was made: one sheet with nothing in it. */
+export function isBlank(ctl: SheetController): boolean {
+  const { sheets } = ctl.book;
+  if (sheets.length !== 1) return sheets.length === 0;
+  const sheet = ctl.book.sheet(sheets[0].id);
+  return sheet.cells.size === 0 && sheet.styles.size === 0 && sheet.props.size === 0;
+}
+
+/**
+ * Fills a blank spreadsheet with a file's content, in place of its empty
+ * first sheet. Returns false when the file could not be read.
+ */
+export async function fillFromFile(ctl: SheetController, fileName: string, data: Uint8Array): Promise<boolean> {
+  if (!ctl.canEdit) return false;
+  const emptyId = isBlank(ctl) ? ctl.book.sheets[0]?.id ?? null : null;
+  const before = ctl.book.sheets.length;
+  if (/\.xlsx$/i.test(fileName)) {
+    const { importXlsx } = await import('../../lib/sheets/xlsx');
+    importXlsx(ctl, fileName, data);
+  } else {
+    importCsv(ctl, fileName, new TextDecoder().decode(data));
+    // The file's sheet takes the empty one's place.
+    if (emptyId && ctl.book.sheets.length > before) ctl.book.removeSheet(emptyId);
+  }
+  ctl.clearUndo();
+  return ctl.book.sheets.length > 0 && !(emptyId && ctl.book.sheets.length === 1 && ctl.book.sheets[0].id === emptyId);
+}
+
 function save(blob: Blob, name: string): void {
   const link = document.createElement('a');
   link.href = URL.createObjectURL(blob);

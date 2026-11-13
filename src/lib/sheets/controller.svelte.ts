@@ -13,6 +13,7 @@ import { callAt, completionAt, type CallHint, type Completion } from './formula/
 import { formatKind } from './format';
 import { Book, LOCAL_ORIGIN, type BookChange, type CellStyle, type Sheet, type SheetInfo } from './model';
 import { jump, lastFilledCol, stepInside } from './navigate';
+import type { ObjectContent } from './objects';
 import { rectReference } from './refs';
 import { isError } from './values';
 
@@ -69,6 +70,18 @@ export interface CopiedCells {
   /** The same as rows of shown text. */
   lines: string[][];
   cells: Array<Array<{ raw: unknown; style: CellStyle | undefined }>>;
+  /** Merged blocks inside the copied cells, counted from its first one. */
+  merges: Rect[];
+  /** Pictures and charts whose corner is in the copied cells, counted from its first one. */
+  objects: Array<{ id: string; content: ObjectContent; row: number; col: number; dx: number; dy: number; width: number; height: number }>;
+}
+
+/** Where pictures are kept: the document's attachments. */
+export interface SheetMedia {
+  /** Where to show an attachment from, once known. */
+  urlOf(file: string): string | undefined;
+  /** Stores a picture beside the spreadsheet and returns its name among the attachments. */
+  store(file: File): Promise<string>;
 }
 
 const POINT_AFTER = new Set(['=', '(', ',', ';', '+', '-', '*', '/', '^', '&', '<', '>', ':']);
@@ -107,6 +120,12 @@ export class SheetController {
   revision = $state(0);
   /** Goes up when rows, columns, sizes or wrapped text change, so positions are worked out again. */
   layoutRevision = $state(0);
+  /** The picture or chart that is selected instead of cells, if any. */
+  selectedObject = $state<string | null>(null);
+  /** A chart whose settings should open, set by whatever just made it. */
+  chartAsked = $state<string | null>(null);
+  /** Set by the spreadsheet's page when pictures can be stored; null for a file only looked at. */
+  media: SheetMedia | null = null;
 
   /** Set by the grid: scrolls a cell into view. */
   reveal: (row: number, col: number) => void = () => {};
@@ -525,6 +544,7 @@ export class SheetController {
     if (edit && !edit.text.startsWith('=')) this.commitEdit();
     this.memos.set(this.sheetId, this.selectionMemo());
     this.sheetId = id;
+    this.selectedObject = null;
     this.pointAnchor = null;
     this.pointFocus = null;
     this.restoreMemo();
@@ -801,6 +821,12 @@ export class SheetController {
   private refreshUndo(): void {
     this.canUndo = this.undoManager.undoStack.length > 0;
     this.canRedo = this.undoManager.redoStack.length > 0;
+  }
+
+  /** Forgets every step so far, as after bringing a file into a new spreadsheet. */
+  clearUndo(): void {
+    this.undoManager.clear();
+    this.refreshUndo();
   }
 
   undo(): void {

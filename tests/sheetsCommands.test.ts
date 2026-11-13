@@ -252,7 +252,9 @@ describe('the clipboard', () => {
     toggleStyle(ctl, 'b');
     select('A1:C2');
     expect(copySelection(ctl)).toBe('2\t$3.50\t$7.00\n4\t$1.25\t$14.00');
-    expect(copiedHtml(ctl)).toBe('<table><tr><td>2</td><td style="font-weight:bold">$3.50</td><td>$7.00</td></tr><tr><td>4</td><td>$1.25</td><td>$14.00</td></tr></table>');
+    const html = copiedHtml(ctl);
+    expect(html.replace(/ data-iris-[a-z]+="[^"]*"/g, '')).toBe('<table style="border-collapse:collapse"><tr><td>2</td><td style="font-weight:bold">$3.50</td><td>$7.00</td></tr><tr><td>4</td><td>$1.25</td><td>$14.00</td></tr></table>');
+    expect(html).toContain('data-iris-value="3.5"');
   });
 
   it('pasting our own copy brings formulas along, moved to their new place', () => {
