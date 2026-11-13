@@ -54,7 +54,7 @@ test.describe('layout at different window sizes', () => {
     const owner = await createDriveProfile(page, 'Liminal Forest');
     await expect(page).toHaveURL(new RegExp(`#/${owner.profileId}/main`), { timeout: 30_000 });
 
-    await atEachSize(page, 'folder', (width) => expectFolderHeaderFits(page, 'main', width));
+    await atEachSize(page, 'folder', (width) => expectFolderHeaderFits(page, 'My Drive', width));
 
     // The less common actions are behind one button.
     for (const size of [sizes[1], sizes[6]]) {
@@ -78,8 +78,8 @@ test.describe('layout at different window sizes', () => {
     await page.getByTestId('file-list').getByRole('link', { name: folderName }).click();
     await expect(page.getByTestId('folder-header').getByRole('heading', { name: folderName })).toBeVisible();
     await atEachSize(page, 'subfolder', (width) => expectFolderHeaderFits(page, folderName, width));
-    await page.getByRole('navigation', { name: 'Folder path' }).getByRole('link', { name: 'main' }).click();
-    await expect(page.getByTestId('folder-header').getByRole('heading', { name: 'main' })).toBeVisible();
+    await page.getByRole('navigation', { name: 'Folder path' }).getByRole('link', { name: 'My Drive' }).click();
+    await expect(page.getByTestId('folder-header').getByRole('heading', { name: 'My Drive' })).toBeVisible();
 
     await createDocument(page, 'test doc');
     await typeInDocument(page, 'Pack the tent');
@@ -95,6 +95,6 @@ test.describe('layout at different window sizes', () => {
 
     await page.getByRole('link', { name: 'Back to folder' }).click();
     await expect(page.getByTestId('document-entry').filter({ visible: true })).toHaveCount(1);
-    await atEachSize(page, 'folder-list', (width) => expectFolderHeaderFits(page, 'main', width));
+    await atEachSize(page, 'folder-list', (width) => expectFolderHeaderFits(page, 'My Drive', width));
   });
 });

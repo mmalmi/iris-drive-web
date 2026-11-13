@@ -19,7 +19,7 @@
     buildTreeHref,
   } from './fileBrowserHrefs';
   import { activeShareScope } from '../drive/shareScope';
-  import { isEditableDriveRouteScope } from '../drive/profileRoute';
+  import { activeNostrIdentityRootScope, isEditableDriveRouteScope } from '../drive/profileRoute';
   import { isNostrIdentityId } from '../utils/route';
   import IdentityName from './User/IdentityName.svelte';
 
@@ -85,6 +85,12 @@
   let sharedFolder = $derived(activeShareScope(viewedNpub, $nostrStore, $acceptedShares)?.record.folder);
   let isOwnDriveProfile = $derived(isEditableDriveRouteScope(viewedNpub, $nostrStore, $acceptedShares));
   let isOwnTrees = $derived(!viewedNpub || viewedNpub === userNpub || isOwnDriveProfile);
+  // The person's own Drive is called My Drive everywhere; "main" is only its address.
+  let isMyDrive = $derived(
+    !!viewedNpub && currentTreeName === 'main' && !route.isPermalink
+      && viewedNpub === activeNostrIdentityRootScope($nostrStore),
+  );
+  let rootName = $derived(isMyDrive ? 'My Drive' : sharedFolder?.display_name || currentTreeName);
   let canEdit = $derived(isLoggedIn && !route.isPermalink && isOwnTrees);
 
   let shareUrl = $derived.by(() => {
@@ -291,11 +297,18 @@
     return '#/';
   }
 
-  let hasParent = $derived(currentNpub || currentPath.length > 0);
+  /** Where "up" leads: the folder above, the list a shared folder came from, or nowhere from My Drive. */
+  let parentHref = $derived.by((): string | null => {
+    if (currentPath.length > 0) return buildDirHref(currentPath.slice(0, -1));
+    if (isMyDrive) return null;
+    if (sharedFolder) return '#/shared-with-me';
+    return currentNpub ? buildRootHref() : null;
+  });
+  let hasParent = $derived(parentHref !== null);
   /** The folders above the open one, outermost first. */
   let parentCrumbs = $derived.by(() => {
     const crumbs: { name: string; href: string }[] = [];
-    const rootName = sharedFolder?.display_name || currentTreeName;
+    if (sharedFolder) crumbs.push({ name: 'Shared with me', href: '#/shared-with-me' });
     if (currentPath.length === 0 || !rootName) return crumbs;
     crumbs.push({ name: rootName, href: buildDirHref([]) });
     for (let depth = 1; depth < currentPath.length; depth += 1) {
@@ -306,7 +319,7 @@
   let currentDirName = $derived(
     currentPath.length > 0
       ? currentPath[currentPath.length - 1]
-      : sharedFolder?.display_name || currentTreeName || (rootCid?.hash ? nhashEncode({ hash: toHex(rootCid.hash), decryptKey: rootCid.key ? toHex(rootCid.key) : undefined }).slice(0, 16) + '...' : '')
+      : rootName || (rootCid?.hash ? nhashEncode({ hash: toHex(rootCid.hash), decryptKey: rootCid.key ? toHex(rootCid.key) : undefined }).slice(0, 16) + '...' : '')
   );
 
   let selectedFileName = $derived(isViewingFile && lastSegment ? lastSegment : null);
@@ -478,7 +491,7 @@
     </div>
   {:else}
     {#if compact}
-      {#if viewedNpub}
+      {#if viewedNpub && !isMyDrive}
         <div class="hidden lg:flex h-10 shrink-0 px-3 border-b border-surface-2 items-center gap-2 bg-surface-0">
           {#if viewedNostrIdentityId}
             <div class="min-w-0 flex items-center gap-2 text-sm text-text-2" data-testid="drive-profile-root-scope">
@@ -499,9 +512,9 @@
         data-testid="folder-header"
       >
         <div class="order-1 min-w-0 flex-1 flex items-center gap-1.5 min-h-9">
-          {#if hasParent}
+          {#if parentHref}
             <a
-              href={currentPath.length > 0 ? buildDirHref(currentPath.slice(0, -1)) : buildRootHref()}
+              href={parentHref}
               class="lg:hidden btn-circle btn-ghost shrink-0 no-underline"
               title="Back"
               aria-label="Back"
@@ -516,20 +529,10 @@
           {/if}
           <span class="i-lucide-folder-open text-lg lg:text-xl text-warning shrink-0 mr-0.5"></span>
           <nav class="hidden lg:contents" aria-label="Folder path">
-            {#if viewedNpub && !sharedFolder}
-              {#if viewedNostrIdentityId}
-                <a
-                  href={buildRootHref()}
-                  class="min-w-8 shrink-100 truncate text-xl text-text-3 no-underline hover:text-text-1"
-                  data-testid="drive-profile-root-scope"
-                >
-                  <IdentityName profileId={viewedNostrIdentityId} appKeyPubkey={viewedIdentityAppKeyPubkey} />
-                </a>
-              {:else}
-                <a href="#/{viewedNpub}/profile" class="min-w-8 shrink-100 no-underline">
-                  <UserRow pubkey={npubToPubkey(viewedNpub) || viewedNpub} avatarSize={24} showBadge class="min-w-0" />
-                </a>
-              {/if}
+            {#if viewedNpub && !viewedNostrIdentityId}
+              <a href="#/{viewedNpub}/profile" class="min-w-8 shrink-100 no-underline">
+                <UserRow pubkey={npubToPubkey(viewedNpub) || viewedNpub} avatarSize={24} showBadge class="min-w-0" />
+              </a>
               <span class="i-lucide-chevron-right shrink-0 text-text-3"></span>
             {/if}
             {#each parentCrumbs as crumb (crumb.href)}
@@ -537,7 +540,7 @@
               <span class="i-lucide-chevron-right shrink-0 text-text-3"></span>
             {/each}
           </nav>
-          <h1 class="min-w-0 truncate text-base lg:text-xl font-medium text-text-1">{currentDirName || sharedFolder?.display_name || currentTreeName}</h1>
+          <h1 class="min-w-0 truncate text-base lg:text-xl font-medium text-text-1">{currentDirName}</h1>
           <VisibilityIcon visibility={currentTreeVisibility} class="text-text-3 shrink-0 ml-1" />
         </div>
         {#if currentDirCid || canEdit}
@@ -573,9 +576,9 @@
       {#if resolvingPath}
         <div class="p-4"></div>
       {:else}
-        {#if showDirectoryNavigationRows && hasParent}
+        {#if showDirectoryNavigationRows && parentHref}
           <a
-            href={currentPath.length > 0 ? buildDirHref(currentPath.slice(0, -1)) : buildRootHref()}
+            href={parentHref}
             class="p-3 border-b border-surface-2 flex items-center gap-3 no-underline text-text-1 hover:bg-surface-2/50 {focusedIndex === 0 ? 'ring-2 ring-inset ring-accent' : ''} {dropTargetDir === '..' ? 'bg-accent/20' : ''}"
             ondragover={(e) => handleParentDragOver(e)}
             ondragleave={handleDirDragLeave}

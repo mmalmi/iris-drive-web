@@ -4,9 +4,15 @@
    */
   import { nip19 } from 'nostr-tools';
   import { recentsStore, clearRecents, type RecentItem } from '../stores/recents';
-  import { TreeRow } from './ui';
+  import { getFileIcon } from '@iris/hashtree-app/fileIcon';
+  import { Avatar } from './User';
+  import { nostrStore } from '../nostr';
+  import { acceptedShares } from '../drive/shareLibrary';
+  import { activeNostrIdentityRootScope } from '../drive/profileRoute';
+  import { documentTitle, isDocumentFolderName } from '../lib/documentNames';
 
   let recents = $derived($recentsStore);
+  let ownProfileId = $derived(activeNostrIdentityRootScope($nostrStore));
 
   function npubToPubkey(npub: string): string | null {
     try {
@@ -16,6 +22,28 @@
       }
     } catch {}
     return null;
+  }
+
+  function isDocument(item: RecentItem): boolean {
+    return isDocumentFolderName(item.path.split('/').at(-1) ?? '');
+  }
+
+  /** A Drive's own top folder is known by its name to people, not by its address. */
+  function displayName(item: RecentItem): string {
+    if (isDocument(item)) return documentTitle(item.path.split('/').at(-1)!);
+    if (item.type === 'tree' && item.treeName === 'main' && item.npub) {
+      if (item.npub === ownProfileId) return 'My Drive';
+      const shared = $acceptedShares.find((record) => record.share_id === item.npub);
+      if (shared) return shared.folder.display_name;
+    }
+    return item.label;
+  }
+
+  function iconClass(item: RecentItem): string {
+    if (isDocument(item)) return 'i-lucide-file-text text-accent';
+    if (item.type === 'tree' && item.treeName === 'main' && item.npub === ownProfileId) return 'i-lucide-hard-drive text-text-2';
+    if (isFolder(item)) return 'i-lucide-folder text-warning';
+    return `${getFileIcon(item.label)} text-text-2`;
   }
 
   function formatTime(timestamp: number): string {
@@ -62,12 +90,12 @@
 </script>
 
 <div class="flex-1 flex flex-col min-h-0" data-testid="recents-view">
-  <div class="h-10 shrink-0 px-4 border-b border-surface-3 flex items-center">
-    <span class="text-sm font-medium text-text-1">Recent</span>
+  <div class="shrink-0 flex min-h-13 items-center gap-2 border-b border-surface-2 px-3 py-2 lg:px-5 lg:py-3">
+    <span class="i-lucide-clock-3 text-lg lg:text-xl text-accent shrink-0"></span>
+    <h1 class="text-base lg:text-xl font-medium text-text-1">Recent</h1>
     {#if recents.length > 0}
-      <span class="ml-2 text-xs text-text-3">{recents.length}</span>
       <button
-        class="ml-auto btn-ghost text-xs px-2 py-1"
+        class="ml-auto btn-ghost flex items-center gap-1.5 px-3 h-8 text-xs lg:text-sm"
         onclick={() => clearRecents()}
         title="Clear recents"
       >
@@ -77,26 +105,25 @@
   </div>
   <div class="flex-1 overflow-auto">
     {#if recents.length === 0}
-      <div class="p-4 text-muted text-sm">
-        No recent items
+      <div class="flex flex-col items-center gap-3 px-4 py-16 text-center text-sm text-text-3">
+        <span class="i-lucide-clock-3 text-4xl"></span>
+        Files and folders you open show up here.
       </div>
     {:else}
-      <div>
-        {#each recents as item (item.path)}
-          <TreeRow
-            href={buildHref(item)}
-            name={item.label}
-            isFolder={isFolder(item)}
-            ownerPubkey={item.npub ? npubToPubkey(item.npub) : null}
-            showHashIcon={item.type === 'hash'}
-            hasKey={item.hasKey}
-            visibility={item.visibility}
-            time={formatTime(item.timestamp)}
-            noHover
-            class={item.type === 'hash' ? 'font-mono' : ''}
-          />
-        {/each}
-      </div>
+      {#each recents as item (item.path)}
+        {@const ownerPubkey = item.npub ? npubToPubkey(item.npub) : null}
+        <a
+          href={buildHref(item)}
+          class="p-3 lg:px-5 border-b border-surface-2 flex items-center gap-3 no-underline text-text-1 hover:bg-surface-2/50 {item.type === 'hash' ? 'font-mono' : ''}"
+        >
+          {#if ownerPubkey}
+            <Avatar pubkey={ownerPubkey} size={20} class="shrink-0" />
+          {/if}
+          <span class="shrink-0 {item.type === 'hash' ? 'i-lucide-hash text-accent' : iconClass(item)}"></span>
+          <span class="truncate flex-1 min-w-0" title={displayName(item)}>{displayName(item)}</span>
+          <span class="shrink-0 text-sm text-muted">{formatTime(item.timestamp)}</span>
+        </a>
+      {/each}
     {/if}
   </div>
 </div>

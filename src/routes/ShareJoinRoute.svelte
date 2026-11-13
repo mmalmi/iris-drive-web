@@ -75,10 +75,15 @@
   </div>
 {:else if !profileId}
   <div class="flex-1 flex flex-col overflow-auto">
-    <p class="px-4 pt-8 text-center text-text-2" data-testid="share-join-signin">
-      Create an account or sign in to open “{name}”.
-    </p>
-    <DriveSetup />
+    <DriveSetup>
+      <div class="flex flex-col items-center gap-2 text-center">
+        <span class="i-lucide-users text-3xl text-accent"></span>
+        <h1 class="text-xl font-semibold text-text-1">“{name}” was shared with you</h1>
+        <p class="text-sm text-text-2" data-testid="share-join-signin">
+          Create an account or sign in to open “{name}”.
+        </p>
+      </div>
+    </DriveSetup>
   </div>
 {:else}
   <div class="flex-1 flex-center p-6" data-testid="share-join-waiting">

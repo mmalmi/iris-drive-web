@@ -95,6 +95,24 @@
         role="menu"
         data-testid="account-menu"
       >
+        <!-- A narrow screen has no sidebar, so its places are reached from here. -->
+        <div class="md:hidden">
+          {#each [
+            { path: '/', label: 'My Drive', icon: 'i-lucide-hard-drive' },
+            { path: '/recent', label: 'Recent', icon: 'i-lucide-clock-3' },
+            { path: '/shared-with-me', label: 'Shared with me', icon: 'i-lucide-users' },
+          ] as place (place.path)}
+            <button
+              class="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-text-1 hover:bg-surface-2"
+              role="menuitem"
+              onclick={() => openRoute(place.path)}
+            >
+              <span class={place.icon}></span>
+              <span>{place.label}</span>
+            </button>
+          {/each}
+          <div class="my-1 border-t border-surface-3"></div>
+        </div>
         <button
           class="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-text-1 hover:bg-surface-2"
           role="menuitem"

@@ -116,7 +116,11 @@
   let isMarkdown = $derived(extensionOf(urlFileName) === 'md' || extensionOf(urlFileName) === 'markdown');
   let isFullscreen = $derived(getQueryParamsFromHash(hash).get('fullscreen') === '1');
   let recentlyChanged = $derived($recentlyChangedFiles);
-  let isLiveStream = $derived(getQueryParamsFromHash(hash).get('live') === '1' || recentlyChanged.has(urlFileName));
+  // LIVE is for a recording that is still growing. A note that was just saved is not one.
+  let isLiveStream = $derived(
+    getQueryParamsFromHash(hash).get('live') === '1'
+      || ((isVideo || isAudio) && recentlyChanged.has(urlFileName)),
+  );
   let cidKey = $derived(entry?.cid?.hash ? toHex(entry.cid.hash) : urlFileName);
   let effectiveMediaTree = $derived.by(() => {
     if (!routeTreeName || routePath.length < 2) {

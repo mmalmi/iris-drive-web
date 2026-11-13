@@ -17,6 +17,7 @@
     projectAcceptedShareViews,
   } from '../drive/shareLibrary';
   import { toast } from '../stores/toast';
+  import { isDocumentFolderName } from '../lib/documentNames';
 
   interface Props {
     standalone?: boolean;
@@ -57,15 +58,38 @@
     }
   }
 
+  const ROLE_TEXT: Record<string, string> = { admin: 'Admin', editor: 'Can edit', reader: 'Can view' };
+
   function roleLabel(share: SharedWithMeRow): string {
+    const known = ROLE_TEXT[share.local_role];
+    if (known) return known;
     if ('local_role_label' in share && share.local_role_label) return share.local_role_label;
     if ('role_label' in share && share.role_label) return share.role_label;
     return labelText(share.local_role);
   }
 
+  /** Worth saying only when something is wrong: a folder that opens needs no status. */
   function keyStatusLabel(share: SharedWithMeRow): string {
+    if (share.key_status === 'available') return '';
     if ('key_status_label' in share && share.key_status_label) return share.key_status_label;
     return labelText(share.key_status);
+  }
+
+  /** A shared document is a folder holding one document: open the document itself. */
+  function sharedDocumentName(share: SharedWithMeRow): string | null {
+    const source = share.source_path?.split('/').at(-1);
+    return source && isDocumentFolderName(source) ? source : null;
+  }
+
+  function shareHref(share: SharedWithMeRow): string {
+    const document = sharedDocumentName(share);
+    return `#/${share.share_id}/main${document ? `/${encodeURIComponent(document)}` : ''}`;
+  }
+
+  function detailText(share: SharedWithMeRow): string {
+    return [roleLabel(share), keyStatusLabel(share), participantText(share), repairText(share)]
+      .filter(Boolean)
+      .join(' · ');
   }
 
   function participantText(share: SharedWithMeRow): string {
@@ -90,58 +114,55 @@
 </script>
 
 {#if shares.length > 0 || standalone}
-  <section class={standalone ? 'rounded-xl border border-surface-2 overflow-hidden' : 'mx-3 mt-3 rounded border border-surface-2 bg-surface-1/70'} data-testid="shared-with-me-panel">
-    <div class="h-11 px-4 flex items-center gap-2 border-b border-surface-2 bg-surface-1/70">
-      <span class="i-lucide-folder-key text-accent"></span>
-      <span class="text-sm font-medium text-text-2">Shared with me</span>
-    </div>
-    <div class="divide-y divide-surface-2 bg-surface-0">
-      {#if shares.length === 0}
-        <div class="px-4 py-10 text-center text-sm text-text-3">
-          Folders shared with you will appear here.
-        </div>
-      {/if}
-      {#each shares as share (share.share_id)}
-        <div class="px-3 py-2 flex items-center gap-3" data-testid="shared-with-me-row">
-          <span class="i-lucide-folder text-warning shrink-0"></span>
-          <div class="min-w-0 flex-1">
-            <div class="text-sm font-medium text-text-1 truncate">{share.display_name}</div>
-            {#if share.source_path}
-              <div class="text-xs text-text-3 truncate">{share.source_path}</div>
-            {/if}
-            <div class="text-xs text-text-3 truncate">
-              {roleLabel(share)} · {keyStatusLabel(share)} · {participantText(share)}
-              {#if share.repair_needed}
-                · {repairText(share)}
-              {/if}
-            </div>
-            {#if usingNative && share.shortcut_paths.length > 0}
-              <div class="text-xs text-text-3 truncate">
-                {share.shortcut_paths[0]}
-              </div>
-            {/if}
-          </div>
-          {#if share.key_status !== 'revoked'}
-            <a class="btn-ghost text-sm no-underline" data-testid="shared-with-me-open" href={`#/${share.share_id}/main`}>Open</a>
-          {/if}
-          {#if share.key_status === 'revoked'}
-            <span class="i-lucide-lock-keyhole text-text-3 shrink-0" aria-label="Access removed"></span>
-          {:else if usingNative && share.shortcut_paths.length === 0}
-            <button
-              class="btn-ghost h-8 w-8 min-h-8 min-w-8 p-0"
-              title="Add shortcut to My Drive"
-              aria-label="Add shortcut to My Drive"
-              data-testid="shared-with-me-add-shortcut"
-              disabled={Boolean(shareActionPending)}
-              onclick={() => handleAddShortcut(share.share_id)}
-            >
-              <span class="i-lucide-plus text-base"></span>
-            </button>
-          {:else if usingNative}
-            <span class="i-lucide-check text-success shrink-0" title="Shortcut added"></span>
-          {/if}
-        </div>
-      {/each}
-    </div>
+  <section class={standalone ? '' : 'mx-3 mt-3 rounded border border-surface-2 bg-surface-1/70'} data-testid="shared-with-me-panel">
+    {#if !standalone}
+      <div class="h-11 px-4 flex items-center gap-2 border-b border-surface-2 bg-surface-1/70">
+        <span class="i-lucide-users text-accent"></span>
+        <span class="text-sm font-medium text-text-2">Shared with me</span>
+      </div>
+    {/if}
+    {#if shares.length === 0}
+      <div class="flex flex-col items-center gap-3 px-4 py-16 text-center text-sm text-text-3">
+        <span class="i-lucide-users text-4xl"></span>
+        Folders and documents people share with you show up here.
+      </div>
+    {/if}
+    {#each shares as share (share.share_id)}
+      {@const revoked = share.key_status === 'revoked'}
+      {@const isDocument = !!sharedDocumentName(share)}
+      <div
+        class="flex items-center border-b border-surface-2 {revoked ? 'opacity-60' : 'hover:bg-surface-2/50'}"
+        data-testid="shared-with-me-row"
+      >
+        <svelte:element
+          this={revoked ? 'div' : 'a'}
+          href={revoked ? undefined : shareHref(share)}
+          class="min-w-0 flex-1 flex items-center gap-3 p-3 lg:px-5 no-underline text-text-1"
+          data-testid={revoked ? undefined : 'shared-with-me-open'}
+        >
+          <span class="shrink-0 {isDocument ? 'i-lucide-file-text text-accent' : 'i-lucide-folder text-warning'}"></span>
+          <span class="min-w-0 flex-1 sm:flex sm:items-center sm:gap-3">
+            <span class="block truncate sm:flex-1" title={share.display_name}>{share.display_name}</span>
+            <span class="block truncate text-xs text-text-3 sm:shrink-0 sm:text-sm">{detailText(share)}</span>
+          </span>
+        </svelte:element>
+        {#if revoked}
+          <span class="i-lucide-lock-keyhole text-text-3 shrink-0 mr-3 lg:mr-5" aria-label="Access removed"></span>
+        {:else if usingNative && share.shortcut_paths.length === 0}
+          <button
+            class="btn-circle btn-ghost shrink-0 mr-3 lg:mr-5"
+            title="Add shortcut to My Drive"
+            aria-label="Add shortcut to My Drive"
+            data-testid="shared-with-me-add-shortcut"
+            disabled={Boolean(shareActionPending)}
+            onclick={() => handleAddShortcut(share.share_id)}
+          >
+            <span class="i-lucide-plus text-base"></span>
+          </button>
+        {:else if usingNative}
+          <span class="i-lucide-check text-success shrink-0 mr-3 lg:mr-5" title="Shortcut added"></span>
+        {/if}
+      </div>
+    {/each}
   </section>
 {/if}

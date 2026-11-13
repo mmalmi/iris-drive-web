@@ -35,7 +35,7 @@ test.describe('LIVE Indicator', () => {
     await navigateToPublicFolder(page, { requireRelay: false });
   });
 
-  test('should show LIVE badge when file is recently changed', async ({ page }) => {
+  test('a text file that was just saved is not labelled LIVE', async ({ page }) => {
     // Create tree with file
     await createAndEnterTree(page, 'live-test');
 
@@ -49,31 +49,8 @@ test.describe('LIVE Indicator', () => {
     await page.waitForTimeout(300);
     await page.getByRole('button', { name: 'Done' }).click();
 
-    // Should now be viewing the file - check for LIVE badge immediately
-    await expect(page.locator('.animate-pulse:has-text("LIVE")')).toBeVisible({ timeout: 3000 });
-  });
-
-  test('should hide LIVE badge after timeout', async ({ page }) => {
-    // Create tree with file
-    await createAndEnterTree(page, 'live-timeout-test');
-
-    // Create file - stay on it immediately
-    await page.getByRole('button', { name: /File/ }).first().click();
-    await page.locator('input[placeholder="File name..."]').fill('timeout.txt');
-    await page.getByRole('button', { name: 'Create' }).click();
-    await expect(page.getByRole('button', { name: 'Done' })).toBeVisible({ timeout: 5000 });
-    await page.locator('textarea').fill('Test');
-    await saveTextFile(page);
-    await page.waitForTimeout(300);
-    await page.getByRole('button', { name: 'Done' }).click();
-
-    // LIVE badge should be visible initially
-    await expect(page.locator('.animate-pulse:has-text("LIVE")')).toBeVisible({ timeout: 3000 });
-
-    // Wait for timeout (5 seconds + buffer)
-    await page.waitForTimeout(6000);
-
-    // LIVE badge should be hidden
-    await expect(page.locator('.animate-pulse:has-text("LIVE")')).not.toBeVisible();
+    // LIVE marks a recording that is still growing, not a saved note.
+    await expect(page.getByTestId('viewer-header')).toContainText('test.txt');
+    await expect(page.locator('.animate-pulse:has-text("LIVE")')).toHaveCount(0);
   });
 });
