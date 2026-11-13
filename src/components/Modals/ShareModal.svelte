@@ -67,6 +67,42 @@
 <script lang="ts">
   import { qrCodeDataUrl } from '../../lib/qrCode';
   import CopyText from '@iris/svelte-ui/CopyText.svelte';
+  import { currentHash } from '../../stores';
+  import { parseRouteFromHash } from '../../utils/route';
+  import { acceptedShares } from '../../drive/shareLibrary';
+  import { sharedRouteForOwnPath } from '../../drive/sharePeople';
+  import { activeNostrIdentityRootScope } from '../../drive/profileRoute';
+  import { nostrStore } from '../../nostr';
+
+  /** The address without its query, which changes when a link key is added. */
+  const place = (hash: string) => hash.replace(/^#/, '').split('?')[0];
+  let openedAt = '';
+
+  // Going somewhere else closes the dialog. Sharing an item moves the page to
+  // the same item in the new shared folder, which keeps it open.
+  $effect(() => {
+    const hash = $currentHash;
+    if (!show) {
+      openedAt = '';
+      return;
+    }
+    const here = place(hash);
+    if (!openedAt) {
+      openedAt = here;
+      return;
+    }
+    if (here === openedAt) return;
+    const before = parseRouteFromHash(`#${openedAt}`);
+    const profileId = activeNostrIdentityRootScope($nostrStore);
+    const moved = before.npub === profileId && before.treeName === 'main'
+      ? sharedRouteForOwnPath(before.path, profileId, $acceptedShares)
+      : null;
+    if (moved && place(moved) === here) {
+      openedAt = here;
+      return;
+    }
+    close();
+  });
 
   let selectedUrl = $derived(options.find((option) => option.id === selectedOptionId)?.url ?? null);
   let qrDataUrl = $state<string | null>(null);
@@ -86,13 +122,15 @@
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        e.stopPropagation();
         (document.activeElement as HTMLElement)?.blur();
         close();
       }
     };
 
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
+    // First in line, so an editor underneath cannot take the Escape.
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
   });
 
   async function handleNativeShare() {
