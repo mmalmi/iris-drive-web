@@ -109,7 +109,8 @@
     if (!element || element === document.body || element === document.documentElement) return 'editor';
     if (!root?.contains(element)) return 'elsewhere';
     if (element.closest('.ProseMirror')) return 'text';
-    if (element.closest('input, textarea, select, [contenteditable="true"]')) return 'field';
+    // A control with keys of its own, such as the line above the notes, keeps them.
+    if (element.closest('input, textarea, select, [contenteditable="true"], [role="separator"]')) return 'field';
     return 'editor';
   }
 

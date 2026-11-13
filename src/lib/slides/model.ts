@@ -10,6 +10,8 @@
  *                     background  colour, when it differs from the theme's
  *                     seed        true on the slide a new deck was given by itself, so that two
  *                                 devices opening a new deck at once end up with one such slide
+ *                     seedBy      the browser that made that slide, so it can still tidy it away
+ *                                 after a reload
  *                     notes       Y.Text, the speaker notes
  *                     elements    Y.Map  <element id> → Y.Map
  *                                   type     'text' | 'shape' | 'line' | 'image'
@@ -93,6 +95,8 @@ export interface Slide {
   background?: string;
   /** The slide a new deck started with by itself. */
   seed?: boolean;
+  /** The browser that made it, when known. */
+  seedBy?: string;
   notes: Y.Text | null;
   /** Lowest first. */
   elements: SlideElement[];
@@ -211,7 +215,11 @@ export function readSlide(id: string, map: unknown): Slide | null {
     notes: notes instanceof Y.Text ? notes : null,
     elements,
   };
-  if (map.get('seed') === true) slide.seed = true;
+  if (map.get('seed') === true) {
+    slide.seed = true;
+    const by = text(map.get('seedBy'));
+    if (by) slide.seedBy = by;
+  }
   return slide;
 }
 
@@ -374,8 +382,11 @@ export class Deck {
     });
   }
 
-  /** Adds a slide after `afterId` (at the end when null) and returns its id. */
-  addSlide(layout: string, elements: ElementInit[], afterId: string | null = null, background?: string, seed = false): string {
+  /**
+   * Adds a slide after `afterId` (at the end when null) and returns its id.
+   * `seedBy` marks it as the slide a new deck gave itself, made by that browser.
+   */
+  addSlide(layout: string, elements: ElementInit[], afterId: string | null = null, background?: string, seedBy: string | null = null): string {
     const id = newId();
     this.transact(() => {
       const order = this.readSlides();
@@ -387,7 +398,10 @@ export class Deck {
       map.set('pos', keyBetween(before?.pos, after?.pos));
       map.set('layout', layout);
       if (background) map.set('background', background);
-      if (seed) map.set('seed', true);
+      if (seedBy) {
+        map.set('seed', true);
+        map.set('seedBy', seedBy);
+      }
       map.set('notes', new Y.Text());
       map.set('elements', new Y.Map());
       const keys = keysBetween(null, null, elements.length);

@@ -295,7 +295,8 @@ test.describe('text and shapes that behave', () => {
     await page.getByTestId('element-menu-cut').click();
     await expect(elements(page, 'shape')).toHaveCount(2);
     // On an empty part of the slide the menu pastes.
-    await sheet(page).click({ button: 'right', position: { x: 600, y: 420 } });
+    const empty = await slidePoint(page, 1100, 640);
+    await page.mouse.click(empty.x, empty.y, { button: 'right' });
     await expect(page.getByTestId('element-menu-cut')).toHaveCount(0);
     await page.getByTestId('element-menu-paste').click();
     await expect(elements(page, 'shape')).toHaveCount(3);

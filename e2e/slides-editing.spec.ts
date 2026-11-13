@@ -137,9 +137,8 @@ test.describe('working on a slide', () => {
     // Shift-click adds to and takes from the selection.
     await page.keyboard.press('Escape');
     await rect.click();
-    await page.keyboard.down('Shift');
-    await elements(page, 'shape').nth(1).click({ position: { x: 5, y: 60 } });
-    await page.keyboard.up('Shift');
+    // On the strip of the ellipse that no copy covers, well away from the rectangle's handles.
+    await clickSlide(page, 536, 450, 'Shift');
     await expect(sheet(page).getByTestId('selection-frame')).toHaveCount(2);
     // Cut takes them off the slide; paste on another slide puts them there.
     await page.keyboard.press('ControlOrMeta+x');
@@ -357,8 +356,9 @@ test.describe('working on a slide', () => {
     await page.dispatchEvent('[data-testid="slide-canvas"]', 'drop', { dataTransfer, clientX: drop.x, clientY: drop.y });
     await expect(elements(page, 'image')).toHaveCount(3, { timeout: 30_000 });
     const dropped = await frameOf(elements(page, 'image').nth(2));
-    expect(Math.abs(dropped.x + dropped.w / 2 - 300)).toBeLessThan(2);
-    expect(Math.abs(dropped.y + dropped.h / 2 - 500)).toBeLessThan(2);
+    // Within a unit or two: the point dropped on is a screen pixel, a slide unit or so wide.
+    expect(Math.abs(dropped.x + dropped.w / 2 - 300)).toBeLessThanOrEqual(2);
+    expect(Math.abs(dropped.y + dropped.h / 2 - 500)).toBeLessThanOrEqual(2);
     for (const index of [0, 1, 2]) await expect.poll(() => loaded(index), { timeout: 30_000 }).toBeGreaterThan(0);
     await shot(page, 'edit-09-pictures');
 

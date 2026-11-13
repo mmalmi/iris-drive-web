@@ -3,8 +3,9 @@ import * as Y from 'yjs';
 import { SlidesEditorState } from '../src/lib/slides/editorState.svelte';
 import { Deck, richTextToPlain } from '../src/lib/slides/model';
 
-function open(ydoc = new Y.Doc(), canEdit = true): SlidesEditorState {
-  const state = new SlidesEditorState(ydoc, { addAttachment: async () => 'image.png', canEdit: () => canEdit });
+/** Each editor is a browser of its own unless told otherwise. */
+function open(ydoc = new Y.Doc(), canEdit = true, deviceId = `device-${Math.random()}`): SlidesEditorState {
+  const state = new SlidesEditorState(ydoc, { addAttachment: async () => 'image.png', canEdit: () => canEdit, deviceId });
   state.startDeck();
   return state;
 }
@@ -98,6 +99,68 @@ describe('the editor\'s view of a deck', () => {
       sync(first, second);
       expect(titleOf(a)).toEqual(['Typed meanwhile']);
       expect(titleOf(b)).toEqual(['Typed meanwhile']);
+    });
+
+    test('one that reloads before they meet still ends up with one first slide', () => {
+      // Slide ids are random, so which of the two is kept differs from run to run; try both often enough.
+      for (let run = 0; run < 12; run += 1) {
+        for (const reloader of ['a', 'b'] as const) {
+          const docs = { a: new Y.Doc(), b: new Y.Doc() };
+          const states = { a: open(docs.a, true, 'device-a'), b: open(docs.b, true, 'device-b') };
+          // The reloading device's deck comes back from what it had stored, in a new document.
+          const stored = Y.encodeStateAsUpdate(docs[reloader]);
+          states[reloader].destroy();
+          docs[reloader] = new Y.Doc();
+          Y.applyUpdate(docs[reloader], stored, 'stored');
+          states[reloader] = open(docs[reloader], true, `device-${reloader}`);
+          expect(states[reloader].slides).toHaveLength(1);
+          sync(docs.a, docs.b);
+          sync(docs.b, docs.a);
+          sync(docs.a, docs.b);
+          sync(docs.b, docs.a);
+          expect(states.a.slides).toHaveLength(1);
+          expect(states.b.slides).toHaveLength(1);
+          expect(states.a.slides[0]!.id).toBe(states.b.slides[0]!.id);
+          expect(states.a.canUndo || states.b.canUndo).toBe(false);
+        }
+      }
+    });
+
+    test('after a reload, what the other device typed meanwhile is still never taken away', () => {
+      for (let run = 0; run < 12; run += 1) {
+        const first = new Y.Doc();
+        const second = new Y.Doc();
+        open(first, true, 'device-a').destroy();
+        const b = open(second, true, 'device-b');
+        // a reloads; b's empty slide reaches it; b types before hearing back.
+        const again = new Y.Doc();
+        Y.applyUpdate(again, Y.encodeStateAsUpdate(first), 'stored');
+        const a = open(again, true, 'device-a');
+        sync(second, again);
+        typeTitle(b, 'Typed meanwhile');
+        sync(again, second);
+        sync(second, again);
+        sync(again, second);
+        expect(titleOf(a)).toEqual(['Typed meanwhile']);
+        expect(titleOf(b)).toEqual(['Typed meanwhile']);
+      }
+    });
+
+    test('a first slide from before browsers were told apart is left alone', () => {
+      const first = new Y.Doc();
+      const old = new Deck(first);
+      old.start('light');
+      first.transact(() => {
+        const id = old.addSlide('title', []);
+        old.slides.get(id)!.set('seed', true);
+      });
+      const second = new Y.Doc();
+      const b = open(second, true, 'device-b');
+      sync(first, second);
+      sync(second, first);
+      // b's own slide may go if the old one sorts first; the old one always stays.
+      expect(b.slides.length).toBeGreaterThanOrEqual(1);
+      expect(b.slides.some(slide => !slide.seedBy)).toBe(true);
     });
 
     test('a slide added by hand is never taken for a first slide', () => {
