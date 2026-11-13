@@ -164,6 +164,8 @@
     const { forgetImportRequest, readSiblingFile } = await import('./pptxFiles');
     const bytes = name.includes('/') ? null : await readSiblingFile(name).catch(() => null);
     forgetImportRequest();
+    // A deck already made from the file (or written in since) is just opened.
+    if (editorState && !editorState.isBlank) return;
     if (!bytes) {
       if (editorState) editorState.notice = `Could not find ${name} beside this presentation.`;
       return;

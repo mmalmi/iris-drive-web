@@ -497,7 +497,7 @@
         {#key cidKey}
           <iframe src={getNhashFileUrl(entry.cid, urlFileName || 'document.pdf')} class="flex-1 w-full border-none" title={urlFileName}></iframe>
         {/key}
-      {:else if fileImport && fileData}
+      {:else if fileImport?.preview && fileData}
         {#key cidKey}
           {#await fileImport.preview() then { default: FilePreview }}
             <FilePreview fileName={urlFileName} data={fileData} />

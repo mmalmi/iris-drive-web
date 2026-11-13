@@ -45,8 +45,8 @@ export interface FileImport {
   kind: DocumentKind;
   /** The button's text, such as "Open as spreadsheet". */
   label: string;
-  /** Shows the file read-only, without saving anything. */
-  preview: () => Promise<{ default: Component<FilePreviewProps> }>;
+  /** Shows the file read-only, without saving anything. Without it the file shows as any other file. */
+  preview?: () => Promise<{ default: Component<FilePreviewProps> }>;
 }
 
 export const FILE_IMPORTS: FileImport[] = [
@@ -55,6 +55,12 @@ export const FILE_IMPORTS: FileImport[] = [
     kind: 'sheet',
     label: 'Open as spreadsheet',
     preview: () => import('../components/Sheets/SheetPreview.svelte'),
+  },
+  {
+    // The presentation editor brings the file in itself (SlidesEditor, pptxFiles.ts).
+    extensions: ['pptx'],
+    kind: 'slides',
+    label: 'Open as presentation',
   },
 ];
 
