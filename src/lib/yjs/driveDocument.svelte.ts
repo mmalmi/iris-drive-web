@@ -27,6 +27,7 @@ import { removeOwnDirectoryForDriveRoute, setEntryForDriveRoute } from '../../dr
 import { DOCUMENT_KINDS, documentKind, documentTitle, snapshotLinkQuery, type DocumentKindInfo } from '../documentNames';
 import { getCidFileUrl } from '../mediaUrl';
 import { DocumentSession, STORED_ORIGIN, type DocumentChange } from './documentStore';
+import { withDriveRootLock } from '../driveRootTabs';
 import { ATTACHMENTS_DIRECTORY, generateImageFilename } from './imageAttachments';
 import { documentWriteScope } from './routeScope';
 import { connectDocumentTabs } from './tabSync';
@@ -236,35 +237,38 @@ export class DriveDocument {
       ...(await tree.putFile(write.data)),
     })));
 
-    for (let attempt = 0; attempt < 4; attempt += 1) {
-      const base = getTreeRootSync(scope, treeName);
-      let root = base ?? (await tree.putDirectory([])).cid;
-      for (const file of files) {
-        root = await setEntryForDriveRoute(
-          tree,
-          root,
-          [...documentPath, ...file.path.slice(0, -1)],
-          file.path[file.path.length - 1],
-          { cid: file.cid, size: file.size, type: LinkType.Blob },
-          target,
-          nostrStore.getState(),
-        );
+    // Tabs of this browser save one after another, each on the newest version.
+    await withDriveRootLock(scope, treeName, async () => {
+      for (let attempt = 0; attempt < 4; attempt += 1) {
+        const base = getTreeRootSync(scope, treeName);
+        let root = base ?? (await tree.putDirectory([])).cid;
+        for (const file of files) {
+          root = await setEntryForDriveRoute(
+            tree,
+            root,
+            [...documentPath, ...file.path.slice(0, -1)],
+            file.path[file.path.length - 1],
+            { cid: file.cid, size: file.size, type: LinkType.Blob },
+            target,
+            nostrStore.getState(),
+          );
+        }
+        for (const directory of change.removeDirectories) {
+          root = await removeOwnDirectoryForDriveRoute(
+            tree, root, [...documentPath, ...directory], target, nostrStore.getState(),
+          );
+        }
+        if (!this.#canWriteOpened()) throw new Error('The account changed before the document could be saved');
+        // Another write landed while this one was prepared: redo it on the newer Drive.
+        if (!sameCid(getTreeRootSync(scope, treeName), base)) continue;
+        if (!saveOwnTreeRoot(scope, treeName, root)) throw new Error('This document cannot be edited here');
+        // Saves are already spaced by pauses in typing. Announce this one now
+        // rather than after the usual second, so other people see it sooner.
+        void flushPendingPublishes().catch(() => {});
+        return;
       }
-      for (const directory of change.removeDirectories) {
-        root = await removeOwnDirectoryForDriveRoute(
-          tree, root, [...documentPath, ...directory], target, nostrStore.getState(),
-        );
-      }
-      if (!this.#canWriteOpened()) throw new Error('The account changed before the document could be saved');
-      // Another write landed while this one was prepared: redo it on the newer Drive.
-      if (!sameCid(getTreeRootSync(scope, treeName), base)) continue;
-      if (!saveOwnTreeRoot(scope, treeName, root)) throw new Error('This document cannot be edited here');
-      // Saves are already spaced by pauses in typing. Announce this one now
-      // rather than after the usual second, so other people see it sooner.
-      void flushPendingPublishes().catch(() => {});
-      return;
-    }
-    throw new Error('The Drive kept changing while saving');
+      throw new Error('The Drive kept changing while saving');
+    });
   }
 
   /**

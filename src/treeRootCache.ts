@@ -14,6 +14,7 @@ import { treeRootRegistry } from './TreeRootRegistry';
 import { isNostrIdentityId, parseRoute } from './utils/route';
 import { publishNostrIdentityDriveRootIfAvailable } from './drive/profileDriveRootPublish';
 import { requeueUnpublishedRoots } from './lib/unpublishedRoots';
+import { announceLocalRoot, startDriveRootTabSync } from './lib/driveRootTabs';
 
 /**
  * Initialize the publish function on the registry.
@@ -94,6 +95,7 @@ export async function initializePublishFn(): Promise<void> {
   // What an earlier page left unpublished may have been tried before this
   // point, and dropped.
   requeueUnpublishedRoots(treeRootRegistry);
+  startDriveRootTabSync();
 }
 
 // Re-export for backward compatibility
@@ -132,6 +134,8 @@ export function updateLocalRootCache(
   labels?: string[]
 ): void {
   treeRootRegistry.setLocal(npub, treeName, hash, { key, visibility, labels });
+  // Other tabs of this browser write with the same key; they must build on this version.
+  void announceLocalRoot(npub, treeName, hash, key, visibility);
 }
 
 /**
