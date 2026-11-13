@@ -24,8 +24,8 @@ import { readBorder } from './borders';
 import type { CellStyle, Sheet } from './model';
 import { isError, type Scalar } from './values';
 
-export const FONT_SIZE = 13;
-export const LINE_HEIGHT = 17;
+const FONT_SIZE = 13;
+const LINE_HEIGHT = 17;
 export const CELL_PAD_X = 5;
 const FONT_FAMILY = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
 const TEXT_BOTTOM = 7;
@@ -110,7 +110,7 @@ export const DEFAULT_POINTS = 10;
 const TEXT_PAD_Y = 7;
 
 /** A cell's font size in pixels. */
-export function fontPx(style: CellStyle): number {
+function fontPx(style: CellStyle): number {
   return style.fs ? Math.round(style.fs * 13) / 10 : FONT_SIZE;
 }
 

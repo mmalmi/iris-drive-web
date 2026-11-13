@@ -32,7 +32,7 @@ import { createDocument } from '../actions/tree';
 import { DOCUMENT_KINDS, documentFolderName, type DocumentKind } from './documentNames';
 
 /** The query parameter that asks an editor to bring a file in. */
-export const IMPORT_PARAM = 'import';
+const IMPORT_PARAM = 'import';
 
 export interface FilePreviewProps {
   fileName: string;
@@ -49,7 +49,7 @@ export interface FileImport {
   preview?: () => Promise<{ default: Component<FilePreviewProps> }>;
 }
 
-export const FILE_IMPORTS: FileImport[] = [
+const FILE_IMPORTS: FileImport[] = [
   {
     extensions: ['xlsx', 'csv', 'tsv'],
     kind: 'sheet',
@@ -77,7 +77,7 @@ export function fileImportFor(fileName: string | null | undefined): FileImport |
 }
 
 /** The folder name of the document made from a file: "Budget.xlsx" gives "Budget.irissheet". */
-export function importedDocumentName(fileName: string, kind: DocumentKind): string {
+function importedDocumentName(fileName: string, kind: DocumentKind): string {
   const dot = fileName.lastIndexOf('.');
   const base = (dot > 0 ? fileName.slice(0, dot) : fileName).trim() || 'Imported';
   return documentFolderName(base, kind);

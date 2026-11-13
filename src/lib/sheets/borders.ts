@@ -17,10 +17,6 @@ export function readBorder(value: string | undefined): BorderLine | null {
   return { kind: 'smkdo'.includes(kind) ? kind : 's', color: value.slice(1) };
 }
 
-export function writeBorder(line: BorderLine): string {
-  return `${line.kind}${line.color}`;
-}
-
 export type BorderPlace = 'all' | 'outer' | 'inner' | 'horizontal' | 'vertical' | 'top' | 'bottom' | 'left' | 'right' | 'none';
 
 /**

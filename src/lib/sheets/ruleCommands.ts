@@ -5,7 +5,7 @@ import { writeInput } from './edit';
 import { addRule, listRules, rangeIds, validationAt, type Check } from './rules';
 
 /** Whether a value counts as a ticked checkbox. */
-export function isTicked(value: unknown): boolean {
+function isTicked(value: unknown): boolean {
   return value === true || value === 1 || (typeof value === 'string' && value.toLowerCase() === 'true');
 }
 

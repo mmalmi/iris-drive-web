@@ -78,7 +78,7 @@ const DEVICE_KEY = 'irisslides-device';
  * A name for this browser that outlasts a reload, kept in its local storage.
  * Without storage every editor gets a name of its own.
  */
-export function browserId(): string {
+function browserId(): string {
   try {
     const known = localStorage.getItem(DEVICE_KEY);
     if (known) return known;

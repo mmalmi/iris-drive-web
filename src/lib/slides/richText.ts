@@ -45,7 +45,7 @@ export function fontSizeCss(size: number): string {
   return `calc(${size}px * var(--fit, 1))`;
 }
 
-export function validAlign(value: unknown): 'left' | 'center' | 'right' | null {
+function validAlign(value: unknown): 'left' | 'center' | 'right' | null {
   return value === 'left' || value === 'center' || value === 'right' ? value : null;
 }
 

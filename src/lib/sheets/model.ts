@@ -76,14 +76,14 @@ import * as Y from 'yjs';
 import type { Rect } from './address';
 import { browserLocale, localeFor, type NumberLocale } from './format';
 
-export const FORMAT_VERSION = 1;
+const FORMAT_VERSION = 1;
 /** Transaction origin of this person's own edits; undo steps through these only. */
 export const LOCAL_ORIGIN = 'sheet-edit';
 const SETUP_ORIGIN = 'sheet-setup';
 
 export const DEFAULT_ROWS = 1000;
 export const DEFAULT_COLS = 26;
-export const DEFAULT_COL_WIDTH = 100;
+const DEFAULT_COL_WIDTH = 100;
 export const DEFAULT_ROW_HEIGHT = 24;
 export const MIN_COL_WIDTH = 24;
 export const MIN_ROW_HEIGHT = 16;
@@ -131,10 +131,9 @@ export interface CellStyle {
 export type StylePatch = { [K in keyof CellStyle]?: CellStyle[K] | null };
 
 /** Every style property, for clearing them all. */
-export const STYLE_PROPS: Array<keyof CellStyle> = ['b', 'i', 's', 'u', 'c', 'bg', 'a', 'w', 'nf', 'fs', 'va', 'bt', 'bb', 'bl', 'br'];
+const STYLE_PROPS: Array<keyof CellStyle> = ['b', 'i', 's', 'u', 'c', 'bg', 'a', 'w', 'nf', 'fs', 'va', 'bt', 'bb', 'bl', 'br'];
 const TEXT_PROPS = new Set<keyof CellStyle>(['c', 'bg', 'a', 'nf', 'va', 'bt', 'bb', 'bl', 'br']);
-export const BORDER_PROPS = ['bt', 'bb', 'bl', 'br'] as const;
-export type BorderSide = typeof BORDER_PROPS[number];
+export type BorderSide = 'bt' | 'bb' | 'bl' | 'br';
 
 const EMPTY_STYLE: CellStyle = Object.freeze({});
 

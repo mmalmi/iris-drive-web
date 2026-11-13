@@ -3,7 +3,7 @@ import { rectContains, type Rect } from './address';
 
 export const HEADER_HEIGHT = 24;
 /** Pixels on either side of a header border that grab it for resizing. */
-export const RESIZE_GRIP = 5;
+const RESIZE_GRIP = 5;
 export const FILL_HANDLE = 7;
 /** Size of the button a filter puts into each cell of its header row, and its distance from the cell's edge. */
 export const FILTER_BUTTON = 16;
@@ -250,7 +250,7 @@ export const TOUCH_FILL = 14;
 /** How far the fill square sits from the selection's bottom right corner, across and down. */
 export const TOUCH_FILL_OFFSET = 17;
 /** How far from a handle's centre a finger still takes it. */
-export const TOUCH_REACH = 22;
+const TOUCH_REACH = 22;
 
 export interface Point {
   x: number;

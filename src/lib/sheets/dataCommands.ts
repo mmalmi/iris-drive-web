@@ -55,7 +55,7 @@ export function sortTarget(ctl: SheetController): { rect: Rect; header: boolean;
  * Sorts the rows of a range by one of its columns. The cells' content moves;
  * formulas among them are adjusted as when they are copied to their new row.
  */
-export function sortRange(ctl: SheetController, rect: Rect, keyCol: number, ascending: boolean): void {
+function sortRange(ctl: SheetController, rect: Rect, keyCol: number, ascending: boolean): void {
   const sheet = ctl.sheet;
   if (sheet.merges().some(m => m.r2 > m.r1 && m.r1 <= rect.r2 && rect.r1 <= m.r2 && m.c1 <= rect.c2 && rect.c1 <= m.c2)) {
     ctl.say('Unmerge the cells that span several rows to sort them.');

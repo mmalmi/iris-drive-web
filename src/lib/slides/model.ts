@@ -208,7 +208,7 @@ function positive(value: unknown): number | undefined {
 }
 
 /** A crop as stored, or undefined when it is not one or cuts nothing. */
-export function readCrop(value: unknown): Crop | undefined {
+function readCrop(value: unknown): Crop | undefined {
   if (!Array.isArray(value) || value.length !== 4) return undefined;
   const parts = value.map(part => (typeof part === 'number' && Number.isFinite(part) ? Math.min(0.98, Math.max(0, part)) : NaN));
   if (parts.some(Number.isNaN)) return undefined;
@@ -222,7 +222,7 @@ function hasContent(type: ElementType): boolean {
 }
 
 /** Reads an element, or null when what is stored is not one. */
-export function readElement(id: string, map: unknown): SlideElement | null {
+function readElement(id: string, map: unknown): SlideElement | null {
   if (!(map instanceof Y.Map)) return null;
   const type = oneOf<ElementType>(map.get('type'), ELEMENT_TYPES);
   if (!type) return null;

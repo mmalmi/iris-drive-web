@@ -43,7 +43,7 @@ function lonePicture(data: Copied, urls: Map<string, string> | undefined): strin
 }
 
 /** A PNG picture of what was copied, for other apps. */
-export function pngOfCopy(data: Copied, root: HTMLElement | undefined, urls?: Map<string, string>): Promise<Blob> {
+function pngOfCopy(data: Copied, root: HTMLElement | undefined, urls?: Map<string, string>): Promise<Blob> {
   const own = lonePicture(data, urls);
   return own ? pngAt(own).catch(() => picture(data, root)) : picture(data, root);
 }

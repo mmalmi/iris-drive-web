@@ -4,11 +4,11 @@ import type { SheetController } from './controller.svelte';
 import { dataRegion } from './dataCommands';
 import { addObject, rectIds, type ChartContent, type ChartType } from './objects';
 
-export const CHART_WIDTH = 440;
-export const CHART_HEIGHT = 280;
+const CHART_WIDTH = 440;
+const CHART_HEIGHT = 280;
 
 /** The cells a new chart would show: the selection, or the table around the active cell. */
-export function chartSource(ctl: SheetController): Rect | null {
+function chartSource(ctl: SheetController): Rect | null {
   const rect = ctl.selection;
   const one = rect.r1 === rect.r2 && rect.c1 === rect.c2;
   if (!one) {

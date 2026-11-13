@@ -40,7 +40,7 @@ export interface CommentThread {
   resolved: { by: CommentAuthor; time: number } | null;
 }
 
-export const MAX_COMMENT_LENGTH = 4000;
+const MAX_COMMENT_LENGTH = 4000;
 
 function isMessage(value: unknown): value is CommentMessage {
   const message = value as CommentMessage | null;
@@ -48,7 +48,7 @@ function isMessage(value: unknown): value is CommentMessage {
 }
 
 /** Every thread on the sheet, oldest first, each with its messages in order. */
-export function listThreads(sheet: Sheet): CommentThread[] {
+function listThreads(sheet: Sheet): CommentThread[] {
   const threads = new Map<string, CommentThread>();
   for (const [id, value] of sheet.notes.entries()) {
     if (id.startsWith('r:') || !isMessage(value)) continue;

@@ -42,7 +42,7 @@ export interface NumberLocale {
 }
 
 /** How numbers and dates read when nothing else is known: as in American English. */
-export const DEFAULT_LOCALE: NumberLocale = {
+const DEFAULT_LOCALE: NumberLocale = {
   tag: 'en-US',
   decimal: '.',
   group: ',',

@@ -133,7 +133,7 @@ const DOCS: Array<[name: string, args: string, about: string]> = [
   ['YEAR', 'date', 'The year of a date.'],
 ];
 
-export const FUNCTION_DOCS: FunctionDoc[] = DOCS.map(([name, args, about]) => ({ name, args, about }));
+const FUNCTION_DOCS: FunctionDoc[] = DOCS.map(([name, args, about]) => ({ name, args, about }));
 const BY_NAME = new Map(FUNCTION_DOCS.map(doc => [doc.name, doc]));
 
 const WORD_BEFORE = new Set(['=', '(', ',', ';', '+', '-', '*', '/', '^', '&', '<', '>', ' ']);
