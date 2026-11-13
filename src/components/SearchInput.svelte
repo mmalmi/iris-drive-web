@@ -1,7 +1,7 @@
 <script lang="ts">
   import { nhashEncode, isNHash, isNPath } from '@hashtree/core';
   import { nostrStore } from '../nostr';
-  import { follows } from '../utils/socialGraph';
+  import { getFollows } from '../utils/socialGraph';
   import { indexUsers, type UserIndexEntryInput } from '../stores/searchIndex';
   import { getProfileSync } from '../stores/profile';
   import { UserRow } from './User';
@@ -29,30 +29,16 @@
   let searchResults = $state<SearchResult[]>([]);
 
   let userPubkey = $derived($nostrStore.pubkey);
-  let userFollows = $derived(follows(userPubkey));
-
-  // Index followed users when they change (with profile data if available)
+  // Index followed users (with profile data if available)
   $effect(() => {
-    if (!userFollows || userFollows.size === 0) return;
-
-    const entries: UserIndexEntryInput[] = [];
-    for (const pubkey of userFollows) {
-      try {
+    if (!userPubkey) return;
+    void getFollows(userPubkey).then((userFollows) => {
+      const entries: UserIndexEntryInput[] = userFollows.map((pubkey) => {
         const profile = getProfileSync(pubkey);
-        entries.push({
-          pubkey,
-          name: profile?.name,
-          displayName: profile?.display_name,
-          nip05: profile?.nip05,
-        });
-      } catch {
-        // Skip invalid pubkeys
-      }
-    }
-
-    if (entries.length > 0) {
-      indexUsers(entries);
-    }
+        return { pubkey, name: profile?.name, displayName: profile?.display_name, nip05: profile?.nip05 };
+      });
+      if (entries.length > 0) indexUsers(entries);
+    });
   });
 
   // Debounced search

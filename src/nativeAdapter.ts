@@ -501,36 +501,25 @@ export class NativeBackendAdapter implements BackendAdapter {
     return 1000;
   }
 
-  async isFollowing(follower: string, followed: string): Promise<boolean> {
-    const follows = await this.getFollows(follower);
-    return follows.includes(followed);
-  }
-
   async getFollows(pubkey: string): Promise<string[]> {
     const { getFollowsSync } = await import('./stores/follows');
     const cached = getFollowsSync(pubkey);
     if (cached) return cached.follows;
-    this.fetchUserFollows(pubkey);
+    this.watchFollows(pubkey);
     return getFollowsSync(pubkey)?.follows ?? [];
-  }
-
-  async getFollowers(_pubkey: string): Promise<string[]> {
-    return [];
   }
 
   async getFollowedByFriends(_pubkey: string): Promise<string[]> {
     return [];
   }
 
-  fetchUserFollows(pubkey: string): void {
+  private watchFollows(pubkey: string): void {
     if (!pubkey || this.followsSubscriptions.has(pubkey)) return;
     void import('./stores/follows').then(({ createFollowsStore }) => {
       if (this.followsSubscriptions.has(pubkey)) return;
       this.followsSubscriptions.set(pubkey, createFollowsStore(pubkey));
     });
   }
-
-  fetchUserFollowers(_pubkey: string): void {}
 
   async getSocialGraphSize(): Promise<number> {
     const myPubkey = nostrStore.getState().pubkey;

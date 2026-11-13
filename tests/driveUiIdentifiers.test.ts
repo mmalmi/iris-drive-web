@@ -14,9 +14,5 @@ describe('Drive UI identity labels', () => {
       expect(source).not.toContain('{viewedNostrIdentityId}</span>');
       expect(source).not.toContain('title={viewedNostrIdentityId}');
     }
-
-    const profile = fs.readFileSync(path.join(appRoot, 'src/components/ProfileView.svelte'), 'utf8');
-    expect(profile).toContain('{#if !viewedNostrIdentityId}');
-    expect(profile).toContain('<IdentityName profileId={viewedNostrIdentityId}');
   });
 });

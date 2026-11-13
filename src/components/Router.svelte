@@ -23,9 +23,6 @@
     | 'sharedWithMe'
     | 'settings'
     | 'users'
-    | 'follows'
-    | 'followers'
-    | 'editProfile'
     | 'tree'
     | 'user';
   type ResolvedRouteParams = Partial<Record<
@@ -51,10 +48,11 @@
     { pattern: '/users/create', id: 'users', staticParams: { usersMode: 'create' } },
     { pattern: '/users/existing', id: 'users', staticParams: { usersMode: 'existing' } },
     { pattern: '/users', id: 'users', staticParams: { usersMode: 'list' } },
-    { pattern: '/:npub/follows', id: 'follows' },
-    { pattern: '/:npub/followers', id: 'followers' },
-    { pattern: '/:npub/edit', id: 'editProfile' },
+    // A person's page; addresses of pages Drive no longer has open it too.
     { pattern: '/:npub/profile', id: 'user' },
+    { pattern: '/:npub/follows', id: 'user' },
+    { pattern: '/:npub/followers', id: 'user' },
+    { pattern: '/:npub/edit', id: 'user' },
     // Generic tree routes
     { pattern: '/:npub/:treeName/*', id: 'tree' },
     { pattern: '/:npub/:treeName', id: 'tree' },
@@ -122,18 +120,6 @@
   {:else if route.id === 'users'}
     {#await import('./UsersPage.svelte') then { default: UsersPage }}
       <UsersPage mode={route.params.usersMode === 'no_existing' ? 'no_existing' : route.params.usersMode === 'create' ? 'create' : route.params.usersMode === 'existing' ? 'existing' : 'list'} />
-    {/await}
-  {:else if route.id === 'follows'}
-    {#await import('./FollowsPage.svelte') then { default: FollowsPage }}
-      <FollowsPage npub={route.params.npub} />
-    {/await}
-  {:else if route.id === 'followers'}
-    {#await import('./FollowersPage.svelte') then { default: FollowersPage }}
-      <FollowersPage npub={route.params.npub} />
-    {/await}
-  {:else if route.id === 'editProfile'}
-    {#await import('./EditProfilePage.svelte') then { default: EditProfilePage }}
-      <EditProfilePage npub={route.params.npub} />
     {/await}
   {:else if route.id === 'tree'}
     <TreeRoute npub={route.params.npub} treeName={route.params.treeName} wild={route.params.wild} />

@@ -27,42 +27,11 @@ export async function getPubkeyHex(page: any): Promise<string> {
 }
 
 export async function ensureFollowState(page: any, targetNpub: string): Promise<void> {
-  await page.goto(`http://localhost:5173/#/${targetNpub}`);
-
-  const followButton = page.getByRole('button', { name: 'Follow', exact: true });
-  const followingButton = page.getByRole('button', { name: 'Following' });
-  const unfollowButton = page.getByRole('button', { name: 'Unfollow' });
-  const editProfileButton = page.getByRole('button', { name: 'Edit Profile' });
-
-  await expect.poll(async () => {
-    if (await followButton.isVisible().catch(() => false)) return 'follow';
-    if (await followingButton.isVisible().catch(() => false)) return 'following';
-    if (await unfollowButton.isVisible().catch(() => false)) return 'following';
-    if (await editProfileButton.isVisible().catch(() => false)) return 'self';
-    return '';
-  }, { timeout: 30000, intervals: [500, 1000, 2000] }).not.toBe('');
-
-  const currentState = await (async () => {
-    if (await followButton.isVisible().catch(() => false)) return 'follow';
-    if (await followingButton.isVisible().catch(() => false)) return 'following';
-    if (await unfollowButton.isVisible().catch(() => false)) return 'following';
-    if (await editProfileButton.isVisible().catch(() => false)) return 'self';
-    return '';
-  })();
-
-  if (currentState === 'self') {
-    throw new Error(`Cannot follow own profile (${targetNpub})`);
-  }
-
-  if (currentState === 'follow') {
-    await followButton.click();
-  }
-
-  await expect(
-    followingButton
-      .or(unfollowButton)
-      .or(followButton.and(page.locator('[disabled]')))
-  ).toBeVisible({ timeout: 15000 });
+  const { nip19 } = await import('nostr-tools');
+  const decoded = nip19.decode(targetNpub);
+  if (decoded.type !== 'npub') throw new Error(`Not an npub: ${targetNpub}`);
+  await page.waitForFunction(() => (window as any).__testHelpers?.followPubkey);
+  expect(await page.evaluate((pk: string) => (window as any).__testHelpers.followPubkey(pk), decoded.data)).toBe(true);
 }
 
 export async function waitForElapsed(page: any, minMs: number): Promise<void> {

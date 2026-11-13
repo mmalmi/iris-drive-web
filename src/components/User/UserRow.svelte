@@ -6,15 +6,14 @@
     pubkey: string;
     description?: string;
     avatarSize?: number;
-    showBadge?: boolean;
     class?: string;
   }
 
-  let { pubkey, description, avatarSize = 36, showBadge = true, class: className = '' }: Props = $props();
+  let { pubkey, description, avatarSize = 36, class: className = '' }: Props = $props();
 </script>
 
 <div class="flex items-center gap-3 {className}">
-  <Avatar {pubkey} size={avatarSize} {showBadge} />
+  <Avatar {pubkey} size={avatarSize} />
   <div class="flex flex-col min-w-0">
     <Name {pubkey} class="text-sm" />
     {#if description}

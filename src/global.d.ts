@@ -5,7 +5,6 @@
 
 import type { NostrStore } from './nostr';
 import type { LocalStore } from './store';
-import type { SocialGraph } from './utils/socialGraph';
 import type { TreeEntry } from '@hashtree/core';
 
 declare global {
@@ -20,8 +19,6 @@ declare global {
     };
     __testHelpersReady?: boolean;
     __localStore?: LocalStore;
-    __getSocialGraph?: () => SocialGraph;
-    __socialGraph?: SocialGraph;
     __settingsStore?: unknown;
     __thumbnailCaptureReset?: () => void;
     __testSetDirectoryEntries?: (entries: TreeEntry[]) => void;

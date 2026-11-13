@@ -4,6 +4,9 @@
   import { getCanonicalGitRepositoryUrl } from '../../lib/shareUrls';
   import { navigate } from '../../lib/router.svelte';
   import { getNsec, logout, nostrStore } from '../../nostr';
+  import { getCurrentNostrIdentitySession } from '../../nostr/auth';
+  import { accountsStore } from '../../accounts';
+  import { ownDisplayName, saveOwnName } from '../../drive/ownDisplayName';
 
   const openSourceCodeInNewTab = shouldOpenSourceCodeLinkInNewTab();
   const sourceCodeLinkTarget = openSourceCodeInNewTab ? '_blank' : '_self';
@@ -21,6 +24,28 @@
     logout();
     navigate('/');
   }
+
+  let pubkey = $derived($nostrStore.pubkey ?? '');
+  let savedName = $derived($accountsStore.accounts.find((account) => account.pubkey === pubkey)?.name?.trim() ?? '');
+  let nameDraft = $state('');
+  let nameSaved = $state(false);
+  // Start from the name on this device; an account without one shows the name
+  // others find for it, once that lookup answers.
+  $effect(() => {
+    nameDraft = savedName;
+    if (savedName) return;
+    const session = getCurrentNostrIdentitySession();
+    if (session?.status !== 'active' || session.appKeyPubkey !== pubkey) return;
+    let current = true;
+    void ownDisplayName(session).then((name) => { if (current && !nameDraft) nameDraft = name; });
+    return () => { current = false; };
+  });
+
+  function saveName(): void {
+    if (!nameDraft.trim() || nameDraft.trim() === savedName) return;
+    saveOwnName(pubkey, nameDraft);
+    nameSaved = true;
+  }
 </script>
 
 <div class="space-y-6">
@@ -29,6 +54,33 @@
       <h3 class="text-xs font-medium text-muted uppercase tracking-wide mb-3">
         Account
       </h3>
+      <form
+        class="bg-surface-2 rounded p-3 mb-3"
+        onsubmit={(event) => { event.preventDefault(); saveName(); }}
+      >
+        <label class="block text-sm text-text-2 mb-2" for="settings-own-name">Your name</label>
+        <div class="flex gap-2">
+          <input
+            id="settings-own-name"
+            class="input flex-1 min-w-0"
+            maxlength="80"
+            autocomplete="name"
+            placeholder="Name"
+            bind:value={nameDraft}
+            oninput={() => (nameSaved = false)}
+            data-testid="settings-own-name"
+          />
+          <button
+            type="submit"
+            class="btn-primary text-sm"
+            disabled={!nameDraft.trim() || nameDraft.trim() === savedName}
+            data-testid="settings-own-name-save"
+          >
+            {nameSaved && nameDraft.trim() === savedName ? 'Saved' : 'Save'}
+          </button>
+        </div>
+        <p class="text-xs text-text-3 mt-2">People you share folders with see this name.</p>
+      </form>
       <div class="bg-surface-2 rounded p-3 space-y-1">
         <button
           class="btn-ghost flex w-full items-center justify-start gap-2 text-sm"

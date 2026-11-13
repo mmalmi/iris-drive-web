@@ -18,6 +18,7 @@
   } from '../drive/shareLibrary';
   import { toast } from '../stores/toast';
   import { documentKindInfo, isDocumentFolderName } from '../lib/documentNames';
+  import { personHref } from '../drive/people';
 
   interface Props {
     standalone?: boolean;
@@ -56,6 +57,16 @@
     } finally {
       shareActionPending = '';
     }
+  }
+
+  /** Who shared it, when this browser holds the folder's access list. */
+  function owner(shareId: string): { name: string; href: string } | null {
+    if (usingNative) return null;
+    const record = $acceptedShares.find((item) => item.share_id === shareId);
+    if (!record || record.folder.owner_profile_id === record.local_profile_id) return null;
+    const ownerId = record.folder.owner_profile_id;
+    const grant = record.folder.access?.grants?.find((item) => item.target.type === 'id' && item.target.id === ownerId);
+    return grant?.display_name ? { name: grant.display_name, href: personHref(record.folder, ownerId) } : null;
   }
 
   const ROLE_TEXT: Record<string, string> = { admin: 'Admin', editor: 'Can edit', reader: 'Can view' };
@@ -130,6 +141,7 @@
     {#each shares as share (share.share_id)}
       {@const revoked = share.key_status === 'revoked'}
       {@const documentIcon = documentKindInfo(sharedDocumentName(share))?.icon}
+      {@const sharedBy = owner(share.share_id)}
       <div
         class="flex items-center border-b border-surface-2 {revoked ? 'opacity-60' : 'hover:bg-surface-2/50'}"
         data-testid="shared-with-me-row"
@@ -146,6 +158,14 @@
             <span class="block truncate text-xs text-text-3 sm:shrink-0 sm:text-sm">{detailText(share)}</span>
           </span>
         </svelte:element>
+        {#if sharedBy}
+          <a
+            class="shrink-0 max-w-32 truncate text-xs text-text-3 no-underline hover:underline mr-3 lg:mr-5"
+            href={sharedBy.href}
+            title="Shared by {sharedBy.name}"
+            data-testid="shared-with-me-owner"
+          >{sharedBy.name}</a>
+        {/if}
         {#if revoked}
           <span class="i-lucide-lock-keyhole text-text-3 shrink-0 mr-3 lg:mr-5" aria-label="Access removed"></span>
         {:else if usingNative && share.shortcut_paths.length === 0}

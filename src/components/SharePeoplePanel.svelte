@@ -9,6 +9,8 @@
   import { projectSharedFolderView, type ShareRole } from '../drive/protocol';
   import { acceptedShares } from '../drive/shareLibrary';
   import type { SharePeopleTarget } from '../drive/sharePeople';
+  import { personHref } from '../drive/people';
+  import { close as closeShareDialog } from './Modals/ShareModal.svelte';
   import {
     changeShareMemberRole,
     disableJoinLinks,
@@ -111,9 +113,16 @@
       {#each people as member (member.profile_id)}
         <div class="py-2 flex items-center gap-3" data-testid="share-people-member">
           <span class="i-lucide-user-round text-text-3"></span>
-          <span class="min-w-0 flex-1 text-sm text-text-1 truncate">
-            {member.display_name}{member.profile_id === profileId ? ' (you)' : ''}
-          </span>
+          {#if member.profile_id === profileId}
+            <span class="min-w-0 flex-1 text-sm text-text-1 truncate">{member.display_name} (you)</span>
+          {:else}
+            <a
+              class="min-w-0 flex-1 text-sm text-text-1 truncate no-underline hover:underline"
+              href={record ? personHref(record.folder, member.profile_id) : undefined}
+              onclick={closeShareDialog}
+              data-testid="share-people-member-link"
+            >{member.display_name}</a>
+          {/if}
           {#if member.can_change_role}
             <select
               class="pick"
@@ -150,7 +159,11 @@
       {#each people as member (member.profile_id)}
         <div class="py-2 flex items-center gap-3">
           <span class="i-lucide-user-round text-text-3"></span>
-          <span class="min-w-0 flex-1 text-sm text-text-1 truncate">{member.display_name}</span>
+          <a
+            class="min-w-0 flex-1 text-sm text-text-1 truncate no-underline hover:underline"
+            href={record ? personHref(record.folder, member.profile_id) : undefined}
+            onclick={closeShareDialog}
+          >{member.display_name}</a>
           <span class="text-xs text-text-3">{member.role_label}</span>
         </div>
       {/each}

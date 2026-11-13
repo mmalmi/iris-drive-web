@@ -86,41 +86,12 @@ export class WorkerAdapterSocial extends WorkerAdapterNostr {
   }
 
   /**
-   * Check if follower follows followed
-   */
-  async isFollowing(follower: string, followed: string): Promise<boolean> {
-    const id = generateRequestId();
-    const response = await this.request<{ result: boolean; error?: string }>({
-      type: 'isFollowing',
-      id,
-      follower,
-      followed,
-    } as ExtendedWorkerRequest);
-    if (response.error) throw new Error(response.error);
-    return response.result;
-  }
-
-  /**
    * Get list of pubkeys a user follows
    */
   async getFollows(pubkey: string): Promise<string[]> {
     const id = generateRequestId();
     const response = await this.request<{ pubkeys: string[]; error?: string }>({
       type: 'getFollows',
-      id,
-      pubkey,
-    } as ExtendedWorkerRequest);
-    if (response.error) throw new Error(response.error);
-    return response.pubkeys;
-  }
-
-  /**
-   * Get list of pubkeys following a user
-   */
-  async getFollowers(pubkey: string): Promise<string[]> {
-    const id = generateRequestId();
-    const response = await this.request<{ pubkeys: string[]; error?: string }>({
-      type: 'getFollowers',
       id,
       pubkey,
     } as ExtendedWorkerRequest);
@@ -140,33 +111,6 @@ export class WorkerAdapterSocial extends WorkerAdapterNostr {
     } as ExtendedWorkerRequest);
     if (response.error) throw new Error(response.error);
     return response.pubkeys;
-  }
-
-  /**
-   * Fetch a user's follow list when visiting their profile.
-   * Only fetches if we don't already have their follow list.
-   */
-  fetchUserFollows(pubkey: string): void {
-    const id = generateRequestId();
-    // Fire and forget - don't await response
-    this.request<{ error?: string }>({
-      type: 'fetchUserFollows',
-      id,
-      pubkey,
-    } as ExtendedWorkerRequest).catch(() => {});
-  }
-
-  /**
-   * Fetch followers of a user (who follows them) - for profile views
-   */
-  fetchUserFollowers(pubkey: string): void {
-    const id = generateRequestId();
-    // Fire and forget - don't await response
-    this.request<{ error?: string }>({
-      type: 'fetchUserFollowers',
-      id,
-      pubkey,
-    } as ExtendedWorkerRequest).catch(() => {});
   }
 
   /**

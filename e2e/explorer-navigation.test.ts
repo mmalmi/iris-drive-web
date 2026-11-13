@@ -57,92 +57,13 @@ test.describe('Hashtree Explorer', () => {
     await expect(page.getByRole('button', { name: 'Refresh App' })).toBeVisible({ timeout: 5000 });
   });
 
-  test('should navigate to edit profile page', async ({ page }) => {
-    // We're already in public folder from navigateToPublicFolder in beforeEach
-    // Get the npub from current URL
-    const url = page.url();
-    const npubMatch = url.match(/npub[a-z0-9]+/);
-    expect(npubMatch).toBeTruthy();
-    const npub = npubMatch![0];
-
-    // Navigate to profile page
-    await page.goto(`/#/${npub}/profile`);
-    await page.waitForTimeout(300);
-
-    // Should be on profile page with Edit Profile button
-    await expect(page.getByRole('button', { name: 'Edit Profile' })).toBeVisible({ timeout: 5000 });
-
-    // Click Edit Profile
-    await page.getByRole('button', { name: 'Edit Profile' }).click();
-    await page.waitForTimeout(300);
-
-    // Should navigate to edit page with form fields
-    expect(page.url()).toContain('/edit');
-    await expect(page.locator('input[placeholder="Your name"]')).toBeVisible();
-    await expect(page.locator('textarea[placeholder="Tell us about yourself"]')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Save' })).toBeVisible();
-
-    // Fill in a name
-    await page.locator('input[placeholder="Your name"]').fill('Test User');
-
-    // Go back using the back button (chevron-left icon)
-    await page.locator('button:has(span.i-lucide-chevron-left)').click();
-    await page.waitForTimeout(300);
-
-    // Should be back on profile page
-    expect(page.url()).not.toContain('/edit');
-    await expect(page.getByRole('button', { name: 'Edit Profile' })).toBeVisible();
-  });
-
-  test('should navigate to follows page and display following list', async ({ page }) => {
-    // Get the npub from current URL
-    const url = page.url();
-    const npubMatch = url.match(/npub[a-z0-9]+/);
-    expect(npubMatch).toBeTruthy();
-    const npub = npubMatch![0];
-
-    // Navigate to follows page
-    await page.goto(`/#/${npub}/follows`);
-    await page.waitForTimeout(300);
-
-    // Should be on follows page
-    expect(page.url()).toContain('/follows');
-
-    // Should display Following count in header
-    await expect(page.getByText(/Following \(\d+\)/)).toBeVisible({ timeout: 5000 });
-
-    // Initially shows "Not following anyone yet" for new user
-    await expect(page.getByText('Not following anyone yet')).toBeVisible({ timeout: 5000 });
-
-    // Should have back button that leads to profile
-    const backButton = page.locator('button:has(span.i-lucide-chevron-left)');
-    await expect(backButton).toBeVisible();
-  });
-
-  test('should show trees listing on profile page in mobile view', async ({ page }) => {
-    // Get the npub from current URL
-    const url = page.url();
-    const npubMatch = url.match(/npub[a-z0-9]+/);
-    expect(npubMatch).toBeTruthy();
-    const npub = npubMatch![0];
-
-    // Set mobile viewport
-    await page.setViewportSize({ width: 375, height: 667 });
-
-    // Navigate to profile page
-    await page.goto(`/#/${npub}/profile`);
-    await page.waitForTimeout(300);
-
-    // Should see ProfileView elements
-    await expect(page.getByRole('button', { name: 'Edit Profile' })).toBeVisible({ timeout: 5000 });
-
-    // Should also see FileBrowser/trees listing below profile (in mobile stacked layout)
-    // In mobile, both desktop (hidden) and mobile (visible) file-lists exist - check that at least one is visible
-    const fileLists = page.getByTestId('file-list');
-    const count = await fileLists.count();
-    expect(count).toBeGreaterThan(0);
-    // Check the last one (mobile layout) is visible
-    await expect(fileLists.last()).toBeVisible({ timeout: 5000 });
+  test('old profile, follows and edit addresses open the person page', async ({ page }) => {
+    const npub = page.url().match(/npub[a-z0-9]+/)?.[0];
+    expect(npub).toBeTruthy();
+    for (const suffix of ['profile', 'follows', 'followers', 'edit', '']) {
+      await page.goto(`/#/${npub}${suffix ? `/${suffix}` : ''}`);
+      await expect(page.getByTestId('person-page')).toBeVisible({ timeout: 5000 });
+    }
   });
 
   test('should display file content when directly navigating to file URL', async ({ page }) => {

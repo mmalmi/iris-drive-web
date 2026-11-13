@@ -86,7 +86,7 @@
               class="inline-flex min-w-0 items-center gap-1.5 text-sm text-text-2 hover:opacity-80"
               aria-label="View repo owner profile"
             >
-              <Avatar pubkey={ownerPubkey} size={20} showBadge={true} />
+              <Avatar pubkey={ownerPubkey} size={20} />
               <Name pubkey={ownerPubkey} class="min-w-0 truncate text-text-2 hover:text-accent hover:underline" />
             </a>
             <span class="shrink-0 text-text-3">/</span>

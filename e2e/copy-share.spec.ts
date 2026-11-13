@@ -29,51 +29,12 @@ test.describe('Copy and Share functionality', () => {
     }
   }
 
-  // Helper to navigate to own profile by clicking the avatar in NostrLogin
+  // The share button of the signed-in Drive's own folder.
   async function goToProfile(page) {
-    // Close any modals first
     await closeModals(page);
-
-    // Click on the user avatar/button in the header to go to profile
-    const avatarLink = page.locator('header a[href*="profile"]');
-    if (await avatarLink.isVisible({ timeout: 1000 }).catch(() => false)) {
-      await avatarLink.click();
-    } else {
-      // Fallback: get npub from window and navigate directly
-      const npub = await page.evaluate(() => (window as any).__nostrStore?.getState()?.npub);
-      await page.goto(`/#/${npub}/profile`);
-    }
-    await page.waitForURL(/\/profile/, { timeout: 5000 }).catch(() => {});
-    // Close any modals that may have opened
+    await page.getByTestId('home-link').click();
     await closeModals(page);
   }
-
-  test.describe('CopyText in ProfileView', () => {
-    test('should show npub with copy button in profile', async ({ page }) => {
-      await goToProfile(page);
-
-      // Should see the copy button for npub (use first() for desktop layout with sidebar)
-      const copyButton = page.getByTestId('copy-npub').first();
-      await expect(copyButton).toBeVisible();
-
-      // Should show truncated npub (first 8 + ... + last 4)
-      const buttonText = await copyButton.textContent();
-      expect(buttonText).toContain('npub');
-      expect(buttonText).toContain('...');
-    });
-
-    test('should show check icon after clicking copy', async ({ page }) => {
-      test.slow(); // Timeout-based wait needs more time
-      await goToProfile(page);
-
-      // Click copy button (use first() for desktop layout with sidebar)
-      const copyButton = page.getByTestId('copy-npub').first();
-      await copyButton.click();
-
-      // Should show check icon
-      await expect(copyButton.locator('.i-lucide-check')).toBeVisible();
-    });
-  });
 
   test.describe('ShareModal', () => {
     test('should open share modal when clicking share button', async ({ page }) => {

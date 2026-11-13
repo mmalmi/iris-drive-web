@@ -597,7 +597,7 @@
             </div>
           {:else}
             <a href="#/{viewedNpub}/profile" class="no-underline min-w-0">
-              <UserRow pubkey={npubToPubkey(viewedNpub) || viewedNpub} avatarSize={24} showBadge class="min-w-0" />
+              <UserRow pubkey={npubToPubkey(viewedNpub) || viewedNpub} avatarSize={24} class="min-w-0" />
             </a>
           {/if}
         </div>
@@ -628,7 +628,7 @@
           <nav class="hidden lg:contents" aria-label="Folder path">
             {#if viewedNpub && !viewedNostrIdentityId}
               <a href="#/{viewedNpub}/profile" class="min-w-8 shrink-100 no-underline">
-                <UserRow pubkey={npubToPubkey(viewedNpub) || viewedNpub} avatarSize={24} showBadge class="min-w-0" />
+                <UserRow pubkey={npubToPubkey(viewedNpub) || viewedNpub} avatarSize={24} class="min-w-0" />
               </a>
               <span class="i-lucide-chevron-right shrink-0 text-text-3"></span>
             {/if}

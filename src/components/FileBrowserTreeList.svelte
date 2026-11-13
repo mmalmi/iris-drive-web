@@ -52,12 +52,12 @@
       </div>
     {:else}
       <a href="#/{viewedNpub}/profile" class="no-underline min-w-0">
-        <UserRow pubkey={npubToPubkey(viewedNpub) || viewedNpub} avatarSize={24} showBadge class="min-w-0" />
+        <UserRow pubkey={npubToPubkey(viewedNpub) || viewedNpub} avatarSize={24} class="min-w-0" />
       </a>
     {/if}
   {:else if isLoggedIn && userNpub}
     <a href="#/{userNpub}/profile" class="no-underline min-w-0">
-      <UserRow pubkey={npubToPubkey(userNpub) || userNpub} avatarSize={24} showBadge class="min-w-0" />
+      <UserRow pubkey={npubToPubkey(userNpub) || userNpub} avatarSize={24} class="min-w-0" />
     </a>
   {:else}
     <span class="text-xl font-medium text-text-1">My Drive</span>

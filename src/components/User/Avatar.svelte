@@ -1,27 +1,19 @@
 <script lang="ts">
-  import { nostrStore } from '../../nostr';
-  import { contactMemory, contactKey } from '../../stores/contactMemory';
   import { coolName } from '@iris/svelte-ui/profile';
   import { createProfileStore, getProfileName } from '../../stores/profile';
   import Minidenticon from './Minidenticon.svelte';
-  import Badge from './Badge.svelte';
   import ProxyImg from '../ProxyImg.svelte';
 
   interface Props {
     pubkey: string;
     size?: number;
     class?: string;
-    showBadge?: boolean;
   }
 
-  let { pubkey, size = 40, class: className = '', showBadge = false }: Props = $props();
+  let { pubkey, size = 40, class: className = '' }: Props = $props();
 
   let profileStore = $derived(pubkey ? createProfileStore(pubkey) : null);
   let profile = $derived(profileStore ? $profileStore : undefined);
-  let rememberedName = $derived.by(() => {
-    $contactMemory;
-    return contactMemory.get($nostrStore.pubkey || '', contactKey(pubkey))?.accepted_name;
-  });
   let imgError = $state(false);
 
   // Reset error state when pubkey changes
@@ -30,46 +22,13 @@
     imgError = false;
   });
 
-  let name = $derived(rememberedName || getProfileName(profile ?? undefined, pubkey) || (pubkey ? coolName(pubkey) : ''));
-
-  // Auto-select badge size based on avatar size
-  function getBadgeSize(avatarSize: number): 'sm' | 'md' | 'lg' {
-    if (avatarSize <= 32) return 'sm';
-    if (avatarSize <= 48) return 'md';
-    return 'lg';
-  }
-
-  let badgeSize = $derived(getBadgeSize(size));
+  let name = $derived(getProfileName(profile ?? undefined, pubkey) || (pubkey ? coolName(pubkey) : ''));
   let hasPicture = $derived(Boolean(profile?.picture && !imgError));
   // Request 2x size for retina displays
   let proxySize = $derived(size * 2);
 </script>
 
-{#if showBadge}
-  <div class="relative inline-block">
-    {#if hasPicture}
-      <ProxyImg
-        src={profile?.picture || ''}
-        alt={name}
-        width={proxySize}
-        height={proxySize}
-        square={true}
-        class="rounded-full object-cover {className}"
-        onerror={() => (imgError = true)}
-        style="width: {size}px; height: {size}px;"
-      />
-    {:else}
-      <div title={name}>
-        <Minidenticon seed={pubkey} {size} class={className} />
-      </div>
-    {/if}
-    <Badge
-      pubKeyHex={pubkey}
-      size={badgeSize}
-      class="absolute -top-0.5 -right-0.5"
-    />
-  </div>
-{:else if hasPicture}
+{#if hasPicture}
   <ProxyImg
     src={profile?.picture || ''}
     alt={name}

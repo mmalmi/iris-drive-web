@@ -9,8 +9,6 @@ declare global {
     __testHelpers?: { uploadSingleFile: unknown; followPubkey: unknown };
     __localStore?: unknown;
     __getWorkerAdapter?: unknown;
-    __getSocialGraph?: Window['__getSocialGraph'];
-    __socialGraph?: unknown;
     __settingsStore?: unknown;
     __setPoolSettings?: (pools: Record<string, unknown>) => void;
     __getMyPubkey?: () => string | null;
@@ -43,14 +41,31 @@ if (typeof window !== 'undefined') {
   window.__consoleLogs = consoleLogs;
 }
 
+/** Tests follow someone by publishing this account's follow list with them added. */
+async function followForTest(pubkey: string): Promise<boolean> {
+  const [{ nostrStore }, { getFollows }, { publishEvent }] = await Promise.all([
+    import('../nostr'),
+    import('../utils/socialGraph'),
+    import('./nostrPublish'),
+  ]);
+  const own = nostrStore.getState().pubkey;
+  if (!own) return false;
+  const follows = new Set(await getFollows(own));
+  follows.add(pubkey);
+  await publishEvent({
+    kind: 3,
+    content: '',
+    created_at: Math.floor(Date.now() / 1000),
+    tags: [...follows].map((followed) => ['p', followed]),
+  });
+  return true;
+}
+
 export async function setupTestHelpers(): Promise<void> {
   if (typeof window === 'undefined') return;
 
-  const actionsPromise = Promise.all([
-    import('../actions/index'),
-    import('../stores/follows'),
-  ]).then(([actions, followsStore]) => {
-    window.__testHelpers = { uploadSingleFile: actions.uploadSingleFile, followPubkey: followsStore.followPubkey };
+  const actionsPromise = import('../actions/index').then((actions) => {
+    window.__testHelpers = { uploadSingleFile: actions.uploadSingleFile, followPubkey: followForTest };
   });
 
   const storePromise = import('../store').then(({ localStore }) => {
@@ -59,14 +74,6 @@ export async function setupTestHelpers(): Promise<void> {
 
   const workerPromise = import('./workerInit').then(({ getWorkerAdapter }) => {
     window.__getWorkerAdapter = getWorkerAdapter;
-  });
-
-  const socialGraphPromise = import('../utils/socialGraph').then(({ getSocialGraph }) => {
-    window.__getSocialGraph = getSocialGraph;
-    Object.defineProperty(window, '__socialGraph', {
-      get: () => getSocialGraph(),
-      configurable: true,
-    });
   });
 
   const settingsPromise = import('../stores/settings').then(({ settingsStore }) => {
@@ -97,7 +104,6 @@ export async function setupTestHelpers(): Promise<void> {
     actionsPromise,
     storePromise,
     workerPromise,
-    socialGraphPromise,
     settingsPromise,
     nostrPromise,
   ]);
