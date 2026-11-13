@@ -36,6 +36,29 @@ test.describe('documents in a Drive', () => {
     await page.screenshot({ path: testInfo.outputPath('document-in-folder.png') });
   });
 
+  test('a name typed into New Document right after coming back to the folder goes into the dialog', async ({ page, relayUrl }) => {
+    await prepareFreshSession(page, relayUrl);
+    const owner = await createDriveProfile(page);
+    await createDocument(page, 'First');
+
+    // Back to the folder and straight into New Document, faster than the
+    // folder list settles, then typing the way a person does.
+    await page.evaluate((profileId) => {
+      window.location.hash = `/${profileId}/main`;
+      const open = () => {
+        const button = [...document.querySelectorAll<HTMLElement>('[data-testid="new-document"]')].find(node => node.offsetParent);
+        if (button) button.click();
+        else requestAnimationFrame(open);
+      };
+      open();
+    }, owner.profileId);
+    await expect(page.getByPlaceholder('Document name...')).toBeVisible();
+    await page.waitForTimeout(300);
+    await page.keyboard.type('Second');
+    await page.keyboard.press('Enter');
+    await expect(page.getByTestId('document-title')).toHaveText('Second', { timeout: 20_000 });
+  });
+
   test('what was saved survives a reload that comes before it could be sent', async ({ page, relayUrl }) => {
     await prepareFreshSession(page, relayUrl);
     await createDriveProfile(page);

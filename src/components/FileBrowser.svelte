@@ -371,6 +371,11 @@
   $effect(() => {
     void [inTreeView, currentTreeName, currentPath.join('/')];
     const timer = setTimeout(() => {
+      // Take the keyboard only when nothing else has it. A dialog opened in
+      // the meantime (New Document, Rename, …) keeps it: taking it there sent
+      // the typed name and Enter to the list, and nothing was created.
+      const active = document.activeElement;
+      if (active && active !== document.body && !fileListRef?.contains(active)) return;
       fileListRef?.focus();
     }, 50);
     return () => clearTimeout(timer);
