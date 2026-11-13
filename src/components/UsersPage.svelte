@@ -23,7 +23,7 @@
     type Account,
   } from '../accounts';
   import {
-    activateDriveDeviceApprovalIfApproved,
+    watchDriveDeviceApproval,
     createDriveDeviceApprovalLink,
     createDriveProfile,
     recoverDriveProfileWithAppKey,
@@ -145,15 +145,21 @@
   $effect(() => {
     const link = approvalLink;
     if (!link || !isExistingMode) return;
-    let cancelled = false;
-    const timer = setInterval(() => {
-      if (!cancelled) void checkApproval();
-    }, 3000);
-    void checkApproval();
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
+    // Listens until this device is let in, and opens the Drive the moment it is.
+    try {
+      return watchDriveDeviceApproval(link.pendingApproval, link.appKeyNsec, {
+        onActivated: (approved) => {
+          clearStoredApprovalLink();
+          approvalLink = null;
+          navigate(driveRootPath(approved.session.profileId));
+        },
+        onError: (error) => {
+          recoveryError = error instanceof Error ? error.message : 'Approval check failed';
+        },
+      });
+    } catch (error) {
+      recoveryError = error instanceof Error ? error.message : 'Approval check failed';
+    }
   });
 
   async function switchToAccount(account: Account) {
@@ -217,25 +223,6 @@
       copyRequestFeedback = 'Request link copied';
     } catch {
       copyRequestFeedback = 'Clipboard unavailable';
-    }
-  }
-
-  async function checkApproval(): Promise<void> {
-    const link = approvalLink;
-    if (!link || approvalBusy) return;
-    approvalBusy = true;
-    try {
-      const approved = await activateDriveDeviceApprovalIfApproved(link.pendingApproval, link.appKeyNsec, {
-        timeoutMs: 2500,
-      });
-      if (!approved) return;
-      clearStoredApprovalLink();
-      approvalLink = null;
-      navigate(driveRootPath(approved.session.profileId));
-    } catch (error) {
-      recoveryError = error instanceof Error ? error.message : 'Approval check failed';
-    } finally {
-      approvalBusy = false;
     }
   }
 

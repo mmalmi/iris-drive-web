@@ -776,11 +776,26 @@ async function republishCurrentDriveRootForApproval(
   }
 }
 
-export async function activateDriveDeviceApprovalIfApproved(
+/** How often a waiting device asks the relays again, in case a connection dropped and came back without its question. */
+const DEVICE_APPROVAL_ASK_AGAIN_MS = 10_000;
+
+/**
+ * Runs on a device that asked to be added, until it is let in.
+ *
+ * It listens the whole time rather than looking every few seconds, and acts on
+ * what arrives: the approval names the Drive, the Drive's device list follows,
+ * and the moment that list is complete enough to prove this device belongs, the
+ * device becomes active. No relay is waited for to say it has nothing more.
+ * Returns a function that stops listening.
+ */
+export function watchDriveDeviceApproval(
   pendingApproval: PendingDriveDeviceApproval,
   appKeyNsec: string,
-  options: { timeoutMs?: number } = {},
-): Promise<DriveDeviceApprovalActivation | null> {
+  handlers: {
+    onActivated: (activation: DriveDeviceApprovalActivation) => void;
+    onError?: (error: unknown) => void;
+  },
+): () => void {
   const decoded = nip19.decode(appKeyNsec);
   if (decoded.type !== 'nsec') {
     throw new Error('Pending Drive AppKey is not an nsec');
@@ -791,34 +806,104 @@ export async function activateDriveDeviceApprovalIfApproved(
     throw new Error('Pending Drive AppKey does not match approval request');
   }
   const requestSecretKey = driveDeviceApprovalRequestSecretKey(pendingApproval);
-  const approval = await fetchDriveDeviceApprovalReceipt(
-    pendingApproval.bootstrap,
-    requestSecretKey,
-    options.timeoutMs,
-  );
-  if (!approval) return null;
-  const { receipt } = approval;
-  const remoteOps = await fetchNostrIdentityRosterOps(
-    receipt.profileId,
-    options.timeoutMs ?? 5000,
-  );
-  const receiptRosterOp = parseDeviceApprovalReceiptRosterOp(receipt);
-  let anchored;
-  try {
-    anchored = projectDriveRosterFromApprovalReceipt(
-      receipt.profileId,
-      receiptRosterOp,
-      remoteOps,
-    );
-  } catch (error) {
-    console.warn('[auth] Drive approval roster is not yet complete or authorized:', error);
-    return null;
-  }
-  const { rosterOps } = anchored;
-  if (!driveApprovalRosterIsReadyForAppKey(anchored, receiptRosterOp.op_id, appKeyPubkey)) {
-    return null;
-  }
+  const requestPubkey = npubToPubkey(pendingApproval.bootstrap.requestNpub);
+  if (!requestPubkey) throw new Error('Invalid Drive device approval request key');
 
+  let stopped = false;
+  let activating = false;
+  let checkQueued = false;
+  let approval: { receipt: NostrIdentityDeviceApprovalReceipt; event: NostrToolsEvent } | null = null;
+  let listening: { stop(): void } | null = null;
+  const rosterOps = new Map<string, SignedNostrIdentityRosterOp>();
+
+  const stop = (): void => {
+    stopped = true;
+    clearInterval(askAgain);
+    listening?.stop();
+    listening = null;
+  };
+
+  const activateIfReady = (): void => {
+    checkQueued = false;
+    if (stopped || activating || !approval) return;
+    const found = approval;
+    let anchored: ReturnType<typeof projectDriveRosterFromApprovalReceipt>;
+    let receiptRosterOp: SignedNostrIdentityRosterOp;
+    try {
+      receiptRosterOp = parseDeviceApprovalReceiptRosterOp(found.receipt);
+      anchored = projectDriveRosterFromApprovalReceipt(
+        found.receipt.profileId,
+        receiptRosterOp,
+        [...rosterOps.values()].sort(
+          (left, right) => left.content.created_at - right.content.created_at || left.op_id.localeCompare(right.op_id),
+        ),
+      );
+    } catch {
+      // The device list is still arriving; the next piece tries again.
+      return;
+    }
+    if (!driveApprovalRosterIsReadyForAppKey(anchored, receiptRosterOp.op_id, appKeyPubkey)) return;
+    activating = true;
+    stop();
+    void completeDriveDeviceApproval(pendingApproval, appKeyNsec, appKeySecretKey, found, anchored.rosterOps)
+      .then(handlers.onActivated, (error) => handlers.onError?.(error));
+  };
+
+  const listen = (): void => {
+    if (stopped) return;
+    const previous = listening;
+    const found = approval;
+    const sub = nostr.subscribe(
+      found
+        ? { kinds: [KIND_NOSTR_IDENTITY_ROSTER_OP], '#i': [found.receipt.profileId] }
+        : { kinds: [KIND_NOSTR_IDENTITY_ROSTER_OP], '#p': [requestPubkey], limit: 50 },
+      { closeAfterHistory: false },
+    );
+    listening = sub;
+    sub.on('event', (event) => {
+      if (stopped) return;
+      const raw = event as NostrToolsEvent;
+      try {
+        if (!verifyEvent(raw)) return;
+        if (!approval) {
+          approval = {
+            receipt: parseDeviceApprovalReceiptEvent(raw, { requestSecretKey, bootstrap: pendingApproval.bootstrap }),
+            event: raw,
+          };
+          // Now that the Drive is known, listen for its device list instead.
+          listen();
+          return;
+        }
+        const signed = parseNostrIdentityRosterOpEvent(raw);
+        if (signed.content.profile_id !== approval.receipt.profileId) return;
+        rosterOps.set(signed.op_id, signed);
+      } catch {
+        // Other events can carry the same tags; they prove nothing and are ignored.
+        return;
+      }
+      // Several pieces usually arrive together: look once after the batch.
+      if (!checkQueued) {
+        checkQueued = true;
+        queueMicrotask(activateIfReady);
+      }
+    });
+    previous?.stop();
+  };
+
+  const askAgain = setInterval(listen, DEVICE_APPROVAL_ASK_AGAIN_MS);
+  void waitForWorkerAdapter(2000).catch(() => null).then(listen);
+  return stop;
+}
+
+async function completeDriveDeviceApproval(
+  pendingApproval: PendingDriveDeviceApproval,
+  appKeyNsec: string,
+  appKeySecretKey: Uint8Array,
+  approval: { receipt: NostrIdentityDeviceApprovalReceipt; event: NostrToolsEvent },
+  rosterOps: SignedNostrIdentityRosterOp[],
+): Promise<DriveDeviceApprovalActivation> {
+  const { receipt } = approval;
+  const appKeyPubkey = getPublicKey(appKeySecretKey);
   const session: NostrIdentitySession = {
     profileId: receipt.profileId,
     appKeyPubkey,
@@ -854,6 +939,33 @@ export async function activateDriveDeviceApprovalIfApproved(
     session,
     receipt,
   };
+}
+
+/**
+ * One look for an approval, for a caller that wants an answer by a deadline:
+ * the activation as soon as it can be made, or null once `timeoutMs` has passed.
+ */
+export function activateDriveDeviceApprovalIfApproved(
+  pendingApproval: PendingDriveDeviceApproval,
+  appKeyNsec: string,
+  options: { timeoutMs?: number } = {},
+): Promise<DriveDeviceApprovalActivation | null> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      stop();
+      resolve(null);
+    }, options.timeoutMs ?? 5000);
+    const stop = watchDriveDeviceApproval(pendingApproval, appKeyNsec, {
+      onActivated: (activation) => {
+        clearTimeout(timer);
+        resolve(activation);
+      },
+      onError: (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    });
+  });
 }
 
 export async function setDriveProfileAppKeyAdmin(
@@ -1651,56 +1763,6 @@ function publishIdentityInBackground(publish: () => Promise<void>, attempt = 1):
 async function publishDriveIdentityRosterOps(rosterOps: SignedNostrIdentityRosterOp[]): Promise<void> {
   await publishDriveRosterHistory(rosterOps, publishSignedIdentityEventJson);
 }
-
-async function fetchDriveDeviceApprovalReceipt(
-  bootstrap: DriveDeviceApprovalBootstrap,
-  requestSecretKey: Uint8Array,
-  timeoutMs = 5000,
-): Promise<{ receipt: NostrIdentityDeviceApprovalReceipt; event: NostrToolsEvent } | null> {
-  let approval: { receipt: NostrIdentityDeviceApprovalReceipt; event: NostrToolsEvent } | null = null;
-  const requestPubkey = npubToPubkey(bootstrap.requestNpub);
-  if (!requestPubkey) throw new Error('Invalid Drive device approval request key');
-  await waitForWorkerAdapter(2000).catch(() => null);
-
-  await new Promise<void>((resolve) => {
-    let resolved = false;
-    const finish = () => {
-      if (resolved) return;
-      resolved = true;
-      clearTimeout(timer);
-      sub.stop();
-      resolve();
-    };
-    const filter: Filter = {
-      kinds: [KIND_NOSTR_IDENTITY_ROSTER_OP],
-      '#p': [requestPubkey],
-      limit: 50,
-    };
-    const sub = nostr.subscribe(filter, {
-      closeAfterHistory: false,
-    });
-    const timer = setTimeout(finish, timeoutMs);
-
-    sub.on('event', (event) => {
-      try {
-        const raw = event as NostrToolsEvent;
-        if (!verifyEvent(raw)) return;
-        const parsed = parseDeviceApprovalReceiptEvent(raw, {
-          requestSecretKey,
-          bootstrap,
-        });
-        approval = { receipt: parsed, event: raw };
-        finish();
-      } catch {
-        // Other fact events can share the request pubkey tag; ignore them.
-      }
-    });
-
-  });
-
-  return approval;
-}
-
 
 async function createRecoverySigner(recovery: DriveRecoveryRequest): Promise<NostrIdentityEventSigner> {
   if (recovery.method === 'nsec') {

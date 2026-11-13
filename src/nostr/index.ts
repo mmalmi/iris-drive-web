@@ -34,6 +34,7 @@ export {
   createDriveDeviceApprovalLink,
   approveDriveDeviceApprovalBootstrap,
   activateDriveDeviceApprovalIfApproved,
+  watchDriveDeviceApproval,
   setDriveProfileAppKeyAdmin,
   removeDriveProfileAppKeyWithAdmin,
   recoverDriveProfileWithAppKey,
