@@ -22,7 +22,6 @@
     | 'recent'
     | 'sharedWithMe'
     | 'settings'
-    | 'wallet'
     | 'users'
     | 'follows'
     | 'followers'
@@ -48,7 +47,6 @@
     { pattern: '/shared-with-me', id: 'sharedWithMe' },
     { pattern: '/settings', id: 'settings' },
     { pattern: '/settings/*', id: 'settings' },
-    { pattern: '/wallet', id: 'wallet' },
     { pattern: '/users/no_existing', id: 'users', staticParams: { usersMode: 'no_existing' } },
     { pattern: '/users/create', id: 'users', staticParams: { usersMode: 'create' } },
     { pattern: '/users/existing', id: 'users', staticParams: { usersMode: 'existing' } },
@@ -120,10 +118,6 @@
   {:else if route.id === 'settings'}
     {#await import('./settings/SettingsLayout.svelte') then { default: SettingsLayout }}
       <SettingsLayout />
-    {/await}
-  {:else if route.id === 'wallet'}
-    {#await import('./WalletPage.svelte') then { default: WalletPage }}
-      <WalletPage />
     {/await}
   {:else if route.id === 'users'}
     {#await import('./UsersPage.svelte') then { default: UsersPage }}

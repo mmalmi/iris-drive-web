@@ -24,7 +24,7 @@ export interface RouteInfo {
 }
 
 const NOSTR_IDENTITY_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const NON_TREE_ROUTES = new Set(['settings', 'wallet', 'users']);
+const NON_TREE_ROUTES = new Set(['settings', 'users']);
 const USER_ROUTES = new Set(['profile', 'follows', 'followers', 'edit']);
 
 export function isNostrIdentityId(value: string | undefined): value is string {

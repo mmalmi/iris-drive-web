@@ -3,7 +3,7 @@
  *
  * Provides a unified API for guest apps running inside Iris (Tauri or web).
  * Guest apps can check for window.htree to:
- * - Skip duplicate login/wallet UI (use host's identity)
+ * - Skip duplicate login UI (use host's identity)
  * - Use correct media URLs (htreeBaseUrl for /htree paths)
  * - Use host's NIP-07 implementation for signing
  * - Know which relays are connected

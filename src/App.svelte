@@ -43,7 +43,6 @@
       '/share-invite',
       '/share-join',
       '/users',
-      '/wallet',
     ].some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
   });
 

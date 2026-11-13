@@ -142,9 +142,9 @@ export default defineConfig({
       // The service worker loads after the page's dependency scan. Prebundle
       // its imports too so a cold start cannot replace the worker mid-session.
       'workbox-precaching',
-      // The storage worker (excluded below) imports dexie. Nothing else on the
-      // page does since the wallet loads on demand, so without this a cold
-      // dev cache serves dexie's UMD build to the worker and the worker crashes.
+      // The storage worker (excluded below) imports dexie and nothing on the
+      // page does, so without this a cold dev cache serves dexie's UMD build
+      // to the worker and the worker crashes.
       'dexie',
     ],
     exclude: [

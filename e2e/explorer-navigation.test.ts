@@ -57,14 +57,6 @@ test.describe('Hashtree Explorer', () => {
     await expect(page.getByRole('button', { name: 'Refresh App' })).toBeVisible({ timeout: 5000 });
   });
 
-  test('should navigate to wallet page', async ({ page }) => {
-    // The standalone Drive shell exposes the wallet through its direct route.
-    await page.goto('/#/wallet');
-
-    expect(page.url()).toContain('/wallet');
-    await expect(page.getByRole('heading', { name: 'Wallet', exact: true })).toBeVisible();
-  });
-
   test('should navigate to edit profile page', async ({ page }) => {
     // We're already in public folder from navigateToPublicFolder in beforeEach
     // Get the npub from current URL

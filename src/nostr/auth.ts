@@ -40,8 +40,6 @@ import {
 import { treeRootRegistry } from '../TreeRootRegistry';
 import { profileDriveProjection } from '../drive/profileDriveProjection';
 import { needsMigrations, runMigrations } from '../migrations';
-// The wallet is not needed to show the Drive; it loads once an account is signed in.
-import { stopLoadedWallet } from '../lib/walletLifecycle';
 import {
   createDriveDeviceApprovalDraft,
   buildDriveDeviceApprovalAppliedAckEvent,
@@ -528,10 +526,6 @@ async function runPostLoginSetup(
     console.error('Backend identity setup failed:', e);
   }
 
-  // A wallet started for the previous account must not keep running with it.
-  stopLoadedWallet().catch(e => {
-    console.error('Wallet disposal failed:', e);
-  });
 
   try {
     await createDefaultTrees(defaultTrees);
@@ -539,9 +533,6 @@ async function runPostLoginSetup(
     console.error('Default folder setup failed:', e);
   }
 
-  publishInitialProfile(npubStr).catch(e => {
-    console.error('Failed to publish initial profile:', e);
-  });
 }
 
 async function generateInitialKey(): Promise<{ nsec: string; npub: string }> {
@@ -1250,16 +1241,6 @@ async function ensureTestDefaultFolders(): Promise<void> {
 }
 
 /**
- * Publish initial profile with npub.cash lightning address
- */
-async function publishInitialProfile(npub: string) {
-  const lud16 = `${npub}@npub.cash`;
-
-  await nostr.publishEvent({ kind: 0, content: JSON.stringify({ lud16 }) });
-  console.log('[auth] Published initial profile with lud16:', lud16);
-}
-
-/**
  * Logout
  */
 export function logout() {
@@ -1309,10 +1290,6 @@ export function logout() {
     });
   }
 
-  // Dispose wallet
-  stopLoadedWallet().catch(e => {
-    console.error('Wallet disposal failed:', e);
-  });
 
   localStorage.removeItem(STORAGE_KEY_LOGIN_TYPE);
   localStorage.removeItem(STORAGE_KEY_NSEC);

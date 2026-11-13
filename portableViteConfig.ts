@@ -74,9 +74,6 @@ export function filesManualChunks(id: string): string | undefined {
   if (id.includes('hls.js')) {
     return 'media';
   }
-  if (id.includes('coco-cashu') || id.includes('cashu-ts')) {
-    return 'wallet';
-  }
   if (id.includes('@nostr-dev-kit/ndk')) {
     return 'ndk';
   }
