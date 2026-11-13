@@ -40,7 +40,7 @@ export const DOCUMENT_KINDS: Record<DocumentKind, DocumentKindInfo> = {
     noun: 'presentation',
     newLabel: 'New Presentation',
     icon: 'i-lucide-presentation text-orange-500',
-    ready: false,
+    ready: true,
   },
 };
 
