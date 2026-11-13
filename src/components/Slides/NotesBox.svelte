@@ -13,7 +13,7 @@
   let { editorState }: Props = $props();
 
   const STORE_KEY = 'irisslides-notes-height';
-  const DEFAULT_HEIGHT = 120;
+  const DEFAULT_HEIGHT = 84;
   const MIN_HEIGHT = 44;
   const STEP = 24;
 
