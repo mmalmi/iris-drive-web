@@ -45,23 +45,48 @@ function projectSession(session: NostrIdentitySession): SessionProjection {
   };
 }
 
+// Counters live in storage so they survive a reload. Where storage is blocked
+// they are kept for the session, which still keeps versions in order.
+const sessionCounters = new Map<string, number>();
+
+function readCounter(storageKey: string): number {
+  let stored = 0;
+  try {
+    stored = Number(localStorage.getItem(storageKey) ?? '0');
+  } catch {
+    // Storage is unavailable.
+  }
+  const value = Math.max(Number.isFinite(stored) ? stored : 0, sessionCounters.get(storageKey) ?? 0);
+  return value > 0 ? value : 0;
+}
+
+function writeCounter(storageKey: string, value: number): void {
+  sessionCounters.set(storageKey, value);
+  try {
+    localStorage.setItem(storageKey, String(value));
+  } catch {
+    // Storage is unavailable.
+  }
+}
+
 function nextDriveRootSequence(profileId: string, driveId: string, appKeyPubkey: string): number {
   const storageKey = `iris:drive-root-seq:${profileId}:${driveId}:${appKeyPubkey}`;
-  const previous = Number(localStorage.getItem(storageKey) ?? '0');
-  const next = Number.isFinite(previous) && previous > 0 ? previous + 1 : 1;
-  localStorage.setItem(storageKey, String(next));
+  const next = readCounter(storageKey) + 1;
+  writeCounter(storageKey, next);
   return next;
 }
 
-function nextDriveRootPublishedAt(profileId: string, driveId: string, appKeyPubkey: string): number {
+/**
+ * The time a new version is published with. A relay keeps one version per
+ * device and decides between two by this time alone, so every version must
+ * carry a later second than the one before: two that share a second leave
+ * either standing, and other devices may then be served the older content.
+ * `wanted` is the time the caller would use (the moment of the save).
+ */
+function nextDriveRootPublishedAt(profileId: string, driveId: string, appKeyPubkey: string, wanted?: number): number {
   const storageKey = `iris:drive-root-created-at:${profileId}:${driveId}:${appKeyPubkey}`;
-  const previous = Number(localStorage.getItem(storageKey) ?? '0');
-  const now = Math.floor(Date.now() / 1000);
-  const next = Math.max(
-    now,
-    Number.isFinite(previous) ? previous + 1 : 1,
-  );
-  localStorage.setItem(storageKey, String(next));
+  const next = Math.max(wanted ?? Math.floor(Date.now() / 1000), readCounter(storageKey) + 1);
+  writeCounter(storageKey, next);
   return next;
 }
 
@@ -181,7 +206,7 @@ export async function publishNostrIdentityDriveRootIfAvailable(
     root: publishRoot,
     dckGeneration: projected.keyEpoch,
     appKeySeq: options.appKeySeq ?? nextDriveRootSequence(rootScopeId, driveId, appKeyPubkey),
-    publishedAt: options.publishedAt ?? nextDriveRootPublishedAt(rootScopeId, driveId, appKeyPubkey),
+    publishedAt: nextDriveRootPublishedAt(rootScopeId, driveId, appKeyPubkey, options.publishedAt),
     publishedAtMs: options.publishedAtMs,
     authorizedAppKeyPubkeys: projected.activeAppKeyPubkeys,
     observed: profileDriveProjection.observations(

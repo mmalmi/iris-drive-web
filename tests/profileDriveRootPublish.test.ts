@@ -129,6 +129,27 @@ describe('profile Drive root durability before publish', () => {
     expect(toHex(contribution.hash)).not.toBe(toHex(root.hash));
   });
 
+  it('gives each version a later time than the one before, even within one second', async () => {
+    activateProfile();
+    const tree = new HashTree({ store: new MemoryStore() });
+    shared.tree = tree;
+    shared.adapter = { pushToBlossom: vi.fn(async () => ({ pushed: 1, skipped: 0, failed: 0 })) };
+    const { publishNostrIdentityDriveRootIfAvailable } = await import('../src/drive/profileDriveRootPublish');
+
+    // A relay keeps one version per device and decides by this time alone, so
+    // two versions sharing a second would leave either of them standing.
+    const sameSecond = Math.floor(Date.now() / 1000) + 50;
+    await publishNostrIdentityDriveRootIfAvailable('main', await rootWithFile(tree, 'one.txt', 'one'), { publishedAt: sameSecond });
+    await publishNostrIdentityDriveRootIfAvailable('main', await rootWithFile(tree, 'two.txt', 'two'), { publishedAt: sameSecond });
+    await publishNostrIdentityDriveRootIfAvailable('main', await rootWithFile(tree, 'three.txt', 'three'));
+
+    const times = shared.publish.mock.calls.map(([event]) => (event as { created_at: number }).created_at);
+    expect(times).toHaveLength(3);
+    expect(times[0]).toBe(sameSecond);
+    expect(times[1]).toBeGreaterThan(times[0]);
+    expect(times[2]).toBeGreaterThan(times[1]);
+  });
+
   it('does not announce a prepared tombstone root when any block upload fails', async () => {
     const { secretKey, appKeyPubkey } = activateProfile();
     const tree = new HashTree({ store: new MemoryStore() });

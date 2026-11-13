@@ -281,7 +281,7 @@ async function fetchRelayDriveRootHashes(page: Page, relayUrl: string): Promise<
   }, relayUrl);
 }
 
-async function waitForPublishedProfileRoot(page: Page, relayUrl: string, expectedRootHash: string): Promise<void> {
+async function waitForPublishedProfileRoot(page: Page, relayUrl: string, expectedRootHash: string, timeout = 30000): Promise<void> {
   const hasRoot = async () => page.evaluate(async (expectedHash: string) => {
     const { driveRootDTag, KIND_DRIVE_ROOT } = await import('/src/drive/protocol');
     const { nostr } = await import('/src/nostr');
@@ -303,7 +303,7 @@ async function waitForPublishedProfileRoot(page: Page, relayUrl: string, expecte
   }, expectedRootHash);
 
   try {
-    await expect.poll(hasRoot, { timeout: 30000, intervals: [500, 1000, 2000] }).toBe(true);
+    await expect.poll(hasRoot, { timeout, intervals: [500, 1000, 2000] }).toBe(true);
   } catch (error) {
     const relayEvents = await fetchRelayDriveRootHashes(page, relayUrl).catch((relayError) => [{
       id: 'relay-error',
@@ -371,7 +371,7 @@ async function waitForPublishedProfileRoot(page: Page, relayUrl: string, expecte
   }
 }
 
-async function gotoMain(page: Page): Promise<void> {
+async function gotoMain(page: Page, relayUrl?: string): Promise<void> {
   const profileId = await page.evaluate(() => {
     const stored = JSON.parse(localStorage.getItem('iris:identity:session') ?? 'null');
     return stored?.profileId ?? '';
@@ -379,10 +379,18 @@ async function gotoMain(page: Page): Promise<void> {
   expect(profileId).toMatch(/^[0-9a-f-]{36}$/);
   await page.goto(`/#/${profileId}/main`, { waitUntil: 'domcontentloaded' });
   await expect(page.locator('[data-testid="file-list"]').first()).toBeVisible({ timeout: 30000 });
-  await expect.poll(async () => page.evaluate(async () => {
-    const { getCurrentRootCid } = await import('/src/actions/route.ts');
-    return !!getCurrentRootCid()?.hash;
-  }), { timeout: 30000, intervals: [500, 1000, 2000] }).toBe(true);
+  try {
+    await expect.poll(async () => page.evaluate(async () => {
+      const { getCurrentRootCid } = await import('/src/actions/route.ts');
+      return !!getCurrentRootCid()?.hash;
+    }), { timeout: 30000, intervals: [500, 1000, 2000] }).toBe(true);
+  } catch (error) {
+    if (!relayUrl) throw error;
+    const diagnostics = await profileDriveRootDiagnostics(page, relayUrl).catch((diagnosticError) => ({
+      diagnosticError: String(diagnosticError),
+    }));
+    throw new Error(`${error instanceof Error ? error.message : String(error)}\nDiagnostics:\n${JSON.stringify(diagnostics, null, 2)}`);
+  }
 }
 
 async function writeMainFileAndPublish(page: Page, relayUrl: string, filename: string, content: string): Promise<void> {
@@ -412,13 +420,24 @@ async function currentPublishedProfileRootHash(page: Page): Promise<string | nul
 
 async function flushAndWaitForCurrentProfileRoot(page: Page, relayUrl: string): Promise<string> {
   await flushPendingPublishes(page);
-  await expect.poll(
-    () => currentPublishedProfileRootHash(page),
-    { timeout: 30000, intervals: [250, 500, 1000, 2000] },
-  ).toMatch(/^[a-f0-9]{64}$/);
-  const rootHash = await currentPublishedProfileRootHash(page);
-  expect(rootHash).toMatch(/^[a-f0-9]{64}$/);
-  await waitForPublishedProfileRoot(page, relayUrl, rootHash!);
+  // The Drive may be published once more while this waits (its merged view is
+  // rebuilt after a publish), and a relay keeps only the newest version. So
+  // each round asks which version is current before looking for it.
+  let rootHash: string | null = null;
+  for (let round = 0; ; round += 1) {
+    await expect.poll(
+      () => currentPublishedProfileRootHash(page),
+      { timeout: 30000, intervals: [250, 500, 1000, 2000] },
+    ).toMatch(/^[a-f0-9]{64}$/);
+    rootHash = await currentPublishedProfileRootHash(page);
+    expect(rootHash).toMatch(/^[a-f0-9]{64}$/);
+    try {
+      await waitForPublishedProfileRoot(page, relayUrl, rootHash!, round < 3 ? 8000 : 30000);
+      break;
+    } catch (error) {
+      if (round >= 3) throw error;
+    }
+  }
   return rootHash!;
 }
 
@@ -776,7 +795,7 @@ async function createLinkedDriveBrowsers(
     const approvalUrl = await createDeviceApprovalRequest(devicePage);
     await approveDeviceApprovalRequest(ownerPage, approvalUrl);
     await activateApprovedDevice(devicePage, profileId);
-    await gotoMain(devicePage);
+    await gotoMain(devicePage, relayUrl);
     await expectMainFileContent(
       devicePage,
       relayUrl,
