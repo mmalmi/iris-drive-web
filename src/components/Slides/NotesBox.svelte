@@ -54,6 +54,14 @@
     outline: none;
   }
 
+  @media (max-width: 639px) {
+    .notes {
+      flex: 1;
+      height: auto;
+      min-height: 68px;
+    }
+  }
+
   .notes::placeholder {
     color: rgb(var(--text-3));
   }

@@ -263,6 +263,8 @@ function renderChildren(node: Y.XmlFragment | Y.XmlElement, parent: HTMLElement,
       const filled = renderChildren(child, element, doc, depth + 1);
       // An empty paragraph still takes a line, as it does while typing.
       if (!filled && child.nodeName === 'paragraph') element.appendChild(doc.createElement('br'));
+      // A point with nothing written in it, such as the one Enter leaves at the end of a list, shows no bullet.
+      if (child.nodeName === 'listItem' && !element.textContent) element.className = 'slide-empty-point';
       parent.appendChild(element);
       any = any || filled || child.nodeName !== 'paragraph';
     }

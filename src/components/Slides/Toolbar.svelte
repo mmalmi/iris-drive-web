@@ -64,6 +64,32 @@
     editorState.setFontSize(next);
   }
 
+  // On a narrow screen the row scrolls; its ends fade where there is more to see.
+  let bar: HTMLElement | undefined = $state();
+  let moreBefore = $state(false);
+  let moreAfter = $state(false);
+
+  function measureOverflow(): void {
+    if (!bar) return;
+    moreBefore = bar.scrollLeft > 1;
+    moreAfter = bar.scrollLeft + bar.clientWidth < bar.scrollWidth - 1;
+  }
+
+  $effect(() => {
+    const row = bar;
+    if (!row) return;
+    const resized = new ResizeObserver(measureOverflow);
+    resized.observe(row);
+    // Buttons come and go with what is selected.
+    const changed = new MutationObserver(measureOverflow);
+    changed.observe(row, { childList: true, subtree: true });
+    measureOverflow();
+    return () => {
+      resized.disconnect();
+      changed.disconnect();
+    };
+  });
+
   function typedFontSize(event: Event): void {
     const value = Number.parseInt((event.target as HTMLInputElement).value, 10);
     if (Number.isFinite(value)) editorState.setFontSize(value);
@@ -71,14 +97,19 @@
 </script>
 
 <!-- Pressing a button must not take the cursor out of the text. -->
+<div class="shell">
 <div
   class="toolbar"
   class:busy={selected.length > 0 || !!firstText}
+  class:more-before={moreBefore}
+  class:more-after={moreAfter}
+  bind:this={bar}
   role="toolbar"
   tabindex="-1"
   aria-label="Editing"
   data-testid="slides-toolbar"
   onmousedown={keepFocus}
+  onscroll={measureOverflow}
 >
   <button class="tool" onclick={() => editorState.undo()} disabled={!editorState.canUndo} title="Undo" aria-label="Undo">
     <span class="i-lucide-undo-2"></span>
@@ -192,6 +223,7 @@
   <button class="tool labelled" bind:this={anchors.theme} onclick={() => (open.theme = !open.theme)} title="Theme" aria-label="Theme" aria-expanded={open.theme} data-testid="deck-theme">
     <span class="i-lucide-palette"></span><span class="label roomy">Theme</span>
   </button>
+</div>
 </div>
 
 {#snippet layoutChoices(prefix: string, current: string | undefined, choose: (id: string) => void)}
@@ -336,9 +368,14 @@
 </Popover>
 
 <style>
+  .shell {
+    flex: none;
+    border-bottom: 1px solid rgb(var(--surface-2));
+    background: rgb(var(--surface-1));
+  }
+
   .toolbar {
     container-type: inline-size;
-    flex: none;
     display: flex;
     align-items: center;
     gap: 2px;
@@ -346,8 +383,19 @@
     padding: 4px 8px;
     overflow-x: auto;
     scrollbar-width: none;
-    border-bottom: 1px solid rgb(var(--surface-2));
-    background: rgb(var(--surface-1));
+    outline: none;
+  }
+
+  .toolbar.more-after {
+    mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent);
+  }
+
+  .toolbar.more-before {
+    mask-image: linear-gradient(to left, #000 calc(100% - 40px), transparent);
+  }
+
+  .toolbar.more-before.more-after {
+    mask-image: linear-gradient(to right, transparent, #000 40px, #000 calc(100% - 40px), transparent);
   }
 
   .toolbar::-webkit-scrollbar {

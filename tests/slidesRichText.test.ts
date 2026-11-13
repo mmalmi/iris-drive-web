@@ -143,3 +143,13 @@ test('rich text survives the trip through the clipboard', () => {
   const pasted = deck.readSlide(slide)!.elements.find(element => element.id === copy)!.content!;
   expect(drawn(pasted)).toEqual(drawn(fragment));
 });
+
+test('a point left empty at the end of a list is drawn without its bullet', () => {
+  const { fragment } = textBox();
+  const editor = edit(fragment);
+  editor.commands.setContent('<ul><li><p>one</p></li><li><p></p></li></ul>');
+  const container = document.createElement('div');
+  renderRichText(fragment, container);
+  const points = [...container.querySelectorAll('li')];
+  expect(points.map(point => point.className)).toEqual(['', 'slide-empty-point']);
+});

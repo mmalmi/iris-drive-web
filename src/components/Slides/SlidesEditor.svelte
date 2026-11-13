@@ -423,9 +423,7 @@
         <div class="flex-1 flex flex-col min-w-0 min-h-0">
           <Canvas {editorState} {urls} onImageFiles={addImages} onCopy={menuCopy} onPaste={() => void menuPaste()} />
           {#if canEdit}
-            <div class="max-sm:hidden">
-              <NotesBox {editorState} />
-            </div>
+            <NotesBox {editorState} />
           {/if}
         </div>
       </div>

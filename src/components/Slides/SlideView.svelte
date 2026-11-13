@@ -184,6 +184,10 @@
     color: var(--slide-accent);
   }
 
+  .slide-surface :global(.slide-text li.slide-empty-point::marker) {
+    content: '';
+  }
+
   .slide-surface :global(.el-hint) {
     opacity: 0.38;
   }

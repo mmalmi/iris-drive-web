@@ -616,6 +616,14 @@
     touch-action: none;
   }
 
+  /* On a phone held upright the slide sits at the top, as tall as it needs, and the notes take the room below. */
+  @media (max-width: 639px) {
+    .stage {
+      flex: none;
+      height: calc((100vw - 20px) * 9 / 16 + 20px);
+    }
+  }
+
   .stage-dropping .sheet {
     outline: 2px solid #916dfe;
     outline-offset: 2px;

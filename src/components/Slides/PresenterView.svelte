@@ -44,7 +44,7 @@
     return slide?.notes?.toString() ?? '';
   });
   let currentWidth = $derived(Math.max(0, Math.min(mainWidth, mainHeight * 16 / 9)));
-  let clock = $derived(new Date(now).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+  let clock = $derived(new Date(now).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }));
   let elapsed = $derived(formatElapsed(now - startedAt));
 
   function go(action: () => void): void {
