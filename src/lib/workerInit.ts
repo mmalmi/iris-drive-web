@@ -17,6 +17,7 @@ import {
 } from '../stores/settings';
 import { refreshFipsPeersIfChanged, setBlossomBandwidth } from '../store';
 import { setVisibleInterval } from './visibleInterval';
+import { startBackgroundSocialGraphRefresh } from './socialGraphRefresh';
 import { get } from 'svelte/store';
 import { setupVersionCallback } from '../utils/socialGraph';
 import { nostr } from '../nostr/client';
@@ -423,6 +424,9 @@ export async function initHashtreeBackend(identity: WorkerInitIdentity): Promise
             config.storeName,
             fipsIdentity,
           );
+          // Other people's follow lists: when people search asks, and at
+          // most every 30 minutes while the page is shown.
+          startBackgroundSocialGraphRefresh();
 
         }
         nostr.setBackend({

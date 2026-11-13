@@ -36,6 +36,24 @@ function filesPortableHtmlPlugin(): Plugin {
   };
 }
 
+/**
+ * The storage worker's follow-list catch-up runs when people search asks for
+ * it, not every minute: the worker's import of the library's catch-up gets
+ * the on-demand wrapper, which itself imports the library.
+ */
+function graphSyncOnDemandPlugin(): Plugin {
+  const wrapper = resolve(__dirname, 'src/workers/graphSyncOnDemand.ts');
+  return {
+    name: 'graph-sync-on-demand',
+    enforce: 'pre',
+    resolveId(source, importer) {
+      if (source !== 'nostr-social-graph/publicGraphSync') return null;
+      if (importer?.split('?')[0] === wrapper) return null;
+      return wrapper;
+    },
+  };
+}
+
 export default defineConfig({
   base: getFilesBase(),
   define: {
@@ -44,6 +62,7 @@ export default defineConfig({
   plugins: [
     UnoCSS(),
     svelte(),
+    graphSyncOnDemandPlugin(),
     filesPortableHtmlPlugin(),
     VitePWA({
       registerType: 'autoUpdate',
@@ -159,6 +178,7 @@ export default defineConfig({
   assetsInclude: ['**/*.wasm'], // Treat wasm files as assets
   worker: {
     format: 'es',
+    plugins: () => [graphSyncOnDemandPlugin()],
     rollupOptions: {
       output: {
         entryFileNames: 'assets/[name]-[hash].js',

@@ -47,6 +47,14 @@ export class WorkerAdapterSocial extends WorkerAdapterNostr {
   }
 
   /**
+   * Runs one follow-list catch-up pass in the worker, in the background.
+   * Nothing waits for it; the graph updates as lists arrive.
+   */
+  refreshSocialGraph(): void {
+    this.postMessage({ type: 'refreshSocialGraph' } as ExtendedWorkerRequest);
+  }
+
+  /**
    * Set the social graph root pubkey
    */
   async setSocialGraphRoot(pubkey: string): Promise<void> {
