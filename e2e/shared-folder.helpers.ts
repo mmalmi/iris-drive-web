@@ -4,7 +4,22 @@ import { expect, type Page } from './fixtures';
 import { parseNostrIdentityRosterOpEvent } from '../src/drive/protocolProfileEvents';
 import { clearAllStorage, configureBlossomServers, flushPendingPublishes, presetLocalRelayInDB, waitForAppReady, waitForRelayConnected } from './test-utils';
 
-export async function waitForSharedFolderPublished(page: Page, shareId: string) {
+export async function waitForSharedFolderPublished(
+  page: Page,
+  shareId: string,
+  /** What the folder's top level must (or must not) list first: a change the page shows can still be on its way to being saved. */
+  expected: { has?: string[]; lacks?: string[] } = {},
+) {
+  if (expected.has?.length || expected.lacks?.length) {
+    await page.waitForFunction(async ({ id, has, lacks }) => {
+      const { getTreeRootSync } = await import('/src/stores/treeRoot.ts');
+      const { getTree } = await import('/src/store.ts');
+      const root = getTreeRootSync(id, 'main');
+      if (!root) return false;
+      const names = new Set((await getTree().listDirectory(root)).map(entry => entry.name));
+      return has.every(name => names.has(name)) && lacks.every(name => !names.has(name));
+    }, { id: shareId, has: expected.has ?? [], lacks: expected.lacks ?? [] }, { timeout: 30_000 });
+  }
   await flushPendingPublishes(page);
   // Flushing timers can race an already-running upload. Observe durable publish
   // completion for this folder before another client performs a one-shot sync.

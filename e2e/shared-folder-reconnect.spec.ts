@@ -76,8 +76,15 @@ test('trip collaborators add, rename and delete files while a reader reconnects 
     await page.getByPlaceholder('New name...').fill('Packing final.txt');
     await page.getByRole('button', { name: 'Rename', exact: true }).last().click();
     await expect(page.getByTestId('viewer-header')).toContainText('Packing final.txt');
-    await waitForSharedFolderPublished(page, share.share_id);
-    runIdriveJson(profiles.alice!, ['sync', '--relay', relayUrl, '--timeout', '2']);
+    await waitForSharedFolderPublished(page, share.share_id, { has: ['Packing final.txt'], lacks: ['Packing café.txt'] });
+    // A one-shot native sync can apply Bob's previous version first and the
+    // newest on the next pass (seen 2026-11-13, with the newest already on the
+    // relay). Sync until the rename shows, a few passes at most.
+    for (let pass = 0; pass < 3; pass += 1) {
+      runIdriveJson(profiles.alice!, ['sync', '--relay', relayUrl, '--timeout', '2']);
+      const paths = runIdriveJson(profiles.alice!, ['provider', 'list']).entries.map((entry: { path: string }) => entry.path);
+      if (paths.includes('Trip/Packing final.txt')) break;
+    }
     const output = path.join(root, 'native-packing.txt');
     runIdriveJson(profiles.alice!, ['provider', 'read', 'Trip/Packing final.txt', output]);
     expect(fs.readFileSync(output).equals(bytes)).toBe(true);
@@ -94,7 +101,7 @@ test('trip collaborators add, rename and delete files while a reader reconnects 
     page.once('dialog', dialog => dialog.accept());
     await page.getByTestId('viewer-delete').click();
     await expect(page.getByRole('link', { name: /^Plan\.txt\b/ })).toBeVisible();
-    await waitForSharedFolderPublished(page, share.share_id);
+    await waitForSharedFolderPublished(page, share.share_id, { lacks: ['Packing final.txt'] });
     await readerPage.goto(folderUrl);
     await expect(readerPage.getByRole('link', { name: /^Plan\.txt\b/ })).toBeVisible();
     await expect(readerPage.getByRole('link', { name: /^Packing final\.txt\b/ })).toHaveCount(0);
