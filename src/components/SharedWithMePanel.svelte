@@ -14,6 +14,7 @@
   import { addShareShortcutThroughCore } from '../drive/shareInviteActions';
   import {
     acceptedShares,
+    isOwnShare,
     projectAcceptedShareViews,
   } from '../drive/shareLibrary';
   import { toast } from '../stores/toast';
@@ -30,7 +31,8 @@
 
   let nativeActionEndpoint = $derived(nativeShareActionEndpoint());
   let shareActionPending = $state('');
-  let localShareViews = $derived(projectAcceptedShareViews($acceptedShares.filter((share) => share.local_profile_id === activeNostrIdentityRootScope($nostrStore)), $nostrStore.pubkey ?? undefined).map((share) => share.view));
+  // Folders this profile shared itself are in My Drive, as in other drives.
+  let localShareViews = $derived(projectAcceptedShareViews($acceptedShares.filter((share) => share.local_profile_id === activeNostrIdentityRootScope($nostrStore) && !isOwnShare(share)), $nostrStore.pubkey ?? undefined).map((share) => share.view));
   // The native app answers on this address only when it is running; without
   // an answer the folders this browser has joined are shown.
   let nativeAnswered = $state(false);
@@ -63,7 +65,7 @@
   function owner(shareId: string): { name: string; href: string } | null {
     if (usingNative) return null;
     const record = $acceptedShares.find((item) => item.share_id === shareId);
-    if (!record || record.folder.owner_profile_id === record.local_profile_id) return null;
+    if (!record || isOwnShare(record)) return null;
     const ownerId = record.folder.owner_profile_id;
     const grant = record.folder.access?.grants?.find((item) => item.target.type === 'id' && item.target.id === ownerId);
     return grant?.display_name ? { name: grant.display_name, href: personHref(record.folder, ownerId) } : null;

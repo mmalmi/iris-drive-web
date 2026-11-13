@@ -22,7 +22,7 @@
     buildDirHref as buildFileDirHref,
     buildEntryHref as buildFileEntryHref,
   } from './fileBrowserHrefs';
-  import { activeShareScope } from '../drive/shareScope';
+  import { activeShareScope, shareLocation } from '../drive/shareScope';
   import { activeNostrIdentityRootScope, isEditableDriveRouteScope } from '../drive/profileRoute';
   import { isNostrIdentityId } from '../utils/route';
   import IdentityName from './User/IdentityName.svelte';
@@ -86,7 +86,10 @@
   let viewedNostrIdentityId = $derived(viewedNpub && isNostrIdentityId(viewedNpub) ? viewedNpub : null);
   let viewedIdentityAppKeyPubkey = $derived(npubToPubkey(userNpub || '') || '');
   let knownShare = $derived($acceptedShares.find((record) => record.share_id === viewedNpub));
-  let sharedFolder = $derived(activeShareScope(viewedNpub, $nostrStore, $acceptedShares)?.record.folder);
+  let shareRecord = $derived(activeShareScope(viewedNpub, $nostrStore, $acceptedShares)?.record);
+  let sharedFolder = $derived(shareRecord?.folder);
+  /** What a shared folder sits in: My Drive for one shared from it, otherwise Shared with me. */
+  let shareAbove = $derived(shareRecord ? shareLocation(shareRecord) : []);
   let isOwnDriveProfile = $derived(isEditableDriveRouteScope(viewedNpub, $nostrStore, $acceptedShares));
   let isOwnTrees = $derived(!viewedNpub || viewedNpub === userNpub || isOwnDriveProfile);
   // The person's own Drive is called My Drive everywhere; "main" is only its address.
@@ -294,18 +297,17 @@
     return '#/';
   }
 
-  /** Where "up" leads: the folder above, the list a shared folder came from, or nowhere from My Drive. */
+  /** Where "up" leads: the folder above, where a shared folder sits, or nowhere from My Drive. */
   let parentHref = $derived.by((): string | null => {
     if (currentPath.length > 0) return buildDirHref(currentPath.slice(0, -1));
     if (isMyDrive) return null;
-    if (sharedFolder) return '#/shared-with-me';
+    if (shareAbove.length > 0) return shareAbove.at(-1)!.href;
     return currentNpub ? buildRootHref() : null;
   });
   let hasParent = $derived(parentHref !== null);
   /** The folders above the open one, outermost first. */
   let parentCrumbs = $derived.by(() => {
-    const crumbs: { name: string; href: string }[] = [];
-    if (sharedFolder) crumbs.push({ name: 'Shared with me', href: '#/shared-with-me' });
+    const crumbs: { name: string; href: string }[] = [...shareAbove];
     if (currentPath.length === 0 || !rootName) return crumbs;
     crumbs.push({ name: rootName, href: buildDirHref([]) });
     for (let depth = 1; depth < currentPath.length; depth += 1) {

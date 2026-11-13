@@ -26,6 +26,11 @@ export interface AcceptedShareRecord {
   join_links?: ShareJoinLink[];
 }
 
+/** A folder this profile shared itself: it stays in My Drive, not in Shared with me. */
+export function isOwnShare(record: Pick<AcceptedShareRecord, 'folder' | 'local_profile_id'>): boolean {
+  return record.folder.owner_profile_id === record.local_profile_id;
+}
+
 export interface AcceptedShareView extends AcceptedShareRecord {
   local_app_key_pubkey: string;
   view: SharedFolderView;

@@ -1,8 +1,26 @@
 import { get } from 'svelte/store';
 import { getCurrentNostrIdentitySession } from '../nostr/auth';
-import { acceptedShares, type AcceptedShareRecord } from './shareLibrary';
+import { acceptedShares, isOwnShare, type AcceptedShareRecord } from './shareLibrary';
 import { projectSharedFolderKeys } from './protocolShareSnapshot';
 import { sharedFolderAuthorizedWriterPubkeys, sharedFolderKeyRecipientPubkeys } from './protocol';
+import { driveRootPath } from './setup';
+
+/**
+ * Where a shared folder is reached from, outermost first: My Drive and the
+ * folders above it for one this profile shared, Shared with me for others'.
+ */
+export function shareLocation(record: Pick<AcceptedShareRecord, 'folder' | 'local_profile_id'>): { name: string; href: string }[] {
+  if (!isOwnShare(record)) return [{ name: 'Shared with me', href: '#/shared-with-me' }];
+  const root = `#${driveRootPath(record.local_profile_id)}`;
+  const above = (record.folder.source_path ?? '').split('/').filter(Boolean).slice(0, -1);
+  return [
+    { name: 'My Drive', href: root },
+    ...above.map((name, depth) => ({
+      name,
+      href: `${root}/${above.slice(0, depth + 1).map(encodeURIComponent).join('/')}`,
+    })),
+  ];
+}
 
 export function activeShareScope(
   scope: string | null | undefined,

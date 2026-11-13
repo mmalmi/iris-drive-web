@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { acceptedShares } from '../drive/shareLibrary';
+  import { acceptedShares, isOwnShare } from '../drive/shareLibrary';
   import { isEditableDriveRouteScope } from '../drive/profileRoute';
   import { nostrStore } from '../nostr';
   import { routeStore } from '../stores';
@@ -15,7 +15,8 @@
   let { currentPath, homeHref }: Props = $props();
 
   let shareScope = $derived(currentPath.split('/').filter(Boolean)[0]);
-  let sharedFolderRoute = $derived($acceptedShares.some((record) => record.share_id === shareScope));
+  // A folder shared with this profile; one it shared itself stays under My Drive.
+  let sharedFolderRoute = $derived($acceptedShares.some((record) => record.share_id === shareScope && !isOwnShare(record)));
   let route = $derived($routeStore);
 
   /**
