@@ -5,13 +5,13 @@ import {
   clickSlide,
   createPresentation,
   dragSlide,
+  drawShape,
   elements,
   expectSlidesSaved,
   frameOf,
   selectWords,
   sheet,
   shot,
-  slidePoint,
   thumbs,
   typeInBox,
 } from './slides.helpers';
@@ -89,43 +89,31 @@ test.describe('making and giving a talk', () => {
     await page.getByTestId('layout-blank').click();
     await expect(elements(page)).toHaveCount(0);
     for (const [index, label] of ['Count', 'Map', 'Protect'].entries()) {
-      await page.getByTestId('add-shape').click();
-      await page.getByTestId('shape-round').click();
+      // Each box is drawn where it belongs, by eye; the second and third settle level with the first.
+      const left = 110 + index * 400;
+      const top = 280 + [0, 4, -3][index]!;
+      await drawShape(page, 'round', [left, top], [left + 260, top + 150 + [0, -4, 3][index]!]);
       const shape = elements(page, 'shape').nth(index);
       await expect(shape).toBeVisible();
       // Typing with a shape selected writes its label.
       await page.keyboard.type(label);
       await page.keyboard.press('Escape');
       await expect(shape).toContainText(label);
-      const at = await frameOf(shape);
-      await dragSlide(page, [at.x + at.w / 2, at.y + 20], [220 + index * 420, 300]);
     }
     const shapes = elements(page, 'shape');
     const frames = await Promise.all([0, 1, 2].map(index => frameOf(shapes.nth(index))));
-    // Dragged roughly level, they snapped exactly level.
     expect(new Set(frames.map(frame => frame.y)).size).toBe(1);
+    expect(new Set(frames.map(frame => frame.h)).size).toBe(1);
     for (const index of [0, 1]) {
-      await page.getByTestId('add-shape').click();
-      await page.getByTestId('shape-arrow').click();
-      const line = elements(page, 'line').nth(index);
-      await expect(line).toHaveCount(1);
+      // An arrow is drawn from one box to the next.
       const from = frames[index]!;
       const to = frames[index + 1]!;
       const middle = from.y + from.h / 2;
-      const handles = sheet(page).locator('[data-handle="start"], [data-handle="end"]');
-      await expect(handles).toHaveCount(2);
-      const startBox = (await handles.first().boundingBox())!;
-      const startTo = await slidePoint(page, from.x + from.w + 12, middle);
-      await page.mouse.move(startBox.x + startBox.width / 2, startBox.y + startBox.height / 2);
-      await page.mouse.down();
-      await page.mouse.move(startTo.x, startTo.y, { steps: 6 });
-      await page.mouse.up();
-      const endBox = (await handles.last().boundingBox())!;
-      const endTo = await slidePoint(page, to.x - 12, middle);
-      await page.mouse.move(endBox.x + endBox.width / 2, endBox.y + endBox.height / 2);
-      await page.mouse.down();
-      await page.mouse.move(endTo.x, endTo.y, { steps: 6 });
-      await page.mouse.up();
+      await drawShape(page, 'arrow', [from.x + from.w + 14, middle], [to.x - 14, middle - 4]);
+      await expect(elements(page, 'line')).toHaveCount(index + 1);
+      // Drawn nearly level, it is level.
+      const line = await frameOf(elements(page, 'line').nth(index));
+      expect(line).toMatchObject({ y: middle, h: 1 });
     }
     // Recolour the last box.
     await shapes.nth(2).click();

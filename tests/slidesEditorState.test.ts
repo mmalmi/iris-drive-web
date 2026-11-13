@@ -24,6 +24,91 @@ describe('the editor\'s view of a deck', () => {
     expect(state.slides).toHaveLength(1);
   });
 
+  describe('two devices opening a new deck at the same moment', () => {
+    function both(): { a: SlidesEditorState; b: SlidesEditorState; exchange: () => void } {
+      const first = new Y.Doc();
+      const second = new Y.Doc();
+      const a = open(first);
+      const b = open(second);
+      expect(a.slides).toHaveLength(1);
+      expect(b.slides).toHaveLength(1);
+      expect(a.slides[0]!.id).not.toBe(b.slides[0]!.id);
+      return {
+        a,
+        b,
+        exchange: () => {
+          sync(first, second);
+          sync(second, first);
+          sync(first, second);
+          sync(second, first);
+        },
+      };
+    }
+    const titleOf = (state: SlidesEditorState) => state.slides.map(slide => richTextToPlain(slide.elements[0]?.content));
+
+    function typeTitle(state: SlidesEditorState, text: string): void {
+      const title = state.slides.find(slide => slide.seed)!.elements[0]!;
+      state.deck.transact(() => {
+        const paragraph = new Y.XmlElement('paragraph');
+        title.content!.insert(0, [paragraph]);
+        paragraph.insert(0, [new Y.XmlText(text)]);
+      });
+    }
+
+    test('each gives it a title slide, and one of the two is kept', () => {
+      const { a, b, exchange } = both();
+      exchange();
+      expect(a.slides).toHaveLength(1);
+      expect(b.slides).toHaveLength(1);
+      expect(a.slides[0]!.id).toBe(b.slides[0]!.id);
+      // Nothing of this is on the undo stack.
+      expect(a.canUndo).toBe(false);
+      expect(b.canUndo).toBe(false);
+    });
+
+    test('the one that was written on is the one kept, whichever it is', () => {
+      for (const writer of ['a', 'b'] as const) {
+        const pair = both();
+        typeTitle(pair[writer], 'Already typing');
+        pair.exchange();
+        expect(titleOf(pair.a)).toEqual(['Already typing']);
+        expect(titleOf(pair.b)).toEqual(['Already typing']);
+      }
+    });
+
+    test('when both were written on, both are kept: nothing typed is thrown away', () => {
+      const { a, b, exchange } = both();
+      typeTitle(a, 'From a');
+      typeTitle(b, 'From b');
+      exchange();
+      expect([...titleOf(a)].sort()).toEqual(['From a', 'From b']);
+      expect(titleOf(a)).toEqual(titleOf(b));
+    });
+
+    test('typing that had not arrived yet is safe: a device only takes away its own untouched slide', () => {
+      const first = new Y.Doc();
+      const second = new Y.Doc();
+      const a = open(first);
+      const b = open(second);
+      // b's empty slide reaches a; then b types, and only then do they meet again.
+      sync(second, first);
+      typeTitle(b, 'Typed meanwhile');
+      sync(first, second);
+      sync(second, first);
+      sync(first, second);
+      expect(titleOf(a)).toEqual(['Typed meanwhile']);
+      expect(titleOf(b)).toEqual(['Typed meanwhile']);
+    });
+
+    test('a slide added by hand is never taken for a first slide', () => {
+      const { a, b, exchange } = both();
+      a.addSlide('title');
+      exchange();
+      expect(a.slides).toHaveLength(2);
+      expect(b.slides).toHaveLength(2);
+    });
+  });
+
   test('someone who may only view changes nothing, not even an empty deck', () => {
     const ydoc = new Y.Doc();
     let updates = 0;

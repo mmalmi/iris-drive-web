@@ -5,6 +5,8 @@
   import { placeholderFor } from '../../lib/slides/layouts';
   import { resolveColour, textStyle, type Palette, type Theme } from '../../lib/slides/themes';
   import type { SlidesEditorState } from '../../lib/slides/editorState.svelte';
+  import { fontSizeCss } from '../../lib/slides/richText';
+  import { MIN_FIT, TEXT_PAD_Y, clearFit, fitText } from '../../lib/slides/fitText';
   import RichText from './RichText.svelte';
   import TextEditor from './TextEditor.svelte';
 
@@ -60,6 +62,23 @@
         }
       : null;
     return { left, top, x1, y1, x2, y2, arrow };
+  });
+
+  // Titles, subtitles and body text shrink to stay inside their box; see fitText.ts.
+  let autofit = $derived(element.type === 'text' && !!element.role);
+  let textBox: HTMLElement | undefined = $state();
+  let textInner: HTMLElement | undefined = $state();
+
+  function fit(): void {
+    if (!textBox || !textInner) return;
+    if (autofit && element.role) fitText(textBox, textInner, element.h - TEXT_PAD_Y * 2, MIN_FIT[element.role]);
+    else clearFit(textBox);
+  }
+
+  $effect(() => {
+    // Anything that changes how the text is laid out calls for fitting it again.
+    void [element.w, element.h, style.fontSize, style.fontFamily, style.fontWeight, style.lineHeight, autofit, editing, hint];
+    fit();
   });
 
   let imageUrl = $derived(element.type === 'image' && element.src ? urls.get(element.src) : undefined);
@@ -122,21 +141,22 @@
         <div
           class="el-text"
           class:el-text-ellipse={element.shape === 'ellipse'}
+          bind:this={textBox}
           style:font-family={style.fontFamily}
-          style:font-size="{style.fontSize}px"
+          style:font-size={fontSizeCss(style.fontSize)}
           style:font-weight={style.fontWeight}
           style:line-height={style.lineHeight}
           style:color={style.color}
           style:text-align={style.align}
           style:justify-content={style.valign === 'middle' ? 'center' : style.valign === 'bottom' ? 'flex-end' : 'flex-start'}
         >
-          <div class="el-text-inner">
+          <div class="el-text-inner" bind:this={textInner}>
             {#if editing && editorState}
-              <TextEditor fragment={element.content} {editorState} />
+              <TextEditor fragment={element.content} {editorState} onChanged={fit} />
             {:else if hint}
               <div class="slide-text el-hint"><p>{hint}</p></div>
             {:else}
-              <RichText fragment={element.content} />
+              <RichText fragment={element.content} onDrawn={fit} />
             {/if}
           </div>
         </div>

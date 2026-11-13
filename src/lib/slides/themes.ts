@@ -136,7 +136,8 @@ export interface TextStyle {
   valign: 'top' | 'middle' | 'bottom';
 }
 
-const ROLE_SIZE: Record<TextRole, number> = { title: 52, subtitle: 28, body: 28 };
+// Sized so that a plain slide of a title and a handful of points looks finished as it is.
+const ROLE_SIZE: Record<TextRole, number> = { title: 52, subtitle: 30, body: 32 };
 const COVER_TITLE_SIZE = 72;
 
 /** How the text of an element is set when it has no formatting of its own. */
@@ -151,9 +152,9 @@ export function textStyle(element: SlideElement, theme: Theme, layout: string): 
     : role === 'subtitle' ? palette.muted : palette.text;
   return {
     fontFamily: role === 'title' ? theme.titleFont : theme.bodyFont,
-    fontSize: element.fontSize ?? (role ? (role === 'title' && cover ? COVER_TITLE_SIZE : ROLE_SIZE[role]) : shape ? 22 : 24),
+    fontSize: element.fontSize ?? (role ? (role === 'title' && cover ? COVER_TITLE_SIZE : ROLE_SIZE[role]) : shape ? 24 : 28),
     fontWeight: role === 'title' ? theme.titleWeight : 400,
-    lineHeight: role === 'title' ? 1.12 : 1.35,
+    lineHeight: role === 'title' ? 1.12 : 1.3,
     color: resolveColour(element.color, palette, defaultColour) ?? defaultColour,
     align: element.align ?? (shape ? 'center' : 'left'),
     valign: element.valign ?? (shape ? 'middle' : 'top'),

@@ -1,8 +1,9 @@
 <script lang="ts">
   /**
    * The slide being worked on, scaled to fit, with everything done by hand on
-   * it: selecting, moving, resizing, rotating, and stepping into a box to type.
-   * A drag is shown as it goes and stored once, when it ends.
+   * it: drawing new things, selecting, moving, resizing, rotating, and
+   * stepping into a box to type. A drag is shown as it goes and stored once,
+   * when it ends.
    */
   import { SLIDE_HEIGHT, SLIDE_WIDTH, type ElementProps, type Frame, type SlideElement } from '../../lib/slides/model';
   import {
@@ -13,37 +14,50 @@
     fitScale,
     frameBox,
     frameCentre,
+    frameFromDrag,
     resizeFrame,
+    rotateFrames,
     roundFrame,
+    scaleFrames,
     snapAngle,
     snapLines,
     snapMove,
     snapPoint,
     unionBox,
     type Box,
+    type GroupFrame,
     type Guide,
     type Handle,
     type Point,
   } from '../../lib/slides/geometry';
+  import { TEXT_PAD_Y } from '../../lib/slides/fitText';
   import type { SlidesEditorState } from '../../lib/slides/editorState.svelte';
   import SlideView from './SlideView.svelte';
+  import Popover from './Popover.svelte';
 
   interface Props {
     editorState: SlidesEditorState;
     urls: Map<string, string>;
     onImageFiles: (files: File[], at: Point) => void;
+    /** Copies the selection; takes it off the slide too when `cut`. */
+    onCopy: (cut: boolean) => void;
+    onPaste: () => void;
   }
-  let { editorState, urls, onImageFiles }: Props = $props();
+  let { editorState, urls, onImageFiles, onCopy, onPaste }: Props = $props();
 
   const HANDLES: Handle[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
   const DRAG_START = 4;
   const SNAP_DISTANCE = 7;
+  const modifier = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl+';
 
   type Drag =
     | { kind: 'move'; start: Point; frames: Record<string, Frame>; moved: boolean; clicked: string | null; wasSelected: boolean }
     | { kind: 'resize'; start: Point; id: string; frame: Frame; handle: Handle; moved: boolean }
     | { kind: 'rotate'; id: string; frame: Frame; moved: boolean }
     | { kind: 'line-end'; id: string; frame: Frame; end: 'start' | 'end'; moved: boolean }
+    | { kind: 'group-resize'; start: Point; frames: Record<string, GroupFrame>; box: Box; handle: Handle; moved: boolean }
+    | { kind: 'group-rotate'; frames: Record<string, GroupFrame>; box: Box; from: number; moved: boolean }
+    | { kind: 'draw'; start: Point; moved: boolean }
     | { kind: 'marquee'; start: Point; added: string[]; moved: boolean };
 
   let stage: HTMLElement | undefined = $state();
@@ -53,26 +67,51 @@
   let overrides = $state.raw<Record<string, Partial<Frame>>>({});
   let guides = $state.raw<Guide[]>([]);
   let marquee = $state.raw<Box | null>(null);
+  /** What is being drawn with a tool: a box, or for a line its two ends. */
+  let sketch = $state.raw<Frame | null>(null);
+  /** While a group is being turned: the box it had and how far it has turned. */
+  let turning = $state.raw<{ box: Box; degrees: number } | null>(null);
   let dropping = $state(false);
+  let menuAt = $state<Point | undefined>();
+  let menuOpen = $state(false);
   // The pointer is captured while dragging, so double clicks are told apart here.
   let lastClick = { id: '', time: 0 };
   let swipe: Point | null = null;
 
   let slide = $derived(editorState.current);
   let canEdit = $derived(editorState.canEdit);
+  let tool = $derived(canEdit ? editorState.tool : null);
   let margin = $derived(stageWidth < 640 ? 10 : 28);
   let scale = $derived(Math.max(0.05, fitScale(stageWidth, stageHeight, SLIDE_WIDTH, SLIDE_HEIGHT, margin)));
   let width = $derived(SLIDE_WIDTH * scale);
   let height = $derived(SLIDE_HEIGHT * scale);
   let left = $derived(Math.max(0, (stageWidth - width) / 2));
   let top = $derived(Math.max(0, (stageHeight - height) / 2));
+  let editing = $derived(editorState.editingId);
 
-  /** Selected elements as they are drawn right now, drag included. */
+  /** Frames drawn in place of the stored ones: what is being dragged, and the box being typed in as it grows with its text. */
+  let drawn = $derived.by(() => {
+    const growing = editing ? editorState.editingFrame : null;
+    return editing && growing ? { ...overrides, [editing]: { ...growing, ...overrides[editing] } } : overrides;
+  });
+  /** Selected elements as they are drawn right now. */
   let shown = $derived(
-    editorState.selected.map(element => (overrides[element.id] ? { ...element, ...overrides[element.id] } : element)),
+    editorState.selected.map(element => (drawn[element.id] ? { ...element, ...drawn[element.id] } : element)),
   );
   let single = $derived(shown.length === 1 ? shown[0]! : null);
-  let editing = $derived(editorState.editingId);
+  /** The box around everything selected, when that is more than one thing. */
+  let groupBox = $derived(shown.length > 1 ? unionBox(shown.map(frameBox)) : null);
+
+  // The editor asks how tall a box's text is, to give it room after its width or its text's size changed.
+  $effect(() => {
+    editorState.measureText = (id) => {
+      const inner = stage?.querySelector<HTMLElement>(`[data-el="${id}"] .el-text-inner`);
+      return inner ? inner.offsetHeight + TEXT_PAD_Y * 2 : null;
+    };
+    return () => {
+      editorState.measureText = undefined;
+    };
+  });
 
   function toSlide(event: { clientX: number; clientY: number }): Point {
     const rect = stage!.getBoundingClientRect();
@@ -91,24 +130,51 @@
     return { x: element.x, y: element.y, w: element.w, h: element.h, rot: element.rot };
   }
 
+  function groupFrames(): Record<string, GroupFrame> {
+    const frames: Record<string, GroupFrame> = {};
+    for (const element of editorState.selected) frames[element.id] = { ...frameOf(element), line: element.type === 'line' };
+    return frames;
+  }
+
   function onPointerDown(event: PointerEvent): void {
     if (!stage || !slide || event.button !== 0) return;
     const target = event.target as HTMLElement;
     const point = toSlide(event);
-    const handle = target.closest<HTMLElement>('[data-handle]')?.dataset.handle;
-    const id = elementAt(target);
 
     if (!canEdit) {
       // Looking only: a swipe turns the page.
       swipe = event.pointerType === 'mouse' ? null : { x: event.clientX, y: event.clientY };
       return;
     }
+    const handle = target.closest<HTMLElement>('[data-handle]')?.dataset.handle;
+    const groupHandle = target.closest<HTMLElement>('[data-group-handle]')?.dataset.groupHandle;
+    const id = elementAt(target);
     // Inside the box being typed in, the pointer places the cursor and selects words.
-    if (!handle && id && id === editing) return;
+    if (!tool && !handle && id && id === editing) return;
 
     event.preventDefault();
     stage.focus({ preventScroll: true });
     editorState.area = 'canvas';
+    stage.setPointerCapture(event.pointerId);
+
+    if (tool) {
+      editorState.select([]);
+      const snap = event.metaKey || event.ctrlKey ? null : snapPoint(point, snapLines(otherBoxes(), SLIDE_WIDTH, SLIDE_HEIGHT), SNAP_DISTANCE / scale);
+      drag = { kind: 'draw', start: snap ? { x: point.x + snap.dx, y: point.y + snap.dy } : point, moved: false };
+      return;
+    }
+
+    if (groupHandle && groupBox) {
+      const frames = groupFrames();
+      const box = unionBox(Object.values(frames).map(frameBox))!;
+      if (groupHandle === 'rotate') {
+        const centre = { x: (box.left + box.right) / 2, y: (box.top + box.bottom) / 2 };
+        drag = { kind: 'group-rotate', frames, box, from: angleFromCentre(centre, point), moved: false };
+      } else {
+        drag = { kind: 'group-resize', start: point, frames, box, handle: groupHandle as Handle, moved: false };
+      }
+      return;
+    }
 
     if (handle && single) {
       if (handle === 'move') {
@@ -120,7 +186,6 @@
       } else {
         drag = { kind: 'resize', start: point, id: single.id, frame: frameOf(single), handle: handle as Handle, moved: false };
       }
-      stage.setPointerCapture(event.pointerId);
       return;
     }
 
@@ -128,19 +193,18 @@
       const wasSelected = editorState.selection.includes(id);
       if (event.shiftKey || event.metaKey || event.ctrlKey) {
         editorState.select(wasSelected ? editorState.selection.filter(other => other !== id) : [...editorState.selection, id]);
+        stage.releasePointerCapture(event.pointerId);
         return;
       }
       if (!wasSelected) editorState.select([id]);
       else if (editing) editorState.stopEditing();
       beginMove(point, id, wasSelected);
-      stage.setPointerCapture(event.pointerId);
       return;
     }
 
     const keep = event.shiftKey ? editorState.selection : [];
     editorState.select(keep);
     drag = { kind: 'marquee', start: point, added: keep, moved: false };
-    stage.setPointerCapture(event.pointerId);
   }
 
   function beginMove(point: Point, clicked: string | null, wasSelected: boolean): void {
@@ -155,11 +219,12 @@
     const point = toSlide(event);
     const threshold = SNAP_DISTANCE / scale;
     const free = event.metaKey || event.ctrlKey;
+    const far = (from: Point) => Math.hypot(point.x - from.x, point.y - from.y) * scale >= DRAG_START;
 
     if (current.kind === 'move') {
       let dx = point.x - current.start.x;
       let dy = point.y - current.start.y;
-      if (!current.moved && Math.hypot(dx, dy) * scale < DRAG_START) return;
+      if (!current.moved && !far(current.start)) return;
       current.moved = true;
       if (editing) editorState.stopEditing();
       if (event.shiftKey) {
@@ -206,28 +271,69 @@
       current.moved = true;
       const frame = current.frame;
       const fixed = current.end === 'end' ? { x: frame.x, y: frame.y } : { x: frame.x + frame.w, y: frame.y + frame.h };
-      let freeEnd = point;
-      guides = [];
-      if (event.shiftKey) {
-        freeEnd = constrainLineEnd(fixed, point);
-      } else if (!free) {
-        const snap = snapPoint(point, snapLines(otherBoxes(), SLIDE_WIDTH, SLIDE_HEIGHT), threshold);
-        freeEnd = { x: point.x + snap.dx, y: point.y + snap.dy };
-        guides = snap.guides;
-      }
+      const freeEnd = lineEnd(fixed, point, event);
       overrides = {
         [current.id]: current.end === 'end'
           ? { w: freeEnd.x - fixed.x, h: freeEnd.y - fixed.y }
           : { x: freeEnd.x, y: freeEnd.y, w: fixed.x - freeEnd.x, h: fixed.y - freeEnd.y },
       };
+    } else if (current.kind === 'group-resize') {
+      current.moved = true;
+      overrides = scaleFrames(current.frames, current.box, current.handle, point.x - current.start.x, point.y - current.start.y, {
+        keepRatio: event.shiftKey,
+        fromCentre: event.altKey,
+      });
+    } else if (current.kind === 'group-rotate') {
+      current.moved = true;
+      const box = current.box;
+      const centre = { x: (box.left + box.right) / 2, y: (box.top + box.bottom) / 2 };
+      const degrees = snapAngle(angleFromCentre(centre, point) - current.from, event.shiftKey ? 15 : null);
+      overrides = rotateFrames(current.frames, centre, degrees);
+      turning = { box, degrees };
+    } else if (current.kind === 'draw') {
+      if (!current.moved && !far(current.start)) return;
+      current.moved = true;
+      if (tool?.kind === 'line') {
+        const end = lineEnd(current.start, point, event);
+        sketch = { x: current.start.x, y: current.start.y, w: end.x - current.start.x, h: end.y - current.start.y, rot: 0 };
+      } else {
+        guides = [];
+        let corner = point;
+        if (!free && !event.shiftKey) {
+          const snap = snapPoint(point, snapLines(otherBoxes(), SLIDE_WIDTH, SLIDE_HEIGHT), threshold);
+          corner = { x: point.x + snap.dx, y: point.y + snap.dy };
+          guides = snap.guides;
+        }
+        sketch = frameFromDrag(current.start, corner, event.shiftKey && tool?.kind === 'shape');
+      }
     } else {
-      if (!current.moved && Math.hypot(point.x - current.start.x, point.y - current.start.y) * scale < DRAG_START) return;
+      if (!current.moved && !far(current.start)) return;
       current.moved = true;
       const box = boxFromPoints(current.start, point);
       marquee = box;
       const inside = slide.elements.filter(element => boxesOverlap(box, frameBox(element))).map(element => element.id);
       editorState.select([...new Set([...current.added, ...inside])]);
     }
+  }
+
+  /**
+   * Where the free end of a line goes: held to 15° steps with Shift;
+   * otherwise level or upright when it nearly is, and drawn to nearby lines.
+   */
+  function lineEnd(fixed: Point, point: Point, event: PointerEvent): Point {
+    guides = [];
+    if (event.shiftKey) return constrainLineEnd(fixed, point);
+    if (event.metaKey || event.ctrlKey) return point;
+    const threshold = SNAP_DISTANCE / scale;
+    const level = Math.abs(point.y - fixed.y) <= threshold;
+    const upright = !level && Math.abs(point.x - fixed.x) <= threshold;
+    const snap = snapPoint(
+      { x: upright ? undefined : point.x, y: level ? undefined : point.y },
+      snapLines(otherBoxes(), SLIDE_WIDTH, SLIDE_HEIGHT),
+      threshold,
+    );
+    guides = snap.guides;
+    return { x: upright ? fixed.x : point.x + snap.dx, y: level ? fixed.y : point.y + snap.dy };
   }
 
   function onPointerUp(event: PointerEvent): void {
@@ -243,10 +349,19 @@
     drag = null;
     if (stage?.hasPointerCapture(event.pointerId)) stage.releasePointerCapture(event.pointerId);
     const pending = overrides;
+    const drew = sketch;
     overrides = {};
     guides = [];
     marquee = null;
+    sketch = null;
+    turning = null;
 
+    if (current.kind === 'draw') {
+      if (event.type === 'pointercancel') return;
+      if (current.moved && drew) editorState.useTool({ frame: drew });
+      else editorState.useTool({ at: current.start });
+      return;
+    }
     if (current.moved && current.kind !== 'marquee') {
       const changes: Record<string, ElementProps> = {};
       for (const [id, frame] of Object.entries(pending)) changes[id] = roundFrame(frame);
@@ -262,6 +377,26 @@
         editorState.startEditing(element.id, { point: { x: event.clientX, y: event.clientY } });
       }
     }
+  }
+
+  function onContextMenu(event: MouseEvent): void {
+    if (!canEdit) return;
+    const id = elementAt(event.target);
+    // The box being typed in keeps the browser's own menu, with its spelling and paste.
+    if (id && id === editing) return;
+    event.preventDefault();
+    if (tool) editorState.armTool(null);
+    if (id && !editorState.selection.includes(id)) editorState.select([id]);
+    else if (!id) editorState.select([]);
+    editorState.area = 'canvas';
+    menuAt = { x: event.clientX, y: event.clientY };
+    menuOpen = true;
+  }
+
+  function run(action: () => void): void {
+    menuOpen = false;
+    stage?.focus({ preventScroll: true });
+    action();
   }
 
   function hasFiles(event: DragEvent): boolean {
@@ -289,10 +424,15 @@
     return CURSORS[Math.round((((base + rotation) % 180) + 180) % 180 / 45) % 4]!;
   }
 
-  function handleStyle(handle: Handle, element: Frame): string {
+  function handleStyle(handle: Handle, rotation: number): string {
     const x = handle.includes('w') ? 0 : handle.includes('e') ? 100 : 50;
     const y = handle.includes('n') ? 0 : handle.includes('s') ? 100 : 50;
-    return `left:${x}%;top:${y}%;cursor:${cursorFor(handle, element.rot)}`;
+    return `left:${x}%;top:${y}%;cursor:${cursorFor(handle, rotation)}`;
+  }
+
+  /** On a box that is small on screen the middle handles would crowd the corners. */
+  function roomFor(handle: Handle, w: number, h: number): boolean {
+    return handle.length === 2 || ((handle === 'n' || handle === 's') ? w : h) * scale >= 44;
   }
 </script>
 
@@ -301,6 +441,7 @@
   class="stage"
   class:stage-editable={canEdit}
   class:stage-dropping={dropping}
+  class:stage-tool={!!tool}
   bind:this={stage}
   bind:clientWidth={stageWidth}
   bind:clientHeight={stageHeight}
@@ -308,17 +449,19 @@
   role="application"
   aria-label="Slide"
   data-testid="slide-canvas"
+  data-tool={tool?.kind}
   onpointerdown={onPointerDown}
   onpointermove={onPointerMove}
   onpointerup={onPointerUp}
   onpointercancel={onPointerUp}
+  oncontextmenu={onContextMenu}
   ondragover={onDragOver}
   ondragleave={() => (dropping = false)}
   ondrop={onDrop}
 >
   {#if slide && stageWidth > 0}
     <div class="sheet" style:left="{left}px" style:top="{top}px" style:width="{width}px" style:height="{height}px" data-testid="slide-sheet">
-      <SlideView {slide} theme={editorState.theme} {urls} {width} {overrides} editorState={canEdit ? editorState : undefined} />
+      <SlideView {slide} theme={editorState.theme} {urls} {width} overrides={drawn} editorState={canEdit ? editorState : undefined} />
 
       {#if canEdit}
         <div class="overlay">
@@ -337,12 +480,13 @@
                 <div class="knob" data-handle="end" style:left="{(element.x + element.w) * scale}px" style:top="{(element.y + element.h) * scale}px"></div>
               {:else}
                 {@const box = frameBox(element)}
-                <div class="frame" style:left="{box.left * scale}px" style:top="{box.top * scale}px" style:width="{(box.right - box.left) * scale}px" style:height="{(box.bottom - box.top) * scale}px"></div>
+                <div class="frame frame-member" style:left="{box.left * scale}px" style:top="{box.top * scale}px" style:width="{(box.right - box.left) * scale}px" style:height="{(box.bottom - box.top) * scale}px"></div>
               {/if}
             {:else}
               <div
                 class="frame"
                 class:frame-editing={editing === element.id}
+                class:frame-member={!single}
                 style:left="{element.x * scale}px"
                 style:top="{element.y * scale}px"
                 style:width="{element.w * scale}px"
@@ -361,15 +505,52 @@
                   <div class="rotate-stem"></div>
                   <div class="knob knob-rotate" data-handle="rotate" title="Rotate"></div>
                   {#each HANDLES as handle (handle)}
-                    <!-- On a box that is small on screen the middle handles would crowd the corners. -->
-                    {#if handle.length === 2 || ((handle === 'n' || handle === 's') ? element.w : element.h) * scale >= 44}
-                      <div class="knob knob-square" data-handle={handle} style={handleStyle(handle, element)}></div>
+                    {#if roomFor(handle, element.w, element.h)}
+                      <div class="knob knob-square" data-handle={handle} style={handleStyle(handle, element.rot)}></div>
                     {/if}
                   {/each}
                 {/if}
               </div>
             {/if}
           {/each}
+
+          {#if groupBox}
+            {@const box = turning?.box ?? groupBox}
+            <!-- Several things selected are resized and turned as one, by the box around them all. -->
+            <div
+              class="frame frame-group"
+              style:left="{box.left * scale}px"
+              style:top="{box.top * scale}px"
+              style:width="{(box.right - box.left) * scale}px"
+              style:height="{(box.bottom - box.top) * scale}px"
+              style:transform={turning ? `rotate(${turning.degrees}deg)` : undefined}
+              data-testid="group-frame"
+            >
+              <div class="rotate-stem"></div>
+              <div class="knob knob-rotate" data-group-handle="rotate" title="Rotate"></div>
+              {#each HANDLES as handle (handle)}
+                {#if roomFor(handle, box.right - box.left, box.bottom - box.top)}
+                  <div class="knob knob-square" data-group-handle={handle} style={handleStyle(handle, turning?.degrees ?? 0)}></div>
+                {/if}
+              {/each}
+            </div>
+          {/if}
+
+          {#if sketch && tool?.kind === 'line'}
+            <svg class="sketch-line" width={width} height={height}>
+              <line x1={sketch.x * scale} y1={sketch.y * scale} x2={(sketch.x + sketch.w) * scale} y2={(sketch.y + sketch.h) * scale} />
+            </svg>
+          {:else if sketch}
+            <div
+              class="sketch"
+              class:sketch-round={tool?.kind === 'shape' && tool.shape === 'ellipse'}
+              style:left="{sketch.x * scale}px"
+              style:top="{sketch.y * scale}px"
+              style:width="{sketch.w * scale}px"
+              style:height="{(tool?.kind === 'text' ? Math.max(sketch.h, 64) : sketch.h) * scale}px"
+              data-testid="sketch"
+            ></div>
+          {/if}
 
           {#if marquee}
             <div class="marquee" style:left="{marquee.left * scale}px" style:top="{marquee.top * scale}px" style:width="{(marquee.right - marquee.left) * scale}px" style:height="{(marquee.bottom - marquee.top) * scale}px"></div>
@@ -380,6 +561,45 @@
   {/if}
 </div>
 
+<Popover bind:open={menuOpen} anchor={menuAt} label="Element options">
+  {#if editorState.selection.length > 0}
+    <button class="menu-item" onclick={() => run(() => onCopy(true))} data-testid="element-menu-cut">
+      <span class="i-lucide-scissors"></span>Cut<span class="keys">{modifier}X</span>
+    </button>
+    <button class="menu-item" onclick={() => run(() => onCopy(false))} data-testid="element-menu-copy">
+      <span class="i-lucide-copy"></span>Copy<span class="keys">{modifier}C</span>
+    </button>
+  {/if}
+  <button class="menu-item" onclick={() => run(onPaste)} data-testid="element-menu-paste">
+    <span class="i-lucide-clipboard"></span>Paste<span class="keys">{modifier}V</span>
+  </button>
+  {#if editorState.selection.length > 0}
+    <button class="menu-item" onclick={() => run(() => editorState.duplicateSelected())} data-testid="element-menu-duplicate">
+      <span class="i-lucide-copy-plus"></span>Duplicate<span class="keys">{modifier}D</span>
+    </button>
+    <button class="menu-item" onclick={() => run(() => editorState.deleteSelected())} data-testid="element-menu-delete">
+      <span class="i-lucide-trash-2"></span>Delete
+    </button>
+    <div class="menu-divider"></div>
+    <button class="menu-item" onclick={() => run(() => editorState.arrange('front'))} data-testid="element-menu-front">
+      <span class="i-lucide-bring-to-front"></span>Bring to front
+    </button>
+    <button class="menu-item" onclick={() => run(() => editorState.arrange('forward'))} data-testid="element-menu-forward">
+      <span class="i-lucide-arrow-up"></span>Bring forward<span class="keys">{modifier}]</span>
+    </button>
+    <button class="menu-item" onclick={() => run(() => editorState.arrange('backward'))} data-testid="element-menu-backward">
+      <span class="i-lucide-arrow-down"></span>Send backward<span class="keys">{modifier}[</span>
+    </button>
+    <button class="menu-item" onclick={() => run(() => editorState.arrange('back'))} data-testid="element-menu-back">
+      <span class="i-lucide-send-to-back"></span>Send to back
+    </button>
+  {:else}
+    <button class="menu-item" onclick={() => run(() => editorState.selectAll())} data-testid="element-menu-select-all">
+      <span class="i-lucide-box-select"></span>Select all<span class="keys">{modifier}A</span>
+    </button>
+  {/if}
+</Popover>
+
 <style>
   .stage {
     position: relative;
@@ -389,14 +609,19 @@
     overflow: clip;
     outline: none;
     background: rgb(var(--surface-0));
-  }
-
-  .stage {
     touch-action: pan-y;
   }
 
   .stage-editable {
     touch-action: none;
+  }
+
+  /* On a phone held upright the slide sits at the top, as tall as it needs, and the notes take the room below. */
+  @media (max-width: 639px) {
+    .stage {
+      flex: none;
+      height: calc((100vw - 20px) * 9 / 16 + 20px);
+    }
   }
 
   .stage-dropping .sheet {
@@ -417,19 +642,38 @@
     cursor: text;
   }
 
+  /* With a tool in hand the whole slide is somewhere to draw. */
+  .stage-tool,
+  .stage-tool :global([data-el]),
+  .stage-tool .knob {
+    cursor: crosshair !important;
+  }
+
   .overlay {
     position: absolute;
     inset: 0;
     pointer-events: none;
   }
 
+  /* A pale edge around the line keeps it visible on a slide of the same colour. */
   .frame {
     position: absolute;
     box-sizing: border-box;
     outline: 1.5px solid #916dfe;
+    box-shadow: 0 0 0 2.5px rgb(255 255 255 / 0.6);
   }
 
   .frame-editing {
+    outline-style: dashed;
+  }
+
+  .frame-member {
+    outline-width: 1px;
+    outline-color: rgb(145 109 254 / 0.7);
+    box-shadow: none;
+  }
+
+  .frame-group {
     outline-style: dashed;
   }
 
@@ -523,5 +767,29 @@
     position: absolute;
     border: 1px solid #916dfe;
     background: rgb(145 109 254 / 0.12);
+  }
+
+  .sketch {
+    position: absolute;
+    box-sizing: border-box;
+    border: 1.5px dashed #916dfe;
+    background: rgb(145 109 254 / 0.1);
+  }
+
+  .sketch-round {
+    border-radius: 50%;
+  }
+
+  .sketch-line {
+    position: absolute;
+    left: 0;
+    top: 0;
+    overflow: visible;
+  }
+
+  .sketch-line line {
+    stroke: #916dfe;
+    stroke-width: 2;
+    stroke-dasharray: 6 4;
   }
 </style>

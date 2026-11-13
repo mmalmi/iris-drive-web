@@ -6,6 +6,10 @@ import {
   fitScale,
   frameBox,
   frameCorners,
+  frameFromDrag,
+  needsEvenScale,
+  rotateFrames,
+  scaleFrames,
   resizeFrame,
   rotatePoint,
   snapAngle,
@@ -110,6 +114,72 @@ describe('resizing', () => {
     const result = resizeFrame(frame(0, 0, 200, 100, 90), 'e', 0, 40);
     close(result.w, 240);
     close(result.h, 100);
+  });
+});
+
+describe('several frames as one', () => {
+  const frames = {
+    a: frame(100, 100, 100, 50),
+    b: frame(300, 200, 100, 100),
+    line: { ...frame(100, 300, 300, -100), line: true },
+  };
+  const box = { left: 100, top: 100, right: 400, bottom: 300 };
+
+  test('dragging a corner of the group scales every frame within it', () => {
+    const scaled = scaleFrames(frames, box, 'se', 300, 100);
+    expect(scaled.a).toEqual(frame(100, 100, 200, 75));
+    expect(scaled.b).toEqual(frame(500, 250, 200, 150));
+    expect(scaled.line).toEqual(frame(100, 400, 600, -150));
+  });
+
+  test('dragging the left side keeps the right side where it is', () => {
+    const scaled = scaleFrames(frames, box, 'w', 150, 0);
+    expect(scaled.a).toEqual(frame(250, 100, 50, 50));
+    expect(scaled.b).toEqual(frame(350, 200, 50, 100));
+  });
+
+  test('a frame turned a quarter is stretched along its own other side', () => {
+    const turned = { a: frame(100, 100, 200, 100, 90) };
+    // On the slide it stands 100 wide and 200 tall.
+    const around = frameBox(turned.a);
+    const scaled = scaleFrames(turned, around, 'e', 100, 0);
+    expect(scaled.a!.w).toBeCloseTo(200);
+    expect(scaled.a!.h).toBeCloseTo(200);
+    const after = frameBox(scaled.a!);
+    expect(after.left).toBeCloseTo(around.left);
+    expect(after.right).toBeCloseTo(around.right + 100);
+  });
+
+  test('with a frame at an odd angle the group only scales evenly', () => {
+    const tilted = { a: frame(0, 0, 100, 50, 30), b: frame(200, 0, 100, 100) };
+    expect(needsEvenScale(Object.values(tilted))).toBe(true);
+    expect(needsEvenScale(Object.values(frames))).toBe(false);
+    const scaled = scaleFrames(tilted, { left: 0, top: 0, right: 300, bottom: 100 }, 'e', 300, 0);
+    expect(scaled.a!.w / scaled.a!.h).toBeCloseTo(2);
+    expect(scaled.b!.w).toBeCloseTo(200);
+    expect(scaled.b!.h).toBeCloseTo(200);
+    expect(scaled.a!.rot).toBe(30);
+  });
+
+  test('turning the group turns each frame about the middle of the group', () => {
+    const turned = rotateFrames(frames, { x: 250, y: 200 }, 90);
+    // a's centre (150, 125) goes to (325, 100).
+    expect(turned.a!.rot).toBe(90);
+    expect(turned.a!.x + turned.a!.w / 2).toBeCloseTo(325);
+    expect(turned.a!.y + turned.a!.h / 2).toBeCloseTo(100);
+    expect(turned.a!.w).toBe(100);
+    // The line's ends turn with it.
+    expect(turned.line!.x).toBeCloseTo(150);
+    expect(turned.line!.y).toBeCloseTo(50);
+    expect(turned.line!.w).toBeCloseTo(100);
+    expect(turned.line!.h).toBeCloseTo(300);
+    expect(rotateFrames({ a: frame(0, 0, 10, 10, 350) }, { x: 5, y: 5 }, 20).a!.rot).toBe(10);
+  });
+
+  test('a frame drawn by dragging, in any direction', () => {
+    expect(frameFromDrag({ x: 10, y: 20 }, { x: 110, y: 70 })).toEqual(frame(10, 20, 100, 50));
+    expect(frameFromDrag({ x: 110, y: 70 }, { x: 10, y: 20 })).toEqual(frame(10, 20, 100, 50));
+    expect(frameFromDrag({ x: 100, y: 100 }, { x: 40, y: 130 }, true)).toEqual(frame(40, 100, 60, 60));
   });
 });
 

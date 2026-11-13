@@ -4,6 +4,7 @@
  * elements that are selected, the text box being typed in, and undo.
  * Selection and the like are this screen's own and are never stored.
  */
+import { tick } from 'svelte';
 import * as Y from 'yjs';
 import { PluginKey } from '@tiptap/pm/state';
 import type { Editor } from '@tiptap/core';
@@ -18,6 +19,7 @@ import {
   type ElementInit,
   type ElementJson,
   type ElementProps,
+  type Frame,
   type ShapeKind,
   type Slide,
   type SlideElement,
@@ -26,7 +28,7 @@ import {
 } from './model';
 import { DEFAULT_LAYOUT, layoutById } from './layouts';
 import { DEFAULT_THEME, paletteFor, textStyle, themeById, type Palette, type Theme } from './themes';
-import { MAX_FONT_SIZE, MIN_FONT_SIZE } from './richText';
+import { MAX_FONT_SIZE, MIN_FONT_SIZE, selectAllText } from './richText';
 import { comparePositions } from './order';
 
 export const CLIPBOARD_TYPE = 'application/x-iris-slides';
@@ -56,6 +58,18 @@ export interface StartEditingOptions {
 }
 
 export type TextMark = 'bold' | 'italic' | 'underline' | 'strike';
+
+/** What the next click or drag on the slide will make. */
+export type Tool = { kind: 'text' } | { kind: 'shape'; shape: ShapeKind } | { kind: 'line'; arrow: boolean };
+
+/** Transaction origin of the housekeeping around a deck's first slide; not something to undo. */
+const SEED_ORIGIN = 'slides-seed';
+
+/** A slide a new deck was given by itself that nobody has done anything with yet. */
+function untouched(slide: Slide): boolean {
+  return !!slide.seed && !slide.background && !slide.notes?.length
+    && slide.elements.every(element => element.type === 'text' && !!element.role && richTextIsEmpty(element.content));
+}
 
 function shallowEqual(left: object, right: object): boolean {
   const leftKeys = Object.keys(left);
@@ -94,6 +108,8 @@ export class SlidesEditorState {
   #lastAction = '';
   #pendingEdit: StartEditingOptions | null = null;
   #pasteCount = 0;
+  /** The first slide this editor gave the deck, while nobody has touched it. */
+  #seedId: string | null = null;
 
   slides = $state.raw<Slide[]>([]);
   themeId = $state(DEFAULT_THEME);
@@ -117,6 +133,8 @@ export class SlidesEditorState {
   area = $state<'strip' | 'canvas'>('canvas');
   presenting = $state(false);
   notice = $state('');
+  /** The tool picked in the toolbar, until it has made its thing or is put down. */
+  tool = $state.raw<Tool | null>(null);
 
   readonly theme: Theme = $derived(themeById(this.themeId));
   readonly current: Slide | null = $derived(this.slides.find(slide => slide.id === this.currentId) ?? this.slides[0] ?? null);
@@ -177,6 +195,7 @@ export class SlidesEditorState {
       }
     }
     this.#read(changed);
+    if (transaction.origin !== SEED_ORIGIN) this.#settleSeed();
     // Undoing something on another slide shows that slide.
     if (transaction.origin === this.#undo && changed.size > 0 && !(this.currentId && changed.has(this.currentId))) {
       const target = this.slides.find(slide => changed.has(slide.id));
@@ -225,17 +244,83 @@ export class SlidesEditorState {
   startDeck(): void {
     if (!this.canEdit) return;
     this.deck.start(DEFAULT_THEME);
-    if (this.deck.slides.size === 0) this.deck.addSlide('title', layoutById('title').elements);
+    if (this.deck.slides.size === 0) {
+      this.#seedId = this.deck.ydoc.transact(() => this.deck.addSlide('title', layoutById('title').elements, null, undefined, true), SEED_ORIGIN);
+    }
     this.#undo.clear();
   }
 
-  /** Runs one step of editing. Steps of the same `merge` kind made in quick succession undo together. */
-  #act<T>(change: () => T, merge = ''): T {
+  /**
+   * Two devices that open a new deck at the same moment each give it a first
+   * slide. Each then takes its own away again if it is still untouched and
+   * the other's is the one to keep: the one with something on it, or of two
+   * untouched ones the one whose id sorts first. A device only ever removes
+   * the slide it made itself, so nothing anyone typed can be lost this way.
+   */
+  #settleSeed(): void {
+    const own = this.#seedId ? this.slides.find(slide => slide.id === this.#seedId) : undefined;
+    if (!own || !untouched(own) || !this.canEdit) {
+      this.#seedId = null;
+      return;
+    }
+    const others = this.slides.filter(slide => slide.seed && slide.id !== own.id);
+    if (!others.some(other => !untouched(other) || other.id < own.id)) return;
+    this.#seedId = null;
+    this.deck.ydoc.transact(() => this.deck.slides.delete(own.id), SEED_ORIGIN);
+  }
+
+  /**
+   * Runs one step of editing. Steps of the same `merge` kind made in quick
+   * succession undo together. Text boxes named in `refit` are given room for
+   * their text once the change has been drawn, as part of the same step.
+   */
+  #act<T>(change: () => T, merge = '', refit: string[] | ((result: T) => string[]) = []): T {
     if (!merge || merge !== this.#lastAction) this.#undo.stopCapturing();
     this.#lastAction = merge;
     const result = change();
-    if (!merge) this.#undo.stopCapturing();
+    const boxes = typeof refit === 'function' ? refit(result) : refit;
+    if (boxes.length && this.measureText && this.currentId) void this.#refit(this.currentId, boxes, !merge);
+    else if (!merge) this.#undo.stopCapturing();
     return result;
+  }
+
+  /** Set by the canvas: how tall the text of an element on it is right now, in slide units. */
+  measureText: ((id: string) => number | null) | undefined;
+
+  /** The frame a text box needs to hold text of the given height: it grows away from the side its text is held to. */
+  #grown(element: SlideElement, height: number): ElementProps | null {
+    if (element.type !== 'text' || !(height > element.h + 1)) return null;
+    const grown = Math.ceil(height);
+    const valign = textStyle(element, this.theme, this.current?.layout ?? 'blank').valign;
+    const y = valign === 'bottom' ? element.y - (grown - element.h) : valign === 'middle' ? element.y - (grown - element.h) / 2 : element.y;
+    return { h: grown, y: Math.round(y) };
+  }
+
+  async #refit(slideId: string, ids: string[], close: boolean): Promise<void> {
+    await tick();
+    if (this.currentId === slideId && this.measureText) {
+      const changes: Record<string, ElementProps> = {};
+      for (const id of ids) {
+        const element = this.current?.elements.find(candidate => candidate.id === id);
+        const height = element && id !== this.editingId ? this.measureText(id) : null;
+        const grown = element && height ? this.#grown(element, height) : null;
+        if (grown) changes[id] = grown;
+      }
+      if (Object.keys(changes).length) this.deck.updateElements(slideId, changes);
+    }
+    if (close) this.#undo.stopCapturing();
+  }
+
+  /**
+   * How tall the text being typed is right now, with the space around it.
+   * The canvas draws the box that tall while typing; it is stored when typing ends.
+   */
+  editingHeight = $state(0);
+
+  /** The frame of the box being typed in as it should be drawn now, when its text has outgrown it. */
+  get editingFrame(): ElementProps | null {
+    const element = this.editing;
+    return element && this.editingHeight ? this.#grown(element, this.editingHeight) : null;
   }
 
   undo(): void {
@@ -345,6 +430,19 @@ export class SlidesEditorState {
     this.#act(() => this.deck.setTheme(id));
   }
 
+  /** Gives the picked slides another layout, keeping their text. */
+  setLayout(layoutId: string): void {
+    if (!this.canEdit) return;
+    const layout = layoutById(layoutId);
+    const ids = this.pickedSlides.length ? this.pickedSlides : this.currentId ? [this.currentId] : [];
+    this.stopEditing();
+    this.selection = [];
+    // Text moved into a smaller box may need that box to grow.
+    this.#act(() => this.deck.transact(() => {
+      for (const id of ids) this.deck.applyLayout(id, layout.id, layout.elements);
+    }), '', () => this.current?.elements.filter(element => element.type === 'text').map(element => element.id) ?? []);
+  }
+
   setNotes(value: string): void {
     if (!this.canEdit || !this.currentId) return;
     this.#act(() => this.deck.setNotes(this.currentId!, value), 'notes');
@@ -377,24 +475,59 @@ export class SlidesEditorState {
   #add(inits: Array<ElementJson & { text?: string }>): string[] {
     if (!this.canEdit || !this.currentId) return [];
     this.stopEditing();
-    const ids = this.#act(() => this.deck.addElements(this.currentId!, inits));
+    // Text that comes with its box may need more room than was guessed.
+    const ids = this.#act(() => this.deck.addElements(this.currentId!, inits), '', made => made);
     this.select(ids);
     return ids;
   }
 
-  addText(): void {
-    const [id] = this.#add([{ type: 'text', ...this.#place(520, 60), w: 520, h: 60, rot: 0 }]);
+  /** Picks up a tool, or puts it down when it is the one already held. */
+  armTool(tool: Tool | null): void {
+    if (!this.canEdit) return;
+    this.stopEditing();
+    this.tool = tool && JSON.stringify(tool) === JSON.stringify(this.tool) ? null : tool;
+    this.area = 'canvas';
+  }
+
+  /**
+   * Makes what the held tool makes and puts the tool down: in `frame` when
+   * it was drawn by dragging (for a line, from the frame's corner along its
+   * width and height), or of the usual size at the point that was clicked.
+   */
+  useTool(drawn: { frame: Frame } | { at: { x: number; y: number } }): void {
+    const tool = this.tool;
+    this.tool = null;
+    if (!tool) return;
+    if (tool.kind === 'text') this.addText('frame' in drawn ? drawn.frame : undefined, 'at' in drawn ? drawn.at : undefined);
+    else if (tool.kind === 'shape') this.addShape(tool.shape, 'frame' in drawn ? drawn.frame : undefined, 'at' in drawn ? drawn.at : undefined);
+    else this.addLine(tool.arrow, 'frame' in drawn ? drawn.frame : undefined, 'at' in drawn ? drawn.at : undefined);
+  }
+
+  /** A text box, ready to type in. Drawn, it takes the width drawn; its height is that of its text. */
+  addText(frame?: Frame, at?: { x: number; y: number }): void {
+    const w = frame ? Math.max(80, Math.round(frame.w)) : 520;
+    const h = 64;
+    const spot = frame ? { x: Math.round(frame.x), y: Math.round(frame.y) }
+      : at ? { x: Math.round(Math.min(Math.max(0, at.x), SLIDE_WIDTH - w)), y: Math.round(at.y - h / 2) }
+        : this.#place(w, h);
+    const [id] = this.#add([{ type: 'text', ...spot, w, h, rot: 0 }]);
     if (id) this.startEditing(id);
   }
 
-  addShape(shape: ShapeKind): void {
-    const w = shape === 'ellipse' ? 220 : 280;
-    const h = shape === 'ellipse' ? 220 : 170;
-    this.#add([{ type: 'shape', shape, ...this.#place(w, h), w, h, rot: 0 }]);
+  addShape(shape: ShapeKind, frame?: Frame, at?: { x: number; y: number }): void {
+    const w = frame ? Math.max(12, Math.round(frame.w)) : shape === 'ellipse' ? 220 : 280;
+    const h = frame ? Math.max(12, Math.round(frame.h)) : shape === 'ellipse' ? 220 : 170;
+    const spot = frame ? { x: Math.round(frame.x), y: Math.round(frame.y) }
+      : at ? { x: Math.round(at.x - w / 2), y: Math.round(at.y - h / 2) }
+        : this.#place(w, h);
+    this.#add([{ type: 'shape', shape, ...spot, w, h, rot: 0 }]);
   }
 
-  addLine(arrow: boolean): void {
-    const init: ElementInit = { type: 'line', ...this.#place(320, 0), w: 320, h: 0, rot: 0 };
+  addLine(arrow: boolean, frame?: Frame, at?: { x: number; y: number }): void {
+    const vector = frame ? { x: Math.round(frame.x), y: Math.round(frame.y), w: Math.round(frame.w), h: Math.round(frame.h) }
+      : at ? { x: Math.round(at.x - 160), y: Math.round(at.y), w: 320, h: 0 }
+        : { ...this.#place(320, 0), w: 320, h: 0 };
+    const init: ElementInit = { type: 'line', ...vector, rot: 0 };
     if (arrow) init.arrow = true;
     this.#add([init]);
   }
@@ -433,7 +566,9 @@ export class SlidesEditorState {
   /** Writes a different change to each element, as one step. */
   updateElements(changes: Record<string, ElementProps>, merge = ''): void {
     if (!this.canEdit || !this.currentId) return;
-    this.#act(() => this.deck.updateElements(this.currentId!, changes), merge);
+    // A text box made narrower may need to become taller.
+    const resized = Object.entries(changes).filter(([, props]) => props.w !== undefined || props.h !== undefined).map(([id]) => id);
+    this.#act(() => this.deck.updateElements(this.currentId!, changes), merge, resized);
   }
 
   nudge(dx: number, dy: number): void {
@@ -527,7 +662,7 @@ export class SlidesEditorState {
           top: Math.min(Math.max(options.point.y, bounds.top + 1), bounds.bottom - 1),
         })
       : null;
-    if (options.selectAll) editor.commands.selectAll();
+    if (options.selectAll) selectAllText(editor);
     else if (position) editor.commands.setTextSelection(position.pos);
     else editor.commands.setTextSelection(editor.state.doc.content.size);
     if (options.insert) editor.commands.insertContent(options.insert);
@@ -551,15 +686,12 @@ export class SlidesEditorState {
     this.#lastAction = '';
     if (!element || !slideId || !this.canEdit || element.type !== 'text') return;
     const measured = contentHeight ?? this.measureEditing?.();
+    const grown = measured ? this.#grown(element, measured) : null;
     if (richTextIsEmpty(element.content) && !element.role) {
       this.deck.deleteElements(slideId, [element.id]);
       this.selection = this.selection.filter(id => id !== element.id);
-    } else if (measured && measured > element.h + 1) {
-      // The box grows away from the side its text is held to, so the text stays where it was.
-      const grown = Math.ceil(measured);
-      const valign = textStyle(element, this.theme, this.current?.layout ?? 'blank').valign;
-      const y = valign === 'bottom' ? element.y - (grown - element.h) : valign === 'middle' ? element.y - (grown - element.h) / 2 : element.y;
-      this.deck.updateElements(slideId, { [element.id]: { h: grown, y: Math.round(y) } });
+    } else if (grown) {
+      this.deck.updateElements(slideId, { [element.id]: grown });
     }
     this.#undo.stopCapturing();
   }
@@ -600,7 +732,7 @@ export class SlidesEditorState {
     const slideId = this.currentId;
     this.#act(() => this.deck.transact(() => {
       for (const element of this.selectedText) this.deck.formatAllText(slideId, element.id, mark, on ? {} : null);
-    }));
+    }), '', this.selectedText.map(element => element.id));
   }
 
   #hasTextSelection(): boolean {
@@ -638,7 +770,7 @@ export class SlidesEditorState {
     this.#act(() => this.deck.transact(() => {
       this.deck.updateElements(slideId, changes);
       for (const element of this.selectedText) this.deck.formatAllText(slideId, element.id, mark, null);
-    }), mark);
+    }), mark, mark === 'fontSize' ? Object.keys(changes) : []);
   }
 
   /** The size of the text under the cursor, or of the first selected box. */
@@ -684,8 +816,33 @@ export class SlidesEditorState {
     if (element) this.startEditing(element.id, { selectAll: true, then: run });
   }
 
+  /** Aligns the paragraphs the cursor is in while typing, otherwise all the text of the selected boxes. */
   setAlign(align: TextAlign): void {
-    this.#updateText({ align });
+    if (!this.canEdit || !this.currentId) return;
+    if (this.textEditor && this.editingId) {
+      this.textEditor.chain().focus().updateAttributes('paragraph', { textAlign: align }).run();
+      return;
+    }
+    const slideId = this.currentId;
+    const changes: Record<string, ElementProps> = {};
+    for (const element of this.selectedText) changes[element.id] = { align };
+    this.#act(() => this.deck.transact(() => {
+      this.deck.updateElements(slideId, changes);
+      for (const element of this.selectedText) this.deck.clearParagraphAttribute(slideId, element.id, 'textAlign');
+    }));
+  }
+
+  /** How the paragraph under the cursor, or the first selected box, is aligned. */
+  get align(): TextAlign | null {
+    void this.editorTick;
+    const element = this.editing ?? this.selectedText[0];
+    if (!element) return null;
+    const box = textStyle(element, this.theme, this.current?.layout ?? 'blank').align;
+    if (this.textEditor && this.editingId) {
+      const own = this.textEditor.getAttributes('paragraph').textAlign as TextAlign | null | undefined;
+      if (own === 'left' || own === 'center' || own === 'right') return own;
+    }
+    return box;
   }
 
   setVerticalAlign(valign: VerticalAlign): void {
@@ -768,8 +925,8 @@ export class SlidesEditorState {
     const trimmed = value.replace(/\r\n?/g, '\n').trim();
     if (!trimmed) return;
     const w = 640;
-    // A guess at the height; the box grows to its text the first time it is edited.
-    const h = Math.min(560, Math.max(60, Math.round(trimmed.split('\n').length * 24 * 1.35 + 20)));
+    // A guess at the height; the box is given the room its text needs once it has been drawn.
+    const h = 64;
     this.#add([{ type: 'text', ...this.#place(w, h), w, h, rot: 0, text: trimmed }]);
   }
 }

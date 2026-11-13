@@ -177,11 +177,15 @@
   .slide-surface :global(.slide-text li + li),
   .slide-surface :global(.slide-text li > ul),
   .slide-surface :global(.slide-text li > ol) {
-    margin-top: 0.35em;
+    margin-top: 0.4em;
   }
 
   .slide-surface :global(.slide-text li::marker) {
     color: var(--slide-accent);
+  }
+
+  .slide-surface :global(.slide-text li.slide-empty-point::marker) {
+    content: '';
   }
 
   .slide-surface :global(.el-hint) {

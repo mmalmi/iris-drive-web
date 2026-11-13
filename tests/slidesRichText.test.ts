@@ -53,6 +53,7 @@ test('text is drawn the same while it is being edited and when it is not', () =>
     '<ul><li><p>one</p></li><li><p>two</p><ul><li><p>nested</p></li></ul></li></ul>',
     '<ol start="3"><li><p>third</p></li></ol>',
     '<p>line<br>break</p>',
+    '<p data-align="center">in the middle</p><p data-align="right">at the right</p>',
   ].join(''));
   const edited = [...editor.view.dom.childNodes].map(shape);
   expect(drawn(fragment)).toEqual(edited);
@@ -60,10 +61,11 @@ test('text is drawn the same while it is being edited and when it is not', () =>
   const container = document.createElement('div');
   renderRichText(fragment, container);
   expect(container.querySelector('strong')?.textContent).toBe('bold');
-  expect((container.querySelector('span') as HTMLElement).style.color).toBe('#e03131');
+  expect((container.querySelector('span') as HTMLElement).getAttribute('style')).toBe('color: #e03131');
   expect(container.querySelectorAll('ul ul li')).toHaveLength(1);
   expect(container.querySelector('ol')?.getAttribute('start')).toBe('3');
-  expect(richTextToPlain(fragment)).toBe('Plain bold italic under struck\nred and big and all of it\n\none\ntwo\nnested\nthird\nline\nbreak');
+  expect(richTextToPlain(fragment)).toBe('Plain bold italic under struck\nred and big and all of it\n\none\ntwo\nnested\nthird\nline\nbreak\nin the middle\nat the right');
+  expect([...container.querySelectorAll('p')].map(p => p.getAttribute('style')).filter(Boolean)).toEqual(['text-align: center', 'text-align: right']);
 });
 
 test('what is typed in one copy of a deck is drawn in another', () => {
@@ -117,7 +119,7 @@ test('only known elements and checked styles are drawn, whatever the document ho
   expect(container.innerHTML).not.toContain('example.com');
   expect(container.querySelector('p')?.textContent).toBe('<img src=x onerror=alert(3)>');
   // The size is held to what a slide can use; the colour is dropped.
-  expect((container.querySelector('p span') as HTMLElement).getAttribute('style')).toBe('font-size: 240px;');
+  expect((container.querySelector('p span') as HTMLElement).getAttribute('style')).toBe('font-size: calc(240px * var(--fit, 1))');
 });
 
 test('colours and sizes are checked', () => {
@@ -140,4 +142,14 @@ test('rich text survives the trip through the clipboard', () => {
   const [copy] = deck.addElements(slide, [{ type: 'text', x: 0, y: 0, w: 10, h: 10, rot: 0, content: json }]);
   const pasted = deck.readSlide(slide)!.elements.find(element => element.id === copy)!.content!;
   expect(drawn(pasted)).toEqual(drawn(fragment));
+});
+
+test('a point left empty at the end of a list is drawn without its bullet', () => {
+  const { fragment } = textBox();
+  const editor = edit(fragment);
+  editor.commands.setContent('<ul><li><p>one</p></li><li><p></p></li></ul>');
+  const container = document.createElement('div');
+  renderRichText(fragment, container);
+  const points = [...container.querySelectorAll('li')];
+  expect(points.map(point => point.className)).toEqual(['', 'slide-empty-point']);
 });

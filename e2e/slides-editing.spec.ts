@@ -1,6 +1,8 @@
 import { expect, test, type Page } from './fixtures';
 import { createDriveProfile, prepareFreshSession } from './documents.helpers';
 import {
+  addShapeAt,
+  addTextAt,
   bandsSvg,
   clickSlide,
   createPresentation,
@@ -14,6 +16,7 @@ import {
   slidePoint,
   thumbs,
   typeInBox,
+  type ShapeTool,
 } from './slides.helpers';
 
 async function blankSlide(page: Page): Promise<void> {
@@ -22,10 +25,7 @@ async function blankSlide(page: Page): Promise<void> {
   await expect(elements(page)).toHaveCount(0);
 }
 
-async function addShape(page: Page, kind: 'rect' | 'round' | 'ellipse' | 'line' | 'arrow'): Promise<void> {
-  await page.getByTestId('add-shape').click();
-  await page.getByTestId(`shape-${kind}`).click();
-}
+const addShape = (page: Page, kind: ShapeTool) => addShapeAt(page, kind);
 
 /** Drags one of the handles of the selected element by a distance given in slide units. */
 async function dragHandle(page: Page, handle: string, dx: number, dy: number, hold?: 'Shift' | 'Alt'): Promise<void> {
@@ -157,25 +157,27 @@ test.describe('working on a slide', () => {
     await createPresentation(page, 'Text');
     await blankSlide(page);
 
-    // A new text box is ready to type in, and grows to hold what was typed.
-    await page.getByTestId('add-text').click();
+    // A new text box is ready to type in where the slide was clicked, and grows as it is typed in.
+    await addTextAt(page, 380, 300);
     const editor = sheet(page).locator('.ProseMirror');
-    await expect(editor).toBeFocused();
+    const box = elements(page, 'text').first();
+    expect(await frameOf(box)).toEqual({ x: 380, y: 268, w: 520, h: 64 });
     await page.keyboard.type('First line');
     await page.keyboard.press('Enter');
     await page.keyboard.type('Second line');
     await page.keyboard.press('Enter');
     await page.keyboard.type('Third line');
+    // Already while typing, the box and its frame are as tall as the text.
+    await expect.poll(async () => (await frameOf(box)).h).toBe(125);
     await page.keyboard.press('Escape');
-    const box = elements(page, 'text').first();
     await expect(box.locator('p')).toHaveCount(3);
-    expect((await frameOf(box)).h).toBe(113);
+    expect(await frameOf(box)).toEqual({ x: 380, y: 268, w: 520, h: 125 });
 
     // With the box selected, size and colour apply to all of it.
     const size = page.getByTestId('font-size-input');
-    await expect(size).toHaveValue('24');
-    await page.getByRole('button', { name: 'Larger text' }).click();
     await expect(size).toHaveValue('28');
+    await page.getByRole('button', { name: 'Larger text' }).click();
+    await expect(size).toHaveValue('32');
     await size.fill('44');
     await size.press('Enter');
     await expect(box.locator('.el-text')).toHaveCSS('font-size', '44px');
@@ -214,8 +216,7 @@ test.describe('working on a slide', () => {
     await expect(box.locator('ol > li')).toHaveCount(3);
 
     // An emptied text box does not linger.
-    await page.getByTestId('add-text').click();
-    await expect(editor).toBeFocused();
+    await addTextAt(page, 100, 600);
     await page.keyboard.press('Escape');
     await expect(elements(page, 'text')).toHaveCount(1);
 

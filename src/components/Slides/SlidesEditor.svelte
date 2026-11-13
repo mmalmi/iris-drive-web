@@ -2,7 +2,8 @@
   /**
    * A presentation: the strip of slides, the slide being worked on, its
    * notes, and presenting. Someone who may only view gets the slides and
-   * presenting, without anything that edits.
+   * presenting, without anything that edits. Opened as the presenter's
+   * window, it shows the presenter's view and nothing else.
    */
   import { onMount, onDestroy } from 'svelte';
   import DocumentHeader from '../Viewer/DocumentHeader.svelte';
@@ -14,6 +15,11 @@
   import Toolbar from './Toolbar.svelte';
   import NotesBox from './NotesBox.svelte';
   import PresentView from './PresentView.svelte';
+  import PresenterView from './PresenterView.svelte';
+  import PrintView from './PrintView.svelte';
+  import SlideStack from './SlideStack.svelte';
+  import Popover from './Popover.svelte';
+  import { isPresenterWindow, presenterUrl } from '../../lib/slides/presentSync';
 
   interface Props {
     dirName: string;
@@ -31,6 +37,16 @@
   let canEdit = $derived(!!editorState?.canEdit);
   let urls = $derived(drive.attachmentUrls);
 
+  /** This window was opened beside a presentation, for the one presenting. */
+  const presenterWindow = isPresenterWindow(window.location.hash);
+  let printing = $state(false);
+  let moreOpen = $state(false);
+  let moreButton: HTMLElement | undefined = $state();
+  /** On a phone, someone who is only reading gets the slides one under the other. */
+  const narrowScreen = window.matchMedia('(max-width: 639px)');
+  let narrow = $state(narrowScreen.matches);
+  const onNarrowChange = () => (narrow = narrowScreen.matches);
+
   onMount(() => {
     void (async () => {
       if (!await drive.open()) return;
@@ -38,9 +54,11 @@
         addAttachment: file => drive.addAttachment(file),
         canEdit: () => drive.canEdit,
       });
-      created.startDeck();
+      if (!presenterWindow) created.startDeck();
       editorState = created;
     })();
+    narrowScreen.addEventListener('change', onNarrowChange);
+    if (presenterWindow) return;
     window.addEventListener('keydown', onKeyDown, true);
     document.addEventListener('copy', onCopy);
     document.addEventListener('cut', onCut);
@@ -48,6 +66,7 @@
   });
 
   onDestroy(() => {
+    narrowScreen.removeEventListener('change', onNarrowChange);
     window.removeEventListener('keydown', onKeyDown, true);
     document.removeEventListener('copy', onCopy);
     document.removeEventListener('cut', onCut);
@@ -61,6 +80,23 @@
     if (!editorState || editorState.slides.length === 0) return;
     editorState.stopEditing();
     editorState.presenting = true;
+  }
+
+  /** Opens the presenter's window: the same presentation, marked as the presenter's. */
+  function openNotesWindow(): void {
+    window.open(presenterUrl(window.location.href), 'irisslides-presenter', 'popup=yes,width=1180,height=720');
+  }
+
+  function presentWithNotes(): void {
+    moreOpen = false;
+    openNotesWindow();
+    present();
+  }
+
+  function print(): void {
+    moreOpen = false;
+    editorState?.stopEditing();
+    printing = true;
   }
 
   function focusCanvas(): void {
@@ -83,7 +119,7 @@
     // An open menu takes Escape for itself.
     if (document.querySelector('[data-slides-popover]')) return;
     const where = place(event.target);
-    if (where === 'elsewhere' || where === 'field') return;
+    if (where === 'elsewhere') return;
     const mod = event.metaKey || event.ctrlKey;
     const key = event.key;
     const lower = key.toLowerCase();
@@ -91,6 +127,26 @@
       event.preventDefault();
       event.stopPropagation();
     };
+
+    // What concerns the whole deck works from anywhere, also in the middle of typing.
+    if (mod && key === 'Enter') {
+      done();
+      present();
+      return;
+    }
+    if (mod && !event.altKey && !event.shiftKey && lower === 'm' && current.canEdit) {
+      done();
+      current.addSlide();
+      focusCanvas();
+      return;
+    }
+    if (where === 'field') return;
+    if ((key === 'PageDown' || key === 'PageUp') && !mod) {
+      done();
+      current.goBy(key === 'PageDown' ? 1 : -1);
+      focusCanvas();
+      return;
+    }
 
     if (mod && !event.altKey && lower === 'z') {
       done();
@@ -101,11 +157,6 @@
     if (mod && !event.altKey && lower === 'y') {
       done();
       current.redo();
-      return;
-    }
-    if (mod && key === 'Enter') {
-      done();
-      present();
       return;
     }
     if (where === 'text' || current.editingId) {
@@ -123,9 +174,9 @@
     const strip = current.area === 'strip';
     const selected = !strip && current.selection.length > 0;
 
-    if (key === 'PageDown' || key === 'PageUp') {
+    if (key === 'Escape' && current.tool) {
       done();
-      current.goBy(key === 'PageDown' ? 1 : -1);
+      current.armTool(null);
       return;
     }
     if (key === 'Home' || key === 'End') {
@@ -173,9 +224,6 @@
       done();
       if (selected) current.duplicateSelected();
       else current.duplicateSlides();
-    } else if (mod && lower === 'm') {
-      done();
-      current.addSlide();
     } else if (mod && (key === ']' || key === '[') && selected) {
       done();
       if (key === ']') current.arrange(event.shiftKey ? 'front' : 'forward');
@@ -261,6 +309,39 @@
     else current.pasteText(text);
   }
 
+  /** Copy and cut from a menu, where there is no clipboard event to fill. */
+  function menuCopy(cut: boolean): void {
+    const current = editorState;
+    const data = current?.copyPayload();
+    if (!current || !data) return;
+    copied = data;
+    current.resetPasteOffset();
+    void navigator.clipboard?.writeText(data.text || ' ').catch(() => {});
+    if (cut && current.canEdit) current.cut();
+  }
+
+  /** Paste from a menu: what the clipboard holds if the browser lets it be read, otherwise what was last copied here. */
+  async function menuPaste(): Promise<void> {
+    const current = editorState;
+    if (!current?.canEdit) return;
+    let text: string | null = null;
+    try {
+      for (const item of await navigator.clipboard.read()) {
+        const image = item.types.find(type => type.startsWith('image/'));
+        if (image) {
+          const blob = await item.getType(image);
+          void current.addImage(new File([blob], `pasted.${image.split('/')[1] ?? 'png'}`, { type: image }));
+          return;
+        }
+        if (item.types.includes('text/plain')) text = await (await item.getType('text/plain')).text();
+      }
+    } catch {
+      text = await navigator.clipboard?.readText?.().catch(() => null) ?? null;
+    }
+    if (copied && (text === null || text === (copied.text || ' '))) current.paste(copied.payload);
+    else if (text) current.pasteText(text);
+  }
+
   function addImages(files: File[], at?: Point): void {
     files.forEach((file, index) => {
       void editorState?.addImage(file, at ? { x: at.x + index * 24, y: at.y + index * 24 } : undefined);
@@ -276,12 +357,24 @@
 
 <div class="flex-1 flex flex-col min-h-0 bg-surface-0" data-testid="document-editor" bind:this={root}>
   <DocumentHeader {drive}>
-    {#if editorState && editorState.slides.length > 0}
-      <button onclick={present} class="btn-ghost flex items-center gap-1.5 mr-1 max-sm:px-2.5" title="Present" aria-label="Present" data-testid="present">
+    {#if editorState && editorState.slides.length > 0 && !presenterWindow}
+      <button onclick={present} class="btn-ghost flex items-center gap-1.5 max-sm:px-2.5" title="Present" aria-label="Present" data-testid="present">
         <span class="i-lucide-play text-sm"></span><span class="max-sm:hidden">Present</span>
+      </button>
+      <button bind:this={moreButton} onclick={() => (moreOpen = !moreOpen)} class="btn-circle btn-ghost" title="More" aria-label="More" aria-expanded={moreOpen} data-testid="slides-more">
+        <span class="i-lucide-ellipsis text-base"></span>
       </button>
     {/if}
   </DocumentHeader>
+
+  <Popover bind:open={moreOpen} anchor={moreButton} label="More">
+    <button class="menu-item" onclick={presentWithNotes} data-testid="present-with-notes">
+      <span class="i-lucide-notebook-text"></span>Present with notes
+    </button>
+    <button class="menu-item" onclick={print} data-testid="slides-print-button">
+      <span class="i-lucide-printer"></span>Print or save as PDF
+    </button>
+  </Popover>
 
   {#if !editorState}
     <div class="flex-1 flex items-center justify-center text-text-3 text-sm">
@@ -291,6 +384,8 @@
         <span class="i-lucide-loader-2 animate-spin" data-testid="document-loading"></span>
       {/if}
     </div>
+  {:else if presenterWindow}
+    <PresenterView slides={editorState.slides} theme={editorState.theme} {urls} title={drive.title} revision={editorState.revision} />
   {:else}
     {#if canEdit}
       <Toolbar {editorState} onPickImage={() => imageInput?.click()} />
@@ -312,15 +407,23 @@
           </button>
         {/if}
       </div>
+    {:else if narrow && !canEdit}
+      <SlideStack
+        slides={editorState.slides}
+        theme={editorState.theme}
+        {urls}
+        onPresent={(slideId) => {
+          editorState?.goTo(slideId);
+          present();
+        }}
+      />
     {:else}
       <div class="flex-1 flex min-h-0 flex-col-reverse sm:flex-row" data-testid="slides-workspace">
         <SlideStrip {editorState} {urls} />
         <div class="flex-1 flex flex-col min-w-0 min-h-0">
-          <Canvas {editorState} {urls} onImageFiles={addImages} />
+          <Canvas {editorState} {urls} onImageFiles={addImages} onCopy={menuCopy} onPaste={() => void menuPaste()} />
           {#if canEdit}
-            <div class="max-sm:hidden">
-              <NotesBox {editorState} />
-            </div>
+            <NotesBox {editorState} />
           {/if}
         </div>
       </div>
@@ -339,7 +442,11 @@
           if (slideId) current.goTo(slideId);
           focusCanvas();
         }}
+        onOpenNotes={openNotesWindow}
       />
+    {/if}
+    {#if printing}
+      <PrintView slides={editorState.slides} theme={editorState.theme} {urls} onDone={() => (printing = false)} />
     {/if}
   {/if}
 </div>

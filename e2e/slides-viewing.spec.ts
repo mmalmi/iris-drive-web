@@ -120,24 +120,16 @@ test.describe('looking at a presentation', () => {
       const phone = await phoneContext.newPage();
       await prepareFreshSession(phone, relayUrl);
       await phone.goto(`${new URL(phone.url()).origin}/#${sharedUrl.split('#')[1]}`);
-      await expect(thumbs(phone)).toHaveCount(3, { timeout: 60_000 });
-      await expect(sheet(phone)).toContainText('Saturday at ten');
-      // The slide fits the width of the screen and the strip runs along the bottom.
-      const slideBox = (await sheet(phone).boundingBox())!;
+      // The slides are one under the other, each as wide as the screen.
+      const stacked = phone.getByTestId('stack-slide');
+      await expect(stacked).toHaveCount(3, { timeout: 60_000 });
+      await expect(stacked.first()).toContainText('Saturday at ten');
+      const slideBox = (await stacked.first().boundingBox())!;
       expect(slideBox.x).toBeGreaterThanOrEqual(0);
       expect(slideBox.x + slideBox.width).toBeLessThanOrEqual(390);
       expect(slideBox.width).toBeGreaterThan(340);
-      const strip = (await phone.getByTestId('slide-strip').boundingBox())!;
-      expect(strip.y).toBeGreaterThan(slideBox.y + slideBox.height - 1);
-      expect(strip.width).toBeGreaterThan(380);
+      await expect(phone.getByTestId('slides-toolbar')).toHaveCount(0);
       await shot(phone, 'view-03-phone');
-
-      // A swipe on the slide turns the page; a tap on a small slide jumps to it.
-      await swipe(phone, [300, slideBox.y + 80], [80, slideBox.y + 90]);
-      await expect(sheet(phone)).toContainText('Good shoes');
-      await thumbs(phone).nth(2).tap();
-      await expect(sheet(phone)).toContainText('See you there');
-      await thumbs(phone).nth(0).tap();
 
       await phone.getByTestId('present').tap();
       const present = phone.getByTestId('present-view');
