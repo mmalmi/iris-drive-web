@@ -61,7 +61,8 @@ test.describe('working in a spreadsheet', () => {
     await page.getByRole('button', { name: 'Bold' }).click();
     await page.getByTestId('sheet-fill-color').click();
     await page.locator('[data-color="#4527a0"]').click();
-    await page.getByRole('button', { name: 'Align centre' }).click();
+    await page.getByTestId('sheet-align').click();
+    await page.getByTestId('align-centre').click();
     expect(await cellStyle(page, 'C1')).toEqual({ b: 1, bg: '#4527a0', a: 'c' });
 
     // Money and percentages.

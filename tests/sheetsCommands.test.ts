@@ -479,6 +479,12 @@ describe('rows, columns and sheets', () => {
     applyBorders(ctl, 'outer', 'k#e03131');
     expect(ctl.sheet.borderAt(2, 1, 'bb')).toBe('k#e03131');
     expect(ctl.sheet.borderAt(0, 1, 'bb')).toBe('s');
+    // A row added below one inside the table gets the same lines.
+    ctl.selectRows(1, 1);
+    insertBeside(ctl, 'row', true);
+    expect(ctl.sheet.borderAt(2, 1, 'bt')).toBe('s');
+    ctl.undo();
+    select('A1:B3');
     clearFormatting(ctl);
     for (const name of ['A1', 'B2', 'B3', 'C1', 'A4']) expect(style(name)).toEqual({});
     ctl.undo();

@@ -327,12 +327,15 @@ function drawLine(ctx: CanvasRenderingContext2D, value: string, color: string, h
 
 function drawBorders(ctx: CanvasRenderingContext2D, scene: GridScene, theme: GridTheme, pane: Pane): void {
   const { sheet, rows, cols } = scene;
-  /** A line without a colour of its own is drawn in the text colour, so it shows in either theme. */
-  const colorOf = (value: string, row: number, col: number) => {
+  /**
+   * A line without a colour of its own is drawn in the text colour, so it
+   * shows in either theme; between two filled cells, in what shows on the fill.
+   */
+  const colorOf = (value: string, row: number, col: number, otherRow: number, otherCol: number) => {
     const color = readBorder(value)?.color;
     if (color) return color;
     const fill = sheet.styleAt(row, col).bg;
-    return fill ? readableOn(fill, theme.text) : theme.text;
+    return fill && sheet.styleAt(otherRow, otherCol).bg ? readableOn(fill, theme.text) : theme.text;
   };
   const inside = (row: number, col: number, row2: number, col2: number) => {
     const m = sheet.mergeAt(row, col);
@@ -349,16 +352,16 @@ function drawBorders(ctx: CanvasRenderingContext2D, scene: GridScene, theme: Gri
       const width = cols.size(col);
       const height = rows.size(row);
       const below = sheet.borderAt(row, col, 'bb');
-      if (below && !inside(row, col, row + 1, col)) drawLine(ctx, below, colorOf(below, row, col), true, bottom, left, width + 1);
+      if (below && !inside(row, col, row + 1, col)) drawLine(ctx, below, colorOf(below, row, col, row + 1, col), true, bottom, left, width + 1);
       const after = sheet.borderAt(row, col, 'br');
-      if (after && !inside(row, col, row, col + 1)) drawLine(ctx, after, colorOf(after, row, col), false, right, top, height + 1);
+      if (after && !inside(row, col, row, col + 1)) drawLine(ctx, after, colorOf(after, row, col, row, col + 1), false, right, top, height + 1);
       if (row === pane.rowFrom) {
         const above = sheet.borderAt(row, col, 'bt');
-        if (above && !inside(row, col, row - 1, col)) drawLine(ctx, above, colorOf(above, row, col), true, top, left, width + 1);
+        if (above && !inside(row, col, row - 1, col)) drawLine(ctx, above, colorOf(above, row, col, row - 1, col), true, top, left, width + 1);
       }
       if (col === pane.colFrom) {
         const before = sheet.borderAt(row, col, 'bl');
-        if (before && !inside(row, col, row, col - 1)) drawLine(ctx, before, colorOf(before, row, col), false, left, top, height + 1);
+        if (before && !inside(row, col, row, col - 1)) drawLine(ctx, before, colorOf(before, row, col, row, col - 1), false, left, top, height + 1);
       }
     }
   }

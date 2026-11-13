@@ -388,6 +388,19 @@ export function insertBeside(ctl: SheetController, axis: 'row' | 'col', after: b
       for (const id of fresh) sheet.styles.set(axis === 'row' ? `${id}:${colId}` : `${rowId}:${id}`, style);
     }
     if (width !== undefined) for (const id of fresh) sheet.props.set(`w:${id}`, width);
+    // Below a bordered row, a new one also gets the line that row has above it, kept by its neighbour.
+    if (after && sheet.hasBorders()) {
+      const side = axis === 'row' ? 'bt' : 'bl';
+      const across = axis === 'row' ? sheet.cols.length : sheet.rows.length;
+      const modelAt = from + count - 1;
+      for (let k = 0; k < across; k += 1) {
+        const [row, col] = axis === 'row' ? [modelAt, k] : [k, modelAt];
+        const line = sheet.borderAt(row, col, side);
+        if (!line || sheet.styleAt(row, col)[side]) continue;
+        const cells = axis === 'row' ? { r1: at, c1: k, r2: at + added - 1, c2: k } : { r1: k, c1: at, r2: k, c2: at + added - 1 };
+        sheet.patchStyle(cells, { [side]: line });
+      }
+    }
     // Added from inside a range at its end, the new ones belong to it.
     widenRangesAtEdge(ctl.book, sheet, axis, after ? live.ids[from + count - 1] : live.ids[from + added], fresh, after);
   });
