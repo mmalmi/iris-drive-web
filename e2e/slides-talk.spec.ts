@@ -47,9 +47,7 @@ test.describe('making and giving a talk', () => {
     await page.keyboard.type('Otters seen twice');
     const body = sheet(page).locator('.ProseMirror');
     await selectWords(page, 'Herons');
-    await shot(page, 'talk-02a-selected');
     await page.keyboard.press('ControlOrMeta+b');
-    await shot(page, 'talk-02b-bold');
     await expect(body.locator('strong')).toHaveText('Herons');
     await selectWords(page, 'Otters');
     await page.getByTestId('text-colour').click();
