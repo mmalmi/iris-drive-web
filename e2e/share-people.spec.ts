@@ -1,6 +1,7 @@
 import { getPublicKey, generateSecretKey, nip19 } from 'nostr-tools';
 import { expect, test, type Page } from './fixtures';
 import { createDriveProfile, prepareFreshSession } from './documents.helpers';
+import { chooseNew } from './test-utils';
 
 /**
  * Adding a person to a shared folder by searching for them, the person page
@@ -14,7 +15,7 @@ async function follow(page: Page, npub: string): Promise<void> {
 }
 
 async function newFolder(page: Page, name: string): Promise<void> {
-  await page.locator('button[title="New Folder"]').filter({ visible: true }).first().click();
+  await chooseNew(page, 'Folder');
   await page.getByPlaceholder('Folder name...').fill(name);
   await page.getByPlaceholder('Folder name...').press('Enter');
   await page.getByRole('link', { name: new RegExp(`^${name}\\b`) }).first().click();

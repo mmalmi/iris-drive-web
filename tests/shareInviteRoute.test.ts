@@ -31,11 +31,9 @@ describe('share invite route', () => {
     expect(routerStore).toContain('return `${window.location.pathname}${window.location.search}`;');
   });
 
-  it('surfaces accepted share records from the main drive folder list', () => {
-    const fileBrowserTreeList = fs.readFileSync(path.join(appRoot, 'src/components/FileBrowserTreeList.svelte'), 'utf8');
+  it('surfaces accepted share records in Shared with me', () => {
     const sharedPanel = fs.readFileSync(path.join(appRoot, 'src/components/SharedWithMePanel.svelte'), 'utf8');
 
-    expect(fileBrowserTreeList).toContain('SharedWithMePanel');
     expect(sharedPanel).toContain('data-testid="shared-with-me-panel"');
     expect(sharedPanel).toContain('nativeShareActionEndpoint');
     expect(sharedPanel).toContain('refreshNativeShareState');

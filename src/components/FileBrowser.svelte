@@ -16,13 +16,11 @@
   import VisibilityIcon from './VisibilityIcon.svelte';
   import AccessBadge from './AccessBadge.svelte';
   import { itemAccess } from '../drive/itemAccess';
-  import FileBrowserTreeList from './FileBrowserTreeList.svelte';
   import ProtectedTreeNotice from './ProtectedTreeNotice.svelte';
   import { treeRootStore, routeStore, createTreesStore, type TreeEntry, currentDirCidStore, isViewingFileStore, resolvingPathStore, directoryEntriesStore, permalinkSnapshotStore } from '../stores';
   import {
     buildDirHref as buildFileDirHref,
     buildEntryHref as buildFileEntryHref,
-    buildTreeHref,
   } from './fileBrowserHrefs';
   import { activeShareScope } from '../drive/shareScope';
   import { activeNostrIdentityRootScope, isEditableDriveRouteScope } from '../drive/profileRoute';
@@ -99,27 +97,6 @@
   let rootName = $derived(isMyDrive ? 'My Drive' : sharedFolder?.display_name || currentTreeName);
   let canEdit = $derived(isLoggedIn && !route.isPermalink && isOwnTrees);
 
-  let shareUrl = $derived.by(() => {
-    const base = window.location.origin + window.location.pathname + '#';
-    const npub = viewedNpub || userNpub;
-    let url = base;
-    if (npub) {
-      url += `/${npub}`;
-      if (currentTreeName) {
-        url += `/${currentTreeName}`;
-        if (urlPath.length > 0) {
-          url += '/' + urlPath.join('/');
-        }
-      }
-    } else {
-      url += '/';
-    }
-    if (linkKey) {
-      url += `?k=${linkKey}`;
-    }
-    return url;
-  });
-
   let missingDecryptionKey = $derived(!rootCid?.key);
 
   let targetNpub = $derived(viewedNpub || userNpub);
@@ -165,20 +142,6 @@
     });
     return unsub;
   });
-
-  let sortedTrees = $derived(
-    isOwnTrees
-      ? [...trees].sort((a, b) => {
-          const defaultFolderOrder = ['public', 'link', 'private'];
-          const aIdx = defaultFolderOrder.indexOf(a.name);
-          const bIdx = defaultFolderOrder.indexOf(b.name);
-          if (aIdx >= 0 && bIdx >= 0) return aIdx - bIdx;
-          if (aIdx >= 0) return -1;
-          if (bIdx >= 0) return 1;
-          return a.name.localeCompare(b.name);
-        })
-      : trees
-  );
 
   let dirEntries = $derived($directoryEntriesStore);
   let entries = $derived(dirEntries.entries);
@@ -362,7 +325,6 @@
   let selectedIndex = $derived(selectedEntry ? entries.findIndex(e => e.name === selectedEntry.name) : -1);
 
   let focusedIndex = $state(-1);
-  let treeFocusedIndex = $state(-1);
 
   let isFileBrowserOnly = $state(false);
   $effect(() => {
@@ -530,57 +492,10 @@
       }
     }
   }
-
-  function handleTreeListKeyDown(e: KeyboardEvent) {
-    if (sortedTrees.length === 0) return;
-
-    const key = e.key.toLowerCase();
-
-    if (key === 'enter' && treeFocusedIndex >= 0) {
-      e.preventDefault();
-      const tree = sortedTrees[treeFocusedIndex];
-      if (tree) {
-        window.location.hash = buildTreeHref(targetNpub!, tree.name, tree.linkKey).slice(1);
-        treeFocusedIndex = -1;
-      }
-      return;
-    }
-
-    if (key !== 'arrowup' && key !== 'arrowdown' && key !== 'j' && key !== 'k') return;
-
-    e.preventDefault();
-
-    const selectedTreeIndex = currentTreeName ? sortedTrees.findIndex(t => t.name === currentTreeName) : -1;
-    const currentIndex = treeFocusedIndex >= 0 ? treeFocusedIndex : selectedTreeIndex;
-    let newIndex: number;
-
-    if (key === 'arrowdown' || key === 'j') {
-      newIndex = currentIndex < sortedTrees.length - 1 ? currentIndex + 1 : 0;
-    } else {
-      newIndex = currentIndex > 0 ? currentIndex - 1 : sortedTrees.length - 1;
-    }
-
-    treeFocusedIndex = newIndex;
-  }
 </script>
 
 <div class="flex-1 flex flex-col min-h-0 bg-surface-0">
-  {#if !inTreeView}
-    <FileBrowserTreeList
-      bind:fileListRef
-      {viewedNpub}
-      {userNpub}
-      {isLoggedIn}
-      {isOwnTrees}
-      {shareUrl}
-      {sortedTrees}
-      {targetNpub}
-      {currentTreeName}
-      {treeFocusedIndex}
-      {viewedIdentityAppKeyPubkey}
-      onKeyDown={handleTreeListKeyDown}
-    />
-  {:else if knownShare && !sharedFolder}
+  {#if knownShare && !sharedFolder}
     <div class="flex-1 flex items-center justify-center text-text-3 text-sm" role="status">You no longer have access to this folder.</div>
   {:else if !rootCid && currentTreeName && !isOwnTrees && !isProtectedTreeWithoutAccess}
     <div class="flex-1 flex items-center justify-center text-text-3 text-sm">

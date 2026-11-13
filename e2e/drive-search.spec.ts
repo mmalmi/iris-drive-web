@@ -1,10 +1,11 @@
 import { expect, test, type Page } from './fixtures';
 import { createDocument, createDriveProfile, prepareFreshSession } from './documents.helpers';
+import { chooseNew } from './test-utils';
 
 /** The search box finds names in this Drive: My Drive and its shared folders. */
 
 async function newFolder(page: Page, name: string): Promise<void> {
-  await page.locator('button[title="New Folder"]').filter({ visible: true }).first().click();
+  await chooseNew(page, 'Folder');
   await page.getByPlaceholder('Folder name...').fill(name);
   await page.getByPlaceholder('Folder name...').press('Enter');
   await page.getByRole('link', { name: new RegExp(`^${name}\\b`) }).first().click();

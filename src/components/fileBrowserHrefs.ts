@@ -72,8 +72,3 @@ export function buildDirHref(options: {
   parts.push(...path);
   return '#/' + parts.map(encodeURIComponent).join('/') + suffix;
 }
-
-export function buildTreeHref(ownerNpub: string, treeName: string, linkKey?: string): string {
-  const base = `#/${encodeURIComponent(ownerNpub)}/${encodeURIComponent(treeName)}`;
-  return linkKey ? `${base}?k=${linkKey}` : base;
-}
