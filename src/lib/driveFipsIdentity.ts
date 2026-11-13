@@ -30,8 +30,13 @@ export interface DriveFipsRosterAuthorizationOptions {
     timeoutMs: number,
   ) => Promise<SignedNostrIdentityRosterOp[]>;
   now?: () => number;
+  /** How long a roster checked with the relays is trusted without another check. */
   maxAgeMs?: number;
+  /** When a trusted roster is checked again in the background (default: half its age). */
+  refreshAfterMs?: number;
   refreshTimeoutMs?: number;
+  /** How long after a failed check the relays are asked again; doubles each time. */
+  failedRetryMs?: number;
   onRefreshError?: (error: unknown) => void;
 }
 
@@ -40,15 +45,24 @@ export interface DriveFipsRosterAuthorizationOptions {
  * roster. Live session changes invalidate the snapshot immediately; relay
  * refresh failure after expiry removes event peers instead of trusting stale
  * authorization indefinitely. Standard Hashtree block serving is independent.
+ *
+ * The live roster subscription keeps the session current, so the relays are
+ * asked again only once a snapshot is `refreshAfterMs` old, in the background,
+ * while the snapshot keeps answering until it expires. After a failed check
+ * the answer stays empty and the relays are asked again later and later.
  */
 export function createDriveFipsRosterAuthorizationSource(
   options: DriveFipsRosterAuthorizationOptions,
 ): () => Promise<string[]> {
   const now = options.now ?? Date.now;
-  const maxAgeMs = options.maxAgeMs ?? 3_000;
+  const maxAgeMs = options.maxAgeMs ?? 10 * 60_000;
+  const refreshAfterMs = Math.min(options.refreshAfterMs ?? Math.floor(maxAgeMs / 2), maxAgeMs);
   const refreshTimeoutMs = options.refreshTimeoutMs ?? 2_000;
+  const failedRetryMs = options.failedRetryMs ?? 30_000;
+  let failure: { fingerprint: string; retryAt: number; waitMs: number } | null = null;
   let snapshot: {
     fingerprint: string;
+    refreshAt: number;
     expiresAt: number;
     pubkeys: string[];
   } | null = null;
@@ -56,22 +70,11 @@ export function createDriveFipsRosterAuthorizationSource(
     fingerprint: string;
     promise: Promise<string[]>;
   } | null = null;
+  const valid = (fingerprint: string) => snapshot?.fingerprint === fingerprint && now() < snapshot.expiresAt;
 
-  return async (): Promise<string[]> => {
-    const session = matchingRosterSession(options);
-    if (!session) {
-      snapshot = null;
-      return [];
-    }
-    const fingerprint = rosterFingerprint(session.rosterOps);
-    if (snapshot?.fingerprint === fingerprint && now() < snapshot.expiresAt) {
-      return [...snapshot.pubkeys];
-    }
-    if (pending?.fingerprint === fingerprint) {
-      return [...await pending.promise];
-    }
-
-    const refresh = (async (): Promise<string[]> => {
+  const refresh = (fingerprint: string): Promise<string[]> => {
+    if (pending?.fingerprint === fingerprint) return pending.promise;
+    const promise = (async (): Promise<string[]> => {
       try {
         await options.refreshRosterOps(options.identity.profileId, refreshTimeoutMs);
         const current = matchingRosterSession(options);
@@ -87,25 +90,48 @@ export function createDriveFipsRosterAuthorizationSource(
           snapshot = null;
           return [];
         }
+        const at = now();
+        failure = null;
         snapshot = {
           fingerprint: rosterFingerprint(current.rosterOps),
-          expiresAt: now() + maxAgeMs,
+          refreshAt: at + refreshAfterMs,
+          expiresAt: at + maxAgeMs,
           pubkeys,
         };
         return [...pubkeys];
       } catch (error) {
-        snapshot = null;
         options.onRefreshError?.(error);
+        // A failed check in the background leaves the snapshot to its expiry.
+        if (valid(fingerprint)) return [...snapshot!.pubkeys];
+        snapshot = null;
+        const waitMs = failure?.fingerprint === fingerprint
+          ? Math.min(failure.waitMs * 2, maxAgeMs)
+          : failedRetryMs;
+        failure = { fingerprint, retryAt: now() + waitMs, waitMs };
         return [];
       }
     })();
-    const pendingRefresh = { fingerprint, promise: refresh };
+    const pendingRefresh = { fingerprint, promise };
     pending = pendingRefresh;
-    try {
-      return [...await refresh];
-    } finally {
+    void promise.finally(() => {
       if (pending === pendingRefresh) pending = null;
+    });
+    return promise;
+  };
+
+  return async (): Promise<string[]> => {
+    const session = matchingRosterSession(options);
+    if (!session) {
+      snapshot = null;
+      return [];
     }
+    const fingerprint = rosterFingerprint(session.rosterOps);
+    if (valid(fingerprint)) {
+      if (now() >= snapshot!.refreshAt) void refresh(fingerprint);
+      return [...snapshot!.pubkeys];
+    }
+    if (failure?.fingerprint === fingerprint && now() < failure.retryAt) return [];
+    return [...await refresh(fingerprint)];
   };
 }
 

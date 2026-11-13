@@ -7,7 +7,10 @@ import type { Event, Filter } from 'nostr-tools';
 import type { Event as NostrToolsEvent } from 'nostr-tools';
 import { routeStore } from './route';
 import { getRefResolver, getResolverKey } from '../refResolver';
-import { openBackfill, stopOpenBackfill } from './driveRootBackfill';
+import {
+  cancelDriveRootRebuildRetry, kickDriveRootBackfill, openBackfill, retryDriveRootRebuild,
+  startDriveRootBackfillPoll, stopDriveRootBackfillPoll, stopOpenBackfill,
+} from './driveRootBackfill';
 import {
   driveRootDTag,
   KIND_DRIVE_ROOT,
@@ -53,7 +56,6 @@ import {
   waitForWorkerReady,
 } from './treeRootWorker';
 
-const DRIVE_ROOT_BACKFILL_INTERVAL_MS = 3000;
 const DRIVE_ROOT_MATERIALIZE_TIMEOUT_MS = 20_000;
 const DRIVE_ROOT_LOCAL_PUBLISH_WAIT_TIMEOUT_MS = 20_000;
 const DRIVE_ROOT_LOCAL_PUBLISH_POLL_INTERVAL_MS = 25;
@@ -65,6 +67,7 @@ type ProjectionRebuildState = {
   requested: number;
   running: boolean;
   retryPending: boolean;
+  failures: number;
   authorizationFingerprint?: string;
   waiters: ProjectionRebuildWaiter[];
 };
@@ -82,6 +85,7 @@ function projectionState(key: string): ProjectionRebuildState {
       requested: 0,
       running: false,
       retryPending: false,
+      failures: 0,
       waiters: [],
     };
     projectionRebuildState.set(key, state);
@@ -191,6 +195,8 @@ function syncDriveRootAuthorization(
     authorization.fingerprint,
   );
   state.authorizationFingerprint = authorization.fingerprint;
+  // Other writers or this device's own access changed: ask the relays again soon.
+  if (changed && previousFingerprint !== undefined) kickDriveRootBackfill(key);
   const projectionChanged = profileDriveProjection.pruneUnauthorized(
     rootScopeId,
     driveId,
@@ -236,8 +242,10 @@ function applyDriveRootEvent(
   options: { rebuild?: boolean } = {},
 ): boolean {
   if (applyShareAccessEvent(rootScopeId, event)) {
-    syncDriveRootAuthorization(key, rootScopeId, driveId);
+    const { changed } = syncDriveRootAuthorization(key, rootScopeId, driveId);
     scheduleDriveRootProjection(key, rootScopeId, driveId);
+    // New writers: ask for their roots, which the live subscription passed over before.
+    if (changed) kickDriveRootBackfill(key);
     return false;
   }
   // The periodic backfill returns the roots already held; they need no second
@@ -393,12 +401,19 @@ async function rebuildDriveRootProjection(
         ));
       }
       state.retryPending = false;
+      state.failures = 0;
+      cancelDriveRootRebuildRetry(key);
       applied = true;
     }
   } catch (error) {
     state.retryPending = true;
+    state.failures += 1;
     failure = error;
     console.warn('[treeRoot] Failed to materialize NostrIdentity Drive roots:', error);
+    // Built again from the roots already held, without asking the relays.
+    retryDriveRootRebuild(key, state.failures, () => {
+      if (state.retryPending) scheduleDriveRootProjection(key, rootScopeId, driveId);
+    });
   } finally {
     state.running = false;
     const waiters = state.waiters.splice(0);
@@ -639,10 +654,7 @@ function subscribeToDriveRootScope(key: string, rootScopeId: string, driveId: st
     kinds: [KIND_DRIVE_ROOT],
     '#d': [driveRootDTag(rootScopeId, driveId), rootScopeId],
   };
-  const opts = {
-    closeAfterHistory: false,
-
-  };
+  const opts = { closeAfterHistory: false };
 
   const attachSub = () => {
     const sub = nostr.subscribe(filter, opts);
@@ -661,23 +673,28 @@ function subscribeToDriveRootScope(key: string, rootScopeId: string, driveId: st
       });
   };
   fetchSnapshot();
-  const backfillTimer = window.setInterval(fetchSnapshot, DRIVE_ROOT_BACKFILL_INTERVAL_MS);
+  const backfill = startDriveRootBackfillPoll(key, fetchSnapshot);
   let lastConnectedRelays = useNostrStore.getState().connectedRelays;
+  let lastRosterOps = getCurrentNostrIdentitySession()?.rosterOps;
   const relayUnsub = useNostrStore.subscribe((state: NostrState) => {
-    if (state.connectedRelays > 0 && lastConnectedRelays === 0) {
-      try {
-        sub.stop();
-      } catch {
-        // ignore
-      }
-      sub = attachSub();
+    // A device was approved or removed, or this one was let in: their roots,
+    // passed over until now, are asked for at once and then soon again.
+    const rosterOps = getCurrentNostrIdentitySession()?.rosterOps;
+    if (rosterOps !== lastRosterOps) {
+      lastRosterOps = rosterOps;
       fetchSnapshot();
+      backfill.kick();
+    }
+    if (state.connectedRelays > 0 && lastConnectedRelays === 0) {
+      try { sub.stop(); } catch { /* already stopped */ }
+      sub = attachSub();
+      backfill.now();
     }
     lastConnectedRelays = state.connectedRelays;
   });
 
   return () => {
-    window.clearInterval(backfillTimer);
+    stopDriveRootBackfillPoll(key, backfill);
     relayUnsub?.();
     sub.stop();
     stopOpenBackfill(key);

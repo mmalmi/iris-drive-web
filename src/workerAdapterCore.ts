@@ -22,6 +22,7 @@ import type {
 import { generateRequestId } from '@hashtree/core';
 import { getErrorMessage } from './utils/errorMessage';
 import { allowsPublicGraphBootstrap } from './lib/graphBootstrapPolicy';
+import { setVisibleInterval } from './lib/visibleInterval';
 
 type PendingRequest = {
   resolve: (value: unknown) => void;
@@ -56,10 +57,10 @@ export class WorkerAdapterCore {
   protected maxRestartAttempts = 10;
 
   // Heartbeat monitoring - detects unresponsive workers (infinite loops, deadlocks)
-  protected heartbeatInterval: ReturnType<typeof setInterval> | null = null;
-  protected lastPong: number = Date.now();
-  protected readonly HEARTBEAT_INTERVAL_MS = 5000;  // Send ping every 5s
-  protected readonly HEARTBEAT_TIMEOUT_MS = 15000;  // 3 missed beats = unresponsive
+  protected stopHeartbeatTimer: (() => void) | null = null;
+  protected unansweredPings = 0;
+  protected readonly HEARTBEAT_INTERVAL_MS = 5000;  // Send ping every 5s while the page is shown
+  protected readonly HEARTBEAT_MISSED_LIMIT = 3;  // 3 missed beats = unresponsive
   protected readonly DEFAULT_REQUEST_TIMEOUT_MS = 120000;
   protected readonly BLOSSOM_PUSH_REQUEST_TIMEOUT_MS = 600000;
 
@@ -172,7 +173,7 @@ export class WorkerAdapterCore {
           break;
 
         case 'pong':
-          this.lastPong = Date.now();
+          this.unansweredPings = 0;
           break;
 
         case 'error':
@@ -309,30 +310,29 @@ export class WorkerAdapterCore {
 
   protected startHeartbeat() {
     this.stopHeartbeat();
-    this.lastPong = Date.now();
+    this.unansweredPings = 0;
 
-    this.heartbeatInterval = setInterval(() => {
+    this.stopHeartbeatTimer = setVisibleInterval(() => {
       if (!this.ready || !this.worker) {
         return;
       }
 
-      // Check if worker is unresponsive
-      if (Date.now() - this.lastPong > this.HEARTBEAT_TIMEOUT_MS) {
+      // Counted in pings, not in time: a hidden or busy page wakes late,
+      // which says nothing about the worker.
+      if (this.unansweredPings >= this.HEARTBEAT_MISSED_LIMIT) {
         console.error('[WorkerAdapter] Worker unresponsive (no pong received), restarting...');
         this.handleWorkerCrash();
         return;
       }
 
-      // Send ping
+      this.unansweredPings += 1;
       this.worker.postMessage({ type: 'ping', id: generateRequestId() });
     }, this.HEARTBEAT_INTERVAL_MS);
   }
 
   protected stopHeartbeat() {
-    if (this.heartbeatInterval) {
-      clearInterval(this.heartbeatInterval);
-      this.heartbeatInterval = null;
-    }
+    this.stopHeartbeatTimer?.();
+    this.stopHeartbeatTimer = null;
   }
 
   protected async handleWorkerCrash() {
