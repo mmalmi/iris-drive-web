@@ -17,7 +17,9 @@
   import { buildLayout, placeEditor, readTheme, type SizeOverride } from '../../lib/sheets/gridView';
   import {
     HEADER_HEIGHT,
+    columnX,
     dropPosition,
+    rowY,
     filterButtonAt,
     frozenHeight,
     frozenWidth,
@@ -41,7 +43,10 @@
   import { installTestHandle } from './testHandle';
   import { selectForMenu, selectionMenu } from './menus';
   import ObjectLayer from './ObjectLayer.svelte';
-  import { copyCells, pasteInto } from './gridClipboard';
+  import { copyCells, pasteInto, pastedFrom } from './gridClipboard';
+  import { controlHit, listMenu } from './gridControls';
+  import { cellExtras } from '../../lib/sheets/extras';
+  import { toggleCheckboxes } from '../../lib/sheets/ruleCommands';
   import './grid.css';
 
   interface Props {
@@ -106,16 +111,6 @@
     return { row: rect.r1, c1: rect.c1, c2: rect.c2, active };
   });
   let filterMenu = $state.raw<{ colId: string; x: number; y: number } | null>(null);
-  /** The chart whose settings are open. */
-  let chartPanel = $state<string | null>(null);
-  $effect(() => {
-    // A chart made elsewhere in the app asks for its settings this way.
-    if (ctl.chartAsked) {
-      chartPanel = ctl.chartAsked;
-      ctl.chartAsked = null;
-    }
-  });
-
   /** Opens the filter's choices when a point is on the button in one of its header cells. */
   function openFilterAt(hit: Hit, x: number, y: number): boolean {
     const header = filterHeader;
@@ -125,6 +120,24 @@
     const bounds = canvas.getBoundingClientRect();
     if (ctl.edit) ctl.commitEdit();
     filterMenu = { colId: ctl.sheet.cols.ids[hit.col], x: bounds.left + button.x, y: bounds.top + button.y };
+    return true;
+  }
+
+  /** Conditional formats, checkboxes, lists and comment marks. */
+  let extras = $derived.by(() => {
+    void ctl.revision;
+    void ctl.layoutRevision;
+    return ctl.hasSheet ? cellExtras(ctl.sheet, ctl.engine) : null;
+  });
+
+  /** A press on a checkbox ticks it; one on a list's arrow shows its choices. */
+  function pressControl(hit: Hit, x: number, y: number): boolean {
+    if (!view || ctl.edit) return false;
+    const control = controlHit(ctl, view, extras, hit, x, y);
+    if (!control) return false;
+    ctl.select({ row: hit.row, col: hit.col });
+    if (control === 'checkbox') toggleCheckboxes(ctl, { row: ctl.active.row, col: ctl.active.col });
+    else if (ctl.canEdit) ctl.openList(ctl.active.row, ctl.active.col);
     return true;
   }
 
@@ -158,12 +171,13 @@
       filterHeader,
       filtered: ctl.visibility.filtered.size > 0,
       touch: touchMode,
+      extras,
     }, theme, pixelRatio);
   }
 
   $effect(() => {
     // Everything the picture depends on; any change asks for one redraw.
-    void [view, theme, pixelRatio, focused, dropLine, filterHeader, touchMode, ctl.find, ctl.revision, ctl.anchor, ctl.focus, ctl.active, ctl.edit, ctl.copied, ctl.fillTarget, ctl.canEdit];
+    void [view, theme, pixelRatio, focused, dropLine, filterHeader, touchMode, extras, ctl.find, ctl.revision, ctl.anchor, ctl.focus, ctl.active, ctl.edit, ctl.copied, ctl.fillTarget, ctl.canEdit];
     if (!frame) frame = requestAnimationFrame(draw);
   });
 
@@ -218,6 +232,14 @@
       void tick().then(() => scroller?.scrollTo(x, y));
     };
     ctl.focusGrid = () => editor?.focus({ preventScroll: true });
+    ctl.openList = (row, col) => {
+      if (!view || !canvas || !ctl.canEdit) return;
+      const items = listMenu(ctl, row, col);
+      if (items.length === 0) return;
+      const bounds = canvas.getBoundingClientRect();
+      const block = ctl.sheet.mergeAt(row, col) ?? { r1: row, c1: col, r2: row, c2: col };
+      menu = { x: bounds.left + columnX(view, block.c1), y: bounds.top + rowY(view, block.r2) + view.rows.size(block.r2) + 2, items };
+    };
     if (!matchMedia('(pointer: coarse)').matches) ctl.focusGrid();
 
     // An on-screen keyboard shrinks what can be seen; the cell being typed into stays above it.
@@ -332,7 +354,7 @@
   function onpaste(event: ClipboardEvent): void {
     if (ctl.edit) return;
     event.preventDefault();
-    pasteInto(ctl, event.clipboardData, shiftHeld);
+    pasteInto(ctl, pastedFrom(event.clipboardData), shiftHeld);
   }
 
   // --- Pointer ---
@@ -406,6 +428,10 @@
     lastPointer = { x, y };
     const hit = hitTest(view, x, y);
     if (!(ctl.edit && ctl.pointing) && openFilterAt(hit, x, y)) return;
+    if (pressControl(hit, x, y)) {
+      takeFocus();
+      return;
+    }
 
     if (ctl.edit) {
       if (hit.area === 'cell' && ctl.pointing) {
@@ -571,6 +597,7 @@
     menu = null;
     ctl.selectedObject = null;
     if (!(ctl.edit && ctl.pointing) && openFilterAt(hit, x, y)) return;
+    if (pressControl(hit, x, y)) return;
     if (ctl.edit) {
       if (hit.area === 'cell' && ctl.pointing) {
         const cell = pointedCell(hit);
@@ -704,7 +731,7 @@
           {dark}
           touch={touchMode}
           onmenu={(x, y, items) => { menu = { x, y, items }; }}
-          oneditchart={(id) => { chartPanel = id; }}
+          oneditchart={(id) => { ctl.panel = { kind: 'chart', id }; }}
         />
       {/if}
     </div>
@@ -742,9 +769,9 @@
 
   <FindBar {ctl} />
 
-  {#if chartPanel && ctl.canEdit}
-    {#await import('./ChartPanel.svelte') then { default: ChartPanel }}
-      <ChartPanel {ctl} id={chartPanel} onclose={() => { chartPanel = null; }} />
+  {#if ctl.panel && ctl.canEdit}
+    {#await import('./SheetPanels.svelte') then { default: SheetPanels }}
+      <SheetPanels {ctl} />
     {/await}
   {/if}
 

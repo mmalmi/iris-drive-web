@@ -167,13 +167,16 @@
       items: [
         { label: 'Chart', icon: 'i-lucide-chart-column', action: addChart, testId: 'insert-chart' },
         { label: 'Picture', icon: 'i-lucide-image', action: () => pictureInput?.click(), disabled: !ctl.media, testId: 'insert-picture' },
+        { label: 'Checkboxes', icon: 'i-lucide-square-check', divider: true, action: () => { ctl.panel = { kind: 'valid', check: 'checkbox' }; }, testId: 'insert-checkbox' },
+        { label: 'List to choose from', icon: 'i-lucide-list', action: () => { ctl.panel = { kind: 'valid', check: 'list' }; }, testId: 'insert-list' },
+        { label: 'Data validation', icon: 'i-lucide-list-checks', action: () => { ctl.panel = { kind: 'valid' }; }, testId: 'insert-validation' },
       ],
     };
   }
 
   function addChart(): void {
     const id = insertChart(ctl);
-    if (id) ctl.chartAsked = id;
+    if (id) ctl.panel = { kind: 'chart', id };
   }
 
   async function onPictureChosen(event: Event): Promise<void> {
@@ -272,6 +275,9 @@
   </button>
   <button onclick={openMore} class="tool" title="Rows and columns" aria-label="Rows and columns" data-testid="sheet-rows-columns">
     <span class="i-lucide-table-rows-split"></span>
+  </button>
+  <button onclick={() => { ctl.panel = ctl.panel?.kind === 'format' ? null : { kind: 'format' }; }} class="tool" class:on={ctl.panel?.kind === 'format'} title="Conditional formatting" aria-label="Conditional formatting" data-testid="sheet-conditional">
+    <span class="i-lucide-paint-roller"></span>
   </button>
   <button onclick={openInsert} class="tool" title="Insert" aria-label="Insert" data-testid="sheet-insert">
     <span class="i-lucide-square-plus"></span>

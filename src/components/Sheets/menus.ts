@@ -14,11 +14,11 @@ import {
   fillWithin,
   insertBeside,
   moveSelected,
-  pasteText,
 } from '../../lib/sheets/commands';
 import type { SheetController } from '../../lib/sheets/controller.svelte';
 import { hiddenNear, hideSelected, showHidden } from '../../lib/sheets/dataCommands';
 import type { MenuItem } from './PopupMenu.svelte';
+import { pasteInto, readClipboard } from './gridClipboard';
 
 const mac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
 export const MOD = mac ? '⌘' : 'Ctrl+';
@@ -34,7 +34,7 @@ export async function copyToClipboard(ctl: SheetController, cut: boolean): Promi
 
 export async function pasteFromClipboard(ctl: SheetController, valuesOnly = false): Promise<void> {
   try {
-    pasteText(ctl, await navigator.clipboard.readText(), valuesOnly);
+    pasteInto(ctl, await readClipboard(), valuesOnly);
   } catch {
     ctl.say(`Press ${MOD}V to paste.`);
   }
@@ -111,6 +111,8 @@ export function selectionMenu(ctl: SheetController, target: 'cell' | 'row' | 'co
       { ...deleteRow, divider: true },
       deleteCol,
       clear,
+      { label: 'Conditional formatting', icon: 'i-lucide-paint-roller', action: () => { ctl.panel = { kind: 'format' }; }, divider: true, testId: 'menu-conditional' },
+      { label: 'Data validation', icon: 'i-lucide-list-checks', action: () => { ctl.panel = { kind: 'valid' }; }, testId: 'menu-validation' },
     );
   }
   return items;

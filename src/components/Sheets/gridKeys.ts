@@ -1,6 +1,7 @@
 /** What the keyboard does in the grid. */
 import { applyStyle, clearContents, clearFormatting, fillWithin, toggleStyle } from '../../lib/sheets/commands';
 import type { SheetController } from '../../lib/sheets/controller.svelte';
+import { listChoices, toggleCheckboxes } from '../../lib/sheets/ruleCommands';
 
 /** Keys for the list of suggested functions, while it shows. */
 export function handleCompletionKey(ctl: SheetController, event: KeyboardEvent): boolean {
@@ -66,11 +67,18 @@ export function handleGridKey(ctl: SheetController, event: KeyboardEvent, pageRo
   const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
   switch (key) {
     case 'ArrowUp': ctl.move(-1, 0, { extend: shift, far: mod }); return true;
-    case 'ArrowDown': ctl.move(1, 0, { extend: shift, far: mod }); return true;
+    case 'ArrowDown':
+      if (event.altKey && listChoices(ctl, ctl.active.row, ctl.active.col)) ctl.openList(ctl.active.row, ctl.active.col);
+      else ctl.move(1, 0, { extend: shift, far: mod });
+      return true;
     case 'ArrowLeft': ctl.move(0, -1, { extend: shift, far: mod }); return true;
     case 'ArrowRight': ctl.move(0, 1, { extend: shift, far: mod }); return true;
     case 'Tab': ctl.step(0, shift ? -1 : 1); return true;
-    case 'Enter': ctl.step(shift ? -1 : 1, 0); return true;
+    case 'Enter':
+      // On a cell that offers a list, Alt+Enter shows it.
+      if (event.altKey && listChoices(ctl, ctl.active.row, ctl.active.col)) ctl.openList(ctl.active.row, ctl.active.col);
+      else ctl.step(shift ? -1 : 1, 0);
+      return true;
     case 'F2': ctl.startEdit(); return true;
     case 'Delete':
     case 'Backspace': clearContents(ctl); return true;
@@ -85,7 +93,8 @@ export function handleGridKey(ctl: SheetController, event: KeyboardEvent, pageRo
     case ' ':
       if (mod) ctl.selectCols(ctl.selection.c1, ctl.selection.c2);
       else if (shift) ctl.selectRows(ctl.selection.r1, ctl.selection.r2);
-      else return false;
+      // Space ticks a checkbox rather than typing into it.
+      else return toggleCheckboxes(ctl);
       return true;
     default:
   }
