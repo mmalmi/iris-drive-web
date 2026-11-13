@@ -48,8 +48,7 @@
     const key = event.key.toLowerCase();
     if (key !== 'f' && key !== 'h') return;
     event.preventDefault();
-    ctl.commitEdit();
-    ctl.find = { query: ctl.find?.query ?? '', replace: key === 'h' && ctl.canEdit ? (ctl.find?.replace ?? '') : (ctl.find?.replace ?? null) };
+    ctl.openFind(key === 'h');
   }
 
   // Access can change while the spreadsheet is open.

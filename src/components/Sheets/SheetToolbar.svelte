@@ -188,7 +188,7 @@
   <button onclick={() => toggleFilter(ctl)} class="tool" class:on={ctl.filter !== null} title="Filter" aria-label="Filter" aria-pressed={ctl.filter !== null} data-testid="sheet-filter">
     <span class="i-lucide-list-filter"></span>
   </button>
-  <button onclick={() => { ctl.find = ctl.find ? null : { query: '', replace: null }; }} class="tool" class:on={ctl.find !== null} title="Find ({MOD}F)" aria-label="Find" data-testid="sheet-find-button">
+  <button onclick={() => { if (ctl.find) ctl.find = null; else ctl.openFind(); }} class="tool" class:on={ctl.find !== null} title="Find ({MOD}F)" aria-label="Find" data-testid="sheet-find-button">
     <span class="i-lucide-search"></span>
   </button>
 </div>

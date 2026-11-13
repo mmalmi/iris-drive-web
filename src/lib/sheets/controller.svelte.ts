@@ -94,6 +94,8 @@ export class SheetController {
   filters = $state.raw<ReadonlyMap<string, SheetFilter>>(new Map());
   /** The search that is open, if any. `replace` is null while only finding. */
   find = $state.raw<{ query: string; replace: string | null } | null>(null);
+  /** Goes up each time the search box is asked for, so it takes the keyboard again. */
+  findAsked = $state(0);
   /** True once someone who may only read has rearranged their own copy. */
   localOnly = $state(false);
   /** A short message for the person, such as why something could not be done. */
@@ -388,6 +390,14 @@ export class SheetController {
       this.visibilityFilter = filter;
     }
     return this.visibilityValue;
+  }
+
+  /** Opens the search box, with the replace line when asked and allowed, and puts the caret in it. */
+  openFind(replace = false): void {
+    if (this.edit) this.commitEdit();
+    const find = this.find;
+    this.find = { query: find?.query ?? '', replace: replace && this.canEdit ? (find?.replace ?? '') : (find?.replace ?? null) };
+    this.findAsked += 1;
   }
 
   /** The cells that hold what is being searched for, in reading order. */

@@ -42,8 +42,20 @@
     const outside = (event: Event) => {
       if (!element?.contains(event.target as Node)) onclose();
     };
+    // Escape closes it wherever the keyboard is.
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      event.stopPropagation();
+      onclose();
+    };
     window.addEventListener('pointerdown', outside, true);
-    return () => window.removeEventListener('pointerdown', outside, true);
+    window.addEventListener('keydown', escape, true);
+    element.focus({ preventScroll: true });
+    return () => {
+      window.removeEventListener('pointerdown', outside, true);
+      window.removeEventListener('keydown', escape, true);
+    };
   });
 
   function update(change: Partial<ColumnFilter>): void {

@@ -3,13 +3,13 @@ import type { SheetController } from '../../lib/sheets/controller.svelte';
 import { columnX, rowY, type Viewport } from '../../lib/sheets/layout';
 
 export function installTestHandle(
-  ctl: SheetController,
+  controller: () => SheetController,
   place: () => { view: Viewport; canvas: HTMLCanvasElement } | null,
 ): void {
   (window as unknown as { __sheet?: unknown }).__sheet = {
-    get ctl() { return ctl; },
-    text: (row: number, col: number) => ctl.engine.textAt(ctl.sheet, row, col),
-    style: (row: number, col: number) => ({ ...ctl.sheet.styleAt(row, col) }),
+    get ctl() { return controller(); },
+    text: (row: number, col: number) => controller().engine.textAt(controller().sheet, row, col),
+    style: (row: number, col: number) => ({ ...controller().sheet.styleAt(row, col) }),
     box: (row: number, col: number) => {
       const where = place();
       if (!where) return null;

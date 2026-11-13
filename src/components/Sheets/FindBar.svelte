@@ -1,6 +1,5 @@
 <script lang="ts">
   /** Find, and for those who may edit, replace: a small box over the corner of the grid. */
-  import { onMount } from 'svelte';
   import type { SheetController } from '../../lib/sheets/controller.svelte';
   import { findNext, findPosition, replaceAll, replaceOne } from '../../lib/sheets/dataCommands';
 
@@ -17,9 +16,12 @@
     return findPosition(ctl);
   });
 
-  onMount(() => {
-    input?.focus();
-    input?.select();
+  // Take the keyboard whenever the box is asked for, also when it is open already.
+  $effect(() => {
+    void ctl.findAsked;
+    if (!input) return;
+    input.focus();
+    input.select();
   });
 
   function setQuery(query: string): void {

@@ -115,6 +115,8 @@ export function toggleFilter(ctl: SheetController): void {
     lastColId: sheet.cols.ids[rect.c2],
     columns: new Map(),
   });
+  // Its buttons are in the header row, so that comes into view.
+  ctl.reveal(rect.r1, Math.max(rect.c1, Math.min(ctl.active.col, rect.c2)));
 }
 
 /** Changes what one column of the filter lets through; null lets everything through again. */

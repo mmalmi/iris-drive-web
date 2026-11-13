@@ -197,6 +197,9 @@
   </div>
 
   <div class="status" role="status" data-testid="sheet-status">
+    {#if filterCount}
+      <span class="filtered" data-testid="sheet-filter-count"><b>{filterCount.shown}</b> of {filterCount.total} rows</span>
+    {/if}
     {#if ctl.notice}
       <span class="notice">{ctl.notice}</span>
     {:else if message}
@@ -205,8 +208,6 @@
       {#if summary.sum !== null}<span>Sum <b>{summary.sum}</b></span>{/if}
       {#if summary.average !== null}<span class="wide">Average <b>{summary.average}</b></span>{/if}
       <span class="wide">Count <b>{summary.count}</b></span>
-    {:else if filterCount}
-      <span data-testid="sheet-filter-count"><b>{filterCount.shown}</b> of {filterCount.total} rows</span>
     {/if}
   </div>
 </div>
@@ -335,6 +336,11 @@
   .status b {
     color: rgb(var(--text-1));
     font-weight: 600;
+  }
+
+  .filtered {
+    flex: none;
+    color: #916dfe;
   }
 
   .notice {

@@ -597,7 +597,7 @@
   });
 
   if (import.meta.env.VITE_TEST_MODE) {
-    installTestHandle(ctl, () => (view && canvas && scroller ? { view: { ...view, scrollX: scroller.scrollLeft, scrollY: scroller.scrollTop }, canvas } : null));
+    installTestHandle(() => ctl, () => (view && canvas && scroller ? { view: { ...view, scrollX: scroller.scrollLeft, scrollY: scroller.scrollTop }, canvas } : null));
   }
 </script>
 

@@ -292,7 +292,9 @@ test.describe('working in a spreadsheet', () => {
       await expect(guest.getByTestId('document-title')).toHaveText('Ledger', { timeout: 60_000 });
       await waitForGrid(guest);
       await expect(guest.getByTestId('document-view-only')).toBeVisible();
-      await expect(guest.getByTestId('sheet-toolbar')).toHaveCount(0);
+      // Only looking around: sorting, filtering and finding, no formatting.
+      await expect(guest.getByTestId('sheet-sort')).toBeVisible();
+      await expect(guest.getByRole('button', { name: 'Bold' })).toHaveCount(0);
       await expect(guest.getByTestId('sheet-add-tab')).toHaveCount(0);
       await guest.getByTestId('sheet-tab').nth(1).click();
       await expectCell(guest, 'B3', 'He said "hi"');
@@ -327,6 +329,123 @@ test.describe('working in a spreadsheet', () => {
     } finally {
       await guestContext.close();
     }
+  });
+
+  test('a long table can be searched, sorted and filtered, also by someone who may only read', async ({ page, browser, relayUrl }, testInfo) => {
+    await prepareFreshSession(page, relayUrl);
+    await createDriveProfile(page);
+    await createSpreadsheet(page, 'Orders');
+    const teams = ['Sales', 'Ops', 'Support', 'Design', 'Legal'];
+    const cities = ['Berlin', 'Lisbon', 'Oslo', 'Tallinn', 'Porto', 'Riga'];
+    const rows = [['Order', 'Team', 'City', 'Amount', 'Tax'].join('\t')];
+    for (let n = 1; n <= 300; n += 1) {
+      rows.push([`ORD-${String(n).padStart(4, '0')}`, teams[(n * 7) % 5], cities[(n * 11) % 6], String((n * 37) % 900 + 10), `=D${n + 1}*0.2`].join('\t'));
+    }
+    await page.evaluate(text => navigator.clipboard.writeText(text), rows.join('\n'));
+    await page.keyboard.press('ControlOrMeta+v');
+    await expectCell(page, 'E301', String(((300 * 37) % 900 + 10) * 0.2));
+
+    // Find goes from match to match; replace changes text and keeps the rest.
+    await goTo(page, 'A1');
+    await page.keyboard.press('ControlOrMeta+f');
+    await page.keyboard.type('oslo');
+    await expect(page.getByTestId('sheet-find-count')).toHaveText('1 of 50');
+    await expect(activeCell(page)).toHaveAttribute('data-cell', 'C5');
+    await page.keyboard.press('Enter');
+    await expect(activeCell(page)).toHaveAttribute('data-cell', 'C11');
+    await page.keyboard.press('Shift+Enter');
+    await page.keyboard.press('Shift+Enter');
+    await expect(page.getByTestId('sheet-find-count')).toHaveText('50 of 50');
+    await page.getByTestId('sheet-find-toggle-replace').click();
+    await page.getByTestId('sheet-replace-input').fill('Oslo City');
+    await page.getByTestId('sheet-replace-all').click();
+    await expect(page.getByTestId('sheet-tabs')).toContainText('Replaced in 50 cells.');
+    await expectCell(page, 'C5', 'Oslo City');
+    await page.getByTestId('sheet-find-input').press('Escape');
+    await expect(page.getByTestId('sheet-find')).toHaveCount(0);
+
+    // Sorting the table by the active cell's column keeps the headings on top and the formulas with their rows.
+    await goTo(page, 'D10');
+    await page.getByTestId('sheet-sort').click();
+    await expect(page.getByTestId('sort-header')).toHaveAttribute('aria-checked', 'true');
+    await page.getByTestId('sort-za').click();
+    await expectCell(page, 'A1', 'Order');
+    await expectCell(page, 'D2', '901');
+    await expectCell(page, 'E2', '180.2');
+    await goTo(page, 'E2');
+    await expect(page.getByTestId('sheet-formula-input')).toHaveValue('=D2*0.2');
+
+    // A filter by value and by condition, for this person only.
+    await page.getByTestId('sheet-filter').click();
+    const openFilter = async (target: Page, cell: string) => {
+      // Turning the filter on scrolls its header row into view; let the picture catch up.
+      await target.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      const box = await cellBox(target, cell);
+      await target.mouse.click(box.x + box.width - 10, box.y + box.height - 10);
+      await expect(target.getByTestId('sheet-filter-menu')).toBeVisible();
+    };
+    await openFilter(page, 'B1');
+    const menu = page.getByTestId('sheet-filter-menu');
+    await menu.getByText('Ops', { exact: true }).click();
+    await menu.getByText('Legal', { exact: true }).click();
+    await page.getByTestId('filter-done').click();
+    await expect(page.getByTestId('sheet-filter-count')).toHaveText('180 of 300 rows');
+    await openFilter(page, 'D1');
+    await page.getByTestId('filter-condition').selectOption('greater');
+    await page.getByTestId('filter-condition-value').fill('800');
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('sheet-filter-menu')).toHaveCount(0);
+    await expect(page.getByTestId('sheet-filter-count')).toHaveText('20 of 300 rows');
+    // The rows left out take no room; copying takes only what is shown.
+    expect((await cellBox(page, 'A2')).height).toBe(0);
+    await goTo(page, 'A1:B4');
+    await page.keyboard.press('ControlOrMeta+c');
+    const copied = await page.evaluate(() => navigator.clipboard.readText());
+    expect(copied).toMatch(/^Order\tTeam\n/);
+    expect(copied).not.toContain('ORD-0243');
+    await page.screenshot({ path: testInfo.outputPath('filtered.png') });
+
+    // Hiding a column is for everyone.
+    await clickHeader(page, 'E', { button: 'right' });
+    await page.getByTestId('menu-hide-col').click();
+    expect((await cellBox(page, 'E1')).width).toBe(0);
+    await expectSaved(page);
+    await flushPendingPublishes(page);
+
+    await page.getByTestId('document-share').click();
+    await expect(page.getByTestId('share-modal')).toBeVisible({ timeout: 30_000 });
+    await page.getByTestId('share-tab-link').click();
+    await page.getByTestId('share-copy-url').click();
+    const sharedUrl = await page.evaluate(() => navigator.clipboard.readText());
+    await page.keyboard.press('Escape');
+
+    const guestContext = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
+    try {
+      const guest = await guestContext.newPage();
+      await prepareFreshSession(guest, relayUrl);
+      await guest.goto(`${new URL(guest.url()).origin}/#${sharedUrl.split('#')[1]}`);
+      await waitForGrid(guest);
+      // The owner's filter stayed with the owner; the hidden column did not.
+      await expect(guest.getByTestId('sheet-filter-count')).toHaveCount(0);
+      expect((await cellBox(guest, 'A2')).height).toBeGreaterThan(0);
+      expect((await cellBox(guest, 'E1')).width).toBe(0);
+      // Someone who may only read sorts and filters their own view.
+      await goTo(guest, 'A5');
+      await guest.getByTestId('sheet-sort').click();
+      await guest.getByTestId('sort-az').click();
+      await expectCell(guest, 'A2', 'ORD-0001');
+      await guest.getByTestId('sheet-filter').click();
+      await openFilter(guest, 'C1');
+      await guest.getByTestId('filter-clear').click();
+      await guest.getByTestId('sheet-filter-menu').getByText('Riga', { exact: true }).click();
+      await guest.keyboard.press('Escape');
+      await expect(guest.getByTestId('sheet-filter-count')).toHaveText('50 of 300 rows');
+      await guest.screenshot({ path: testInfo.outputPath('guest-filtered.png') });
+    } finally {
+      await guestContext.close();
+    }
+    // None of that reached the owner.
+    await expectCell(page, 'A2', 'ORD-0243');
   });
 
   test('two tabs of one browser show each other\'s edits', async ({ page, context, relayUrl }) => {
