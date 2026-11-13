@@ -4,12 +4,11 @@
    */
   import { nip19 } from 'nostr-tools';
   import { recentsStore, clearRecents, type RecentItem } from '../stores/recents';
-  import { getFileIcon } from '@iris/hashtree-app/fileIcon';
   import { Avatar } from './User';
   import { nostrStore } from '../nostr';
   import { acceptedShares } from '../drive/shareLibrary';
   import { activeNostrIdentityRootScope } from '../drive/profileRoute';
-  import { documentKindInfo, documentTitle, isDocumentFolderName } from '../lib/documentNames';
+  import { recentDisplay, timeAgo } from '../lib/recentDisplay';
 
   let recents = $derived($recentsStore);
   let ownProfileId = $derived(activeNostrIdentityRootScope($nostrStore));
@@ -22,46 +21,6 @@
       }
     } catch {}
     return null;
-  }
-
-  function isDocument(item: RecentItem): boolean {
-    return isDocumentFolderName(item.path.split('/').at(-1) ?? '');
-  }
-
-  /** A Drive's own top folder is known by its name to people, not by its address. */
-  function displayName(item: RecentItem): string {
-    if (isDocument(item)) return documentTitle(item.path.split('/').at(-1)!);
-    if (item.type === 'tree' && item.treeName === 'main' && item.npub) {
-      if (item.npub === ownProfileId) return 'My Drive';
-      const shared = $acceptedShares.find((record) => record.share_id === item.npub);
-      if (shared) return shared.folder.display_name;
-    }
-    return item.label;
-  }
-
-  function iconClass(item: RecentItem): string {
-    if (isDocument(item)) return documentKindInfo(item.path.split('/').at(-1))!.icon;
-    if (item.type === 'tree' && item.treeName === 'main' && item.npub === ownProfileId) return 'i-lucide-hard-drive text-text-2';
-    if (isFolder(item)) return 'i-lucide-folder text-warning';
-    return `${getFileIcon(item.label)} text-text-2`;
-  }
-
-  function formatTime(timestamp: number): string {
-    const now = Date.now();
-    const diff = now - timestamp;
-    const minutes = Math.floor(diff / 60000);
-    const hours = Math.floor(diff / 3600000);
-    const days = Math.floor(diff / 86400000);
-
-    if (minutes < 1) return 'Just now';
-    if (minutes < 60) return `${minutes}m ago`;
-    if (hours < 24) return `${hours}h ago`;
-    if (days < 7) return `${days}d ago`;
-    return new Date(timestamp).toLocaleDateString();
-  }
-
-  function isFolder(item: RecentItem): boolean {
-    return item.type === 'tree' || item.type === 'dir' || item.type === 'hash';
   }
 
   function buildHref(item: RecentItem): string {
@@ -112,6 +71,7 @@
     {:else}
       {#each recents as item (item.path)}
         {@const ownerPubkey = item.npub ? npubToPubkey(item.npub) : null}
+        {@const shown = recentDisplay(item, ownProfileId, $acceptedShares)}
         <a
           href={buildHref(item)}
           class="p-3 lg:px-5 border-b border-surface-2 flex items-center gap-3 no-underline text-text-1 hover:bg-surface-2/50 {item.type === 'hash' ? 'font-mono' : ''}"
@@ -119,9 +79,9 @@
           {#if ownerPubkey}
             <Avatar pubkey={ownerPubkey} size={20} class="shrink-0" />
           {/if}
-          <span class="shrink-0 {item.type === 'hash' ? 'i-lucide-hash text-accent' : iconClass(item)}"></span>
-          <span class="truncate flex-1 min-w-0" title={displayName(item)}>{displayName(item)}</span>
-          <span class="shrink-0 text-sm text-muted">{formatTime(item.timestamp)}</span>
+          <span class="shrink-0 {shown.icon}"></span>
+          <span class="truncate flex-1 min-w-0" title={shown.name}>{shown.name}</span>
+          <span class="shrink-0 text-sm text-muted">{timeAgo(item.timestamp)}</span>
         </a>
       {/each}
     {/if}
