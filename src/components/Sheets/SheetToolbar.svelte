@@ -181,6 +181,7 @@
     color: rgb(var(--text-1));
     font-size: 1rem;
     cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
   }
 
   .tool:hover:not(:disabled) {

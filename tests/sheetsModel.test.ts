@@ -459,7 +459,7 @@ describe('looks', () => {
     expect(sheet.styleAt(5, 1)).toEqual({ b: 1, c: '#ff0000' });
     expect(sheet.styles.size).toBe(1);
     sheet.patchStyle(cell, { b: null, i: 1 });
-    expect(sheet.styleAt(2, 1)).toEqual({ b: 0, i: 1, c: '#ff0000' });
+    expect(sheet.styleAt(2, 1)).toEqual({ i: 1, c: '#ff0000' });
     sheet.patchStyle({ r1: 2, c1: 0, r2: 2, c2: sheet.cols.length - 1 }, { c: '#0000ff' }, 'rows');
     expect(sheet.styleAt(2, 1).c).toBe('#0000ff');
     expect(sheet.styleAt(2, 0).c).toBe('#0000ff');
@@ -469,6 +469,24 @@ describe('looks', () => {
     expect(sheet.styleAt(2, 1).c).toBe('#00ff00');
     expect(sheet.styleAt(2, 0).c).toBe('#0000ff');
     sheet.clearStyle(cell, 'all');
+    expect(sheet.styles.size).toBe(0);
+  });
+
+  it('clearing the looks of whole rows and columns leaves nothing stored', () => {
+    const { first } = open();
+    const sheet = first();
+    const rows = { r1: 1, c1: 0, r2: 2, c2: sheet.cols.length - 1 };
+    const cols = { r1: 0, c1: 3, r2: sheet.rows.length - 1, c2: 4 };
+    sheet.patchStyle(rows, { i: 1, bg: '#ffec99' }, 'rows');
+    sheet.patchStyle(cols, { b: 1 }, 'cols');
+    expect(sheet.styleAt(2, 3)).toEqual({ b: 1, i: 1, bg: '#ffec99' });
+    sheet.clearStyle(rows, 'rows');
+    // The rows are plain again, also where a bold column crosses them.
+    expect(sheet.styleAt(2, 9)).toEqual({});
+    expect(sheet.styleAt(2, 3)).toEqual({});
+    expect(sheet.styleAt(5, 3)).toEqual({ b: 1 });
+    sheet.clearStyle(cols, 'cols');
+    sheet.clearStyle(rows, 'rows');
     expect(sheet.styles.size).toBe(0);
   });
 

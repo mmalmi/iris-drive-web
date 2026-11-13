@@ -192,5 +192,10 @@
     .item {
       min-height: 40px;
     }
+
+    /* Keyboard shortcuts mean nothing on a touch screen. */
+    .hint {
+      display: none;
+    }
   }
 </style>

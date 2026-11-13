@@ -146,7 +146,8 @@
     ctl.reveal = (row, col) => {
       void tick().then(() => {
         if (!view || !scroller) return;
-        const target = scrollToShow(view, row, col);
+        // Where the grid really is: the copy in `view` lags a frame behind fast key presses.
+        const target = scrollToShow({ ...view, scrollX: scroller.scrollLeft, scrollY: scroller.scrollTop }, row, col);
         if (target.scrollX !== scroller.scrollLeft || target.scrollY !== scroller.scrollTop) scroller.scrollTo(target.scrollX, target.scrollY);
       });
     };
@@ -575,11 +576,12 @@
       text: (row: number, col: number) => ctl.engine.textAt(ctl.sheet, row, col),
       style: (row: number, col: number) => ({ ...ctl.sheet.styleAt(row, col) }),
       box: (row: number, col: number) => {
-        if (!view || !canvas) return null;
+        if (!view || !canvas || !scroller) return null;
         const bounds = canvas.getBoundingClientRect();
+        const live = { ...view, scrollX: scroller.scrollLeft, scrollY: scroller.scrollTop };
         return {
-          x: bounds.left + columnX(view, col),
-          y: bounds.top + rowY(view, row),
+          x: bounds.left + columnX(live, col),
+          y: bounds.top + rowY(live, row),
           width: view.cols.size(col),
           height: view.rows.size(row),
           headerWidth: view.headerWidth,

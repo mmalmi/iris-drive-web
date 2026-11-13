@@ -31,9 +31,12 @@
  *   <sheetId>:rows Array  row ids in order
  *   <sheetId>:cols Array  column ids in order
  *   <sheetId>:cells Map   "rowId:colId" -> number | boolean | text.
- *                         Text starting with "=" is a formula in stored
- *                         spelling; text starting with "'" is the rest of it
- *                         taken literally.
+ *                         Text starting with "=" is a formula, in which a
+ *                         cell is written [colId,rowId], a range
+ *                         [colId,rowId]:[colId,rowId], with "$" before a
+ *                         fixed id and "sheetId!" for another sheet, as in
+ *                         =SUM([b,1]:[b,9])*[2k!$a,$0]. Text starting with
+ *                         "'" is the rest of it taken literally.
  *   <sheetId>:styles Map  "rowId:colId", "rowId:" (whole row) or ":colId"
  *                         (whole column) -> CellStyle. A cell's look is its
  *                         column's, overridden by its row's, overridden by
@@ -65,7 +68,10 @@ export const MAX_COLS = 2_000;
 
 export type CellRaw = number | string | boolean;
 
-/** How a cell looks. 0 and "" switch a property off where the row or column has it on. */
+/**
+ * How a cell looks. As stored, 0 and "" switch a property off where the row
+ * or column has it on; `Sheet.styleAt` gives the outcome without them.
+ */
 export interface CellStyle {
   /** Bold, italic, strikethrough, underline. */
   b?: 0 | 1;
@@ -297,7 +303,14 @@ export class Sheet {
     const ofRow = this.styles.get(`${rowId}:`);
     const ofCol = this.styles.get(`:${colId}`);
     const layers = [ofCol, ofRow, own].filter(Boolean) as CellStyle[];
-    style = layers.length === 0 ? EMPTY_STYLE : layers.length === 1 ? layers[0] : Object.assign({}, ...layers) as CellStyle;
+    if (layers.length === 0) {
+      style = EMPTY_STYLE;
+    } else {
+      // What is left after a property switched off above a layer that had it on.
+      const merged: Record<string, unknown> = Object.assign({}, ...layers);
+      for (const prop of Object.keys(merged)) if (merged[prop] === 0 || merged[prop] === '') delete merged[prop];
+      style = merged as CellStyle;
+    }
     if (this.styleCache.size > 50_000) this.styleCache.clear();
     this.styleCache.set(key, style);
     return style;
@@ -321,7 +334,7 @@ export class Sheet {
     const props = Object.keys(patch) as Array<keyof CellStyle>;
     if (props.length === 0) return;
     const off = (prop: keyof CellStyle): 0 | '' => (prop === 'c' || prop === 'bg' || prop === 'a' || prop === 'nf' ? '' : 0);
-    const isOn = (value: unknown) => value !== undefined && value !== 0 && value !== '';
+    const isOn = (value: unknown) => value !== undefined && value !== null && value !== 0 && value !== '';
     /** Applies the patch to one stored style, given what shows through from underneath. */
     const apply = (current: CellStyle | undefined, below: CellStyle | undefined): CellStyle => {
       const next: Record<string, unknown> = { ...current };
@@ -400,8 +413,10 @@ export class Sheet {
           const next: Record<string, unknown> = { ...this.styles.get(key) };
           for (const prop of props) {
             if (ofRow?.[prop] === undefined) continue;
-            const value = patch[prop];
-            next[prop] = isOn(value) ? value : off(prop);
+            const wanted = isOn(patch[prop]) ? patch[prop] : off(prop);
+            const rowSaysSame = isOn(ofRow[prop]) ? ofRow[prop] === wanted : !isOn(wanted);
+            if (rowSaysSame) delete next[prop];
+            else next[prop] = wanted;
           }
           this.writeStyle(key, next as CellStyle);
         }

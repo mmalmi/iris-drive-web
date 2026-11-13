@@ -4,7 +4,7 @@
  * its methods; commands.ts holds the actions that change content.
  */
 import * as Y from 'yjs';
-import { columnIndex, columnName, normalizeRect, parseRectName, rectName, rectOf, type CellPos, type Rect } from './address';
+import { columnIndex, columnName, normalizeRect, parseRectName, rectContains, rectName, rectOf, type CellPos, type Rect } from './address';
 import { editTextAt, writeInput } from './edit';
 import { Engine } from './engine';
 import { tokenize } from './formula';
@@ -449,7 +449,6 @@ export class SheetController {
       text = `${options.text}%`;
     }
     const caret = options.text !== undefined ? options.text.length : text.length;
-    this.setSelection(this.active);
     this.edit = {
       sheetId: this.sheetId,
       row,
@@ -630,7 +629,7 @@ export class SheetController {
       this.sheetId = edit.sheetId;
       this.layoutRevision += 1;
     }
-    this.setSelection({ row: edit.row, col: edit.col });
+    this.backToCell(edit);
     if (edit.text !== edit.original) {
       writeInput(this.book, this.sheet, edit.row, edit.col, edit.text);
     }
@@ -650,8 +649,23 @@ export class SheetController {
       this.sheetId = edit.sheetId;
       this.layoutRevision += 1;
     }
-    this.setSelection({ row: edit.row, col: edit.col });
+    this.backToCell(edit);
     this.revision += 1;
+  }
+
+  /**
+   * Puts the selection back on the cell that was typed into. A range that
+   * holds the cell stays selected, so a block can be filled in with Enter and Tab.
+   */
+  private backToCell(edit: EditState): void {
+    const rect = this.selection;
+    const many = rect.r1 !== rect.r2 || rect.c1 !== rect.c2;
+    if (many && rectContains(rect, edit.row, edit.col)) {
+      this.active = { row: edit.row, col: edit.col };
+      this.rememberIds();
+    } else {
+      this.setSelection({ row: edit.row, col: edit.col });
+    }
   }
 
   // --- Undo ---
