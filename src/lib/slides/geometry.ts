@@ -156,6 +156,79 @@ export function resizeFrame(start: Frame, handle: Handle, dx: number, dy: number
   return { x: newCentre.x - w / 2, y: newCentre.y - h / 2, w, h, rot: start.rot };
 }
 
+/** A frame, and whether it is a line, whose frame is a vector rather than a box. */
+export type GroupFrame = Frame & { line?: boolean };
+
+function isQuarterTurn(degrees: number): boolean {
+  return Math.abs(degrees % 90) < 0.01 || Math.abs(Math.abs(degrees % 90) - 90) < 0.01;
+}
+
+/** Whether a group of frames can only be scaled evenly: a frame at an odd angle cannot be stretched one way. */
+export function needsEvenScale(frames: GroupFrame[]): boolean {
+  return frames.some(frame => !frame.line && !isQuarterTurn(frame.rot));
+}
+
+/**
+ * Several frames resized as one: `box` is the upright box around them all
+ * and `handle` the handle of that box being dragged by (dx, dy). Each frame
+ * keeps its place within the box as the box changes.
+ */
+export function scaleFrames<T extends GroupFrame>(
+  frames: Record<string, T>,
+  box: Box,
+  handle: Handle,
+  dx: number,
+  dy: number,
+  options: ResizeOptions = {},
+): Record<string, Frame> {
+  const width = Math.max(1e-6, box.right - box.left);
+  const height = Math.max(1e-6, box.bottom - box.top);
+  const keepRatio = options.keepRatio || needsEvenScale(Object.values(frames));
+  const after = resizeFrame({ x: box.left, y: box.top, w: width, h: height, rot: 0 }, handle, dx, dy, { ...options, keepRatio, minSize: options.minSize ?? 16 });
+  const sx = after.w / width;
+  const sy = after.h / height;
+  const result: Record<string, Frame> = {};
+  for (const [id, frame] of Object.entries(frames)) {
+    if (frame.line) {
+      result[id] = { x: after.x + (frame.x - box.left) * sx, y: after.y + (frame.y - box.top) * sy, w: frame.w * sx, h: frame.h * sy, rot: 0 };
+      continue;
+    }
+    const centre = frameCentre(frame);
+    const cx = after.x + (centre.x - box.left) * sx;
+    const cy = after.y + (centre.y - box.top) * sy;
+    // Turned a quarter, a frame's own width runs up and down the slide.
+    const sideways = Math.abs(Math.round(frame.rot / 90)) % 2 === 1 && isQuarterTurn(frame.rot);
+    const w = frame.w * (sideways ? sy : sx);
+    const h = frame.h * (sideways ? sx : sy);
+    result[id] = { x: cx - w / 2, y: cy - h / 2, w, h, rot: frame.rot };
+  }
+  return result;
+}
+
+/** Several frames turned as one, by `degrees` about `centre`. */
+export function rotateFrames<T extends GroupFrame>(frames: Record<string, T>, centre: Point, degrees: number): Record<string, Frame> {
+  const result: Record<string, Frame> = {};
+  for (const [id, frame] of Object.entries(frames)) {
+    if (frame.line) {
+      const start = rotatePoint({ x: frame.x, y: frame.y }, centre, degrees);
+      const end = rotatePoint({ x: frame.x + frame.w, y: frame.y + frame.h }, centre, degrees);
+      result[id] = { x: start.x, y: start.y, w: end.x - start.x, h: end.y - start.y, rot: 0 };
+      continue;
+    }
+    const moved = rotatePoint(frameCentre(frame), centre, degrees);
+    result[id] = { x: moved.x - frame.w / 2, y: moved.y - frame.h / 2, w: frame.w, h: frame.h, rot: normaliseAngle(frame.rot + degrees) };
+  }
+  return result;
+}
+
+/** The frame between two corners of a drag. With `square`, as wide as it is tall, the larger of the two. */
+export function frameFromDrag(start: Point, end: Point, square = false): Frame {
+  let w = Math.abs(end.x - start.x);
+  let h = Math.abs(end.y - start.y);
+  if (square) w = h = Math.max(w, h);
+  return { x: end.x < start.x ? start.x - w : start.x, y: end.y < start.y ? start.y - h : start.y, w, h, rot: 0 };
+}
+
 /** The angle, in degrees clockwise from straight up, of a pointer around a centre. */
 export function angleFromCentre(centre: Point, pointer: Point): number {
   return Math.atan2(pointer.x - centre.x, centre.y - pointer.y) / RADIANS;
@@ -271,7 +344,7 @@ export function snapPoint(point: { x?: number; y?: number }, lines: SnapLines, t
 /** Whole slide units, so stored frames stay short and tidy. */
 export function roundFrame<T extends Partial<Frame>>(frame: T): T {
   const rounded = { ...frame };
-  for (const key of ['x', 'y', 'w', 'h'] as const) {
+  for (const key of ['x', 'y', 'w', 'h', 'rot'] as const) {
     const value = rounded[key];
     if (typeof value === 'number') rounded[key] = Math.round(value * 10) / 10;
   }

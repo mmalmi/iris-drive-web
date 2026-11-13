@@ -14,9 +14,9 @@
   }
   let { editorState, onPickImage }: Props = $props();
 
-  type MenuName = 'layout' | 'shape' | 'size' | 'colour' | 'align' | 'fill' | 'border' | 'arrange' | 'background' | 'theme';
+  type MenuName = 'layout' | 'shape' | 'size' | 'colour' | 'align' | 'fill' | 'border' | 'arrange' | 'relayout' | 'background' | 'theme';
   let open = $state<Record<MenuName, boolean>>({
-    layout: false, shape: false, size: false, colour: false, align: false, fill: false, border: false, arrange: false, background: false, theme: false,
+    layout: false, shape: false, size: false, colour: false, align: false, fill: false, border: false, arrange: false, relayout: false, background: false, theme: false,
   });
   let anchors = $state<Partial<Record<MenuName, HTMLElement>>>({});
 
@@ -29,6 +29,8 @@
   let firstText = $derived(editorState.editing ?? textBoxes[0]);
   let style = $derived(firstText ? textStyle(firstText, editorState.theme, editorState.current?.layout ?? 'blank') : null);
   let fontSize = $derived(editorState.fontSize);
+  let align = $derived(editorState.align);
+  let tool = $derived(editorState.tool);
   let textColour = $derived(editorState.textColour);
   let shownTextColour = $derived(resolveColour(textColour, palette) ?? style?.color ?? palette.text);
   let fill = $derived(shapes[0] ? resolveColour(shapes[0].fill, palette, palette.accent) : null);
@@ -71,6 +73,7 @@
 <!-- Pressing a button must not take the cursor out of the text. -->
 <div
   class="toolbar"
+  class:busy={selected.length > 0 || !!firstText}
   role="toolbar"
   tabindex="-1"
   aria-label="Editing"
@@ -97,10 +100,11 @@
 
   <span class="divider"></span>
 
-  <button class="tool" onclick={() => editorState.addText()} title="Text box" aria-label="Text box" data-testid="add-text">
+  <!-- These pick up a tool: the next click or drag on the slide makes the thing there. -->
+  <button class="tool" class:on={tool?.kind === 'text'} onclick={() => editorState.armTool({ kind: 'text' })} title="Text box: click or drag on the slide" aria-label="Text box" aria-pressed={tool?.kind === 'text'} data-testid="add-text">
     <span class="i-lucide-type"></span>
   </button>
-  <button class="tool" bind:this={anchors.shape} onclick={() => (open.shape = !open.shape)} title="Shape" aria-label="Shape" aria-expanded={open.shape} data-testid="add-shape">
+  <button class="tool" class:on={tool?.kind === 'shape' || tool?.kind === 'line'} bind:this={anchors.shape} onclick={() => (open.shape = !open.shape)} title="Shape: click or drag on the slide" aria-label="Shape" aria-expanded={open.shape} data-testid="add-shape">
     <span class="i-lucide-shapes"></span>
   </button>
   <button class="tool" onclick={onPickImage} title="Image" aria-label="Image" data-testid="add-image">
@@ -145,7 +149,7 @@
       <span class="ink"><span class="i-lucide-baseline"></span><span class="ink-bar" style:background={shownTextColour}></span></span>
     </button>
     <button class="tool" bind:this={anchors.align} onclick={() => (open.align = !open.align)} title="Align" aria-label="Align" aria-expanded={open.align} data-testid="text-align">
-      <span class={style?.align === 'center' ? 'i-lucide-align-center' : style?.align === 'right' ? 'i-lucide-align-right' : 'i-lucide-align-left'}></span>
+      <span class={align === 'center' ? 'i-lucide-align-center' : align === 'right' ? 'i-lucide-align-right' : 'i-lucide-align-left'}></span>
     </button>
     <button class="tool" class:on={editorState.listActive('bulletList')} onclick={() => editorState.toggleList('bulletList')} title="Bulleted list" aria-label="Bulleted list" aria-pressed={editorState.listActive('bulletList')}>
       <span class="i-lucide-list"></span>
@@ -179,18 +183,21 @@
 
   <span class="spacer"></span>
 
-  <button class="tool labelled" bind:this={anchors.background} onclick={() => (open.background = !open.background)} title="Slide background" aria-expanded={open.background} data-testid="slide-background">
-    <span class="i-lucide-paint-roller"></span><span class="label">Background</span>
+  <button class="tool labelled" bind:this={anchors.relayout} onclick={() => (open.relayout = !open.relayout)} title="Slide layout" aria-label="Slide layout" aria-expanded={open.relayout} data-testid="slide-layout">
+    <span class="i-lucide-layout-template"></span><span class="label roomy">Layout</span>
   </button>
-  <button class="tool labelled" bind:this={anchors.theme} onclick={() => (open.theme = !open.theme)} title="Theme" aria-expanded={open.theme} data-testid="deck-theme">
-    <span class="i-lucide-palette"></span><span class="label">Theme</span>
+  <button class="tool labelled" bind:this={anchors.background} onclick={() => (open.background = !open.background)} title="Slide background" aria-label="Slide background" aria-expanded={open.background} data-testid="slide-background">
+    <span class="i-lucide-paint-roller"></span><span class="label roomy">Background</span>
+  </button>
+  <button class="tool labelled" bind:this={anchors.theme} onclick={() => (open.theme = !open.theme)} title="Theme" aria-label="Theme" aria-expanded={open.theme} data-testid="deck-theme">
+    <span class="i-lucide-palette"></span><span class="label roomy">Theme</span>
   </button>
 </div>
 
-<Popover bind:open={open.layout} anchor={anchors.layout} label="Layouts">
+{#snippet layoutChoices(prefix: string, current: string | undefined, choose: (id: string) => void)}
   <div class="layouts">
     {#each LAYOUTS as layout (layout.id)}
-      <button class="layout" onclick={() => pick(() => editorState.addSlide(layout.id))} data-testid="layout-{layout.id}">
+      <button class="layout" class:on={layout.id === current} onclick={() => pick(() => choose(layout.id))} data-testid="{prefix}-{layout.id}">
         <span class="layout-preview">
           {#each layout.elements as element, index (index)}
             <span
@@ -207,18 +214,26 @@
       </button>
     {/each}
   </div>
+{/snippet}
+
+<Popover bind:open={open.layout} anchor={anchors.layout} label="New slide">
+  {@render layoutChoices('layout', undefined, id => editorState.addSlide(id))}
+</Popover>
+
+<Popover bind:open={open.relayout} anchor={anchors.relayout} label="Slide layout">
+  {@render layoutChoices('relayout', editorState.current?.layout, id => editorState.setLayout(id))}
 </Popover>
 
 <Popover bind:open={open.shape} anchor={anchors.shape} label="Shapes">
   {#each SHAPES as item (item.shape)}
-    <button class="menu-item" onclick={() => pick(() => editorState.addShape(item.shape))} data-testid="shape-{item.shape}">
+    <button class="menu-item" onclick={() => pick(() => editorState.armTool({ kind: 'shape', shape: item.shape }))} data-testid="shape-{item.shape}">
       <span class={item.icon}></span>{item.label}
     </button>
   {/each}
-  <button class="menu-item" onclick={() => pick(() => editorState.addLine(false))} data-testid="shape-line">
+  <button class="menu-item" onclick={() => pick(() => editorState.armTool({ kind: 'line', arrow: false }))} data-testid="shape-line">
     <span class="i-lucide-minus"></span>Line
   </button>
-  <button class="menu-item" onclick={() => pick(() => editorState.addLine(true))} data-testid="shape-arrow">
+  <button class="menu-item" onclick={() => pick(() => editorState.armTool({ kind: 'line', arrow: true }))} data-testid="shape-arrow">
     <span class="i-lucide-move-right"></span>Arrow
   </button>
 </Popover>
@@ -229,9 +244,9 @@
 
 <Popover bind:open={open.align} anchor={anchors.align} label="Align">
   <div class="icon-row">
-    <button class="tool" class:on={style?.align === 'left'} onclick={() => pick(() => editorState.setAlign('left'))} title="Left" aria-label="Align left"><span class="i-lucide-align-left"></span></button>
-    <button class="tool" class:on={style?.align === 'center'} onclick={() => pick(() => editorState.setAlign('center'))} title="Centre" aria-label="Align centre"><span class="i-lucide-align-center"></span></button>
-    <button class="tool" class:on={style?.align === 'right'} onclick={() => pick(() => editorState.setAlign('right'))} title="Right" aria-label="Align right"><span class="i-lucide-align-right"></span></button>
+    <button class="tool" class:on={align === 'left'} onclick={() => pick(() => editorState.setAlign('left'))} title="Left" aria-label="Align left"><span class="i-lucide-align-left"></span></button>
+    <button class="tool" class:on={align === 'center'} onclick={() => pick(() => editorState.setAlign('center'))} title="Centre" aria-label="Align centre"><span class="i-lucide-align-center"></span></button>
+    <button class="tool" class:on={align === 'right'} onclick={() => pick(() => editorState.setAlign('right'))} title="Right" aria-label="Align right"><span class="i-lucide-align-right"></span></button>
   </div>
   <div class="icon-row">
     <button class="tool" class:on={style?.valign === 'top'} onclick={() => pick(() => editorState.setVerticalAlign('top'))} title="Top" aria-label="Align top"><span class="i-lucide-align-vertical-justify-start"></span></button>
@@ -322,6 +337,7 @@
 
 <style>
   .toolbar {
+    container-type: inline-size;
     flex: none;
     display: flex;
     align-items: center;
@@ -490,7 +506,8 @@
     background: rgb(var(--surface-2));
   }
 
-  .theme.on {
+  .theme.on,
+  .layout.on {
     background: rgb(145 109 254 / 0.16);
   }
 
@@ -545,6 +562,13 @@
     width: 9px;
     height: 9px;
     border-radius: 50%;
+  }
+
+  /* The words beside the last three icons make way when the row fills up with what can be done to a selection. */
+  @container (max-width: 1300px) {
+    .busy .roomy {
+      display: none;
+    }
   }
 
   @media (max-width: 639px) {

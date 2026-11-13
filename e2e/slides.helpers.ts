@@ -49,6 +49,36 @@ export async function dragSlide(page: Page, from: [number, number], to: [number,
   await page.mouse.up();
 }
 
+export type ShapeTool = 'rect' | 'round' | 'ellipse' | 'line' | 'arrow';
+
+/** Picks a shape, line or arrow in the toolbar; the next click or drag on the slide makes it. */
+export async function pickShape(page: Page, kind: ShapeTool): Promise<void> {
+  await page.getByTestId('add-shape').click();
+  await page.getByTestId(`shape-${kind}`).click();
+  await expect(page.getByTestId('slide-canvas')).toHaveAttribute('data-tool', kind === 'line' || kind === 'arrow' ? 'line' : 'shape');
+}
+
+/** Drops a shape of the usual size with a click at a point of the slide. */
+export async function addShapeAt(page: Page, kind: ShapeTool, x = 640, y = 360): Promise<void> {
+  await pickShape(page, kind);
+  await clickSlide(page, x, y);
+  await expect(page.getByTestId('slide-canvas')).not.toHaveAttribute('data-tool');
+}
+
+/** Draws a shape, line or arrow by dragging from one point of the slide to another. */
+export async function drawShape(page: Page, kind: ShapeTool, from: [number, number], to: [number, number]): Promise<void> {
+  await pickShape(page, kind);
+  await dragSlide(page, from, to);
+  await expect(page.getByTestId('slide-canvas')).not.toHaveAttribute('data-tool');
+}
+
+/** Puts a text box where the slide is clicked and waits until it can be typed in. */
+export async function addTextAt(page: Page, x = 380, y = 360): Promise<void> {
+  await page.getByTestId('add-text').click();
+  await clickSlide(page, x, y);
+  await expect(sheet(page).locator('.ProseMirror')).toBeFocused();
+}
+
 /** The frame of an element as stored, read from where it is drawn. */
 export async function frameOf(element: Locator): Promise<{ x: number; y: number; w: number; h: number }> {
   return element.evaluate((node) => {

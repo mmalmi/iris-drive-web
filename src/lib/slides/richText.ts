@@ -1,13 +1,15 @@
 /**
  * The text of a text box or shape: paragraphs and lists with bold, italic,
- * underline, strikethrough, colour and size. While someone types in it the
+ * underline, strikethrough, colour and size, each paragraph aligned as it
+ * likes. While someone types in it the
  * text is a tiptap editor; everywhere else (other boxes, thumbnails,
  * presenting) the same stored text is drawn by `renderRichText`. Both produce
  * the same elements, so the one stylesheet makes them look the same.
  */
-import { Editor, Mark, mergeAttributes } from '@tiptap/core';
+import { Editor, Extension, Mark, mergeAttributes } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
 import Collaboration from '@tiptap/extension-collaboration';
+import { TextSelection } from '@tiptap/pm/state';
 import * as Y from 'yjs';
 
 const HEX = /^#[0-9a-fA-F]{6}$|^#[0-9a-fA-F]{3}$/;
@@ -33,6 +35,18 @@ export function validFontSize(value: unknown): number | null {
   const size = typeof value === 'string' ? Number.parseFloat(value) : value;
   if (typeof size !== 'number' || !Number.isFinite(size)) return null;
   return Math.min(MAX_FONT_SIZE, Math.max(MIN_FONT_SIZE, Math.round(size)));
+}
+
+/**
+ * The CSS for a text size. Sizes are multiplied by `--fit`, which a box sets
+ * below 1 to shrink all its text by the same share when it would not fit.
+ */
+export function fontSizeCss(size: number): string {
+  return `calc(${size}px * var(--fit, 1))`;
+}
+
+export function validAlign(value: unknown): 'left' | 'center' | 'right' | null {
+  return value === 'left' || value === 'center' || value === 'right' ? value : null;
 }
 
 // Colour and size wrap the other marks, here and in `renderRichText`, so an
@@ -70,7 +84,7 @@ const FontSizeMark = Mark.create({
         parseHTML: element => validFontSize((element as HTMLElement).dataset.size),
         renderHTML: (attributes) => {
           const size = validFontSize(attributes.size);
-          return size ? { 'data-size': String(size), style: `font-size: ${size}px` } : {};
+          return size ? { 'data-size': String(size), style: `font-size: ${fontSizeCss(size)}` } : {};
         },
       },
     };
@@ -80,6 +94,45 @@ const FontSizeMark = Mark.create({
   },
   renderHTML({ HTMLAttributes }) {
     return ['span', mergeAttributes(HTMLAttributes), 0];
+  },
+});
+
+/** A paragraph may be aligned differently from the rest of its box. */
+const ParagraphAlign = Extension.create({
+  name: 'paragraphAlign',
+  addGlobalAttributes() {
+    return [{
+      types: ['paragraph'],
+      attributes: {
+        textAlign: {
+          default: null,
+          parseHTML: element => validAlign((element as HTMLElement).dataset.align),
+          renderHTML: (attributes) => {
+            const align = validAlign(attributes.textAlign);
+            return align ? { 'data-align': align, style: `text-align: ${align}` } : {};
+          },
+        },
+      },
+    }];
+  },
+});
+
+/**
+ * Selects all the text of a box, from its first letter to its last. Typing
+ * over it then replaces the words and keeps what they were in: a list stays
+ * a list.
+ */
+export function selectAllText(editor: Editor): boolean {
+  return editor.commands.command(({ tr, dispatch }) => {
+    if (dispatch) tr.setSelection(TextSelection.between(tr.doc.resolve(0), tr.doc.resolve(tr.doc.content.size)));
+    return true;
+  });
+}
+
+const SelectAllText = Extension.create({
+  name: 'selectAllText',
+  addKeyboardShortcuts() {
+    return { 'Mod-a': ({ editor }) => selectAllText(editor) };
   },
 });
 
@@ -112,6 +165,8 @@ export function createTextEditor(options: TextEditorOptions): Editor {
       }),
       ColourMark,
       FontSizeMark,
+      ParagraphAlign,
+      SelectAllText,
       Collaboration.configure({ fragment: options.fragment }),
     ],
     editorProps: {
@@ -174,9 +229,9 @@ function renderText(node: Y.XmlText, parent: HTMLElement, doc: Document): boolea
       return element;
     };
     const colour = cssColour((attributes.color as { color?: unknown } | undefined)?.color);
-    if (colour) wrap('span').style.color = colour;
+    if (colour) wrap('span').setAttribute('style', `color: ${colour}`);
     const size = validFontSize((attributes.fontSize as { size?: unknown } | undefined)?.size);
-    if (size) wrap('span').style.fontSize = `${size}px`;
+    if (size) wrap('span').setAttribute('style', `font-size: ${fontSizeCss(size)}`);
     for (const [mark, tag] of SIMPLE_MARKS) {
       if (mark in attributes && attributes[mark] !== null && attributes[mark] !== false) wrap(tag);
     }
@@ -200,6 +255,10 @@ function renderChildren(node: Y.XmlFragment | Y.XmlElement, parent: HTMLElement,
       if (child.nodeName === 'orderedList') {
         const start = Number(child.getAttribute('start'));
         if (Number.isInteger(start) && start > 1) element.setAttribute('start', String(start));
+      }
+      if (child.nodeName === 'paragraph') {
+        const align = validAlign(child.getAttribute('textAlign'));
+        if (align) element.setAttribute('style', `text-align: ${align}`);
       }
       const filled = renderChildren(child, element, doc, depth + 1);
       // An empty paragraph still takes a line, as it does while typing.

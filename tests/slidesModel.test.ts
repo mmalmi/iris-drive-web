@@ -165,6 +165,69 @@ describe('slides', () => {
   });
 });
 
+describe('changing the layout of a slide', () => {
+  const layout = (id: string) => layoutById(id);
+  const boxes = (deck: Deck, slide: string) => deck.readSlide(slide)!.elements.map(element => `${element.role}:${richTextToPlain(element.content)}`);
+
+  function filled(): { deck: Deck; slide: string } {
+    const deck = newDeck();
+    const slide = deck.addSlide('content', layout('content').elements);
+    const [title, body] = deck.readSlide(slide)!.elements;
+    deck.transact(() => {
+      const heading = new Y.XmlElement('paragraph');
+      title!.content!.insert(0, [heading]);
+      heading.insert(0, [new Y.XmlText('Heading')]);
+      const points = new Y.XmlElement('paragraph');
+      body!.content!.insert(0, [points]);
+      points.insert(0, [new Y.XmlText('Points')]);
+    });
+    return { deck, slide };
+  }
+
+  test('text keeps its box when the new layout has one like it, and takes its frame', () => {
+    const { deck, slide } = filled();
+    const before = deck.readSlide(slide)!.elements.map(element => element.id);
+    deck.applyLayout(slide, 'columns', layout('columns').elements);
+    const after = deck.readSlide(slide)!;
+    expect(after.layout).toBe('columns');
+    expect(boxes(deck, slide)).toEqual(['title:Heading', 'body:Points', 'body:']);
+    expect(after.elements.slice(0, 2).map(element => element.id)).toEqual(before);
+    const wanted = layout('columns').elements;
+    expect(after.elements.map(element => [element.x, element.y, element.w, element.h])).toEqual(wanted.map(box => [box.x, box.y, box.w, box.h]));
+  });
+
+  test('text with no box like its own takes the box that is left, and becomes that kind', () => {
+    const { deck, slide } = filled();
+    deck.applyLayout(slide, 'title', layout('title').elements);
+    expect(boxes(deck, slide)).toEqual(['title:Heading', 'subtitle:Points']);
+    expect(deck.readSlide(slide)!.elements[0]!.valign).toBe('bottom');
+    deck.applyLayout(slide, 'content', layout('content').elements);
+    expect(boxes(deck, slide)).toEqual(['title:Heading', 'body:Points']);
+  });
+
+  test('empty boxes go, boxes with text stay, and nothing else on the slide is touched', () => {
+    const { deck, slide } = filled();
+    deck.applyLayout(slide, 'columns', layout('columns').elements);
+    const shape = deck.addElement(slide, { type: 'shape', shape: 'rect', x: 5, y: 6, w: 7, h: 8, rot: 0 })!;
+    deck.applyLayout(slide, 'blank', []);
+    // The empty second column is gone; the title and the first column keep their text and place.
+    expect(boxes(deck, slide)).toEqual(['title:Heading', 'body:Points', 'undefined:']);
+    expect(deck.readSlide(slide)!.elements.find(element => element.id === shape)).toMatchObject({ x: 5, y: 6, w: 7, h: 8 });
+    deck.applyLayout(slide, 'section', layout('section').elements);
+    expect(boxes(deck, slide).sort()).toEqual(['subtitle:Points', 'title:Heading', 'undefined:']);
+  });
+
+  test('a paragraph\'s own alignment can be taken off again', () => {
+    const { deck, slide } = filled();
+    const title = deck.readSlide(slide)!.elements[0]!;
+    const paragraph = title.content!.get(0) as Y.XmlElement;
+    deck.transact(() => paragraph.setAttribute('textAlign', 'center'));
+    expect(paragraph.getAttribute('textAlign')).toBe('center');
+    deck.clearParagraphAttribute(slide, title.id, 'textAlign');
+    expect(paragraph.getAttribute('textAlign')).toBeUndefined();
+  });
+});
+
 describe('elements', () => {
   test('elements stack in the order they were added and can be rearranged', () => {
     const deck = newDeck();

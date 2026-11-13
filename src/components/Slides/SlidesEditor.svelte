@@ -83,7 +83,7 @@
     // An open menu takes Escape for itself.
     if (document.querySelector('[data-slides-popover]')) return;
     const where = place(event.target);
-    if (where === 'elsewhere' || where === 'field') return;
+    if (where === 'elsewhere') return;
     const mod = event.metaKey || event.ctrlKey;
     const key = event.key;
     const lower = key.toLowerCase();
@@ -91,6 +91,26 @@
       event.preventDefault();
       event.stopPropagation();
     };
+
+    // What concerns the whole deck works from anywhere, also in the middle of typing.
+    if (mod && key === 'Enter') {
+      done();
+      present();
+      return;
+    }
+    if (mod && !event.altKey && !event.shiftKey && lower === 'm' && current.canEdit) {
+      done();
+      current.addSlide();
+      focusCanvas();
+      return;
+    }
+    if (where === 'field') return;
+    if ((key === 'PageDown' || key === 'PageUp') && !mod) {
+      done();
+      current.goBy(key === 'PageDown' ? 1 : -1);
+      focusCanvas();
+      return;
+    }
 
     if (mod && !event.altKey && lower === 'z') {
       done();
@@ -101,11 +121,6 @@
     if (mod && !event.altKey && lower === 'y') {
       done();
       current.redo();
-      return;
-    }
-    if (mod && key === 'Enter') {
-      done();
-      present();
       return;
     }
     if (where === 'text' || current.editingId) {
@@ -123,9 +138,9 @@
     const strip = current.area === 'strip';
     const selected = !strip && current.selection.length > 0;
 
-    if (key === 'PageDown' || key === 'PageUp') {
+    if (key === 'Escape' && current.tool) {
       done();
-      current.goBy(key === 'PageDown' ? 1 : -1);
+      current.armTool(null);
       return;
     }
     if (key === 'Home' || key === 'End') {
@@ -173,9 +188,6 @@
       done();
       if (selected) current.duplicateSelected();
       else current.duplicateSlides();
-    } else if (mod && lower === 'm') {
-      done();
-      current.addSlide();
     } else if (mod && (key === ']' || key === '[') && selected) {
       done();
       if (key === ']') current.arrange(event.shiftKey ? 'front' : 'forward');
@@ -261,6 +273,39 @@
     else current.pasteText(text);
   }
 
+  /** Copy and cut from a menu, where there is no clipboard event to fill. */
+  function menuCopy(cut: boolean): void {
+    const current = editorState;
+    const data = current?.copyPayload();
+    if (!current || !data) return;
+    copied = data;
+    current.resetPasteOffset();
+    void navigator.clipboard?.writeText(data.text || ' ').catch(() => {});
+    if (cut && current.canEdit) current.cut();
+  }
+
+  /** Paste from a menu: what the clipboard holds if the browser lets it be read, otherwise what was last copied here. */
+  async function menuPaste(): Promise<void> {
+    const current = editorState;
+    if (!current?.canEdit) return;
+    let text: string | null = null;
+    try {
+      for (const item of await navigator.clipboard.read()) {
+        const image = item.types.find(type => type.startsWith('image/'));
+        if (image) {
+          const blob = await item.getType(image);
+          void current.addImage(new File([blob], `pasted.${image.split('/')[1] ?? 'png'}`, { type: image }));
+          return;
+        }
+        if (item.types.includes('text/plain')) text = await (await item.getType('text/plain')).text();
+      }
+    } catch {
+      text = await navigator.clipboard?.readText?.().catch(() => null) ?? null;
+    }
+    if (copied && (text === null || text === (copied.text || ' '))) current.paste(copied.payload);
+    else if (text) current.pasteText(text);
+  }
+
   function addImages(files: File[], at?: Point): void {
     files.forEach((file, index) => {
       void editorState?.addImage(file, at ? { x: at.x + index * 24, y: at.y + index * 24 } : undefined);
@@ -316,7 +361,7 @@
       <div class="flex-1 flex min-h-0 flex-col-reverse sm:flex-row" data-testid="slides-workspace">
         <SlideStrip {editorState} {urls} />
         <div class="flex-1 flex flex-col min-w-0 min-h-0">
-          <Canvas {editorState} {urls} onImageFiles={addImages} />
+          <Canvas {editorState} {urls} onImageFiles={addImages} onCopy={menuCopy} onPaste={() => void menuPaste()} />
           {#if canEdit}
             <div class="max-sm:hidden">
               <NotesBox {editorState} />

@@ -8,6 +8,8 @@
  *                     pos         position key (see order.ts): where the slide sits in the deck
  *                     layout      id of the layout it was made from (layouts.ts)
  *                     background  colour, when it differs from the theme's
+ *                     seed        true on the slide a new deck was given by itself, so that two
+ *                                 devices opening a new deck at once end up with one such slide
  *                     notes       Y.Text, the speaker notes
  *                     elements    Y.Map  <element id> → Y.Map
  *                                   type     'text' | 'shape' | 'line' | 'image'
@@ -16,7 +18,10 @@
  *                                   rot      rotation in degrees, clockwise, about the centre
  *                                   …        one key per property, listed in SlideElement below
  *                                   content  Y.XmlFragment, the rich text of a text box or shape
- *                                            (paragraphs and lists, as tiptap stores them)
+ *                                            (paragraphs and lists, as tiptap stores them; a
+ *                                            paragraph may carry `textAlign`, marks are bold,
+ *                                            italic, underline, strike, color {color} and
+ *                                            fontSize {size})
  *
  * Slides and elements are found by id and never copied to move them: order
  * is a key each one carries, so reordering is one value written to one thing
@@ -86,6 +91,8 @@ export interface Slide {
   pos: string;
   layout: string;
   background?: string;
+  /** The slide a new deck started with by itself. */
+  seed?: boolean;
   notes: Y.Text | null;
   /** Lowest first. */
   elements: SlideElement[];
@@ -196,7 +203,7 @@ export function readSlide(id: string, map: unknown): Slide | null {
   }
   elements.sort((left, right) => comparePositions({ pos: left.z, id: left.id }, { pos: right.z, id: right.id }));
   const notes = map.get('notes');
-  return {
+  const slide: Slide = {
     id,
     pos: readKey(map.get('pos')),
     layout: text(map.get('layout')) ?? 'blank',
@@ -204,6 +211,8 @@ export function readSlide(id: string, map: unknown): Slide | null {
     notes: notes instanceof Y.Text ? notes : null,
     elements,
   };
+  if (map.get('seed') === true) slide.seed = true;
+  return slide;
 }
 
 /** The plain text of a text box, one line per paragraph. */
@@ -366,7 +375,7 @@ export class Deck {
   }
 
   /** Adds a slide after `afterId` (at the end when null) and returns its id. */
-  addSlide(layout: string, elements: ElementInit[], afterId: string | null = null, background?: string): string {
+  addSlide(layout: string, elements: ElementInit[], afterId: string | null = null, background?: string, seed = false): string {
     const id = newId();
     this.transact(() => {
       const order = this.readSlides();
@@ -378,6 +387,7 @@ export class Deck {
       map.set('pos', keyBetween(before?.pos, after?.pos));
       map.set('layout', layout);
       if (background) map.set('background', background);
+      if (seed) map.set('seed', true);
       map.set('notes', new Y.Text());
       map.set('elements', new Y.Map());
       const keys = keysBetween(null, null, elements.length);
@@ -450,6 +460,66 @@ export class Deck {
       if (!map) return;
       if (background) map.set('background', background);
       else map.delete('background');
+    });
+  }
+
+  /**
+   * Gives a slide another layout. Its title, subtitle and body boxes move
+   * into the new layout's boxes with their text; boxes the new layout has
+   * and the slide lacks are added, and empty ones it no longer has go.
+   * A box with text that has no place in the new layout stays as it is.
+   */
+  applyLayout(slideId: string, layout: string, boxes: ElementInit[]): void {
+    const map = this.slides.get(slideId);
+    const elements = this.#elements(slideId);
+    const slide = this.readSlide(slideId);
+    if (!map || !elements || !slide) return;
+    this.transact(() => {
+      map.set('layout', layout);
+      const existing = slide.elements.filter(element => element.type === 'text' && element.role);
+      const slots = boxes.filter(box => box.type === 'text' && box.role);
+      const placed = new Map<number, SlideElement>();
+      const used = new Set<string>();
+      // Like goes to like first: a title stays a title.
+      slots.forEach((slot, index) => {
+        const match = existing.find(element => element.role === slot.role && !used.has(element.id));
+        if (match) {
+          placed.set(index, match);
+          used.add(match.id);
+        }
+      });
+      // Then text that is left takes the boxes that are left, becoming what they are.
+      const left = existing.filter(element => !used.has(element.id) && !richTextIsEmpty(element.content));
+      slots.forEach((_slot, index) => {
+        const next = placed.has(index) ? undefined : left.shift();
+        if (next) {
+          placed.set(index, next);
+          used.add(next.id);
+        }
+      });
+      const top = slide.elements.at(-1)?.z;
+      const keys = keysBetween(top, null, slots.length);
+      slots.forEach((slot, index) => {
+        const element = placed.get(index);
+        if (!element) {
+          this.#insertElement(slideId, { ...slot, z: keys[index]! });
+          return;
+        }
+        const target = elements.get(element.id);
+        if (!target) return;
+        for (const key of ['x', 'y', 'w', 'h', 'role', 'valign'] as const) {
+          const value = slot[key];
+          if (value === undefined) {
+            if (target.has(key)) target.delete(key);
+          } else if (target.get(key) !== value) {
+            target.set(key, value);
+          }
+        }
+        if (target.get('rot') !== 0) target.set('rot', 0);
+      });
+      for (const element of existing) {
+        if (!used.has(element.id) && richTextIsEmpty(element.content)) elements.delete(element.id);
+      }
     });
   }
 
@@ -611,6 +681,22 @@ export class Deck {
           } else if (child instanceof Y.XmlElement) {
             visit(child);
           }
+        }
+      };
+      visit(content);
+    });
+  }
+
+  /** Takes an attribute, such as its own alignment, off every paragraph of an element. */
+  clearParagraphAttribute(slideId: string, elementId: string, attribute: string): void {
+    const content = this.#elements(slideId)?.get(elementId)?.get('content');
+    if (!(content instanceof Y.XmlFragment)) return;
+    this.transact(() => {
+      const visit = (node: Y.XmlFragment | Y.XmlElement): void => {
+        for (const child of node.toArray()) {
+          if (!(child instanceof Y.XmlElement)) continue;
+          if (child.nodeName === 'paragraph' && child.getAttribute(attribute) !== undefined) child.removeAttribute(attribute);
+          visit(child);
         }
       };
       visit(content);
