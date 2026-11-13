@@ -13,7 +13,6 @@ import {
   LOCAL_ORIGIN,
   SLIDE_HEIGHT,
   SLIDE_WIDTH,
-  newId,
   richTextIsEmpty,
   type ElementInit,
   type ElementJson,
@@ -33,6 +32,7 @@ import { cellPlace, cellRect, newTable, rectKeys, stepCell, type CellRect } from
 import { growTable } from './tableEditing';
 import { readTransition, type Transition } from './motion';
 import { imageSize, reuse } from './slideData';
+import { SEED_ORIGIN, browserId, seedDeck, settleSeeds, untouched } from './seedSlide';
 import type { ClipboardPayload } from './clipboard';
 
 /** Transaction origin of a table cell made because someone began typing where none was; not something to undo. */
@@ -55,39 +55,12 @@ export type TextMark = 'bold' | 'italic' | 'underline' | 'strike';
 /** What the next click or drag on the slide will make. */
 export type Tool = { kind: 'text' } | { kind: 'shape'; shape: ShapeKind } | { kind: 'line'; arrow: boolean };
 
-/** Transaction origin of the housekeeping around a deck's first slide; not something to undo. */
-const SEED_ORIGIN = 'slides-seed';
-
-/** A slide a new deck was given by itself that nobody has done anything with yet. */
-function untouched(slide: Slide): boolean {
-  return !!slide.seed && !slide.background && !slide.notes?.length
-    && slide.elements.every(element => element.type === 'text' && !!element.role && richTextIsEmpty(element.content));
-}
-
 export interface SlidesEditorOptions {
   /** Stores an image beside the deck and returns the name to refer to it by. */
   addAttachment: (file: File) => Promise<string>;
   canEdit: () => boolean;
-  /** Names this browser, the same after a reload; see `browserId`. */
+  /** Names this browser, the same after a reload; see `browserId` in seedSlide.ts. */
   deviceId?: string;
-}
-
-const DEVICE_KEY = 'irisslides-device';
-
-/**
- * A name for this browser that outlasts a reload, kept in its local storage.
- * Without storage every editor gets a name of its own.
- */
-function browserId(): string {
-  try {
-    const known = localStorage.getItem(DEVICE_KEY);
-    if (known) return known;
-    const made = newId();
-    localStorage.setItem(DEVICE_KEY, made);
-    return made;
-  } catch {
-    return newId();
-  }
 }
 
 export class SlidesEditorState {
@@ -254,41 +227,15 @@ export class SlidesEditorState {
   /** Gives an empty deck its first slide. Not something to undo. */
   startDeck(): void {
     if (!this.canEdit) return;
-    this.deck.start(DEFAULT_THEME);
-    if (this.deck.slides.size === 0) {
-      this.deck.ydoc.transact(() => this.deck.addSlide('title', layoutById('title').elements, null, undefined, this.#deviceId), SEED_ORIGIN);
-    }
+    seedDeck(this.deck, this.#deviceId);
     this.#undo.clear();
     // A first slide this browser made before a reload may meanwhile have met another.
     this.#settleSeed();
   }
 
-  /**
-   * Two devices that open a new deck at the same moment each give it a first
-   * slide. Each then takes its own away again if it is still untouched and
-   * the other's is the one to keep: the one with something on it, or of two
-   * untouched ones the one whose id sorts first. A browser only ever removes
-   * a slide it made itself, also after a reload, so nothing anyone typed on
-   * another device can be lost this way.
-   */
+  /** Two devices can each give a new deck its first slide; see seedSlide.ts. */
   #settleSeed(): void {
-    if (!this.canEdit) return;
-    const seeds = this.slides.filter(slide => slide.seed);
-    // A deck that a file was brought into in place of its first slide has no use for one that arrives late.
-    if (this.deck.meta.get('seedless') === true) {
-      const late = seeds.filter(slide => untouched(slide) && slide.seedBy === this.#deviceId && this.slides.length > 1);
-      if (late.length) this.deck.ydoc.transact(() => late.forEach(slide => this.deck.slides.delete(slide.id)), SEED_ORIGIN);
-      return;
-    }
-    if (seeds.length < 2) return;
-    const blank = seeds.filter(untouched);
-    // Something written on is kept; otherwise the first by id.
-    const keep = blank.length < seeds.length ? null : blank.reduce((first, slide) => (slide.id < first.id ? slide : first));
-    const losers = blank.filter(slide => slide !== keep && slide.seedBy === this.#deviceId);
-    if (losers.length === 0) return;
-    this.deck.ydoc.transact(() => {
-      for (const slide of losers) this.deck.slides.delete(slide.id);
-    }, SEED_ORIGIN);
+    if (this.canEdit) settleSeeds(this.deck, this.slides, this.#deviceId);
   }
 
   /**
