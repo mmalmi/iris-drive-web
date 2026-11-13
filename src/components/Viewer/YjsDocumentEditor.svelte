@@ -78,6 +78,14 @@
         canEdit,
         handleImageUpload,
         resolveImageSrc,
+        attachmentUrl: (filename) => drive.attachmentUrls.get(filename),
+        storeImage: (file) => {
+          if (file.size > MAX_IMAGE_BYTES) return Promise.reject(new Error('Too large'));
+          return drive.addAttachment(file);
+        },
+        onNotice: (message) => {
+          notice = message;
+        },
         onCommentsState: (state) => {
           commentsState = state;
         },
