@@ -169,6 +169,11 @@ test.describe('building a talk', () => {
     await page.keyboard.type('Third');
     await page.keyboard.press('Escape');
     await page.keyboard.press('Escape');
+    // With nothing selected, Tab leaves the slide for the notes instead of keeping the keyboard there.
+    await page.keyboard.press('Tab');
+    await expect(page.getByTestId('notes-divider')).toBeFocused();
+    await page.keyboard.press('Shift+Tab');
+    await expect(page.getByTestId('slide-canvas')).toBeFocused();
 
     // This slide slides in and shows its points one at a time; the strip marks it.
     await page.getByTestId('slide-motion').click();

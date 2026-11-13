@@ -258,8 +258,8 @@
     } else if (mod && (lower === 'b' || lower === 'i' || lower === 'u') && current.selectedText.length > 0) {
       done();
       current.toggleMark(lower === 'b' ? 'bold' : lower === 'i' ? 'italic' : 'underline');
-    } else if (key === 'Tab' && !mod && current.current && current.current.elements.length > 0 && !strip) {
-      // Tab walks through the elements of the slide.
+    } else if (key === 'Tab' && !mod && selected && current.current && current.current.elements.length > 0) {
+      // With something selected, Tab walks through the elements of the slide; with nothing, it moves on to the notes as usual.
       const elements = current.current.elements;
       const at = elements.findIndex(element => element.id === current.selection[0]);
       const next = elements[(at + (event.shiftKey ? -1 : 1) + elements.length) % elements.length] ?? elements[0]!;

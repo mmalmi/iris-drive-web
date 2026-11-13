@@ -594,6 +594,12 @@
     }
   }
 
+  /* Reached by keyboard, the slide shows that keys now act on it. */
+  .stage:focus-visible .sheet {
+    outline: 2px solid rgb(145 109 254 / 0.6);
+    outline-offset: 3px;
+  }
+
   .stage-dropping .sheet {
     outline: 2px solid #916dfe;
     outline-offset: 2px;

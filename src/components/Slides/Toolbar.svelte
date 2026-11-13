@@ -306,19 +306,19 @@
 {#snippet shapeTools()}
     {#if shapes.length > 0}
       <button class="tool" bind:this={anchors.fill} onclick={() => (open.fill = !open.fill)} title="Fill" aria-label="Fill" aria-expanded={open.fill} data-testid="shape-fill">
-        <span class="ink"><span class="i-lucide-paint-bucket"></span><span class="ink-bar" class:ink-none={!fill} style:background={fill ?? undefined}></span></span>
+        <span class="ink"><span class="i-lucide-paint-bucket"></span><span class="ink-bar" class:ink-none={!fill} style:background={fill ?? undefined}></span></span>{#if narrow}<span class="label">Fill</span>{/if}
       </button>
     {/if}
     {#if table}
       <button class="tool" bind:this={anchors.tableEdit} onclick={() => (open.tableEdit = !open.tableEdit)} title="Rows and columns" aria-label="Rows and columns" aria-expanded={open.tableEdit} data-testid="table-lines">
-        <span class="i-lucide-table-properties"></span>
+        <span class="i-lucide-table-properties"></span>{#if narrow}<span class="label">Rows and columns</span>{/if}
       </button>
       <button class="tool" bind:this={anchors.cellFill} onclick={() => (open.cellFill = !open.cellFill)} title={cellChosen ? 'Cell fill' : 'Fill for every cell'} aria-label="Cell fill" aria-expanded={open.cellFill} data-testid="cell-fill">
-        <span class="ink"><span class="i-lucide-paint-bucket"></span><span class="ink-bar" class:ink-none={!cellFill} style:background={resolveColour(cellFill, palette) ?? undefined}></span></span>
+        <span class="ink"><span class="i-lucide-paint-bucket"></span><span class="ink-bar" class:ink-none={!cellFill} style:background={resolveColour(cellFill, palette) ?? undefined}></span></span>{#if narrow}<span class="label">Cell fill</span>{/if}
       </button>
     {/if}
     <button class="tool" bind:this={anchors.border} onclick={() => (open.border = !open.border)} title={boxed ? 'Border' : 'Line'} aria-label={boxed ? 'Border' : 'Line'} aria-expanded={open.border} data-testid="shape-border">
-      <span class="ink"><span class="i-lucide-pen-line"></span><span class="ink-bar" class:ink-none={!stroke} style:background={stroke ?? undefined}></span></span>
+      <span class="ink"><span class="i-lucide-pen-line"></span><span class="ink-bar" class:ink-none={!stroke} style:background={stroke ?? undefined}></span></span>{#if narrow}<span class="label">{boxed ? 'Border' : 'Line'}</span>{/if}
     </button>
 {/snippet}
 
