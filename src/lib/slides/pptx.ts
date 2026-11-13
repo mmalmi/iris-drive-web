@@ -19,6 +19,7 @@ import { cellKey, cellPlace, edgeBorder, type CellBorder, type Side } from './ta
 import { paletteFor, readableOn, resolveColour, textStyle, type Palette, type Theme } from './themes';
 import { cssColour, validFontSize } from './richText';
 import { escapeXml } from '../markup';
+import { NS_R, XML_HEAD, relationshipsXml } from '../ooxml';
 import { saveFile } from '../saveFile';
 
 /** One slide unit in EMU: a 1280-unit slide is PowerPoint's 13.333-inch widescreen. */
@@ -44,12 +45,8 @@ export interface PptxOptions {
   loadImage: (src: string) => Promise<PptxImage | null>;
 }
 
-const XML_HEAD = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
 const NS_A = 'http://schemas.openxmlformats.org/drawingml/2006/main';
-const NS_R = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
 const NS_P = 'http://schemas.openxmlformats.org/presentationml/2006/main';
-const REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
-const PKG_REL = 'http://schemas.openxmlformats.org/package/2006/relationships';
 
 function emu(value: number): number {
   return Math.round(value * EMU);
@@ -236,7 +233,7 @@ function lineXml(element: SlideElement, palette: Palette, writer: Writer): strin
 
 function pictureXml(element: SlideElement, image: PptxImage, target: string, writer: Writer): string {
   const id = writer.id++;
-  const rel = writer.rel(`${REL}/image`, target);
+  const rel = writer.rel(`${NS_R}/image`, target);
   // Pictures fill their frame and are cropped to it, as on the slide: as they were cropped, or else to fill it.
   let crop = '';
   if (element.crop) {
@@ -311,10 +308,6 @@ function transitionXml(slide: Slide): string {
   return '';
 }
 
-function relsXml(rels: Array<{ id: string; type: string; target: string }>): string {
-  return `${XML_HEAD}<Relationships xmlns="${PKG_REL}">${rels.map(rel => `<Relationship Id="${rel.id}" Type="${rel.type}" Target="${escapeXml(rel.target)}"/>`).join('')}</Relationships>`;
-}
-
 function notesXml(slideIndex: number, text: string): string {
   const paragraphs = text.split('\n').map(line => (line ? `<a:p><a:r><a:rPr lang="en-US" dirty="0"/><a:t>${escapeXml(line)}</a:t></a:r></a:p>` : '<a:p><a:endParaRPr lang="en-US" dirty="0"/></a:p>')).join('');
   return `${XML_HEAD}<p:notes xmlns:a="${NS_A}" xmlns:r="${NS_R}" xmlns:p="${NS_P}"><p:cSld><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/>`
@@ -380,7 +373,7 @@ export async function deckToPptx(options: PptxOptions): Promise<Uint8Array> {
     const number = index + 1;
     const palette = paletteFor(theme, slide.layout);
     const background = resolveColour(slide.background, palette) ?? palette.background;
-    const rels: Array<{ id: string; type: string; target: string }> = [{ id: 'rId1', type: `${REL}/slideLayout`, target: '../slideLayouts/slideLayout1.xml' }];
+    const rels: Array<{ id: string; type: string; target: string }> = [{ id: 'rId1', type: `${NS_R}/slideLayout`, target: '../slideLayouts/slideLayout1.xml' }];
     const writer: Writer = {
       id: 2,
       rel: (type, target) => {
@@ -402,55 +395,55 @@ export async function deckToPptx(options: PptxOptions): Promise<Uint8Array> {
     }
     const notes = slide.notes?.toString() ?? '';
     if (notes.trim()) {
-      writer.rel(`${REL}/notesSlide`, `../notesSlides/notesSlide${number}.xml`);
+      writer.rel(`${NS_R}/notesSlide`, `../notesSlides/notesSlide${number}.xml`);
       put(`ppt/notesSlides/notesSlide${number}.xml`, notesXml(number, notes));
-      put(`ppt/notesSlides/_rels/notesSlide${number}.xml.rels`, relsXml([
-        { id: 'rId1', type: `${REL}/notesMaster`, target: '../notesMasters/notesMaster1.xml' },
-        { id: 'rId2', type: `${REL}/slide`, target: `../slides/slide${number}.xml` },
+      put(`ppt/notesSlides/_rels/notesSlide${number}.xml.rels`, relationshipsXml([
+        { id: 'rId1', type: `${NS_R}/notesMaster`, target: '../notesMasters/notesMaster1.xml' },
+        { id: 'rId2', type: `${NS_R}/slide`, target: `../slides/slide${number}.xml` },
       ]));
     }
     const tree = emptyTree().replace('</p:spTree>', `${shapes}</p:spTree>`);
     put(`ppt/slides/slide${number}.xml`, `${XML_HEAD}<p:sld xmlns:a="${NS_A}" xmlns:r="${NS_R}" xmlns:p="${NS_P}"><p:cSld><p:bg><p:bgPr>${backgroundFill(background)}<a:effectLst/></p:bgPr></p:bg>${tree}</p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr>${transitionXml(slide)}</p:sld>`);
-    put(`ppt/slides/_rels/slide${number}.xml.rels`, relsXml(rels));
+    put(`ppt/slides/_rels/slide${number}.xml.rels`, relationshipsXml(rels));
     slideRefs.push(`ppt/slides/slide${number}.xml`);
   });
 
   const hasNotes = Object.keys(files).some(path => path.startsWith('ppt/notesSlides/'));
   const presentationRels = [
-    { id: 'rId1', type: `${REL}/slideMaster`, target: 'slideMasters/slideMaster1.xml' },
-    { id: 'rId2', type: `${REL}/theme`, target: 'theme/theme1.xml' },
-    { id: 'rId3', type: `${REL}/presProps`, target: 'presProps.xml' },
-    { id: 'rId4', type: `${REL}/viewProps`, target: 'viewProps.xml' },
-    { id: 'rId5', type: `${REL}/tableStyles`, target: 'tableStyles.xml' },
-    ...(hasNotes ? [{ id: 'rId6', type: `${REL}/notesMaster`, target: 'notesMasters/notesMaster1.xml' }] : []),
-    ...slides.map((_slide, index) => ({ id: `rId${index + 10}`, type: `${REL}/slide`, target: `slides/slide${index + 1}.xml` })),
+    { id: 'rId1', type: `${NS_R}/slideMaster`, target: 'slideMasters/slideMaster1.xml' },
+    { id: 'rId2', type: `${NS_R}/theme`, target: 'theme/theme1.xml' },
+    { id: 'rId3', type: `${NS_R}/presProps`, target: 'presProps.xml' },
+    { id: 'rId4', type: `${NS_R}/viewProps`, target: 'viewProps.xml' },
+    { id: 'rId5', type: `${NS_R}/tableStyles`, target: 'tableStyles.xml' },
+    ...(hasNotes ? [{ id: 'rId6', type: `${NS_R}/notesMaster`, target: 'notesMasters/notesMaster1.xml' }] : []),
+    ...slides.map((_slide, index) => ({ id: `rId${index + 10}`, type: `${NS_R}/slide`, target: `slides/slide${index + 1}.xml` })),
   ];
   const slideIds = slides.map((_slide, index) => `<p:sldId id="${256 + index}" r:id="rId${index + 10}"/>`).join('');
   put('ppt/presentation.xml', `${XML_HEAD}<p:presentation xmlns:a="${NS_A}" xmlns:r="${NS_R}" xmlns:p="${NS_P}" saveSubsetFonts="1"><p:sldMasterIdLst><p:sldMasterId id="2147483648" r:id="rId1"/></p:sldMasterIdLst>${hasNotes ? '<p:notesMasterIdLst><p:notesMasterId r:id="rId6"/></p:notesMasterIdLst>' : ''}<p:sldIdLst>${slideIds}</p:sldIdLst><p:sldSz cx="${SLIDE_CX}" cy="${SLIDE_CY}"/><p:notesSz cx="6858000" cy="9144000"/><p:defaultTextStyle><a:lvl1pPr><a:defRPr lang="en-US"/></a:lvl1pPr></p:defaultTextStyle></p:presentation>`);
-  put('ppt/_rels/presentation.xml.rels', relsXml(presentationRels));
+  put('ppt/_rels/presentation.xml.rels', relationshipsXml(presentationRels));
   put('ppt/presProps.xml', `${XML_HEAD}<p:presentationPr xmlns:a="${NS_A}" xmlns:r="${NS_R}" xmlns:p="${NS_P}"/>`);
   put('ppt/viewProps.xml', `${XML_HEAD}<p:viewPr xmlns:a="${NS_A}" xmlns:r="${NS_R}" xmlns:p="${NS_P}"><p:normalViewPr><p:restoredLeft sz="15620"/><p:restoredTop sz="94660"/></p:normalViewPr><p:gridSpacing cx="76200" cy="76200"/></p:viewPr>`);
   put('ppt/tableStyles.xml', `${XML_HEAD}<a:tblStyleLst xmlns:a="${NS_A}" def="{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}"/>`);
   put('ppt/slideMasters/slideMaster1.xml', MASTER);
-  put('ppt/slideMasters/_rels/slideMaster1.xml.rels', relsXml([
-    { id: 'rId1', type: `${REL}/slideLayout`, target: '../slideLayouts/slideLayout1.xml' },
-    { id: 'rId2', type: `${REL}/theme`, target: '../theme/theme1.xml' },
+  put('ppt/slideMasters/_rels/slideMaster1.xml.rels', relationshipsXml([
+    { id: 'rId1', type: `${NS_R}/slideLayout`, target: '../slideLayouts/slideLayout1.xml' },
+    { id: 'rId2', type: `${NS_R}/theme`, target: '../theme/theme1.xml' },
   ]));
   put('ppt/slideLayouts/slideLayout1.xml', LAYOUT);
-  put('ppt/slideLayouts/_rels/slideLayout1.xml.rels', relsXml([{ id: 'rId1', type: `${REL}/slideMaster`, target: '../slideMasters/slideMaster1.xml' }]));
+  put('ppt/slideLayouts/_rels/slideLayout1.xml.rels', relationshipsXml([{ id: 'rId1', type: `${NS_R}/slideMaster`, target: '../slideMasters/slideMaster1.xml' }]));
   put('ppt/theme/theme1.xml', themeXml(theme, 'Deck'));
   if (hasNotes) {
     put('ppt/notesMasters/notesMaster1.xml', NOTES_MASTER);
-    put('ppt/notesMasters/_rels/notesMaster1.xml.rels', relsXml([{ id: 'rId1', type: `${REL}/theme`, target: '../theme/theme2.xml' }]));
+    put('ppt/notesMasters/_rels/notesMaster1.xml.rels', relationshipsXml([{ id: 'rId1', type: `${NS_R}/theme`, target: '../theme/theme2.xml' }]));
     put('ppt/theme/theme2.xml', themeXml(theme, 'Notes'));
   }
   const now = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
   put('docProps/core.xml', `${XML_HEAD}<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:title>${escapeXml(options.title)}</dc:title><dcterms:created xsi:type="dcterms:W3CDTF">${now}</dcterms:created><dcterms:modified xsi:type="dcterms:W3CDTF">${now}</dcterms:modified></cp:coreProperties>`);
   put('docProps/app.xml', `${XML_HEAD}<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"><Application>Iris Drive</Application><Slides>${slides.length}</Slides></Properties>`);
-  put('_rels/.rels', relsXml([
-    { id: 'rId1', type: `${REL}/officeDocument`, target: 'ppt/presentation.xml' },
+  put('_rels/.rels', relationshipsXml([
+    { id: 'rId1', type: `${NS_R}/officeDocument`, target: 'ppt/presentation.xml' },
     { id: 'rId2', type: 'http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties', target: 'docProps/core.xml' },
-    { id: 'rId3', type: `${REL}/extended-properties`, target: 'docProps/app.xml' },
+    { id: 'rId3', type: `${NS_R}/extended-properties`, target: 'docProps/app.xml' },
   ]));
 
   const overrides = [
