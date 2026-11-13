@@ -1,0 +1,640 @@
+/**
+ * The presentation format, version 1. Everything a deck keeps lives in its
+ * Yjs document, laid out so that edits from several devices merge well:
+ *
+ *   deck    Y.Map   version: 1
+ *                   theme:   id of a theme in themes.ts
+ *   slides  Y.Map   <slide id> → Y.Map
+ *                     pos         position key (see order.ts): where the slide sits in the deck
+ *                     layout      id of the layout it was made from (layouts.ts)
+ *                     background  colour, when it differs from the theme's
+ *                     notes       Y.Text, the speaker notes
+ *                     elements    Y.Map  <element id> → Y.Map
+ *                                   type     'text' | 'shape' | 'line' | 'image'
+ *                                   z        position key: stacking order, lowest first
+ *                                   x y w h  the frame, in slide units (a slide is 1280 × 720)
+ *                                   rot      rotation in degrees, clockwise, about the centre
+ *                                   …        one key per property, listed in SlideElement below
+ *                                   content  Y.XmlFragment, the rich text of a text box or shape
+ *                                            (paragraphs and lists, as tiptap stores them)
+ *
+ * Slides and elements are found by id and never copied to move them: order
+ * is a key each one carries, so reordering is one value written to one thing
+ * and cannot duplicate or lose it. Every property is its own key, so one
+ * person moving a box while another recolours it both keep their change.
+ * A line uses its frame as a vector: from (x, y) to (x + w, y + h).
+ *
+ * Colours are '#rrggbb', 'none', or the name of a theme colour ('text',
+ * 'muted', 'accent', 'background', 'onAccent'), which follows the theme.
+ * Images name a file in the deck's `attachments` folder.
+ *
+ * Readers ignore keys and values they do not understand and fall back to
+ * defaults, so later versions can add properties. A change that older
+ * readers would show wrongly must raise `version`; a deck with a higher
+ * version than this code knows opens for viewing only.
+ */
+import * as Y from 'yjs';
+import { comparePositions, keyBetween, keysBetween, readKey } from './order';
+
+export const DECK_VERSION = 1;
+export const SLIDE_WIDTH = 1280;
+export const SLIDE_HEIGHT = 720;
+
+/** Transaction origin of edits made in this editor; the only ones undo reverts. */
+export const LOCAL_ORIGIN = 'slides';
+
+export type ElementType = 'text' | 'shape' | 'line' | 'image';
+export type ShapeKind = 'rect' | 'round' | 'ellipse';
+export type TextRole = 'title' | 'subtitle' | 'body';
+export type TextAlign = 'left' | 'center' | 'right';
+export type VerticalAlign = 'top' | 'middle' | 'bottom';
+
+export interface Frame {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  rot: number;
+}
+
+export interface SlideElement extends Frame {
+  id: string;
+  type: ElementType;
+  z: string;
+  /** Text boxes and shapes. */
+  content?: Y.XmlFragment;
+  /** What a text box is for; sets its default look and its hint while empty. */
+  role?: TextRole;
+  fontSize?: number;
+  color?: string;
+  align?: TextAlign;
+  valign?: VerticalAlign;
+  /** Shapes. */
+  shape?: ShapeKind;
+  fill?: string;
+  /** Shapes and lines. */
+  stroke?: string;
+  strokeWidth?: number;
+  /** Lines: whether the far end has an arrowhead. */
+  arrow?: boolean;
+  /** Images: the attachment's file name. */
+  src?: string;
+}
+
+export interface Slide {
+  id: string;
+  pos: string;
+  layout: string;
+  background?: string;
+  notes: Y.Text | null;
+  /** Lowest first. */
+  elements: SlideElement[];
+}
+
+/** The properties of an element that can be written, apart from its text. */
+export type ElementProps = Partial<Omit<SlideElement, 'id' | 'content'>>;
+
+/** A new element: its properties and, optionally, the text it starts with, one paragraph per line. */
+export interface ElementInit extends ElementProps {
+  type: ElementType;
+  text?: string;
+}
+
+/** Rich text as plain data, for the clipboard. */
+export type RichTextJson = Array<
+  | { name: string; attrs: Record<string, unknown>; children: RichTextJson }
+  | { text: Array<{ insert: string; attributes?: Record<string, unknown> }> }
+>;
+
+export interface ElementJson extends ElementProps {
+  type: ElementType;
+  content?: RichTextJson;
+}
+
+const ELEMENT_TYPES: ReadonlySet<string> = new Set(['text', 'shape', 'line', 'image']);
+const SHAPES: ReadonlySet<string> = new Set(['rect', 'round', 'ellipse']);
+const ROLES: ReadonlySet<string> = new Set(['title', 'subtitle', 'body']);
+const ALIGNS: ReadonlySet<string> = new Set(['left', 'center', 'right']);
+const VALIGNS: ReadonlySet<string> = new Set(['top', 'middle', 'bottom']);
+const WRITABLE_KEYS = [
+  'type', 'z', 'x', 'y', 'w', 'h', 'rot', 'role', 'fontSize', 'color', 'align', 'valign',
+  'shape', 'fill', 'stroke', 'strokeWidth', 'arrow', 'src',
+] as const;
+
+export function newId(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(8));
+  let id = '';
+  for (const byte of bytes) id += (byte % 36).toString(36);
+  return id;
+}
+
+function finite(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+function text(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length > 0 && value.length < 200 ? value : undefined;
+}
+
+function oneOf<T extends string>(value: unknown, allowed: ReadonlySet<string>): T | undefined {
+  return typeof value === 'string' && allowed.has(value) ? value as T : undefined;
+}
+
+function positive(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
+function hasContent(type: ElementType): boolean {
+  return type === 'text' || type === 'shape';
+}
+
+/** Reads an element, or null when what is stored is not one. */
+export function readElement(id: string, map: unknown): SlideElement | null {
+  if (!(map instanceof Y.Map)) return null;
+  const type = oneOf<ElementType>(map.get('type'), ELEMENT_TYPES);
+  if (!type) return null;
+  const content = map.get('content');
+  const element: SlideElement = {
+    id,
+    type,
+    z: readKey(map.get('z')),
+    x: finite(map.get('x'), 0),
+    y: finite(map.get('y'), 0),
+    w: finite(map.get('w'), 100),
+    h: finite(map.get('h'), 100),
+    rot: finite(map.get('rot'), 0),
+  };
+  if (hasContent(type) && content instanceof Y.XmlFragment) element.content = content;
+  const optional: ElementProps = {
+    role: oneOf<TextRole>(map.get('role'), ROLES),
+    fontSize: positive(map.get('fontSize')),
+    color: text(map.get('color')),
+    align: oneOf<TextAlign>(map.get('align'), ALIGNS),
+    valign: oneOf<VerticalAlign>(map.get('valign'), VALIGNS),
+    shape: type === 'shape' ? oneOf<ShapeKind>(map.get('shape'), SHAPES) ?? 'rect' : undefined,
+    fill: text(map.get('fill')),
+    stroke: text(map.get('stroke')),
+    strokeWidth: positive(map.get('strokeWidth')),
+    arrow: map.get('arrow') === true ? true : undefined,
+    src: text(map.get('src')),
+  };
+  for (const [key, value] of Object.entries(optional)) {
+    if (value !== undefined) (element as unknown as Record<string, unknown>)[key] = value;
+  }
+  return element;
+}
+
+export function readSlide(id: string, map: unknown): Slide | null {
+  if (!(map instanceof Y.Map)) return null;
+  const elements: SlideElement[] = [];
+  const stored = map.get('elements');
+  if (stored instanceof Y.Map) {
+    for (const [elementId, value] of stored) {
+      const element = readElement(elementId, value);
+      if (element) elements.push(element);
+    }
+  }
+  elements.sort((left, right) => comparePositions({ pos: left.z, id: left.id }, { pos: right.z, id: right.id }));
+  const notes = map.get('notes');
+  return {
+    id,
+    pos: readKey(map.get('pos')),
+    layout: text(map.get('layout')) ?? 'blank',
+    background: text(map.get('background')),
+    notes: notes instanceof Y.Text ? notes : null,
+    elements,
+  };
+}
+
+/** The plain text of a text box, one line per paragraph. */
+export function richTextToPlain(fragment: Y.XmlFragment | undefined): string {
+  if (!fragment) return '';
+  const lines: string[] = [];
+  const visit = (node: Y.XmlFragment | Y.XmlElement): void => {
+    let line = '';
+    let hasText = false;
+    for (const child of node.toArray()) {
+      if (child instanceof Y.XmlText) {
+        hasText = true;
+        for (const part of child.toDelta() as Array<{ insert: unknown }>) {
+          if (typeof part.insert === 'string') line += part.insert;
+        }
+      } else if (child instanceof Y.XmlElement) {
+        if (child.nodeName === 'hardBreak') {
+          hasText = true;
+          line += '\n';
+        } else {
+          visit(child);
+        }
+      }
+    }
+    if (hasText || (node instanceof Y.XmlElement && node.nodeName === 'paragraph' && node.length === 0)) lines.push(line);
+  };
+  visit(fragment);
+  return lines.join('\n');
+}
+
+export function richTextIsEmpty(fragment: Y.XmlFragment | undefined): boolean {
+  return richTextToPlain(fragment).trim() === '';
+}
+
+/** Paragraph nodes for plain text, one per line. */
+function paragraphsFromText(value: string): Y.XmlElement[] {
+  return value.split('\n').map((line) => {
+    const paragraph = new Y.XmlElement('paragraph');
+    if (line) {
+      const node = new Y.XmlText();
+      node.insert(0, line);
+      paragraph.insert(0, [node]);
+    }
+    return paragraph;
+  });
+}
+
+export function richTextToJson(fragment: Y.XmlFragment | Y.XmlElement | undefined): RichTextJson {
+  if (!fragment) return [];
+  const result: RichTextJson = [];
+  for (const child of fragment.toArray()) {
+    if (child instanceof Y.XmlText) {
+      const delta = (child.toDelta() as Array<{ insert: unknown; attributes?: Record<string, unknown> }>)
+        .filter(part => typeof part.insert === 'string')
+        .map(part => part.attributes ? { insert: part.insert as string, attributes: part.attributes } : { insert: part.insert as string });
+      result.push({ text: delta });
+    } else if (child instanceof Y.XmlElement) {
+      result.push({ name: child.nodeName, attrs: child.getAttributes() as Record<string, unknown>, children: richTextToJson(child) });
+    }
+  }
+  return result;
+}
+
+function nodesFromJson(json: unknown, depth = 0): Array<Y.XmlElement | Y.XmlText> {
+  if (!Array.isArray(json) || depth > 12) return [];
+  const nodes: Array<Y.XmlElement | Y.XmlText> = [];
+  for (const item of json as Array<Record<string, unknown>>) {
+    if (!item || typeof item !== 'object') continue;
+    if (Array.isArray(item.text)) {
+      const node = new Y.XmlText();
+      const delta = (item.text as Array<Record<string, unknown>>)
+        .filter(part => part && typeof part.insert === 'string')
+        .map(part => part.attributes && typeof part.attributes === 'object'
+          ? { insert: part.insert as string, attributes: part.attributes as Record<string, unknown> }
+          : { insert: part.insert as string });
+      node.applyDelta(delta);
+      nodes.push(node);
+    } else if (typeof item.name === 'string' && /^[A-Za-z][A-Za-z0-9]*$/.test(item.name)) {
+      const node = new Y.XmlElement(item.name);
+      if (item.attrs && typeof item.attrs === 'object') {
+        for (const [key, value] of Object.entries(item.attrs as Record<string, unknown>)) {
+          if (value !== undefined && value !== null) node.setAttribute(key, value as string);
+        }
+      }
+      const children = nodesFromJson(item.children, depth + 1);
+      if (children.length) node.insert(0, children);
+      nodes.push(node);
+    }
+  }
+  return nodes;
+}
+
+export function elementToJson(element: SlideElement): ElementJson {
+  const { id: _id, content, ...props } = element;
+  return content ? { ...props, content: richTextToJson(content) } : props;
+}
+
+/** One deck: reads of what it holds and every change that can be made to it. */
+export class Deck {
+  readonly ydoc: Y.Doc;
+  readonly meta: Y.Map<unknown>;
+  readonly slides: Y.Map<Y.Map<unknown>>;
+
+  constructor(ydoc: Y.Doc) {
+    this.ydoc = ydoc;
+    this.meta = ydoc.getMap('deck');
+    this.slides = ydoc.getMap('slides');
+  }
+
+  /** Runs a change as one step of this user's own editing. */
+  transact<T>(change: () => T): T {
+    return this.ydoc.transact(change, LOCAL_ORIGIN);
+  }
+
+  get version(): number {
+    return finite(this.meta.get('version'), DECK_VERSION);
+  }
+
+  /** True when the deck was written by a later version of the format than this code reads. */
+  get isNewer(): boolean {
+    return this.version > DECK_VERSION;
+  }
+
+  get theme(): string {
+    return text(this.meta.get('theme')) ?? '';
+  }
+
+  setTheme(theme: string): void {
+    this.transact(() => {
+      this.meta.set('theme', theme);
+    });
+  }
+
+  /** Slides in deck order. */
+  readSlides(): Slide[] {
+    const slides: Slide[] = [];
+    for (const [id, map] of this.slides) {
+      const slide = readSlide(id, map);
+      if (slide) slides.push(slide);
+    }
+    return slides.sort(comparePositions);
+  }
+
+  slideIds(): string[] {
+    return this.readSlides().map(slide => slide.id);
+  }
+
+  readSlide(id: string): Slide | null {
+    return readSlide(id, this.slides.get(id));
+  }
+
+  /** Gives a deck that has nothing yet its version and theme. */
+  start(theme: string): void {
+    this.transact(() => {
+      if (this.meta.get('version') === undefined) this.meta.set('version', DECK_VERSION);
+      if (this.meta.get('theme') === undefined) this.meta.set('theme', theme);
+    });
+  }
+
+  /** Adds a slide after `afterId` (at the end when null) and returns its id. */
+  addSlide(layout: string, elements: ElementInit[], afterId: string | null = null, background?: string): string {
+    const id = newId();
+    this.transact(() => {
+      const order = this.readSlides();
+      const index = afterId ? order.findIndex(slide => slide.id === afterId) : order.length - 1;
+      const before = index >= 0 ? order[index] : order[order.length - 1];
+      const after = index >= 0 ? order[index + 1] : undefined;
+      const map = new Y.Map<unknown>();
+      this.slides.set(id, map);
+      map.set('pos', keyBetween(before?.pos, after?.pos));
+      map.set('layout', layout);
+      if (background) map.set('background', background);
+      map.set('notes', new Y.Text());
+      map.set('elements', new Y.Map());
+      const keys = keysBetween(null, null, elements.length);
+      elements.forEach((init, position) => this.#insertElement(id, { ...init, z: keys[position]! }));
+    });
+    return id;
+  }
+
+  /** Copies slides; each copy lands right after the one it was made from. Returns the copies' ids. */
+  duplicateSlides(ids: string[]): string[] {
+    const copies: string[] = [];
+    this.transact(() => {
+      for (const sourceId of this.slideIds().filter(id => ids.includes(id))) {
+        const order = this.readSlides();
+        const index = order.findIndex(slide => slide.id === sourceId);
+        const source = order[index];
+        if (!source) continue;
+        const id = newId();
+        const map = new Y.Map<unknown>();
+        this.slides.set(id, map);
+        map.set('pos', keyBetween(source.pos, order[index + 1]?.pos));
+        map.set('layout', source.layout);
+        if (source.background) map.set('background', source.background);
+        const notes = new Y.Text();
+        map.set('notes', notes);
+        if (source.notes) notes.insert(0, source.notes.toString());
+        map.set('elements', new Y.Map());
+        for (const element of source.elements) this.#insertElement(id, elementToJson(element));
+        copies.push(id);
+      }
+    });
+    return copies;
+  }
+
+  deleteSlides(ids: string[]): void {
+    this.transact(() => {
+      for (const id of ids) this.slides.delete(id);
+    });
+  }
+
+  /**
+   * Moves slides, keeping their order among themselves, to just before
+   * `beforeId` (to the end when null).
+   */
+  moveSlides(ids: string[], beforeId: string | null): void {
+    this.transact(() => {
+      const order = this.readSlides();
+      const moving = order.filter(slide => ids.includes(slide.id));
+      if (moving.length === 0) return;
+      const staying = order.filter(slide => !ids.includes(slide.id));
+      // A target that is itself moving stands for the next slide that stays.
+      let targetIndex = order.findIndex(slide => slide.id === beforeId);
+      while (targetIndex >= 0 && targetIndex < order.length && ids.includes(order[targetIndex]!.id)) targetIndex += 1;
+      const target = targetIndex >= 0 ? order[targetIndex] : undefined;
+      const stayIndex = target ? staying.indexOf(target) : staying.length;
+      const before = staying[stayIndex - 1];
+      const after = staying[stayIndex];
+      // Nothing to do when they already sit there, in order.
+      const from = order.indexOf(moving[0]!);
+      const contiguous = moving.every((slide, offset) => order[from + offset] === slide);
+      if (contiguous && order[from - 1] === before && order[from + moving.length] === after) return;
+      const keys = keysBetween(before?.pos, after?.pos, moving.length);
+      moving.forEach((slide, position) => this.slides.get(slide.id)?.set('pos', keys[position]!));
+    });
+  }
+
+  setSlideBackground(id: string, background: string | null): void {
+    this.transact(() => {
+      const map = this.slides.get(id);
+      if (!map) return;
+      if (background) map.set('background', background);
+      else map.delete('background');
+    });
+  }
+
+  /** The speaker notes of a slide, created when an older slide has none. */
+  notes(id: string): Y.Text | null {
+    const map = this.slides.get(id);
+    if (!map) return null;
+    const notes = map.get('notes');
+    return notes instanceof Y.Text ? notes : null;
+  }
+
+  setNotes(id: string, value: string): void {
+    const map = this.slides.get(id);
+    if (!map) return;
+    this.transact(() => {
+      let notes = map.get('notes');
+      if (!(notes instanceof Y.Text)) {
+        notes = new Y.Text();
+        map.set('notes', notes);
+      }
+      const target = notes as Y.Text;
+      const current = target.toString();
+      if (current === value) return;
+      // Change only the part that differs, so two people's notes merge.
+      let start = 0;
+      while (start < current.length && start < value.length && current[start] === value[start]) start += 1;
+      let end = 0;
+      while (end < current.length - start && end < value.length - start
+        && current[current.length - 1 - end] === value[value.length - 1 - end]) end += 1;
+      if (current.length - start - end > 0) target.delete(start, current.length - start - end);
+      if (value.length - start - end > 0) target.insert(start, value.slice(start, value.length - end));
+    });
+  }
+
+  #elements(slideId: string): Y.Map<Y.Map<unknown>> | null {
+    const elements = this.slides.get(slideId)?.get('elements');
+    return elements instanceof Y.Map ? elements as Y.Map<Y.Map<unknown>> : null;
+  }
+
+  #insertElement(slideId: string, init: ElementJson & { text?: string }): string | null {
+    const elements = this.#elements(slideId);
+    if (!elements || !ELEMENT_TYPES.has(init.type)) return null;
+    const id = newId();
+    const map = new Y.Map<unknown>();
+    elements.set(id, map);
+    for (const key of WRITABLE_KEYS) {
+      const value = init[key];
+      if (value !== undefined && value !== null) map.set(key, value);
+    }
+    if (hasContent(init.type)) {
+      const content = new Y.XmlFragment();
+      map.set('content', content);
+      const nodes = init.content ? nodesFromJson(init.content) : init.text ? paragraphsFromText(init.text) : [];
+      if (nodes.length) content.insert(0, nodes);
+    }
+    return id;
+  }
+
+  /** Adds elements on top of what the slide has, in the order given. Returns their ids. */
+  addElements(slideId: string, inits: Array<ElementJson & { text?: string }>): string[] {
+    const ids: string[] = [];
+    this.transact(() => {
+      const top = this.readSlide(slideId)?.elements.at(-1)?.z;
+      const keys = keysBetween(top, null, inits.length);
+      inits.forEach((init, position) => {
+        const id = this.#insertElement(slideId, { ...init, z: keys[position]! });
+        if (id) ids.push(id);
+      });
+    });
+    return ids;
+  }
+
+  addElement(slideId: string, init: ElementInit): string | null {
+    return this.addElements(slideId, [init])[0] ?? null;
+  }
+
+  /** Writes the given properties of each element; `undefined` or `null` removes one. */
+  updateElements(slideId: string, changes: Record<string, ElementProps>): void {
+    const elements = this.#elements(slideId);
+    if (!elements) return;
+    this.transact(() => {
+      for (const [id, props] of Object.entries(changes)) {
+        const map = elements.get(id);
+        if (!map) continue;
+        for (const [key, value] of Object.entries(props)) {
+          if (!(WRITABLE_KEYS as readonly string[]).includes(key) || key === 'type') continue;
+          if (value === undefined || value === null) {
+            if (map.has(key)) map.delete(key);
+          } else if (map.get(key) !== value) {
+            map.set(key, value);
+          }
+        }
+      }
+    });
+  }
+
+  deleteElements(slideId: string, ids: string[]): void {
+    const elements = this.#elements(slideId);
+    if (!elements) return;
+    this.transact(() => {
+      for (const id of ids) elements.delete(id);
+    });
+  }
+
+  /** Copies elements onto the same slide, shifted by `offset`. Returns the copies' ids. */
+  duplicateElements(slideId: string, ids: string[], offset = 24): string[] {
+    const slide = this.readSlide(slideId);
+    if (!slide) return [];
+    const sources = slide.elements.filter(element => ids.includes(element.id));
+    return this.addElements(slideId, sources.map(element => ({
+      ...elementToJson(element),
+      x: element.x + offset,
+      y: element.y + offset,
+    })));
+  }
+
+  /** Changes where elements sit in the stack. */
+  arrange(slideId: string, ids: string[], where: 'front' | 'back' | 'forward' | 'backward'): void {
+    const elements = this.#elements(slideId);
+    const slide = this.readSlide(slideId);
+    if (!elements || !slide) return;
+    const moving = slide.elements.filter(element => ids.includes(element.id));
+    const staying = slide.elements.filter(element => !ids.includes(element.id));
+    if (moving.length === 0 || staying.length === 0) return;
+    let below: SlideElement | undefined;
+    let above: SlideElement | undefined;
+    if (where === 'front') {
+      below = staying.at(-1);
+    } else if (where === 'back') {
+      above = staying[0];
+    } else if (where === 'forward') {
+      const top = slide.elements.indexOf(moving.at(-1)!);
+      const next = slide.elements.slice(top + 1).find(element => !ids.includes(element.id));
+      if (!next) return;
+      below = next;
+      above = staying[staying.indexOf(next) + 1];
+    } else {
+      const bottom = slide.elements.indexOf(moving[0]!);
+      const previous = slide.elements.slice(0, bottom).reverse().find(element => !ids.includes(element.id));
+      if (!previous) return;
+      above = previous;
+      below = staying[staying.indexOf(previous) - 1];
+    }
+    const keys = keysBetween(below?.z, above?.z, moving.length);
+    this.transact(() => {
+      moving.forEach((element, position) => elements.get(element.id)?.set('z', keys[position]!));
+    });
+  }
+
+  /** Applies a mark to, or removes it from, all the text of an element. */
+  formatAllText(slideId: string, elementId: string, mark: string, value: Record<string, unknown> | null): void {
+    const content = this.#elements(slideId)?.get(elementId)?.get('content');
+    if (!(content instanceof Y.XmlFragment)) return;
+    this.transact(() => {
+      const visit = (node: Y.XmlFragment | Y.XmlElement): void => {
+        for (const child of node.toArray()) {
+          if (child instanceof Y.XmlText) {
+            if (child.length > 0) child.format(0, child.length, { [mark]: value });
+          } else if (child instanceof Y.XmlElement) {
+            visit(child);
+          }
+        }
+      };
+      visit(content);
+    });
+  }
+
+  /** Whether all the text of an element carries a mark; false when it has no text. */
+  allTextHasMark(slideId: string, elementId: string, mark: string): boolean {
+    const content = this.#elements(slideId)?.get(elementId)?.get('content');
+    if (!(content instanceof Y.XmlFragment)) return false;
+    let any = false;
+    let all = true;
+    const visit = (node: Y.XmlFragment | Y.XmlElement): void => {
+      for (const child of node.toArray()) {
+        if (child instanceof Y.XmlText) {
+          for (const part of child.toDelta() as Array<{ insert: unknown; attributes?: Record<string, unknown> }>) {
+            if (typeof part.insert !== 'string' || part.insert.length === 0) continue;
+            any = true;
+            if (!part.attributes || !(mark in part.attributes)) all = false;
+          }
+        } else if (child instanceof Y.XmlElement) {
+          visit(child);
+        }
+      }
+    };
+    visit(content);
+    return any && all;
+  }
+}
