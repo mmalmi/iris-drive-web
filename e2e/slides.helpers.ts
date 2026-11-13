@@ -4,12 +4,43 @@ import { expect, type Page, type Locator } from './fixtures';
 
 /** Creates a presentation in the folder that is open and waits for its first slide. */
 export async function createPresentation(page: Page, title: string): Promise<void> {
-  await page.getByTestId('new-slides').filter({ visible: true }).first().click();
-  await page.getByPlaceholder('Presentation name...').fill(title);
-  await page.getByPlaceholder('Presentation name...').press('Enter');
-  await expect(page.getByTestId('document-title')).toHaveText(title, { timeout: 30_000 });
-  await expect(sheet(page)).toBeVisible({ timeout: 30_000 });
-  await expect(thumbs(page)).toHaveCount(1);
+  // Once in a while the new presentation never opens. What the page said and showed then is kept for whoever looks into it.
+  const heard: string[] = [];
+  const onConsole = (message: { type: () => string; text: () => string }) => heard.push(`${message.type()}: ${message.text().slice(0, 400)}`);
+  const onError = (error: Error) => heard.push(`pageerror: ${error.message}`);
+  page.on('console', onConsole);
+  page.on('pageerror', onError);
+  try {
+    await page.getByTestId('new-slides').filter({ visible: true }).first().click();
+    await page.getByPlaceholder('Presentation name...').fill(title);
+    await page.getByPlaceholder('Presentation name...').press('Enter');
+    await expect(page.getByTestId('document-title')).toHaveText(title, { timeout: 30_000 });
+    await expect(sheet(page)).toBeVisible({ timeout: 30_000 });
+    await expect(thumbs(page)).toHaveCount(1);
+  } catch (error) {
+    await describeStuckPage(page, title, heard);
+    throw error;
+  } finally {
+    page.off('console', onConsole);
+    page.off('pageerror', onError);
+  }
+}
+
+async function describeStuckPage(page: Page, title: string, heard: string[]): Promise<void> {
+  const dir = process.env.SLIDES_SHOTS;
+  if (!dir) return;
+  fs.mkdirSync(dir, { recursive: true });
+  const name = `stuck-${title.replace(/\W+/g, '-')}-${Date.now()}`;
+  const seen = await page.evaluate(() => ({
+    url: window.location.href,
+    title: document.title,
+    modal: !!document.querySelector('[role="dialog"], .modal, [data-testid$="-modal"]'),
+    input: (document.activeElement as HTMLInputElement | null)?.placeholder ?? document.activeElement?.tagName,
+    testids: [...document.querySelectorAll('[data-testid]')].map(node => node.getAttribute('data-testid')).slice(0, 80),
+    text: document.body.innerText.slice(0, 1500),
+  })).catch(error => ({ failed: String(error) }));
+  fs.writeFileSync(path.join(dir, `${name}.txt`), `${JSON.stringify(seen, null, 2)}\n\nconsole (last 80 of ${heard.length}):\n${heard.slice(-80).join('\n')}\n`);
+  await page.screenshot({ path: path.join(dir, `${name}.png`) }).catch(() => {});
 }
 
 export function sheet(page: Page): Locator {
