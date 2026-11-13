@@ -31,6 +31,8 @@
   let fontSize = $derived(editorState.fontSize);
   let align = $derived(editorState.align);
   let tool = $derived(editorState.tool);
+  /** With no slide there is nothing to put things on. */
+  let noSlide = $derived(!editorState.current);
   let textColour = $derived(editorState.textColour);
   let shownTextColour = $derived(resolveColour(textColour, palette) ?? style?.color ?? palette.text);
   let fill = $derived(shapes[0] ? resolveColour(shapes[0].fill, palette, palette.accent) : null);
@@ -132,13 +134,13 @@
   <span class="divider"></span>
 
   <!-- These pick up a tool: the next click or drag on the slide makes the thing there. -->
-  <button class="tool" class:on={tool?.kind === 'text'} onclick={() => editorState.armTool({ kind: 'text' })} title="Text box: click or drag on the slide" aria-label="Text box" aria-pressed={tool?.kind === 'text'} data-testid="add-text">
+  <button class="tool" class:on={tool?.kind === 'text'} onclick={() => editorState.armTool({ kind: 'text' })} disabled={noSlide} title="Text box: click or drag on the slide" aria-label="Text box" aria-pressed={tool?.kind === 'text'} data-testid="add-text">
     <span class="i-lucide-type"></span>
   </button>
-  <button class="tool" class:on={tool?.kind === 'shape' || tool?.kind === 'line'} bind:this={anchors.shape} onclick={() => (open.shape = !open.shape)} title="Shape: click or drag on the slide" aria-label="Shape" aria-expanded={open.shape} data-testid="add-shape">
+  <button class="tool" class:on={tool?.kind === 'shape' || tool?.kind === 'line'} bind:this={anchors.shape} onclick={() => (open.shape = !open.shape)} disabled={noSlide} title="Shape: click or drag on the slide" aria-label="Shape" aria-expanded={open.shape} data-testid="add-shape">
     <span class="i-lucide-shapes"></span>
   </button>
-  <button class="tool" onclick={onPickImage} title="Image" aria-label="Image" data-testid="add-image">
+  <button class="tool" onclick={onPickImage} disabled={noSlide} title="Image" aria-label="Image" data-testid="add-image">
     <span class="i-lucide-image"></span>
   </button>
 
@@ -214,10 +216,10 @@
 
   <span class="spacer"></span>
 
-  <button class="tool labelled" bind:this={anchors.relayout} onclick={() => (open.relayout = !open.relayout)} title="Slide layout" aria-label="Slide layout" aria-expanded={open.relayout} data-testid="slide-layout">
+  <button class="tool labelled" bind:this={anchors.relayout} onclick={() => (open.relayout = !open.relayout)} disabled={noSlide} title="Slide layout" aria-label="Slide layout" aria-expanded={open.relayout} data-testid="slide-layout">
     <span class="i-lucide-layout-template"></span><span class="label roomy">Layout</span>
   </button>
-  <button class="tool labelled" bind:this={anchors.background} onclick={() => (open.background = !open.background)} title="Slide background" aria-label="Slide background" aria-expanded={open.background} data-testid="slide-background">
+  <button class="tool labelled" bind:this={anchors.background} onclick={() => (open.background = !open.background)} disabled={noSlide} title="Slide background" aria-label="Slide background" aria-expanded={open.background} data-testid="slide-background">
     <span class="i-lucide-paint-roller"></span><span class="label roomy">Background</span>
   </button>
   <button class="tool labelled" bind:this={anchors.theme} onclick={() => (open.theme = !open.theme)} title="Theme" aria-label="Theme" aria-expanded={open.theme} data-testid="deck-theme">

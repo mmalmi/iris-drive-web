@@ -6,7 +6,7 @@
  */
 import { tick } from 'svelte';
 import * as Y from 'yjs';
-import { PluginKey } from '@tiptap/pm/state';
+import { PluginKey, Selection } from '@tiptap/pm/state';
 import type { Editor } from '@tiptap/core';
 import {
   Deck,
@@ -664,7 +664,8 @@ export class SlidesEditorState {
       : null;
     if (options.selectAll) selectAllText(editor);
     else if (position) editor.commands.setTextSelection(position.pos);
-    else editor.commands.setTextSelection(editor.state.doc.content.size);
+    // The end of the last line of text, also when the text ends in a list.
+    else editor.commands.setTextSelection(Selection.atEnd(editor.state.doc).from);
     if (options.insert) editor.commands.insertContent(options.insert);
     options.then?.(editor);
   }
