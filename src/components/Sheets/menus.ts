@@ -1,4 +1,9 @@
-/** The actions offered on cells, rows and columns, for the right-click menu and the toolbar. */
+/**
+ * The actions offered on cells, rows and columns, for the right-click menu and the toolbar.
+ *
+ * The icon names here are only found by the style generator because of this marker:
+ * @unocss-include
+ */
 import { rectCols, rectRows } from '../../lib/sheets/address';
 import {
   autoFitColumn,

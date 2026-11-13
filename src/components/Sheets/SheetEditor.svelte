@@ -139,5 +139,5 @@
 <input bind:this={fileInput} type="file" accept=".csv,.tsv,.txt,text/csv,text/tab-separated-values,text/plain" class="hidden" onchange={onFileChosen} data-testid="sheet-csv-input" />
 
 {#if menu}
-  <PopupMenu x={menu.x} y={menu.y} items={menu.items} onclose={() => { menu = null; }} />
+  <PopupMenu x={menu.x} y={menu.y} items={menu.items} onclose={() => { menu = null; ctl.focusGrid(); }} />
 {/if}

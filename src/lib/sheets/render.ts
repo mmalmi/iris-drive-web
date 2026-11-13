@@ -1,6 +1,7 @@
 /** Draws the grid on a canvas: only the cells in view, each frame from scratch. */
 import { columnName, type CellPos, type Rect } from './address';
 import type { Engine } from './engine';
+import { formatGeneral } from './format';
 import { FILL_HANDLE, HEADER_HEIGHT, frozenHeight, frozenWidth, panesOf, type Pane, type Viewport } from './layout';
 import type { CellStyle, Sheet } from './model';
 import { isError, type Scalar } from './values';
@@ -44,6 +45,8 @@ export interface GridScene extends Viewport {
   references: Array<{ rect: Rect; color: string }>;
   showHandle: boolean;
   focused: boolean;
+  /** False while a formula on another sheet is being typed and this sheet is only pointed at. */
+  showSelection: boolean;
 }
 
 export function fontOf(style: CellStyle): string {
@@ -125,6 +128,17 @@ export function readableOn(fill: string, fallback: string): string {
   return red * 0.299 + green * 0.587 + blue * 0.114 > 150 ? '#1a1a1a' : '#ffffff';
 }
 
+/** A number with as many digits as fit a width, or null when even its whole part does not. */
+function roundedToFit(value: number, width: number, font: string): string | null {
+  for (let digits = 9; digits >= 1; digits -= 1) {
+    const text = formatGeneral(Number(value.toPrecision(digits)));
+    // Rounding away digits before the decimal point would show a different number.
+    if (!text.includes('.') && !text.includes('E') && Math.abs(value) >= 10 ** digits) return null;
+    if (textWidth(text, font) <= width) return text;
+  }
+  return null;
+}
+
 type Align = 'l' | 'c' | 'r';
 
 function alignOf(style: CellStyle, value: Scalar): Align {
@@ -164,8 +178,10 @@ function drawCellText(
     const needed = textWidth(text, font);
     if (needed > inner) {
       if (typeof value === 'number') {
-        // A number cut short reads as another number; show that it does not fit instead.
-        text = '#'.repeat(Math.max(1, Math.floor(inner / textWidth('#', font))));
+        // A number cut short reads as another number. Without a format it is
+        // rounded until it fits; otherwise the cell shows that it does not fit.
+        const rounded = engine.formatAt(sheet, row, col) ? null : roundedToFit(value, inner, font);
+        text = rounded ?? '#'.repeat(Math.max(1, Math.floor(inner / textWidth('#', font))));
       } else if (!isError(value) && typeof value !== 'boolean') {
         // Long text runs over the empty cells beside it.
         if (align !== 'r') {
@@ -313,7 +329,7 @@ function drawPaneOverlays(ctx: CanvasRenderingContext2D, scene: GridScene, theme
 
   const { selection, active } = scene;
   const single = selection.r1 === selection.r2 && selection.c1 === selection.c2;
-  const box = rectInPane(scene, pane, selection);
+  const box = scene.showSelection ? rectInPane(scene, pane, selection) : null;
   if (box) {
     if (!single) {
       ctx.fillStyle = theme.accentSoft;
@@ -372,7 +388,8 @@ function drawPaneOverlays(ctx: CanvasRenderingContext2D, scene: GridScene, theme
 }
 
 function drawHeaders(ctx: CanvasRenderingContext2D, scene: GridScene, theme: GridTheme, panes: Pane[]): void {
-  const { cols, rows, selection, headerWidth, width, height } = scene;
+  const { cols, rows, headerWidth, width, height } = scene;
+  const selection = scene.showSelection ? scene.selection : { r1: -1, c1: -1, r2: -1, c2: -1 };
   const allRows = selection.r1 === 0 && selection.r2 === rows.count - 1;
   const allCols = selection.c1 === 0 && selection.c2 === cols.count - 1;
   ctx.font = `${FONT_SIZE - 1}px ${FONT_FAMILY}`;

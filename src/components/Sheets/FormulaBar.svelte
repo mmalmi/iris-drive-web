@@ -1,7 +1,8 @@
 <script lang="ts">
   /** The bar above the grid: where the selection is, and the content of its cell for reading and typing. */
-  import { parseRectName } from '../../lib/sheets/address';
   import type { SheetController } from '../../lib/sheets/controller.svelte';
+  import FormulaHelp from './FormulaHelp.svelte';
+  import { handleCompletionKey } from './gridKeys';
 
   interface Props {
     ctl: SheetController;
@@ -54,6 +55,10 @@
 
   function onkeydown(event: KeyboardEvent): void {
     if (!ctl.edit) return;
+    if (handleCompletionKey(ctl, event)) {
+      event.preventDefault();
+      return;
+    }
     if (event.key === 'Enter' && !event.isComposing) {
       ctl.commitEdit(event.shiftKey ? 'up' : 'down');
     } else if (event.key === 'Tab') {
@@ -72,8 +77,7 @@
   }
 
   function goToName(): void {
-    const rect = parseRectName(nameDraft ?? '');
-    if (rect && ctl.goTo(rect)) {
+    if (nameDraft !== null && ctl.goToName(nameDraft)) {
       nameDraft = null;
       ctl.focusGrid();
     } else if (nameDraft !== null && nameDraft.trim() !== '') {
@@ -132,10 +136,14 @@
     onpointerup={onselect}
     {onkeydown}
   ></textarea>
+  {#if ctl.edit && (ctl.edit.source === 'bar' || ctl.edit.sheetId !== ctl.sheetId)}
+    <FormulaHelp {ctl} place="left: 118px; top: 34px" />
+  {/if}
 </div>
 
 <style>
   .bar {
+    position: relative;
     flex: none;
     display: flex;
     align-items: center;

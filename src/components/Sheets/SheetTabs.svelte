@@ -122,10 +122,11 @@
       }
     }
     if (count < 2) return null;
-    if (numbers < 2) return { count, sum: null, average: null };
+    // Adding up dates means nothing; they are only counted.
+    if (numbers < 2 || isDateFormat(format)) return { count, sum: null, average: null };
     const total = Number(sum.toPrecision(15));
-    const show = (value: number) => (format && !isDateFormat(format) ? formatValue(value, format) : formatGeneral(Number(value.toPrecision(10))));
-    return { count, sum: isDateFormat(format) ? null : show(total), average: show(total / numbers) };
+    const show = (value: number) => (format ? formatValue(value, format) : formatGeneral(Number(value.toPrecision(10))));
+    return { count, sum: show(total), average: show(total / numbers) };
   });
 
   let message = $derived(ctl.activeMessage);
@@ -133,7 +134,7 @@
 
 <div class="tabs" data-testid="sheet-tabs">
   {#if ctl.canEdit}
-    <button type="button" class="add" onclick={() => addSheet(ctl)} title="Add sheet" aria-label="Add sheet" data-testid="sheet-add-tab">
+    <button type="button" class="add" onmousedown={event => event.preventDefault()} onclick={() => { addSheet(ctl); ctl.focusGrid(); }} title="Add sheet" aria-label="Add sheet" data-testid="sheet-add-tab">
       <span class="i-lucide-plus"></span>
     </button>
   {/if}
@@ -197,7 +198,7 @@
 </div>
 
 {#if menu}
-  <PopupMenu x={menu.x} y={menu.y} items={menu.items} onclose={() => { menu = null; }} />
+  <PopupMenu x={menu.x} y={menu.y} items={menu.items} onclose={() => { menu = null; if (!renaming) ctl.focusGrid(); }} />
 {/if}
 
 <style>

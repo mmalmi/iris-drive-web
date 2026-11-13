@@ -1,5 +1,4 @@
 import { expect, test } from './fixtures';
-import { flushPendingPublishes } from './test-utils';
 import { createDriveProfile, prepareFreshSession } from './documents.helpers';
 import {
   activeCell,
@@ -54,7 +53,7 @@ test.describe('spreadsheets in a Drive', () => {
     // Bold header row, by selecting the row and using the toolbar.
     const header = await cellBox(page, 'A1');
     await page.mouse.click(header.left + header.headerWidth / 2, header.y + header.height / 2);
-    await expect(activeCell(page)).toHaveAttribute('data-cell', 'A1:Z1');
+    await expect(activeCell(page)).toHaveAttribute('data-cell', '1:1');
     await page.getByRole('button', { name: 'Bold' }).click();
     await expect(page.getByRole('button', { name: 'Bold' })).toHaveAttribute('aria-pressed', 'true');
 
@@ -223,6 +222,25 @@ test.describe('spreadsheets in a Drive', () => {
     await page.keyboard.type('=F1+1');
     await page.keyboard.press('Enter');
     await expectCell(page, 'F1', '#CYCLE!');
+
+    // Typing the start of a function's name offers it; Tab takes it and shows what it needs.
+    await goTo(page, 'F2');
+    await page.keyboard.type('=vlo');
+    await expect(page.getByTestId('sheet-function-list')).toContainText('VLOOKUP');
+    await page.keyboard.press('Tab');
+    await expect(page.getByTestId('sheet-cell-editor')).toHaveValue('=VLOOKUP(');
+    await expect(page.getByTestId('sheet-function-hint')).toContainText('search_key');
+    await page.screenshot({ path: testInfo.outputPath('function-hint.png') });
+    await page.keyboard.type('20,A1:B4,2,FALSE');
+    await page.keyboard.press('Enter');
+    await expectCell(page, 'F2', '2');
+
+    // F4 switches the address at the cursor between moving and fixed.
+    await goTo(page, 'F3');
+    await page.keyboard.type('=A1');
+    await page.keyboard.press('F4');
+    await expect(page.getByTestId('sheet-cell-editor')).toHaveValue('=$A$1');
+    await page.keyboard.press('Escape');
     await page.screenshot({ path: testInfo.outputPath('formulas.png') });
   });
 });

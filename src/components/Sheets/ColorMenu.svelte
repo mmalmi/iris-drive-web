@@ -54,8 +54,8 @@
   });
 
   function pick(color: string | null): void {
-    onclose();
     onpick(color);
+    onclose();
   }
 </script>
 

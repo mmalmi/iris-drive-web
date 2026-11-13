@@ -58,6 +58,10 @@
     moreMenu = { x: bounds.left, y: bounds.bottom + 4, items: selectionMenu(ctl, target) };
   }
 
+  function pickColor(color: string | null): void {
+    if (colorMenu) applyStyle(ctl, colorMenu.kind === 'c' ? { c: color } : { bg: color });
+  }
+
   function setAlign(value: 'l' | 'c' | 'r'): void {
     applyStyle(ctl, { a: align === value ? null : value });
   }
@@ -144,7 +148,7 @@
     y={colorMenu.y}
     value={colorMenu.kind === 'c' ? style.c : style.bg}
     noneLabel={colorMenu.kind === 'c' ? 'Default' : 'No fill'}
-    onpick={color => applyStyle(ctl, { [colorMenu?.kind ?? 'c']: color })}
+    onpick={pickColor}
     onclose={() => { colorMenu = null; }}
   />
 {/if}

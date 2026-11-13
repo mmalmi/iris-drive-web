@@ -3,6 +3,7 @@ import { expect, type Page } from './fixtures';
 /** The handle the grid leaves on the page in test mode. */
 interface SheetHandle {
   text(row: number, col: number): string;
+  style(row: number, col: number): Record<string, string | number>;
   box(row: number, col: number): { x: number; y: number; width: number; height: number; headerWidth: number; left: number; top: number } | null;
 }
 
@@ -34,6 +35,12 @@ export async function cellText(page: Page, name: string): Promise<string> {
   return page.evaluate(([r, c]) => (window as unknown as { __sheet: SheetHandle }).__sheet.text(r, c), [row, col]);
 }
 
+/** How a cell looks: b, i, s for bold, italic, strikethrough; c and bg for colours; a, w, nf. */
+export async function cellStyle(page: Page, name: string): Promise<Record<string, string | number>> {
+  const { row, col } = position(name);
+  return page.evaluate(([r, c]) => (window as unknown as { __sheet: SheetHandle }).__sheet.style(r, c), [row, col]);
+}
+
 export async function expectCell(page: Page, name: string, text: string): Promise<void> {
   await expect.poll(() => cellText(page, name), { timeout: 10_000, message: `cell ${name}` }).toBe(text);
 }
@@ -51,10 +58,30 @@ export async function cellCenter(page: Page, name: string): Promise<{ x: number;
   return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
 }
 
-export async function clickCell(page: Page, name: string, options: { modifiers?: Array<'Shift' | 'ControlOrMeta'>; button?: 'left' | 'right' } = {}): Promise<void> {
+export async function clickCell(page: Page, name: string, options: { button?: 'left' | 'right'; shift?: boolean } = {}): Promise<void> {
   const { x, y } = await cellCenter(page, name);
+  if (options.shift) await page.keyboard.down('Shift');
   await page.mouse.click(x, y, { button: options.button });
-  void options.modifiers;
+  if (options.shift) await page.keyboard.up('Shift');
+}
+
+/** Clicks the header of a column ("C") or of a row ("7"). */
+export async function clickHeader(page: Page, name: string, options: { button?: 'left' | 'right' } = {}): Promise<void> {
+  const isColumn = /^[A-Z]+$/.test(name);
+  const box = await cellBox(page, isColumn ? `${name}1` : `A${name}`);
+  if (isColumn) await page.mouse.click(box.x + box.width / 2, box.top + 12, { button: options.button });
+  else await page.mouse.click(box.left + box.headerWidth / 2, box.y + box.height / 2, { button: options.button });
+}
+
+/** Drags the small square at the corner of the selection to another cell. */
+export async function dragFillHandle(page: Page, corner: string, to: string): Promise<void> {
+  const from = await cellBox(page, corner);
+  const end = await cellCenter(page, to);
+  await page.mouse.move(from.x + from.width - 1, from.y + from.height - 1);
+  await page.mouse.down();
+  await page.mouse.move((from.x + from.width + end.x) / 2, (from.y + from.height + end.y) / 2, { steps: 4 });
+  await page.mouse.move(end.x, end.y, { steps: 4 });
+  await page.mouse.up();
 }
 
 /** Drags from the middle of one cell to the middle of another. */

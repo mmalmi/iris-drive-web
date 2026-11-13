@@ -118,12 +118,13 @@
     border-radius: 8px;
     background: rgb(var(--surface-1));
     box-shadow: 0 6px 24px rgb(0 0 0 / 0.22);
-    visibility: hidden;
+    /* Unseen until it is placed, yet able to take the keyboard focus at once. */
+    opacity: 0;
     outline: none;
   }
 
   .menu.placed {
-    visibility: visible;
+    opacity: 1;
   }
 
   .item {

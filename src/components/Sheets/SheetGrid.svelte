@@ -6,7 +6,7 @@
    */
   import { onMount, tick } from 'svelte';
   import { rectContains, rectOf, type CellPos, type Rect } from '../../lib/sheets/address';
-  import { appendRows, autoFitColumn, copySelection, fillDownToNeighbours, fillInto, pasteText } from '../../lib/sheets/commands';
+  import { appendRows, autoFitColumn, copiedHtml, copySelection, fillDownToNeighbours, fillInto, pasteText } from '../../lib/sheets/commands';
   import type { SheetController } from '../../lib/sheets/controller.svelte';
   import { buildLayout, readTheme, type SizeOverride } from '../../lib/sheets/gridView';
   import {
@@ -24,6 +24,7 @@
   } from '../../lib/sheets/layout';
   import { MIN_COL_WIDTH, MIN_ROW_HEIGHT } from '../../lib/sheets/model';
   import { CELL_PAD_X, LINE_HEIGHT, drawGrid, fontOf, textWidth, type GridTheme } from '../../lib/sheets/render';
+  import FormulaHelp from './FormulaHelp.svelte';
   import PopupMenu, { type MenuItem } from './PopupMenu.svelte';
   import { handleEditingKey, handleGridKey } from './gridKeys';
   import { selectionMenu } from './menus';
@@ -98,6 +99,7 @@
       references: ctl.editReferences,
       showHandle: ctl.canEdit && !edit,
       focused: focused || edit !== null,
+      showSelection: !edit || edit.sheetId === ctl.sheetId,
     }, theme, pixelRatio);
   }
 
@@ -263,7 +265,10 @@
   }
 
   function onkeydown(event: KeyboardEvent): void {
-    if (menu) return;
+    if (menu) {
+      if (event.key === 'Escape') closeMenu();
+      return;
+    }
     const handled = ctl.edit ? handleEditingKey(ctl, event, insertNewline) : handleGridKey(ctl, event, pageRows());
     if (handled) {
       event.preventDefault();
@@ -277,6 +282,7 @@
     if (ctl.edit) return;
     event.preventDefault();
     event.clipboardData?.setData('text/plain', copySelection(ctl, event.type === 'cut'));
+    event.clipboardData?.setData('text/html', copiedHtml(ctl));
   }
 
   function onpaste(event: ClipboardEvent): void {
@@ -567,6 +573,7 @@
     (window as unknown as { __sheet?: unknown }).__sheet = {
       get ctl() { return ctl; },
       text: (row: number, col: number) => ctl.engine.textAt(ctl.sheet, row, col),
+      style: (row: number, col: number) => ({ ...ctl.sheet.styleAt(row, col) }),
       box: (row: number, col: number) => {
         if (!view || !canvas) return null;
         const bounds = canvas.getBoundingClientRect();
@@ -646,6 +653,15 @@
     onfocus={() => { focused = true; }}
     onblur={() => { focused = false; }}
   ></textarea>
+
+  {#if editorBox?.visible && ctl.edit?.source === 'cell'}
+    <FormulaHelp
+      {ctl}
+      place={editorBox.y + editorBox.height + 150 > height
+        ? `left: ${Math.min(editorBox.x, Math.max(0, width - 300))}px; bottom: ${height - editorBox.y + 4}px`
+        : `left: ${Math.min(editorBox.x, Math.max(0, width - 300))}px; top: ${editorBox.y + editorBox.height + 4}px`}
+    />
+  {/if}
 
   <div class="sr-only" aria-live="polite" data-testid="sheet-active-cell" data-cell={ctl.selectionName}>{ctl.selectionName} {activeText}</div>
 </div>

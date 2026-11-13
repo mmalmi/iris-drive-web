@@ -74,8 +74,37 @@ export function copySelection(ctl: SheetController, cut = false): string {
     cells.push(cellRow);
   }
   const text = writeClipboardTable(lines);
-  ctl.copied = { sheetId: sheet.id, rect, cut: cut && ctl.canEdit, text, cells };
+  ctl.copied = { sheetId: sheet.id, rect, cut: cut && ctl.canEdit, text, lines, cells };
   return text;
+}
+
+function escapeHtml(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+/**
+ * What was just copied as an HTML table, so that word processors and other
+ * spreadsheets receive it with its bold, colours and alignment.
+ */
+export function copiedHtml(ctl: SheetController): string {
+  const copied = ctl.copied;
+  if (!copied) return '';
+  const rows = copied.lines.map((line, r) => {
+    const cells = line.map((text, c) => {
+      const style = copied.cells[r]?.[c]?.style ?? {};
+      const css = [
+        style.b ? 'font-weight:bold' : '',
+        style.i ? 'font-style:italic' : '',
+        style.s || style.u ? `text-decoration:${[style.s ? 'line-through' : '', style.u ? 'underline' : ''].join(' ').trim()}` : '',
+        style.c ? `color:${style.c}` : '',
+        style.bg ? `background-color:${style.bg}` : '',
+        style.a ? `text-align:${style.a === 'l' ? 'left' : style.a === 'r' ? 'right' : 'center'}` : '',
+      ].filter(Boolean).join(';');
+      return `<td${css ? ` style="${css}"` : ''}>${escapeHtml(text).replace(/\n/g, '<br>')}</td>`;
+    });
+    return `<tr>${cells.join('')}</tr>`;
+  });
+  return `<table>${rows.join('')}</table>`;
 }
 
 /**

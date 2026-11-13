@@ -2,10 +2,24 @@
 import { applyStyle, clearContents, clearFormatting, fillWithin, toggleStyle } from '../../lib/sheets/commands';
 import type { SheetController } from '../../lib/sheets/controller.svelte';
 
+/** Keys for the list of suggested functions, while it shows. */
+export function handleCompletionKey(ctl: SheetController, event: KeyboardEvent): boolean {
+  if (!ctl.completion || event.isComposing) return false;
+  switch (event.key) {
+    case 'ArrowDown': ctl.moveCompletion(1); return true;
+    case 'ArrowUp': ctl.moveCompletion(-1); return true;
+    case 'Tab':
+    case 'Enter': return ctl.acceptCompletion();
+    case 'Escape': ctl.closeCompletion(); return true;
+    default: return false;
+  }
+}
+
 /** Keys while a cell is being typed into. Returns true when the key was dealt with. */
 export function handleEditingKey(ctl: SheetController, event: KeyboardEvent, insertNewline: () => void): boolean {
   const edit = ctl.edit;
   if (!edit) return false;
+  if (handleCompletionKey(ctl, event)) return true;
   const mod = event.ctrlKey || event.metaKey;
   switch (event.key) {
     case 'Enter':
@@ -56,13 +70,7 @@ export function handleGridKey(ctl: SheetController, event: KeyboardEvent, pageRo
     case 'ArrowLeft': ctl.move(0, -1, { extend: shift, far: mod }); return true;
     case 'ArrowRight': ctl.move(0, 1, { extend: shift, far: mod }); return true;
     case 'Tab': ctl.step(0, shift ? -1 : 1); return true;
-    case 'Enter': {
-      const rect = ctl.selection;
-      const single = rect.r1 === rect.r2 && rect.c1 === rect.c2;
-      if (single && !shift && ctl.canEdit) ctl.startEdit();
-      else ctl.step(shift ? -1 : 1, 0);
-      return true;
-    }
+    case 'Enter': ctl.step(shift ? -1 : 1, 0); return true;
     case 'F2': ctl.startEdit(); return true;
     case 'Delete':
     case 'Backspace': clearContents(ctl); return true;

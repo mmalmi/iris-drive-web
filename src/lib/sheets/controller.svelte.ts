@@ -4,10 +4,11 @@
  * its methods; commands.ts holds the actions that change content.
  */
 import * as Y from 'yjs';
-import { normalizeRect, rectName, rectOf, type CellPos, type Rect } from './address';
+import { columnIndex, columnName, normalizeRect, parseRectName, rectName, rectOf, type CellPos, type Rect } from './address';
 import { editTextAt, writeInput } from './edit';
 import { Engine } from './engine';
 import { tokenize } from './formula';
+import { callAt, completionAt, type CallHint, type Completion } from './formula/docs';
 import { formatKind } from './format';
 import { Book, LOCAL_ORIGIN, type BookChange, type CellStyle, type Sheet, type SheetInfo } from './model';
 import { jump, lastFilledCol, stepInside } from './navigate';
@@ -49,6 +50,8 @@ export interface CopiedCells {
   cut: boolean;
   /** The text placed on the clipboard, to recognise our own copy when pasting. */
   text: string;
+  /** The same as rows of shown text. */
+  lines: string[][];
   cells: Array<Array<{ raw: unknown; style: CellStyle | undefined }>>;
 }
 
@@ -72,6 +75,8 @@ export class SheetController {
   fillTarget = $state.raw<Rect | null>(null);
   canUndo = $state(false);
   canRedo = $state(false);
+  /** Which of the suggested functions is highlighted. */
+  completionIndex = $state(0);
   /** A short message for the person, such as why something could not be done. */
   notice = $state('');
   /** Goes up whenever the spreadsheet's content changes, so readers look again. */
@@ -93,6 +98,8 @@ export class SheetController {
   private pointFocus: CellPos | null = null;
   /** The column Tab started from, so Enter returns under it as when filling in a table. */
   private tabOrigin: number | null = null;
+  /** The formula text for which the list of functions was closed with Escape. */
+  private completionClosedFor = $state('');
   private readonly unsubscribe: () => void;
   private noticeTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -375,11 +382,38 @@ export class SheetController {
     return editTextAt(this.book, this.sheet, this.active.row, this.active.col);
   }
 
-  /** "B7" or "A1:C9" for the selection. */
+  /** The selection as people write it: "B7", "A1:C9", "2:4" for rows, "B:D" for columns. */
   get selectionName(): string {
+    const edit = this.edit;
+    if (edit) return rectName(rectOf({ row: edit.row, col: edit.col }));
     const rect = this.selection;
-    if (this.scope === 'cells' || this.edit) return rectName(this.edit ? rectOf(this.active) : rect);
+    if (this.scope === 'rows') return `${rect.r1 + 1}:${rect.r2 + 1}`;
+    if (this.scope === 'cols') return `${columnName(rect.c1)}:${columnName(rect.c2)}`;
     return rectName(rect);
+  }
+
+  /** Selects what a typed name stands for; false when it names nothing on this sheet. */
+  goToName(name: string): boolean {
+    const sheet = this.sheet;
+    const text = name.trim();
+    const rows = /^(\d{1,7}):(\d{1,7})$/.exec(text);
+    const cols = /^([A-Za-z]{1,3}):([A-Za-z]{1,3})$/.exec(text);
+    if (rows) {
+      const [from, to] = [Number(rows[1]) - 1, Number(rows[2]) - 1].sort((a, b) => a - b);
+      if (from < 0 || to >= sheet.rows.length) return false;
+      this.selectRows(from, to);
+      this.reveal(from, this.active.col);
+      return true;
+    }
+    if (cols) {
+      const [from, to] = [columnIndex(cols[1]), columnIndex(cols[2])].sort((a, b) => a - b);
+      if (to >= sheet.cols.length) return false;
+      this.selectCols(from, to);
+      this.reveal(this.active.row, from);
+      return true;
+    }
+    const rect = parseRectName(text);
+    return rect !== null && this.goTo(rect);
   }
 
   get activeStyle(): CellStyle {
@@ -441,9 +475,46 @@ export class SheetController {
     const typed = text !== edit.text;
     this.edit = { ...edit, text, caret, source: source ?? edit.source, point: typed ? null : edit.point };
     if (typed) {
+      this.completionIndex = 0;
       this.pointAnchor = null;
       this.pointFocus = null;
     }
+  }
+
+  /** Functions matching the name being typed in a formula. */
+  get completion(): Completion | null {
+    const edit = this.edit;
+    if (!edit || edit.caret[0] !== edit.caret[1] || edit.text === this.completionClosedFor) return null;
+    return completionAt(edit.text, edit.caret[0]);
+  }
+
+  /** The function the caret is inside, to show what it takes. */
+  get callHint(): CallHint | null {
+    const edit = this.edit;
+    return edit ? callAt(edit.text, edit.caret[0]) : null;
+  }
+
+  moveCompletion(delta: number): void {
+    const count = this.completion?.matches.length ?? 0;
+    if (count > 0) this.completionIndex = (this.completionIndex + delta + count) % count;
+  }
+
+  /** Writes the chosen function's name and its opening bracket into the formula. */
+  acceptCompletion(index = this.completionIndex): boolean {
+    const edit = this.edit;
+    const completion = this.completion;
+    const doc = completion?.matches[Math.min(index, (completion?.matches.length ?? 1) - 1)];
+    if (!edit || !completion || !doc) return false;
+    const follows = edit.text[completion.end] === '(' ? '' : '(';
+    const text = `${edit.text.slice(0, completion.start)}${doc.name}${follows}${edit.text.slice(completion.end)}`;
+    const caret = completion.start + doc.name.length + 1;
+    this.edit = { ...edit, text, caret: [caret, caret], point: null };
+    this.completionIndex = 0;
+    return true;
+  }
+
+  closeCompletion(): void {
+    this.completionClosedFor = this.edit?.text ?? '';
   }
 
   setEditMode(mode: 'enter' | 'edit'): void {
