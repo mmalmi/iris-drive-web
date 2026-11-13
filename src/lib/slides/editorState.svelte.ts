@@ -404,9 +404,8 @@ export class SlidesEditorState {
 
   setBackground(colour: string | null): void {
     if (!this.canEdit) return;
-    const ids = this.pickedSlides.length ? this.pickedSlides : this.currentId ? [this.currentId] : [];
     this.#act(() => this.deck.transact(() => {
-      for (const id of ids) this.deck.setSlideBackground(id, colour);
+      for (const id of this.#pickedOrCurrent()) this.deck.setSlideBackground(id, colour);
     }), 'background');
   }
 
@@ -429,7 +428,7 @@ export class SlidesEditorState {
   setLayout(layoutId: string): void {
     if (!this.canEdit) return;
     const layout = layoutById(layoutId);
-    const ids = this.pickedSlides.length ? this.pickedSlides : this.currentId ? [this.currentId] : [];
+    const ids = this.#pickedOrCurrent();
     this.stopEditing();
     this.selection = [];
     // Text moved into a smaller box may need that box to grow.
