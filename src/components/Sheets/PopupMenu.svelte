@@ -91,7 +91,8 @@
     {#if item.divider}<div class="line"></div>{/if}
     <button
       type="button"
-      role="menuitem"
+      role={item.checked === undefined ? 'menuitem' : 'menuitemcheckbox'}
+      aria-checked={item.checked}
       class="item"
       class:danger={item.danger}
       disabled={item.disabled}

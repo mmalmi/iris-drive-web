@@ -19,6 +19,8 @@
   import type { SheetController } from '../../lib/sheets/controller.svelte';
   import { buildLayout, placeEditor, readTheme, type SizeOverride } from '../../lib/sheets/gridView';
   import {
+    FILTER_BUTTON,
+    FILTER_BUTTON_INSET,
     HEADER_HEIGHT,
     columnX,
     dropPosition,
@@ -34,9 +36,13 @@
   } from '../../lib/sheets/layout';
   import { MIN_COL_WIDTH, MIN_ROW_HEIGHT } from '../../lib/sheets/model';
   import { LINE_HEIGHT, drawGrid, fontOf, type GridTheme } from '../../lib/sheets/render';
+  import { filterRect } from '../../lib/sheets/filter';
+  import FilterMenu from './FilterMenu.svelte';
+  import FindBar from './FindBar.svelte';
   import FormulaHelp from './FormulaHelp.svelte';
   import PopupMenu, { type MenuItem } from './PopupMenu.svelte';
   import { handleEditingKey, handleGridKey } from './gridKeys';
+  import { installTestHandle } from './testHandle';
   import { selectionMenu } from './menus';
 
   interface Props {
@@ -67,7 +73,7 @@
 
   let layout = $derived.by(() => {
     void ctl.layoutRevision;
-    return ctl.hasSheet ? buildLayout(ctl.sheet, ctl.engine, resizing) : null;
+    return ctl.hasSheet ? buildLayout(ctl.sheet, ctl.engine, resizing, ctl.visibility) : null;
   });
 
   let view = $derived.by((): Viewport | null => {
@@ -85,6 +91,31 @@
       headerWidth: layout.headerWidth,
     };
   });
+
+  /** Where this person's filter has its header row, and which of its columns filter. */
+  let filterHeader = $derived.by(() => {
+    void ctl.layoutRevision;
+    const filter = ctl.filter;
+    const rect = filter && ctl.hasSheet ? filterRect(ctl.sheet, filter) : null;
+    if (!filter || !rect) return null;
+    const active = new Set([...filter.columns.keys()].map(colId => ctl.sheet.cols.indexOf(colId)));
+    return { row: rect.r1, c1: rect.c1, c2: rect.c2, active };
+  });
+  let filterMenu = $state.raw<{ colId: string; x: number; y: number } | null>(null);
+
+  /** Opens the filter's choices when a point is on the button in one of its header cells. */
+  function openFilterAt(hit: Hit, x: number, y: number): boolean {
+    const header = filterHeader;
+    if (!view || !canvas || !header || hit.area !== 'cell' || hit.row !== header.row || hit.col < header.c1 || hit.col > header.c2) return false;
+    const right = columnX(view, hit.col) + view.cols.size(hit.col);
+    const bottom = rowY(view, hit.row) + view.rows.size(hit.row);
+    const reach = FILTER_BUTTON + FILTER_BUTTON_INSET * 2;
+    if (x < right - reach || y < bottom - reach) return false;
+    const bounds = canvas.getBoundingClientRect();
+    if (ctl.edit) ctl.commitEdit();
+    filterMenu = { colId: ctl.sheet.cols.ids[hit.col], x: bounds.left + right - reach, y: bounds.top + bottom + 2 };
+    return true;
+  }
 
   let contentWidth = $derived(layout ? layout.headerWidth + layout.cols.total + RIGHT_ROOM : 0);
   let contentHeight = $derived(layout ? HEADER_HEIGHT + layout.rows.total + BOTTOM_ROOM : 0);
@@ -112,12 +143,15 @@
       focused: focused || edit !== null,
       showSelection: !edit || edit.sheetId === ctl.sheetId,
       dropLine,
+      marks: ctl.find ? ctl.findMatches : [],
+      filterHeader,
+      filtered: ctl.visibility.filtered.size > 0,
     }, theme, pixelRatio);
   }
 
   $effect(() => {
     // Everything the picture depends on; any change asks for one redraw.
-    void [view, theme, pixelRatio, focused, dropLine, ctl.revision, ctl.anchor, ctl.focus, ctl.active, ctl.edit, ctl.copied, ctl.fillTarget, ctl.canEdit];
+    void [view, theme, pixelRatio, focused, dropLine, filterHeader, ctl.find, ctl.revision, ctl.anchor, ctl.focus, ctl.active, ctl.edit, ctl.copied, ctl.fillTarget, ctl.canEdit];
     if (!frame) frame = requestAnimationFrame(draw);
   });
 
@@ -336,6 +370,7 @@
     const { x, y } = localPoint(event);
     lastPointer = { x, y };
     const hit = hitTest(view, x, y);
+    if (!(ctl.edit && ctl.pointing) && openFilterAt(hit, x, y)) return;
 
     if (ctl.edit) {
       if (hit.area === 'cell' && ctl.pointing) {
@@ -494,6 +529,7 @@
     const { x, y } = localPoint(event);
     const hit = hitTest(view, x, y);
     menu = null;
+    if (!(ctl.edit && ctl.pointing) && openFilterAt(hit, x, y)) return;
     if (ctl.edit) {
       if (hit.area === 'cell' && ctl.pointing) {
         ctl.pointDrag({ row: hit.row, col: hit.col }, { row: hit.row, col: hit.col });
@@ -561,26 +597,7 @@
   });
 
   if (import.meta.env.VITE_TEST_MODE) {
-    // Lets automated tests find cells on the canvas and read what they show.
-    (window as unknown as { __sheet?: unknown }).__sheet = {
-      get ctl() { return ctl; },
-      text: (row: number, col: number) => ctl.engine.textAt(ctl.sheet, row, col),
-      style: (row: number, col: number) => ({ ...ctl.sheet.styleAt(row, col) }),
-      box: (row: number, col: number) => {
-        if (!view || !canvas || !scroller) return null;
-        const bounds = canvas.getBoundingClientRect();
-        const live = { ...view, scrollX: scroller.scrollLeft, scrollY: scroller.scrollTop };
-        return {
-          x: bounds.left + columnX(live, col),
-          y: bounds.top + rowY(live, row),
-          width: view.cols.size(col),
-          height: view.rows.size(row),
-          headerWidth: view.headerWidth,
-          left: bounds.left,
-          top: bounds.top,
-        };
-      },
-    };
+    installTestHandle(() => ctl, () => (view && canvas && scroller ? { view: { ...view, scrollX: scroller.scrollLeft, scrollY: scroller.scrollTop }, canvas } : null));
   }
 </script>
 
@@ -656,11 +673,17 @@
     />
   {/if}
 
+  <FindBar {ctl} />
+
   <div class="sr-only" aria-live="polite" data-testid="sheet-active-cell" data-cell={ctl.selectionName}>{ctl.selectionName} {activeText}</div>
 </div>
 
 {#if menu}
   <PopupMenu x={menu.x} y={menu.y} items={menu.items} onclose={closeMenu} />
+{/if}
+
+{#if filterMenu}
+  <FilterMenu {ctl} colId={filterMenu.colId} x={filterMenu.x} y={filterMenu.y} onclose={() => { filterMenu = null; closeMenu(); }} />
 {/if}
 
 <style>

@@ -43,6 +43,7 @@
  *                         its own.
  *   <sheetId>:props Map   w:<colId> width, h:<rowId> height, in pixels
  *                         xr:<rowId>, xc:<colId>  true once deleted
+ *                         hr:<rowId>, hc:<colId>  true while hidden
  *                         freezeRows, freezeCols  how many stay in view
  *
  * Whole values are replaced, last writer wins: one cell's content, one
@@ -460,6 +461,36 @@ export class Sheet {
     });
   }
 
+  /** Positions of the rows, or of the columns, that someone has hidden. */
+  hidden(axis: 'row' | 'col'): Set<number> {
+    const out = new Set<number>();
+    const prefix = axis === 'row' ? 'hr:' : 'hc:';
+    const live = axis === 'row' ? this.rows : this.cols;
+    for (const [key, value] of this.props.entries()) {
+      if (value !== true || !key.startsWith(prefix)) continue;
+      const index = live.indexOf(key.slice(3));
+      if (index >= 0) out.add(index);
+    }
+    return out;
+  }
+
+  /** Hides or shows rows or columns. At least one always stays in view. */
+  setHidden(axis: 'row' | 'col', from: number, to: number, hide: boolean): void {
+    const live = axis === 'row' ? this.rows : this.cols;
+    const prefix = axis === 'row' ? 'hr:' : 'hc:';
+    const already = this.hidden(axis);
+    this.transact(() => {
+      for (let index = from; index <= to; index += 1) {
+        const key = `${prefix}${live.ids[index]}`;
+        if (!hide) this.props.delete(key);
+        else if (already.size + 1 < live.length && !already.has(index)) {
+          this.props.set(key, true);
+          already.add(index);
+        }
+      }
+    });
+  }
+
   get freezeRows(): number {
     return Math.min((this.props.get('freezeRows') as number | undefined) ?? 0, Math.max(0, this.rows.length - 1));
   }
@@ -518,6 +549,7 @@ export class Sheet {
       for (const id of ids) {
         this.props.set(`${gone}${id}`, true);
         this.props.delete(`${axis === 'row' ? 'h' : 'w'}:${id}`);
+        this.props.delete(`${axis === 'row' ? 'hr' : 'hc'}:${id}`);
       }
     });
     this.styleCache.clear();

@@ -4,6 +4,7 @@
   import { rectCols, rectRows } from '../../lib/sheets/address';
   import { addSheet, duplicateSheet, removeSheet } from '../../lib/sheets/commands';
   import type { SheetController } from '../../lib/sheets/controller.svelte';
+  import { filterRect } from '../../lib/sheets/filter';
   import { formatGeneral, formatValue, isDateFormat } from '../../lib/sheets/format';
   import PopupMenu, { type MenuItem } from './PopupMenu.svelte';
 
@@ -110,7 +111,9 @@
     let numbers = 0;
     let sum = 0;
     let format: string | undefined;
+    const hidden = ctl.visibility.rows;
     for (let row = rect.r1; row <= r2; row += 1) {
+      if (hidden.has(row)) continue;
       for (let col = rect.c1; col <= c2; col += 1) {
         const value = ctl.engine.valueAt(sheet, row, col);
         if (value === null || value === '') continue;
@@ -130,6 +133,15 @@
   });
 
   let message = $derived(ctl.activeMessage);
+  /** How many of the filter's rows are showing. */
+  let filterCount = $derived.by(() => {
+    void ctl.revision;
+    const filter = ctl.filter;
+    const rect = filter && ctl.hasSheet ? filterRect(ctl.sheet, filter) : null;
+    if (!rect) return null;
+    const total = rect.r2 - rect.r1;
+    return { shown: total - ctl.visibility.filtered.size, total };
+  });
 </script>
 
 <div class="tabs" data-testid="sheet-tabs">
@@ -185,6 +197,9 @@
   </div>
 
   <div class="status" role="status" data-testid="sheet-status">
+    {#if filterCount}
+      <span class="filtered" data-testid="sheet-filter-count"><b>{filterCount.shown}</b> of {filterCount.total} rows</span>
+    {/if}
     {#if ctl.notice}
       <span class="notice">{ctl.notice}</span>
     {:else if message}
@@ -321,6 +336,11 @@
   .status b {
     color: rgb(var(--text-1));
     font-weight: 600;
+  }
+
+  .filtered {
+    flex: none;
+    color: #916dfe;
   }
 
   .notice {

@@ -15,6 +15,7 @@ import {
   pasteText,
 } from '../../lib/sheets/commands';
 import type { SheetController } from '../../lib/sheets/controller.svelte';
+import { hiddenNear, hideSelected, showHidden } from '../../lib/sheets/dataCommands';
 import type { MenuItem } from './PopupMenu.svelte';
 
 const mac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
@@ -74,7 +75,9 @@ export function selectionMenu(ctl: SheetController, target: 'cell' | 'row' | 'co
       { ...deleteRow, divider: true },
       { label: 'Move up', icon: 'i-lucide-arrow-up', action: () => moveSelected(ctl, 'row', false), disabled: rect.r1 === 0, divider: true, testId: 'menu-move-up' },
       { label: 'Move down', icon: 'i-lucide-arrow-down', action: () => moveSelected(ctl, 'row', true), disabled: rect.r2 >= sheet.rows.length - 1, testId: 'menu-move-down' },
-      { label: 'Fit height to content', icon: 'i-lucide-fold-vertical', action: () => sheet.setRowHeight(rect.r1, rect.r2, null), divider: true },
+      { label: rows === 1 ? 'Hide row' : 'Hide rows', icon: 'i-lucide-eye-off', action: () => hideSelected(ctl, 'row'), divider: true, testId: 'menu-hide-row' },
+      ...(hiddenNear(ctl, 'row') ? [{ label: 'Show hidden rows', icon: 'i-lucide-eye', action: () => showHidden(ctl, 'row'), testId: 'menu-show-rows' }] : []),
+      { label: 'Fit height to content', icon: 'i-lucide-fold-vertical', action: () => sheet.setRowHeight(rect.r1, rect.r2, null) },
       clear,
     );
   } else if (target === 'col') {
@@ -83,7 +86,9 @@ export function selectionMenu(ctl: SheetController, target: 'cell' | 'row' | 'co
       { ...deleteCol, divider: true },
       { label: 'Move left', icon: 'i-lucide-arrow-left', action: () => moveSelected(ctl, 'col', false), disabled: rect.c1 === 0, divider: true, testId: 'menu-move-left' },
       { label: 'Move right', icon: 'i-lucide-arrow-right', action: () => moveSelected(ctl, 'col', true), disabled: rect.c2 >= sheet.cols.length - 1, testId: 'menu-move-right' },
-      { label: 'Fit width to content', icon: 'i-lucide-fold-horizontal', action: () => autoFitColumn(ctl, rect.c1), divider: true, testId: 'menu-fit-width' },
+      { label: cols === 1 ? 'Hide column' : 'Hide columns', icon: 'i-lucide-eye-off', action: () => hideSelected(ctl, 'col'), divider: true, testId: 'menu-hide-col' },
+      ...(hiddenNear(ctl, 'col') ? [{ label: 'Show hidden columns', icon: 'i-lucide-eye', action: () => showHidden(ctl, 'col'), testId: 'menu-show-cols' }] : []),
+      { label: 'Fit width to content', icon: 'i-lucide-fold-horizontal', action: () => autoFitColumn(ctl, rect.c1), testId: 'menu-fit-width' },
       clear,
     );
   } else {

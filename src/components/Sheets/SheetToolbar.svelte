@@ -1,7 +1,9 @@
 <script lang="ts">
   /** Formatting controls for the spreadsheet. */
   import { adjustDecimals, applyStyle, clearFormatting, toggleStyle } from '../../lib/sheets/commands';
+  import { columnName } from '../../lib/sheets/address';
   import type { SheetController } from '../../lib/sheets/controller.svelte';
+  import { sortSelection, sortTarget, toggleFilter } from '../../lib/sheets/dataCommands';
   import { NUMBER_FORMATS, TEXT_FORMAT, formatKind } from '../../lib/sheets/format';
   import ColorMenu from './ColorMenu.svelte';
   import PopupMenu, { type MenuItem } from './PopupMenu.svelte';
@@ -58,6 +60,41 @@
     moreMenu = { x: bounds.left, y: bounds.bottom + 4, items: selectionMenu(ctl, target) };
   }
 
+  /** Whether the first row stays on top when sorting, once the person has said so; otherwise it is guessed. */
+  let headerChoice: boolean | null = null;
+
+  function openSort(event: MouseEvent | null, fresh: boolean): void {
+    if (fresh) headerChoice = null;
+    const target = sortTarget(ctl);
+    if (!target) {
+      ctl.say('There is nothing to sort here.');
+      return;
+    }
+    const bounds = event ? (event.currentTarget as HTMLElement).getBoundingClientRect() : null;
+    const place = bounds ? { x: bounds.left, y: bounds.bottom + 4 } : { x: moreMenu?.x ?? 0, y: moreMenu?.y ?? 0 };
+    const header = headerChoice ?? target.header;
+    const column = columnName(target.keyCol);
+    moreMenu = {
+      ...place,
+      items: [
+        { label: `Sort by column ${column}, A to Z`, icon: 'i-lucide-arrow-down-a-z', action: () => sortSelection(ctl, true, header), testId: 'sort-az' },
+        { label: `Sort by column ${column}, Z to A`, icon: 'i-lucide-arrow-up-z-a', action: () => sortSelection(ctl, false, header), testId: 'sort-za' },
+        {
+          label: 'First row is a heading',
+          icon: 'i-lucide-square',
+          checked: header,
+          divider: true,
+          testId: 'sort-header',
+          action: () => {
+            headerChoice = !header;
+            // Chosen: show the menu again with the new answer.
+            queueMicrotask(() => openSort(null, false));
+          },
+        },
+      ],
+    };
+  }
+
   function pickColor(color: string | null): void {
     if (colorMenu) applyStyle(ctl, colorMenu.kind === 'c' ? { c: color } : { bg: color });
   }
@@ -76,6 +113,7 @@
   data-testid="sheet-toolbar"
   onmousedown={keepFocus}
 >
+  {#if ctl.canEdit}
   <button onclick={() => ctl.undo()} disabled={!ctl.canUndo} class="tool" title="Undo ({MOD}Z)" aria-label="Undo">
     <span class="i-lucide-undo-2"></span>
   </button>
@@ -139,6 +177,19 @@
   </button>
   <button onclick={openMore} class="tool" title="Rows and columns" aria-label="Rows and columns" data-testid="sheet-rows-columns">
     <span class="i-lucide-table-rows-split"></span>
+  </button>
+
+  <span class="divider"></span>
+  {/if}
+
+  <button onclick={event => openSort(event, true)} class="tool" title="Sort" aria-label="Sort" data-testid="sheet-sort">
+    <span class="i-lucide-arrow-down-a-z"></span>
+  </button>
+  <button onclick={() => toggleFilter(ctl)} class="tool" class:on={ctl.filter !== null} title="Filter" aria-label="Filter" aria-pressed={ctl.filter !== null} data-testid="sheet-filter">
+    <span class="i-lucide-list-filter"></span>
+  </button>
+  <button onclick={() => { if (ctl.find) ctl.find = null; else ctl.openFind(); }} class="tool" class:on={ctl.find !== null} title="Find ({MOD}F)" aria-label="Find" data-testid="sheet-find-button">
+    <span class="i-lucide-search"></span>
   </button>
 </div>
 

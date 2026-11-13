@@ -36,6 +36,8 @@ export function clearContents(ctl: SheetController): void {
   const rect = ctl.selection;
   const rowIds = new Set(sheet.rows.ids.slice(rect.r1, rect.r2 + 1));
   const colIds = new Set(sheet.cols.ids.slice(rect.c1, rect.c2 + 1));
+  // Rows a filter keeps out of sight are left as they are.
+  for (const row of ctl.visibility.filtered) rowIds.delete(sheet.rows.ids[row]);
   ctl.book.transact(() => {
     // Looking at the filled cells is quicker than at every cell of a whole column.
     for (const key of [...sheet.cells.keys()]) {
@@ -63,7 +65,12 @@ export function copySelection(ctl: SheetController, cut = false): string {
   }
   const lines: string[][] = [];
   const cells: CopiedCells['cells'] = [];
+  const rows: number[] = [];
+  const filtered = ctl.visibility.filtered;
   for (let row = rect.r1; row <= rect.r2; row += 1) {
+    // What a filter leaves out is not copied either.
+    if (filtered.has(row)) continue;
+    rows.push(row);
     const line: string[] = [];
     const cellRow: CopiedCells['cells'][number] = [];
     for (let col = rect.c1; col <= rect.c2; col += 1) {
@@ -74,7 +81,7 @@ export function copySelection(ctl: SheetController, cut = false): string {
     cells.push(cellRow);
   }
   const text = writeClipboardTable(lines);
-  ctl.copied = { sheetId: sheet.id, rect, cut: cut && ctl.canEdit, text, lines, cells };
+  ctl.copied = { sheetId: sheet.id, rect, rows, cut: cut && ctl.canEdit, text, lines, cells };
   return text;
 }
 
@@ -135,7 +142,7 @@ export function pasteText(ctl: SheetController, text: string, valuesOnly = false
   ctl.book.transact(() => {
     ensureSize(sheet, target.r2 + 1, target.c2 + 1);
     if (copied?.cut && source) {
-      for (let row = copied.rect.r1; row <= copied.rect.r2; row += 1) {
+      for (const row of copied.rows) {
         for (let col = copied.rect.c1; col <= copied.rect.c2; col += 1) {
           source.setRaw(row, col, null);
           source.clearStyle({ r1: row, c1: col, r2: row, c2: col });
@@ -150,11 +157,11 @@ export function pasteText(ctl: SheetController, text: string, valuesOnly = false
           const from = copied.cells[r % sourceRows][c % sourceCols];
           let raw = from.raw as CellRaw | undefined;
           if (valuesOnly) {
-            const value = ctl.engine.valueAt(source, copied.rect.r1 + (r % sourceRows), copied.rect.c1 + (c % sourceCols));
+            const value = ctl.engine.valueAt(source, copied.rows[r % sourceRows], copied.rect.c1 + (c % sourceCols));
             raw = value === null ? undefined : isError(value) ? value.code : typeof value === 'string' ? encodeText(value) : value;
           } else if (isFormula(raw) && !copied.cut) {
             // The formula reads the cells that lie the same way from its new place.
-            raw = transplant(raw, ctl.book, source, sheet, row - (copied.rect.r1 + (r % sourceRows)), col - (copied.rect.c1 + (c % sourceCols)));
+            raw = transplant(raw, ctl.book, source, sheet, row - copied.rows[r % sourceRows], col - (copied.rect.c1 + (c % sourceCols)));
           } else if (isFormula(raw) && source !== sheet) {
             raw = transplant(raw, ctl.book, source, sheet, 0, 0);
           }

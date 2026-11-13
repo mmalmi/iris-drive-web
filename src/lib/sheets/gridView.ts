@@ -21,7 +21,12 @@ export interface SizeOverride {
  * Row and column positions for a sheet. A row without a set height grows to
  * show wrapped text. `override` is a size being dragged, not stored yet.
  */
-export function buildLayout(sheet: Sheet, engine: Engine, override: SizeOverride | null): GridLayout {
+export function buildLayout(
+  sheet: Sheet,
+  engine: Engine,
+  override: SizeOverride | null,
+  hidden: { rows: ReadonlySet<number>; cols: ReadonlySet<number> },
+): GridLayout {
   const colCount = sheet.cols.length;
   const rowCount = sheet.rows.length;
   const widths = new Float64Array(colCount);
@@ -34,7 +39,7 @@ export function buildLayout(sheet: Sheet, engine: Engine, override: SizeOverride
     const at = key.indexOf(':');
     const row = sheet.rows.indexOf(key.slice(0, at));
     const col = sheet.cols.indexOf(key.slice(at + 1));
-    if (row < 0 || col < 0) continue;
+    if (row < 0 || col < 0 || hidden.rows.has(row) || hidden.cols.has(col)) continue;
     const style = sheet.styleAt(row, col);
     if (!style.w && !(typeof raw === 'string' && raw.includes('\n'))) continue;
     const needed = heightForText(engine.textAt(sheet, row, col), style, widths[col]);
@@ -46,6 +51,9 @@ export function buildLayout(sheet: Sheet, engine: Engine, override: SizeOverride
     if (row >= 0) heights[row] = value;
   }
   if (override?.axis === 'row' && override.index < rowCount) heights[override.index] = override.size;
+  // Hidden rows and columns take no room at all.
+  for (const row of hidden.rows) if (row < rowCount) heights[row] = 0;
+  for (const col of hidden.cols) if (col < colCount) widths[col] = 0;
 
   return { rows: new AxisLayout(heights), cols: new AxisLayout(widths), headerWidth: headerWidthFor(rowCount) };
 }
