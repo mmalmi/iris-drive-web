@@ -4,16 +4,13 @@
   import type { CommentsState } from '../../lib/comments/types';
   import { AddCommentModal, CommentsPanel } from '../Comments';
   import EditorToolbar from './EditorToolbar.svelte';
+  import DocumentHeader from './DocumentHeader.svelte';
+  import type { DriveDocument } from '../../lib/yjs';
 
   interface Props {
-    title: string;
-    backHref: string;
-    canEdit: boolean;
-    saveStatus: 'idle' | 'unsaved' | 'saving' | 'saved' | 'error' | 'other-tab';
+    drive: DriveDocument;
     notice: string;
     editor: Editor | undefined;
-    loading: boolean;
-    missing: boolean;
     hasTextSelection: boolean;
     userNpub: string | null;
     commentsState: CommentsState;
@@ -21,8 +18,6 @@
     showAddCommentModal: boolean;
     pendingCommentText: string;
     editorElement?: HTMLElement;
-    onShare: () => void;
-    onDelete: () => void;
     onAddComment: () => void;
     onToggleCommentsPanel: () => void;
     onEditorClick: (event: MouseEvent) => void;
@@ -34,14 +29,9 @@
   }
 
   let {
-    title,
-    backHref,
-    canEdit,
-    saveStatus,
+    drive,
     notice,
     editor,
-    loading,
-    missing,
     hasTextSelection,
     userNpub,
     commentsState,
@@ -49,8 +39,6 @@
     showAddCommentModal,
     pendingCommentText,
     editorElement = $bindable(),
-    onShare,
-    onDelete,
     onAddComment,
     onToggleCommentsPanel,
     onEditorClick,
@@ -60,6 +48,10 @@
     onAddCommentSubmit,
     onAddCommentCancel,
   }: Props = $props();
+
+  let canEdit = $derived(drive.canEdit);
+  let loading = $derived(drive.loading);
+  let missing = $derived(drive.missing);
 
   let imageFileInput: HTMLInputElement | undefined = $state();
 
@@ -74,42 +66,13 @@
 </script>
 
 <div class="flex-1 flex flex-col min-h-0 bg-surface-0" data-testid="document-editor">
-  <div class="shrink-0 h-12 px-2 sm:px-4 border-b border-surface-2 flex items-center gap-2 bg-surface-1">
-    <a href={backHref} class="btn-circle btn-ghost shrink-0 no-underline" title="Back to folder" aria-label="Back to folder">
-      <span class="i-lucide-arrow-left text-base"></span>
-    </a>
-    <span class="i-lucide-file-text text-accent shrink-0"></span>
-    <h1 class="text-sm font-semibold text-text-1 truncate min-w-0" data-testid="document-title">{title}</h1>
-    {#if !canEdit && !loading}
-      <span class="shrink-0 text-xs px-2 py-0.5 rounded-full bg-surface-2 text-text-2" data-testid="document-view-only">View only</span>
-    {/if}
-
-    <div class="ml-auto flex items-center gap-1 shrink-0">
-      <!-- Saving happens on its own; only its outcome is worth a glance. -->
-      <span class="text-xs text-text-3 flex items-center gap-1 mr-1" role="status" data-testid="document-save-status" data-state={saveStatus}>
-        {#if saveStatus === 'saving' || saveStatus === 'unsaved' || saveStatus === 'saved'}
-          <span class="i-lucide-cloud-check text-base" title={saveStatus === 'saved' ? 'Saved' : 'Saving'}></span>
-        {:else if saveStatus === 'error'}
-          <span class="text-danger flex items-center gap-1"><span class="i-lucide-triangle-alert"></span>Not saved, retrying</span>
-        {:else if saveStatus === 'other-tab'}
-          Open in another tab
-        {/if}
-      </span>
-      {#if !canEdit && commentsStore && commentsState.threads.size > 0}
-        <button onclick={onToggleCommentsPanel} class="btn-circle btn-ghost" title="Comments" aria-label="Comments">
-          <span class="i-lucide-message-square text-base"></span>
-        </button>
-      {/if}
-      <button onclick={onShare} class="btn-circle btn-ghost" title="Share" aria-label="Share" data-testid="document-share">
-        <span class="i-lucide-share text-base"></span>
+  <DocumentHeader {drive}>
+    {#if !canEdit && commentsStore && commentsState.threads.size > 0}
+      <button onclick={onToggleCommentsPanel} class="btn-circle btn-ghost" title="Comments" aria-label="Comments">
+        <span class="i-lucide-message-square text-base"></span>
       </button>
-      {#if canEdit}
-        <button onclick={onDelete} class="btn-circle btn-ghost" title="Delete document" aria-label="Delete document" data-testid="document-delete">
-          <span class="i-lucide-trash-2 text-base"></span>
-        </button>
-      {/if}
-    </div>
-  </div>
+    {/if}
+  </DocumentHeader>
 
   {#if canEdit && editor && !loading}
     <EditorToolbar

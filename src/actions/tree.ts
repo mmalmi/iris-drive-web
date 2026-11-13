@@ -2,7 +2,7 @@
  * Tree operations - create and fork trees
  */
 import { navigate } from '../utils/navigate';
-import { documentFolderName } from '../lib/documentNames';
+import { documentFolderName, type DocumentKind } from '../lib/documentNames';
 import { parseRoute } from '../utils/route';
 import { toHex, LinkType } from '@hashtree/core';
 import type { CID } from '@hashtree/core';
@@ -116,8 +116,8 @@ export async function createFolder(name: string) {
 }
 
 /** A document is a folder named for it; the editor fills it on the first save. */
-export async function createDocument(title: string): Promise<string | null> {
-  const folderName = documentFolderName(title);
+export async function createDocument(title: string, kind: DocumentKind = 'document'): Promise<string | null> {
+  const folderName = documentFolderName(title, kind);
   if (!title.trim()) return null;
   await createFolder(folderName);
   return folderName;

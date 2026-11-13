@@ -12,3 +12,5 @@ export {
 } from './documentStore';
 export { connectDocumentTabs } from './tabSync';
 export { createYjsTiptapEditor } from './tiptapEditor';
+export { DriveDocument, type SaveStatus } from './driveDocument.svelte';
+export { TAB_ORIGIN } from './tabSync';

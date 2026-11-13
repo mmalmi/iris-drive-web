@@ -354,6 +354,16 @@
         New Document
       </button>
 
+      <button onclick={() => openCreateModal('sheet')} class="btn-ghost {btnClass}" title="New Spreadsheet" data-testid="new-sheet">
+        <span class="i-lucide-table-2"></span>
+        New Spreadsheet
+      </button>
+
+      <button onclick={() => openCreateModal('slides')} class="btn-ghost {btnClass}" title="New Presentation" data-testid="new-slides">
+        <span class="i-lucide-presentation"></span>
+        New Presentation
+      </button>
+
       <button onclick={() => openCreateModal('file')} class="btn-ghost {btnClass}" title="New File">
         <span class="i-lucide-file-plus"></span>
         New File

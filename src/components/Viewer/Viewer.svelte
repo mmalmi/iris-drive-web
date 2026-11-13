@@ -6,7 +6,7 @@
   import { getQueryParamsFromHash } from '../../lib/router.svelte';
   import DirectoryActions from './DirectoryActions.svelte';
   import ViewerFileView from './ViewerFileView.svelte';
-  import { documentTitle, routeDocumentFolderName } from '../../lib/documentNames';
+  import { documentKind, documentTitle, routeDocumentFolderName } from '../../lib/documentNames';
   import { buildSitesHref, isHtmlFilename } from '../../lib/siteHref';
   import {
     buildTreeEventPermalink,
@@ -129,6 +129,7 @@
 
   // A folder named like a document opens in the editor instead of as a file list.
   let documentFolder = $derived(routeDocumentFolderName(route));
+  let documentFolderKind = $derived(documentKind(documentFolder));
 
   let yjsViewKey = $derived.by(() => {
     if (!route.npub || !route.treeName) return '';
@@ -286,9 +287,19 @@
 {#if hasTreeContext && documentFolder}
   <!-- The editor and its libraries load only when a document is opened. -->
   {#key yjsViewKey}
-    {#await import('./YjsDocumentEditor.svelte') then { default: YjsDocumentEditor }}
-      <YjsDocumentEditor dirName={documentFolder} />
-    {/await}
+    {#if documentFolderKind === 'sheet'}
+      {#await import('../Sheets/SheetEditor.svelte') then { default: SheetEditor }}
+        <SheetEditor dirName={documentFolder} />
+      {/await}
+    {:else if documentFolderKind === 'slides'}
+      {#await import('../Slides/SlidesEditor.svelte') then { default: SlidesEditor }}
+        <SlidesEditor dirName={documentFolder} />
+      {/await}
+    {:else}
+      {#await import('./YjsDocumentEditor.svelte') then { default: YjsDocumentEditor }}
+        <YjsDocumentEditor dirName={documentFolder} />
+      {/await}
+    {/if}
   {/key}
 {:else if urlFileName && (isEditing || entryFromStore)}
   <ViewerFileView

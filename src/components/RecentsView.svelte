@@ -9,7 +9,7 @@
   import { nostrStore } from '../nostr';
   import { acceptedShares } from '../drive/shareLibrary';
   import { activeNostrIdentityRootScope } from '../drive/profileRoute';
-  import { documentTitle, isDocumentFolderName } from '../lib/documentNames';
+  import { documentKindInfo, documentTitle, isDocumentFolderName } from '../lib/documentNames';
 
   let recents = $derived($recentsStore);
   let ownProfileId = $derived(activeNostrIdentityRootScope($nostrStore));
@@ -40,7 +40,7 @@
   }
 
   function iconClass(item: RecentItem): string {
-    if (isDocument(item)) return 'i-lucide-file-text text-accent';
+    if (isDocument(item)) return documentKindInfo(item.path.split('/').at(-1))!.icon;
     if (item.type === 'tree' && item.treeName === 'main' && item.npub === ownProfileId) return 'i-lucide-hard-drive text-text-2';
     if (isFolder(item)) return 'i-lucide-folder text-warning';
     return `${getFileIcon(item.label)} text-text-2`;

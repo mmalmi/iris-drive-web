@@ -3,8 +3,9 @@
    * Modal for creating new files, folders, or trees
    */
   import type { TreeVisibility } from '@hashtree/core';
+  import { DOCUMENT_KINDS, type DocumentKind } from '../../lib/documentNames';
 
-  export type ModalType = 'file' | 'folder' | 'tree' | 'document';
+  export type ModalType = 'file' | 'folder' | 'tree' | DocumentKind;
 
   let show = $state(false);
   let modalType = $state<ModalType>('file');
@@ -47,20 +48,21 @@
 
   let isFolder = $derived(modalType === 'folder');
   let isTree = $derived(modalType === 'tree');
-  let isDocument = $derived(modalType === 'document');
+  let documentKind = $derived(modalType in DOCUMENT_KINDS ? DOCUMENT_KINDS[modalType as DocumentKind] : null);
+  let isDocument = $derived(!!documentKind);
 
   let title = $derived(
     isTree
       ? 'New Folder'
       : isDocument
-        ? 'New Document'
+        ? documentKind!.newLabel
         : isFolder
           ? 'New Folder'
           : 'New File'
   );
   let placeholder = $derived(
     isDocument
-      ? 'Document name...'
+      ? `${documentKind!.noun[0].toUpperCase()}${documentKind!.noun.slice(1)} name...`
       : isTree
         ? 'Folder name...'
         : isFolder
@@ -80,7 +82,7 @@
       close();
     } else if (isDocument) {
       isCreating = true;
-      const folderName = route.npub && route.treeName ? await createDocument(name) : null;
+      const folderName = route.npub && route.treeName ? await createDocument(name, documentKind!.kind) : null;
       close();
       if (folderName) {
         const newPath = [...route.path, folderName].map(encodeURIComponent).join('/');

@@ -17,7 +17,7 @@
     projectAcceptedShareViews,
   } from '../drive/shareLibrary';
   import { toast } from '../stores/toast';
-  import { isDocumentFolderName } from '../lib/documentNames';
+  import { documentKindInfo, isDocumentFolderName } from '../lib/documentNames';
 
   interface Props {
     standalone?: boolean;
@@ -129,7 +129,7 @@
     {/if}
     {#each shares as share (share.share_id)}
       {@const revoked = share.key_status === 'revoked'}
-      {@const isDocument = !!sharedDocumentName(share)}
+      {@const documentIcon = documentKindInfo(sharedDocumentName(share))?.icon}
       <div
         class="flex items-center border-b border-surface-2 {revoked ? 'opacity-60' : 'hover:bg-surface-2/50'}"
         data-testid="shared-with-me-row"
@@ -140,7 +140,7 @@
           class="min-w-0 flex-1 flex items-center gap-3 p-3 lg:px-5 no-underline text-text-1"
           data-testid={revoked ? undefined : 'shared-with-me-open'}
         >
-          <span class="shrink-0 {isDocument ? 'i-lucide-file-text text-accent' : 'i-lucide-folder text-warning'}"></span>
+          <span class="shrink-0 {documentIcon ?? 'i-lucide-folder text-warning'}"></span>
           <span class="min-w-0 flex-1 sm:flex sm:items-center sm:gap-3">
             <span class="block truncate sm:flex-1" title={share.display_name}>{share.display_name}</span>
             <span class="block truncate text-xs text-text-3 sm:shrink-0 sm:text-sm">{detailText(share)}</span>

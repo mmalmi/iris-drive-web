@@ -24,7 +24,7 @@
   import IdentityName from './User/IdentityName.svelte';
 
   import { getFileIcon } from '@iris/hashtree-app/fileIcon';
-  import { documentTitle, isDocumentFolderName } from '../lib/documentNames';
+  import { documentKindInfo, documentTitle } from '../lib/documentNames';
   import { BREAKPOINTS } from '@iris/hashtree-app/breakpoints';
 
   interface Props {
@@ -623,7 +623,8 @@
           </div>
         {:else}
           {#each entries as entry, idx (entry.name)}
-            {@const isDocument = entry.type === LinkType.Dir && isDocumentFolderName(entry.name)}
+            {@const documentInfo = entry.type === LinkType.Dir ? documentKindInfo(entry.name) : null}
+            {@const isDocument = !!documentInfo}
             {@const isFolder = entry.type === LinkType.Dir && !isDocument}
             <a
               href={buildEntryHref(entry, currentNpub, currentTreeName, currentPath, rootCid, linkKey, null)}
@@ -636,7 +637,7 @@
               ondrop={isFolder ? (e) => handleDirDrop(e, entry.name) : undefined}
               data-testid={isDocument ? 'document-entry' : undefined}
             >
-              <span class="shrink-0 {isDocument ? 'i-lucide-file-text text-accent' : isFolder ? 'i-lucide-folder text-warning' : `${getFileIcon(entry.name)} text-text-2`}"></span>
+              <span class="shrink-0 {documentInfo ? documentInfo.icon : isFolder ? 'i-lucide-folder text-warning' : `${getFileIcon(entry.name)} text-text-2`}"></span>
               <span class="truncate flex-1 min-w-0" title={entry.name}>{isDocument ? documentTitle(entry.name) : entry.name}</span>
               <span class="shrink-0 text-muted text-sm min-w-12 text-right">
                 {entry.type !== LinkType.Dir && entry.size !== undefined ? formatBytes(entry.size) : ''}
