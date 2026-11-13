@@ -36,6 +36,32 @@ test.describe('documents in a Drive', () => {
     await page.screenshot({ path: testInfo.outputPath('document-in-folder.png') });
   });
 
+  test('what was saved survives a reload that comes before it could be sent', async ({ page, relayUrl }) => {
+    await prepareFreshSession(page, relayUrl);
+    await createDriveProfile(page);
+    await createDocument(page, 'Unsent');
+    await typeInDocument(page, 'First line');
+    await expectSaved(page);
+    await flushPendingPublishes(page);
+
+    // From here on nothing this page publishes is taken for sending, as when
+    // the page is closed in the moment after a save.
+    await page.evaluate(() => {
+      const client = (window as unknown as {
+        __nostr: { backend: Record<string, unknown>; setBackend: (backend: unknown) => void };
+      }).__nostr;
+      client.setBackend({ ...client.backend, publish: () => new Promise(() => {}) });
+    });
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('Written just before closing');
+    await expectSaved(page);
+    await page.waitForTimeout(2500);
+
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await expect(documentBody(page)).toContainText('First line', { timeout: 60_000 });
+    await expect(documentBody(page)).toContainText('Written just before closing', { timeout: 30_000 });
+  });
+
   test('formatting and images survive, and a shared link opens read-only for someone else', async ({ page, browser, relayUrl }, testInfo) => {
     await prepareFreshSession(page, relayUrl);
     await createDriveProfile(page);
