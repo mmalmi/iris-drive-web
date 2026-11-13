@@ -37,13 +37,18 @@ export function insertChart(ctl: SheetController, type: ChartType = 'column', ro
   const sheet = ctl.sheet;
   const content: ChartContent = { kind: 'chart', type, title: '', legend: true, ...rectIds(sheet, source) };
   const narrow = room < CHART_WIDTH * 1.6;
-  const col = narrow ? source.c1 : Math.min(source.c2 + 1, sheet.cols.length - 1);
+  // Beside the cells, past any filled ones to their right, so it hides nothing.
+  let right = source.c2;
+  for (let row = source.r1; row <= Math.min(source.r2, source.r1 + 30); row += 1) {
+    for (let col = right + 1; col < Math.min(sheet.cols.length, right + 30); col += 1) if (!sheet.isEmpty(row, col)) right = col;
+  }
+  const col = narrow ? source.c1 : Math.min(right + 1, sheet.cols.length - 1);
   const row = narrow ? Math.min(source.r2 + 2, sheet.rows.length - 1) : source.r1;
   const width = narrow ? Math.max(160, Math.min(CHART_WIDTH, room - 16)) : CHART_WIDTH;
   const id = addObject(sheet, content, {
     row: sheet.rows.ids[row],
     col: sheet.cols.ids[col],
-    dx: !narrow && col > source.c2 ? 16 : 0,
+    dx: !narrow && col > right ? 16 : 0,
     dy: 0,
     width,
     height: narrow ? Math.round(width * 0.7) : CHART_HEIGHT,

@@ -138,3 +138,52 @@ test.describe('checkboxes, lists and conditional colours', () => {
     await expect.poll(async () => (await drawnLook(page, 'B3')).bg).toBe('#57bb8a');
   });
 });
+
+test.describe('in a dark theme', () => {
+  test.setTimeout(240_000);
+  test.use({ colorScheme: 'dark' });
+
+  test('checkboxes, lists, colours, a chart and a comment read well', async ({ page, relayUrl }, testInfo) => {
+    await prepareFreshSession(page, relayUrl);
+    await createDriveProfile(page);
+    await createSpreadsheet(page, 'Night');
+    await typeTable(page, 'A1', [
+      ['Task', 'Hours', 'Done', 'Status'],
+      ['Design', '12', '', 'Done'],
+      ['Build', '30', '', 'Doing'],
+      ['Test', '8', '', 'Open'],
+    ]);
+    await dragCells(page, 'C2', 'C4');
+    await page.getByTestId('sheet-insert').click();
+    await page.getByTestId('insert-checkbox').click();
+    await page.getByTestId('side-panel-close').click();
+    await goTo(page, 'C2');
+    await page.keyboard.press('Space');
+    await dragCells(page, 'D2', 'D4');
+    await page.getByTestId('sheet-insert').click();
+    await page.getByTestId('insert-list').click();
+    await page.getByTestId('side-panel-close').click();
+    await dragCells(page, 'B2', 'B4');
+    await page.getByTestId('sheet-conditional').click();
+    await page.getByTestId('format-add').click();
+    await page.getByTestId('format-scale').click();
+    await page.getByTestId('side-panel-close').click();
+    await clickCell(page, 'A3', { button: 'right' });
+    await page.getByTestId('menu-comment').click();
+    await page.getByTestId('comment-new').fill('Halfway there');
+    await page.getByTestId('comment-send').click();
+    await dragCells(page, 'A1', 'B4');
+    await page.getByTestId('sheet-insert').click();
+    await page.getByTestId('insert-chart').click();
+    await page.getByTestId('chart-title').fill('Hours');
+    await page.getByTestId('chart-title').press('Enter');
+    await page.getByTestId('side-panel-close').click();
+    // The settings scrolled the chart into view beside them; back to the start of the table.
+    await page.locator('[data-testid="sheet-grid"] [data-scrollable]').evaluate((element) => element.scrollTo(0, 0));
+    await expect.poll(() => page.locator('[data-testid="sheet-grid"] [data-scrollable]').evaluate(element => element.scrollLeft)).toBe(0);
+    await clickCell(page, 'A3');
+    await expect(page.getByTestId('comment-card')).toBeVisible();
+    await page.screenshot({ path: shotPath(testInfo, 'dark-everything.png') });
+    await expectCell(page, 'C2', 'TRUE');
+  });
+});

@@ -120,7 +120,7 @@ test.describe('comments and charts on a phone', () => {
   test.setTimeout(240_000);
   test.use({ viewport: { width: 390, height: 760 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 });
 
-  test('a comment shows along the bottom, and a chart sits beside the table', async ({ page, relayUrl }, testInfo) => {
+  test('a chart fits below the table, and a comment shows along the bottom', async ({ page, relayUrl }, testInfo) => {
     await prepareFreshSession(page, relayUrl);
     await createDriveProfile(page);
     await createSpreadsheet(page, 'Pocket');
@@ -130,8 +130,15 @@ test.describe('comments and charts on a phone', () => {
     await page.getByTestId('insert-chart').tap();
     await expect(page.getByTestId('sheet-chart')).toBeVisible();
     await expect(page.getByTestId('chart-panel')).toBeVisible();
+    // As wide as the screen allows, below the cells, and in view above the settings.
+    const chartBox = await page.getByTestId('sheet-chart').boundingBox();
+    const panelBox = await page.getByTestId('chart-panel').boundingBox();
+    expect(chartBox && chartBox.x + chartBox.width).toBeLessThanOrEqual(390);
+    // Its top, title and most of it stay in view above the settings.
+    expect((chartBox?.y ?? 999) + 120).toBeLessThanOrEqual(panelBox?.y ?? 0);
     await page.screenshot({ path: shotPath(testInfo, 'phone-chart-panel.png') });
     await page.getByTestId('side-panel-close').tap();
+    await goTo(page, 'B3');
 
     // A long press on a cell, then Comment.
     const b3 = await cellBox(page, 'B3');

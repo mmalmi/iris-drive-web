@@ -504,14 +504,14 @@ function drawPaneCells(ctx: CanvasRenderingContext2D, scene: GridScene, theme: G
  * Checkboxes, the arrows of cells that offer a list, and the corner marks of
  * comments and of values a validation rule does not allow.
  */
-function drawControls(ctx: CanvasRenderingContext2D, scene: GridScene, theme: GridTheme, pane: Pane): void {
+function drawControls(ctx: CanvasRenderingContext2D, scene: GridScene, theme: GridTheme, pane: Pane, only?: CellPos): void {
   const { sheet, engine, rows, cols, extras, editing } = scene;
   if (!extras) return;
-  for (let row = pane.rowFrom; row <= pane.rowTo; row += 1) {
+  for (let row = only?.row ?? pane.rowFrom; row <= (only?.row ?? pane.rowTo); row += 1) {
     const height = rows.size(row);
     if (height === 0) continue;
     const y = pane.offsetY + rows.start(row);
-    for (let col = pane.colFrom; col <= pane.colTo; col += 1) {
+    for (let col = only?.col ?? pane.colFrom; col <= (only?.col ?? pane.colTo); col += 1) {
       const width = cols.size(col);
       if (width === 0) continue;
       const merge = sheet.mergeAt(row, col);
@@ -652,6 +652,8 @@ function drawPaneOverlays(ctx: CanvasRenderingContext2D, scene: GridScene, theme
             height: scene.rows.end(activeRect.r2) - scene.rows.start(activeRect.r1),
           } : undefined);
         }
+        // Its checkbox or list arrow and its marks, which the clearing covered.
+        if (scene.extras?.any) drawControls(ctx, scene, theme, pane, { row: activeRect.r1, col: activeRect.c1 });
       }
     }
     ctx.strokeStyle = scene.focused ? theme.accent : theme.mutedText;
