@@ -220,8 +220,39 @@ function group(digits: string, separator: string): string {
   return digits.replace(/\B(?=(\d{3})+(?!\d))/g, separator);
 }
 
-function formatDateSection(section: Section, serial: number): string {
+const nameCache = new Map<string, { months: string[]; shortMonths: string[]; days: string[]; shortDays: string[] }>();
+
+/** Month and weekday names in a locale's own language; English when the browser does not know it. */
+export function dateNames(tag: string): { months: string[]; shortMonths: string[]; days: string[]; shortDays: string[] } {
+  let found = nameCache.get(tag);
+  if (found) return found;
+  const english = { months: MONTH_NAMES, shortMonths: MONTH_NAMES.map(name => name.slice(0, 3)), days: DAY_NAMES, shortDays: DAY_NAMES.map(name => name.slice(0, 3)) };
+  try {
+    if (tag.toLowerCase().startsWith('en')) throw new Error('English');
+    const name = (options: Intl.DateTimeFormatOptions, date: Date) => {
+      const text = new Intl.DateTimeFormat(tag, { ...options, timeZone: 'UTC' }).format(date);
+      // "Jan." reads as "Jan" in a cell, as other spreadsheets write it.
+      return text.charAt(0).toUpperCase() + text.slice(1).replace(/\.$/, '');
+    };
+    const month = (index: number) => new Date(Date.UTC(2026, index, 15));
+    // 4 January 2026 was a Sunday.
+    const day = (index: number) => new Date(Date.UTC(2026, 0, 4 + index));
+    found = {
+      months: Array.from({ length: 12 }, (_unused, index) => name({ month: 'long' }, month(index))),
+      shortMonths: Array.from({ length: 12 }, (_unused, index) => name({ month: 'short' }, month(index))),
+      days: Array.from({ length: 7 }, (_unused, index) => name({ weekday: 'long' }, day(index))),
+      shortDays: Array.from({ length: 7 }, (_unused, index) => name({ weekday: 'short' }, day(index))),
+    };
+  } catch {
+    found = english;
+  }
+  nameCache.set(tag, found);
+  return found;
+}
+
+function formatDateSection(section: Section, serial: number, locale: NumberLocale): string {
   const date = partsFromSerial(serial);
+  const names = dateNames(locale.tag);
   const twelveHour = section.parts.some(part => part.kind === 'date' && /^(am\/pm|a\/p)$/.test(part.token));
   const two = (n: number) => String(n).padStart(2, '0');
   let out = '';
@@ -243,13 +274,13 @@ function formatDateSection(section: Section, serial: number): string {
     switch (token) {
       case 'yyyy': out += String(date.year).padStart(4, '0'); break;
       case 'yy': out += two(date.year % 100); break;
-      case 'mmmmm': out += MONTH_NAMES[date.month - 1][0]; break;
-      case 'mmmm': out += MONTH_NAMES[date.month - 1]; break;
-      case 'mmm': out += MONTH_NAMES[date.month - 1].slice(0, 3); break;
+      case 'mmmmm': out += names.months[date.month - 1][0]; break;
+      case 'mmmm': out += names.months[date.month - 1]; break;
+      case 'mmm': out += names.shortMonths[date.month - 1]; break;
       case 'mm': out += two(date.month); break;
       case 'm': out += String(date.month); break;
-      case 'dddd': out += DAY_NAMES[date.weekday]; break;
-      case 'ddd': out += DAY_NAMES[date.weekday].slice(0, 3); break;
+      case 'dddd': out += names.days[date.weekday]; break;
+      case 'ddd': out += names.shortDays[date.weekday]; break;
       case 'dd': out += two(date.day); break;
       case 'd': out += String(date.day); break;
       case 'hh': out += two(hour); break;
@@ -368,7 +399,7 @@ export function formatValue(value: Scalar, format?: string, locale: NumberLocale
   } else if (value === 0 && sections.length >= 3) {
     section = sections[2];
   }
-  if (section.isDate) return value < 0 ? formatGeneral(value, locale) : formatDateSection(section, value);
+  if (section.isDate) return value < 0 ? formatGeneral(value, locale) : formatDateSection(section, value, locale);
   return formatNumberSection(section, value, showSign, locale);
 }
 

@@ -13,6 +13,7 @@ import { callAt, completionAt, type CallHint, type Completion } from './formula/
 import { formatKind } from './format';
 import { Book, decodeRaw, isFormula, LOCAL_ORIGIN, type BookChange, type CellStyle, type Sheet, type SheetInfo } from './model';
 import { problemWith, validationAt } from './rules';
+import { reconcileMoves } from './structure';
 import { jump, lastFilledCol, stepInside } from './navigate';
 import type { ObjectContent } from './objects';
 import { rectReference } from './refs';
@@ -243,6 +244,12 @@ export class SheetController {
   // --- Following changes ---
 
   private afterChange(change: BookChange): void {
+    // Moves of rows made here and elsewhere at the same time: their formula changes are put together.
+    if (!change.local && this.canEdit && [...change.bySheet.values()].some(found => found.props || found.cells.size > 0)) {
+      queueMicrotask(() => {
+        if (this.canEdit) reconcileMoves(this.book);
+      });
+    }
     this.memoBeforeChange = this.hasSheet ? this.selectionMemo() : null;
     this.sheetBeforeChange = this.sheetId;
     if (change.sheets) {

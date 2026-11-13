@@ -24,8 +24,15 @@
     y: number;
     items: MenuItem[];
     onclose: () => void;
+    /**
+     * On a phone: shown as a sheet from the bottom of the screen, which must
+     * not cover these screen rows (the cell that was pressed). `reveal` scrolls
+     * the content up by some pixels and says how far it went.
+     */
+    sheet?: { top: number; bottom: number; reveal: (pixels: number) => number } | null;
   }
-  let { x, y, items, onclose }: Props = $props();
+  let { x, y, items, onclose, sheet = null }: Props = $props();
+  let maxHeight = $state<number | null>(null);
 
   let element: HTMLDivElement | undefined = $state();
   let left = $state(0);
@@ -34,10 +41,19 @@
 
   onMount(() => {
     if (!element) return undefined;
-    // Kept on screen: flipped to the other side of the point when there is no room.
     const { width, height } = element.getBoundingClientRect();
-    left = Math.max(4, x + width > window.innerWidth - 4 ? Math.min(x - width, window.innerWidth - width - 4) : x);
-    top = Math.max(4, y + height > window.innerHeight - 4 ? Math.min(y - height, window.innerHeight - height - 4) : y);
+    if (sheet) {
+      // The pressed cell stays in view above the sheet: the grid scrolls it up, or the sheet is shorter.
+      const sheetTop = window.innerHeight - height;
+      const covered = sheet.bottom + 8 - sheetTop;
+      const moved = covered > 0 ? sheet.reveal(covered) : 0;
+      const cellBottom = sheet.bottom - moved;
+      if (cellBottom + 8 > sheetTop) maxHeight = Math.max(160, window.innerHeight - cellBottom - 8);
+    } else {
+      // Kept on screen: flipped to the other side of the point when there is no room.
+      left = Math.max(4, x + width > window.innerWidth - 4 ? Math.min(x - width, window.innerWidth - width - 4) : x);
+      top = Math.max(4, y + height > window.innerHeight - 4 ? Math.min(y - height, window.innerHeight - height - 4) : y);
+    }
     placed = true;
     element.focus({ preventScroll: true });
     const outside = (event: Event) => {
@@ -80,7 +96,8 @@
   bind:this={element}
   class="menu"
   class:placed
-  style="left: {left}px; top: {top}px"
+  class:sheet={sheet !== null}
+  style={sheet ? (maxHeight ? `max-height: ${maxHeight}px` : '') : `left: ${left}px; top: ${top}px`}
   role="menu"
   tabindex="-1"
   data-testid="sheet-menu"
@@ -126,6 +143,20 @@
 
   .menu.placed {
     opacity: 1;
+  }
+
+  /* On a phone: a sheet from the bottom, the width of the screen. */
+  .menu.sheet {
+    left: 0;
+    right: 0;
+    bottom: 0;
+    top: auto;
+    max-width: none;
+    max-height: 60vh;
+    padding: 6px 6px calc(6px + env(safe-area-inset-bottom));
+    border-radius: 14px 14px 0 0;
+    border-bottom: none;
+    box-shadow: 0 -6px 24px rgb(0 0 0 / 0.25);
   }
 
   .item {

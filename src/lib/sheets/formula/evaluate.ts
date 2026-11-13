@@ -15,6 +15,7 @@ import {
   type Scalar,
   type Value,
 } from '../values';
+import type { NumberLocale } from '../format';
 import type { Node } from './parser';
 import type { RefSpec } from './tokens';
 
@@ -25,6 +26,8 @@ export interface EvalHost {
   cell(sheetId: string, row: number, col: number): Scalar;
   /** Where a named range is, an error when its cells are gone, or null for an unknown name. */
   named?(name: string): { sheetId: string; rect: Rect } | SheetError | null;
+  /** How the spreadsheet writes numbers, dates and month names. */
+  locale?(): NumberLocale;
   now(): Date;
   random(): number;
 }

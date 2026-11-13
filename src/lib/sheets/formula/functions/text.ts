@@ -183,7 +183,8 @@ define('VALUE', {
 define('TEXT', {
   min: 2,
   max: 2,
-  fn: ([value, pattern], ctx) => formatValue(plain(value, ctx), text(pattern, ctx)),
+  // Written the way the spreadsheet writes numbers and dates: month names in its language too.
+  fn: ([value, pattern], ctx) => formatValue(plain(value, ctx), text(pattern, ctx), ctx.host.locale?.()),
 });
 define('FIXED', {
   min: 1,
@@ -191,6 +192,6 @@ define('FIXED', {
   fn: ([value, decimals, noCommas], ctx) => {
     const places = decimals === undefined ? 2 : Math.max(0, int(decimals, ctx));
     const grouped = noCommas === undefined || !plain(noCommas, ctx);
-    return formatValue(num(value, ctx), `${grouped ? '#,##0' : '0'}${places ? `.${'0'.repeat(places)}` : ''}`);
+    return formatValue(num(value, ctx), `${grouped ? '#,##0' : '0'}${places ? `.${'0'.repeat(places)}` : ''}`, ctx.host.locale?.());
   },
 });

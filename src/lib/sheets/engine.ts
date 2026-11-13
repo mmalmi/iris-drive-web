@@ -121,6 +121,7 @@ export class Engine {
         const found = resolveName(this.book, name);
         return found === null || found instanceof SheetError ? found : { sheetId: found.sheet.id, rect: found.rect };
       },
+      locale: () => this.book.numberLocale,
       now: () => this.now(),
       random: () => this.random(),
     };

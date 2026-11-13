@@ -6,7 +6,7 @@
  * @unocss-include
  */
 import type { SheetController } from '../../lib/sheets/controller.svelte';
-import { columnX, rowY, type Hit, type Viewport } from '../../lib/sheets/layout';
+import { HEADER_HEIGHT, columnX, rowY, type Hit, type Viewport } from '../../lib/sheets/layout';
 import { CELL_PAD_X, CHECKBOX, LIST_ARROW, type CellExtras } from '../../lib/sheets/render';
 import { chooseFromList, listChoices } from '../../lib/sheets/ruleCommands';
 import type { MenuItem } from './PopupMenu.svelte';
@@ -29,6 +29,30 @@ export function controlHit(ctl: SheetController, view: Viewport, extras: CellExt
   // A little room around the box, for a finger.
   const reach = 6;
   return x >= boxLeft - reach && x <= boxLeft + CHECKBOX + reach && y >= boxTop - reach && y <= boxTop + CHECKBOX + reach ? 'checkbox' : null;
+}
+
+/**
+ * On a phone, where a menu is a sheet from the bottom: the screen rows of the
+ * pressed cell, and how to scroll the grid to keep it above the sheet. Null
+ * on a wider screen.
+ */
+export function phoneMenuSheet(view: Viewport, canvas: HTMLCanvasElement, scroller: HTMLElement, hit: Hit): { top: number; bottom: number; reveal: (pixels: number) => number } | null {
+  if (window.innerWidth > 640) return null;
+  const bounds = canvas.getBoundingClientRect();
+  const row = hit.area === 'colHeader' ? -1 : hit.row;
+  const top = row < 0 ? bounds.top : bounds.top + rowY(view, row);
+  const bottom = row < 0 ? bounds.top + HEADER_HEIGHT : top + view.rows.size(row);
+  return {
+    top,
+    bottom,
+    reveal: (pixels) => {
+      if (row < view.freezeRows) return 0;
+      const before = scroller.scrollTop;
+      scroller.dataset.keepMenu = '1';
+      scroller.scrollTop = before + pixels;
+      return scroller.scrollTop - before;
+    },
+  };
 }
 
 /** The choices of a cell's list, the one it holds ticked. */

@@ -44,7 +44,7 @@
   import { selectForMenu, selectionMenu } from './menus';
   import ObjectLayer from './ObjectLayer.svelte';
   import { copyCells, pasteInto, pastedFrom } from './gridClipboard';
-  import { controlHit, listMenu } from './gridControls';
+  import { controlHit, listMenu, phoneMenuSheet } from './gridControls';
   import { cellExtras } from '../../lib/sheets/extras';
   import { toggleCheckboxes } from '../../lib/sheets/ruleCommands';
   import './grid.css';
@@ -72,7 +72,7 @@
   let focused = $state(false);
   let resizing = $state.raw<SizeOverride | null>(null);
   let cursor = $state('default');
-  let menu = $state.raw<{ x: number; y: number; items: MenuItem[] } | null>(null);
+  let menu = $state.raw<{ x: number; y: number; items: MenuItem[]; sheet?: { top: number; bottom: number; reveal: (pixels: number) => number } } | null>(null);
   let dropLine = $state.raw<{ axis: 'row' | 'col'; position: number } | null>(null);
   let shiftHeld = false;
   /** The last press came from a finger: handles are sized for one, a tap selects, dragging scrolls. */
@@ -268,7 +268,9 @@
     if (!scroller) return;
     scrollX = scroller.scrollLeft;
     scrollY = scroller.scrollTop;
-    if (menu) menu = null;
+    // A menu stays open when it scrolled the grid itself, to keep its cell in view.
+    if (menu && scroller.dataset.keepMenu !== '1') menu = null;
+    delete scroller.dataset.keepMenu;
   }
 
   // --- The box for typing ---
@@ -631,7 +633,10 @@
   /** Selects what a right click or long press is on, unless it is already selected, and shows what can be done with it. */
   function openMenuAt(hit: Hit, clientX: number, clientY: number): void {
     if (ctl.edit) ctl.commitEdit();
-    menu = { x: clientX, y: clientY, items: selectionMenu(ctl, selectForMenu(ctl, hit), touchMode) };
+    const items = selectionMenu(ctl, selectForMenu(ctl, hit), touchMode);
+    // On a phone the menu is a sheet from the bottom that keeps the pressed cell in view.
+    const sheet = touchMode && view && canvas && scroller ? phoneMenuSheet(view, canvas, scroller, hit) : null;
+    menu = { x: clientX, y: clientY, items, sheet: sheet ?? undefined };
   }
 
   // --- Touch (see gridTouch.ts) ---
@@ -779,7 +784,7 @@
 </div>
 
 {#if menu}
-  <PopupMenu x={menu.x} y={menu.y} items={menu.items} onclose={closeMenu} />
+  <PopupMenu x={menu.x} y={menu.y} items={menu.items} sheet={menu.sheet ?? null} onclose={closeMenu} />
 {/if}
 
 {#if filterMenu}
