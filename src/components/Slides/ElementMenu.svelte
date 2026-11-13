@@ -1,0 +1,64 @@
+<script lang="ts">
+  /** The menu of the slide itself, opened with a right click: what can be done with what is selected, or pasting. */
+  import type { SlidesEditorState } from '../../lib/slides/editorState.svelte';
+  import Popover from './Popover.svelte';
+
+  interface Props {
+    editorState: SlidesEditorState;
+    open: boolean;
+    at: { x: number; y: number } | undefined;
+    /** Copies the selection; takes it off the slide too when `cut`. */
+    onCopy: (cut: boolean) => void;
+    onPaste: () => void;
+    /** Called as an item is chosen, before it acts. */
+    onDone: () => void;
+  }
+  let { editorState, open = $bindable(), at, onCopy, onPaste, onDone }: Props = $props();
+
+  const modifier = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl+';
+
+  function run(action: () => void): void {
+    open = false;
+    onDone();
+    action();
+  }
+</script>
+
+<Popover bind:open anchor={at} label="Element options">
+  {#if editorState.selection.length > 0}
+    <button class="menu-item" onclick={() => run(() => onCopy(true))} data-testid="element-menu-cut">
+      <span class="i-lucide-scissors"></span>Cut<span class="keys">{modifier}X</span>
+    </button>
+    <button class="menu-item" onclick={() => run(() => onCopy(false))} data-testid="element-menu-copy">
+      <span class="i-lucide-copy"></span>Copy<span class="keys">{modifier}C</span>
+    </button>
+  {/if}
+  <button class="menu-item" onclick={() => run(onPaste)} data-testid="element-menu-paste">
+    <span class="i-lucide-clipboard"></span>Paste<span class="keys">{modifier}V</span>
+  </button>
+  {#if editorState.selection.length > 0}
+    <button class="menu-item" onclick={() => run(() => editorState.duplicateSelected())} data-testid="element-menu-duplicate">
+      <span class="i-lucide-copy-plus"></span>Duplicate<span class="keys">{modifier}D</span>
+    </button>
+    <button class="menu-item" onclick={() => run(() => editorState.deleteSelected())} data-testid="element-menu-delete">
+      <span class="i-lucide-trash-2"></span>Delete
+    </button>
+    <div class="menu-divider"></div>
+    <button class="menu-item" onclick={() => run(() => editorState.arrange('front'))} data-testid="element-menu-front">
+      <span class="i-lucide-bring-to-front"></span>Bring to front
+    </button>
+    <button class="menu-item" onclick={() => run(() => editorState.arrange('forward'))} data-testid="element-menu-forward">
+      <span class="i-lucide-arrow-up"></span>Bring forward<span class="keys">{modifier}]</span>
+    </button>
+    <button class="menu-item" onclick={() => run(() => editorState.arrange('backward'))} data-testid="element-menu-backward">
+      <span class="i-lucide-arrow-down"></span>Send backward<span class="keys">{modifier}[</span>
+    </button>
+    <button class="menu-item" onclick={() => run(() => editorState.arrange('back'))} data-testid="element-menu-back">
+      <span class="i-lucide-send-to-back"></span>Send to back
+    </button>
+  {:else}
+    <button class="menu-item" onclick={() => run(() => editorState.selectAll())} data-testid="element-menu-select-all">
+      <span class="i-lucide-box-select"></span>Select all<span class="keys">{modifier}A</span>
+    </button>
+  {/if}
+</Popover>

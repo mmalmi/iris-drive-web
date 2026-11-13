@@ -125,6 +125,37 @@
     overflow: hidden;
   }
 
+  .slide-surface :global(.el-table-box),
+  .slide-surface :global(.el-table) {
+    position: absolute;
+    inset: 0;
+  }
+
+  .slide-surface :global(.el-table) {
+    display: grid;
+  }
+
+  /* Each cell draws its lines centred on its edges, so neighbours share one line however thick. */
+  .slide-surface :global(.el-cell) {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    padding: 6px 12px;
+    box-sizing: border-box;
+    overflow: hidden;
+    /* Set here, where each cell's own share is known, so a crowded cell shrinks alone. */
+    font-size: calc(var(--cell-size, 22px) * var(--fit, 1));
+    overflow-wrap: break-word;
+    outline: var(--line-width) solid var(--line);
+    outline-offset: calc(var(--line-width) / -2);
+  }
+
+  .slide-surface :global(.el-cell-editing) {
+    box-shadow: inset 0 0 0 2px #916dfe;
+  }
+
   .slide-surface :global(.el-text-inner) {
     width: 100%;
     min-width: 0;

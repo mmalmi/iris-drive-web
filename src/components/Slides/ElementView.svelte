@@ -9,6 +9,7 @@
   import { ELLIPSE_INSET, MIN_FIT, TEXT_PAD_Y, clearFit, fitText, roomInside } from '../../lib/slides/fitText';
   import RichText from './RichText.svelte';
   import TextEditor from './TextEditor.svelte';
+  import TableView from './TableView.svelte';
 
   interface Props {
     element: SlideElement;
@@ -133,6 +134,16 @@
       {:else}
         <div class="el-image el-image-missing"></div>
       {/if}
+    {:else if element.table}
+      <div
+        class="el-table-box"
+        style:font-family={style.fontFamily}
+        style:--cell-size="{style.fontSize}px"
+        style:line-height={style.lineHeight}
+        style:text-align={style.align}
+      >
+        <TableView {element} {palette} {style} {editorState} />
+      </div>
     {:else}
       {#if element.type === 'shape'}
         <div

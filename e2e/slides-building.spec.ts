@@ -74,6 +74,74 @@ test.describe('building a talk', () => {
     expect(canvas.height).toBeGreaterThan(120);
   });
 
+  test('a table: picked by size, typed in cell by cell, reshaped, filled, and kept', async ({ page, relayUrl }) => {
+    await prepareFreshSession(page, relayUrl);
+    await createDriveProfile(page);
+    await createPresentation(page, 'Table');
+    await blankSlide(page);
+    const cells = sheet(page).locator('[data-cell]');
+    const cellText = () => cells.evaluateAll(nodes => nodes.map(node => (node as HTMLElement).innerText.trim()));
+
+    await page.getByTestId('add-table').click();
+    await page.getByTestId('table-2x3').hover();
+    await expect(page.getByTestId('table-size')).toHaveText('2 × 3');
+    await page.getByTestId('table-2x3').click();
+    await expect(elements(page, 'table')).toHaveCount(1);
+    await expect(cells).toHaveCount(6);
+    // Typing starts in the first cell; Tab goes on, and past the last cell adds a row.
+    await expect(sheet(page).locator('.ProseMirror')).toBeFocused();
+    for (const word of ['Team', 'Spring', 'Autumn', 'North', '12', '18']) {
+      await page.keyboard.type(word);
+      await page.keyboard.press('Tab');
+    }
+    await page.keyboard.type('South');
+    await expect(cells).toHaveCount(9);
+    expect(await cellText()).toEqual(['Team', 'Spring', 'Autumn', 'North', '12', '18', 'South', '', '']);
+
+    // A column to the right of the one being typed in, and away again with undo.
+    await page.getByTestId('table-lines').click();
+    await page.getByTestId('table-column-right').click();
+    expect(await cellText()).toEqual(['Team', '', 'Spring', 'Autumn', 'North', '', '12', '18', 'South', '', '', '']);
+    await page.getByRole('button', { name: 'Undo' }).click();
+    await expect(cells).toHaveCount(9);
+
+    // A click in a cell types there; that cell gets a fill of its own.
+    await cells.nth(4).click();
+    await expect(cells.nth(4).locator('.ProseMirror')).toBeFocused();
+    await page.keyboard.press('End');
+    await page.keyboard.type(' and many more words than such a small cell could show at their full size');
+    const crowded = await cells.nth(4).evaluate((node) => {
+      const inner = node.querySelector('.el-text-inner') as HTMLElement;
+      const style = getComputedStyle(node);
+      const room = node.clientHeight - Number.parseFloat(style.paddingTop) - Number.parseFloat(style.paddingBottom);
+      return { fit: Number((node as HTMLElement).style.getPropertyValue('--fit') || 1), inside: inner.offsetHeight <= room + 1 };
+    });
+    expect(crowded.inside).toBe(true);
+    expect(crowded.fit).toBeLessThan(1);
+    await page.getByTestId('cell-fill').click();
+    await page.locator('[data-colour="#f2c94c"]').click();
+    await expect(cells.nth(4)).toHaveCSS('background-color', 'rgb(242, 201, 76)');
+    await expect(cells.nth(5)).not.toHaveCSS('background-color', 'rgb(242, 201, 76)');
+    // The row of that cell goes.
+    await page.getByTestId('table-lines').click();
+    await page.getByTestId('table-row-delete').click();
+    expect(await cellText()).toEqual(['Team', 'Spring', 'Autumn', 'South', '', '']);
+    await page.getByRole('button', { name: 'Undo' }).click();
+    await expect(cells).toHaveCount(9);
+    await shot(page, 'build-04-table');
+
+    // All of it is there after a reload, also in the slide beside it.
+    await page.keyboard.press('Escape');
+    await expectSlidesSaved(page);
+    await page.reload();
+    await expect(thumbs(page)).toHaveCount(2, { timeout: 30_000 });
+    await thumbs(page).nth(1).click();
+    await expect(cells).toHaveCount(9);
+    expect((await cellText()).slice(0, 4)).toEqual(['Team', 'Spring', 'Autumn', 'North']);
+    await expect(cells.nth(4)).toHaveCSS('background-color', 'rgb(242, 201, 76)');
+    await expect(thumbs(page).nth(1).locator('[data-cell]')).toHaveCount(9);
+  });
+
   test('on a phone the common tools fit in one row, and simple edits are easy', async ({ page, browser, relayUrl }) => {
     await prepareFreshSession(page, relayUrl);
     await createDriveProfile(page);
