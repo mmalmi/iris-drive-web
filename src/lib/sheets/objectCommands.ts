@@ -22,8 +22,12 @@ export function chartSource(ctl: SheetController): Rect | null {
   return dataRegion(ctl);
 }
 
-/** Adds a chart of the selected cells beside them and selects it. Returns its id. */
-export function insertChart(ctl: SheetController, type: ChartType = 'column'): string | null {
+/**
+ * Adds a chart of the selected cells beside them and selects it; with
+ * `room` (the width of the grid's cells in view) less than a chart is wide,
+ * as on a phone, below them and as wide as fits. Returns its id.
+ */
+export function insertChart(ctl: SheetController, type: ChartType = 'column', room = Infinity): string | null {
   if (!ctl.canEdit) return null;
   const source = chartSource(ctl);
   if (!source) {
@@ -32,14 +36,17 @@ export function insertChart(ctl: SheetController, type: ChartType = 'column'): s
   }
   const sheet = ctl.sheet;
   const content: ChartContent = { kind: 'chart', type, title: '', legend: true, ...rectIds(sheet, source) };
-  const col = Math.min(source.c2 + 1, sheet.cols.length - 1);
+  const narrow = room < CHART_WIDTH * 1.6;
+  const col = narrow ? source.c1 : Math.min(source.c2 + 1, sheet.cols.length - 1);
+  const row = narrow ? Math.min(source.r2 + 2, sheet.rows.length - 1) : source.r1;
+  const width = narrow ? Math.max(160, Math.min(CHART_WIDTH, room - 16)) : CHART_WIDTH;
   const id = addObject(sheet, content, {
-    row: sheet.rows.ids[source.r1],
+    row: sheet.rows.ids[row],
     col: sheet.cols.ids[col],
-    dx: col > source.c2 ? 16 : 0,
+    dx: !narrow && col > source.c2 ? 16 : 0,
     dy: 0,
-    width: CHART_WIDTH,
-    height: CHART_HEIGHT,
+    width,
+    height: narrow ? Math.round(width * 0.7) : CHART_HEIGHT,
   });
   ctl.selectedObject = id;
   return id;

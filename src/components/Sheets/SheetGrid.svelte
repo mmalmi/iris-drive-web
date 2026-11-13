@@ -130,6 +130,13 @@
     return ctl.hasSheet ? cellExtras(ctl.sheet, ctl.engine) : null;
   });
 
+  /** A cell with comments shows them when it is clicked or tapped. */
+  function showComments(): void {
+    if (!extras || ctl.edit) return;
+    const { row, col } = ctl.active;
+    if (extras.commented(row, col)) ctl.commentFor = { cell: `${ctl.sheet.rows.ids[row]}:${ctl.sheet.cols.ids[col]}`, compose: false };
+  }
+
   /** A press on a checkbox ticks it; one on a list's arrow shows its choices. */
   function pressControl(hit: Hit, x: number, y: number): boolean {
     if (!view || ctl.edit) return false;
@@ -410,6 +417,7 @@
       return { kind: 'select', scope: 'rows' };
     }
     ctl.select({ row: hit.row, col: hit.col }, extend);
+    showComments();
     return { kind: 'select', scope: 'cells' };
   }
 
@@ -774,7 +782,13 @@
 
   <FindBar {ctl} />
 
-  {#if ctl.panel && ctl.canEdit}
+  {#if ctl.commentFor && view}
+    {#await import('./CommentCard.svelte') then { default: CommentCard }}
+      <CommentCard {ctl} {view} />
+    {/await}
+  {/if}
+
+  {#if ctl.panel && (ctl.canEdit || ctl.panel.kind === 'comments')}
     {#await import('./SheetPanels.svelte') then { default: SheetPanels }}
       <SheetPanels {ctl} />
     {/await}

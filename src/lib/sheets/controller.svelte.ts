@@ -16,6 +16,7 @@ import { problemWith, validationAt } from './rules';
 import { reconcileMoves } from './structure';
 import { jump, lastFilledCol, stepInside } from './navigate';
 import type { ObjectContent } from './objects';
+import type { CommentAuthor } from './comments';
 import { rectReference } from './refs';
 import { defineName, resolveName } from './names';
 import { SheetError, isError } from './values';
@@ -137,6 +138,10 @@ export class SheetController {
   selectedObject = $state<string | null>(null);
   /** The settings panel that is open beside the grid, if any. */
   panel = $state.raw<SheetPanel | null>(null);
+  /** The cell whose comments show beside it ("rowId:colId"), and whether a new one is being written. */
+  commentFor = $state.raw<{ cell: string; compose: boolean } | null>(null);
+  /** Set by the spreadsheet's page: who is writing, for comments. */
+  authorOf: () => CommentAuthor | null = () => null;
   /** Set by the spreadsheet's page when pictures can be stored; null for a file only looked at. */
   media: SheetMedia | null = null;
 
@@ -566,6 +571,7 @@ export class SheetController {
     this.memos.set(this.sheetId, this.selectionMemo());
     this.sheetId = id;
     this.selectedObject = null;
+    this.commentFor = null;
     this.pointAnchor = null;
     this.pointFocus = null;
     this.restoreMemo();

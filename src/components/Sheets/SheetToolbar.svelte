@@ -22,6 +22,7 @@
   import { MOD, selectionMenu } from './menus';
   import { insertChart } from '../../lib/sheets/objectCommands';
   import { insertPicture } from '../../lib/sheets/pasting';
+  import { openThreadCells } from '../../lib/sheets/comments';
 
   interface Props {
     ctl: SheetController;
@@ -160,6 +161,10 @@
   }
 
   let pictureInput: HTMLInputElement | undefined = $state();
+  let openComments = $derived.by(() => {
+    void ctl.revision;
+    return ctl.hasSheet ? openThreadCells(ctl.sheet).size : 0;
+  });
 
   function openInsert(event: MouseEvent): void {
     moreMenu = {
@@ -175,7 +180,9 @@
   }
 
   function addChart(): void {
-    const id = insertChart(ctl);
+    // On a phone the chart goes below the cells, as wide as the screen allows.
+    const grid = document.querySelector<HTMLElement>('[data-testid="sheet-grid"]');
+    const id = insertChart(ctl, 'column', grid ? grid.clientWidth - 50 : Infinity);
     if (id) ctl.panel = { kind: 'chart', id };
   }
 
@@ -291,6 +298,10 @@
   </button>
   <button onclick={() => toggleFilter(ctl)} class="tool" class:on={ctl.filter !== null} title="Filter" aria-label="Filter" aria-pressed={ctl.filter !== null} data-testid="sheet-filter">
     <span class="i-lucide-list-filter"></span>
+  </button>
+  <button onclick={() => { ctl.panel = ctl.panel?.kind === 'comments' ? null : { kind: 'comments' }; }} class="tool count" class:on={ctl.panel?.kind === 'comments'} title="Comments" aria-label="Comments" data-testid="sheet-comments">
+    <span class="i-lucide-message-square"></span>
+    {#if openComments > 0}<span class="badge" data-testid="sheet-comment-count">{openComments}</span>{/if}
   </button>
   <button onclick={() => { if (ctl.find) ctl.find = null; else ctl.openFind(); }} class="tool" class:on={ctl.find !== null} title="Find ({MOD}F)" aria-label="Find" data-testid="sheet-find-button">
     <span class="i-lucide-search"></span>
@@ -413,6 +424,25 @@
     color: rgb(var(--text-1));
     font-size: 0.85rem;
     cursor: pointer;
+  }
+
+  .tool.count {
+    position: relative;
+  }
+
+  .badge {
+    position: absolute;
+    top: 2px;
+    right: 1px;
+    min-width: 15px;
+    height: 15px;
+    padding: 0 4px;
+    border-radius: 8px;
+    background: #f59f00;
+    color: #1a1a1a;
+    font-size: 0.65rem;
+    font-weight: 700;
+    line-height: 15px;
   }
 
   .tool.pair {

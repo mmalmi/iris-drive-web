@@ -136,7 +136,15 @@ export function selectionMenu(ctl: SheetController, target: 'cell' | 'row' | 'co
       { ...deleteRow, divider: true },
       deleteCol,
       clear,
-      { label: 'Conditional formatting', icon: 'i-lucide-paint-roller', action: () => { ctl.panel = { kind: 'format' }; }, divider: true, testId: 'menu-conditional' },
+      {
+        label: 'Comment',
+        icon: 'i-lucide-message-square-plus',
+        hint: `${MOD}${mac ? '⌥' : 'Alt+'}M`,
+        divider: true,
+        action: () => { ctl.commentFor = { cell: `${sheet.rows.ids[ctl.active.row]}:${sheet.cols.ids[ctl.active.col]}`, compose: true }; },
+        testId: 'menu-comment',
+      },
+      { label: 'Conditional formatting', icon: 'i-lucide-paint-roller', action: () => { ctl.panel = { kind: 'format' }; }, testId: 'menu-conditional' },
       { label: 'Data validation', icon: 'i-lucide-list-checks', action: () => { ctl.panel = { kind: 'valid' }; }, testId: 'menu-validation' },
     );
   }

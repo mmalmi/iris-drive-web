@@ -11,6 +11,11 @@
   import SheetTabs from './SheetTabs.svelte';
   import SheetToolbar from './SheetToolbar.svelte';
   import { readSiblingFile, takeImportRequest } from '../../lib/fileImports';
+  import { get } from 'svelte/store';
+  import { nostrStore } from '../../nostr';
+  import { activeNostrIdentityRootScope } from '../../drive/profileRoute';
+  import { createIdentityProfileNameStore } from '../../stores/identityProfile';
+  import { accountsStore } from '../../accounts';
   import { IMPORT_ACCEPT, downloadCsv, downloadXlsx, fillFromFile, importFile, isBlank, isSheetFile, localeMenu } from './sheetFiles';
 
   interface Props {
@@ -25,6 +30,17 @@
   // svelte-ignore state_referenced_locally
   const drive = new DriveDocument(dirName);
   const ctl = new SheetController(drive.ydoc);
+  // Comments are signed with this device's key and its owner's identity.
+  ctl.authorOf = () => {
+    const state = nostrStore.getState();
+    if (!state.pubkey) return null;
+    const profile = activeNostrIdentityRootScope(state) ?? undefined;
+    // The name chosen for the account on this device, else the one its profile gives.
+    const chosen = accountsStore.getState().accounts.find(account => account.pubkey === state.pubkey)?.name?.trim();
+    const named = get(createIdentityProfileNameStore(profile, state.pubkey));
+    const name = chosen || (named.name !== named.fallbackName ? named.name : '');
+    return { pubkey: state.pubkey, ...(profile ? { profile } : {}), ...(name ? { name } : {}) };
+  };
   // Pictures are kept with the spreadsheet's attachments.
   ctl.media = {
     urlOf: file => drive.attachmentUrls.get(file),
@@ -40,6 +56,9 @@
   let importing = $state(false);
 
   onMount(() => {
+    // This person's name is looked up now, so their first comment already carries it.
+    const state = nostrStore.getState();
+    const stopName = state.pubkey ? createIdentityProfileNameStore(activeNostrIdentityRootScope(state) ?? undefined, state.pubkey).subscribe(() => {}) : () => {};
     void (async () => {
       if (!await drive.open()) return;
       ctl.start(drive.canEdit);
@@ -51,6 +70,7 @@
     drive.ydoc.on('update', (_update: Uint8Array, origin: unknown) => {
       if (origin === STORED_ORIGIN && ctl.localOnly) onreset();
     });
+    return stopName;
   });
 
   /** Opened from a spreadsheet file in the Drive: its content comes in once (see fileImports.ts). */

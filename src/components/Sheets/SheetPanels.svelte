@@ -2,6 +2,7 @@
   /** The settings panel that is open beside the grid. Loaded only when one opens. */
   import type { SheetController } from '../../lib/sheets/controller.svelte';
   import ChartPanel from './ChartPanel.svelte';
+  import CommentsPanel from './CommentsPanel.svelte';
   import FormatPanel from './FormatPanel.svelte';
   import NamesPanel from './NamesPanel.svelte';
   import ValidationPanel from './ValidationPanel.svelte';
@@ -27,4 +28,6 @@
   <ValidationPanel {ctl} start={ctl.panel.check} onclose={close} />
 {:else if ctl.panel?.kind === 'names'}
   <NamesPanel {ctl} onclose={close} />
+{:else if ctl.panel?.kind === 'comments'}
+  <CommentsPanel {ctl} onclose={close} />
 {/if}

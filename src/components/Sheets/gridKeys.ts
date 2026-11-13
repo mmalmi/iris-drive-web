@@ -83,7 +83,8 @@ export function handleGridKey(ctl: SheetController, event: KeyboardEvent, pageRo
     case 'Delete':
     case 'Backspace': clearContents(ctl); return true;
     case 'Escape':
-      if (ctl.find) ctl.find = null;
+      if (ctl.commentFor) ctl.commentFor = null;
+      else if (ctl.find) ctl.find = null;
       else ctl.copied = null;
       return true;
     case 'Home': ctl.goHome(mod, shift); return true;
@@ -97,6 +98,12 @@ export function handleGridKey(ctl: SheetController, event: KeyboardEvent, pageRo
       else return toggleCheckboxes(ctl);
       return true;
     default:
+  }
+  // Ctrl+Alt+M: a comment on the active cell.
+  if (mod && event.altKey && event.code === 'KeyM' && ctl.canEdit) {
+    const sheet = ctl.sheet;
+    ctl.commentFor = { cell: `${sheet.rows.ids[ctl.active.row]}:${sheet.cols.ids[ctl.active.col]}`, compose: true };
+    return true;
   }
   if (!mod || event.altKey) return false;
   switch (key) {
