@@ -19,6 +19,7 @@ import { cellKey, cellPlace, edgeBorder, type CellBorder, type Side } from './ta
 import { paletteFor, readableOn, resolveColour, textStyle, type Palette, type Theme } from './themes';
 import { cssColour, validFontSize } from './richText';
 import { escapeXml } from '../markup';
+import { saveFile } from '../saveFile';
 
 /** One slide unit in EMU: a 1280-unit slide is PowerPoint's 13.333-inch widescreen. */
 const EMU = 9525;
@@ -515,11 +516,6 @@ export async function downloadPptx(options: { slides: Slide[]; theme: Theme; tit
       return { bytes: data, ext, ...(await pictureSize(blob)) };
     },
   });
-  const link = document.createElement('a');
-  link.href = URL.createObjectURL(new Blob([bytes as BlobPart], { type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' }));
-  link.download = `${options.title.replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'Presentation'}.pptx`;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  setTimeout(() => URL.revokeObjectURL(link.href), 10_000);
+  const name = `${options.title.replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'Presentation'}.pptx`;
+  saveFile(new Blob([bytes as BlobPart], { type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' }), name);
 }

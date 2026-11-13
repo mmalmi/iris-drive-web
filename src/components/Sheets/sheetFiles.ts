@@ -9,6 +9,7 @@ import { exportCsv, importCsv } from '../../lib/sheets/commands';
 import type { SheetController } from '../../lib/sheets/controller.svelte';
 import { NUMBER_FORMATS, browserLocale, formatValue, localeFor } from '../../lib/sheets/format';
 import type { MenuItem } from './PopupMenu.svelte';
+import { saveFile } from '../../lib/saveFile';
 
 const MAX_IMPORT_BYTES = 20 * 1024 * 1024;
 const XLSX_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
@@ -64,19 +65,11 @@ export async function fillFromFile(ctl: SheetController, fileName: string, data:
   return ctl.book.sheets.length > 0 && !(emptyId && ctl.book.sheets.length === 1 && ctl.book.sheets[0].id === emptyId);
 }
 
-function save(blob: Blob, name: string): void {
-  const link = document.createElement('a');
-  link.href = URL.createObjectURL(blob);
-  link.download = name.replace(/[\\/:*?"<>|]/g, ' ');
-  link.click();
-  setTimeout(() => URL.revokeObjectURL(link.href), 10_000);
-}
-
 /** The sheet in view as a CSV file. */
 export function downloadCsv(ctl: SheetController, title: string): void {
   ctl.commitEdit();
   const sheetName = ctl.book.nameOf(ctl.sheetId) ?? 'Sheet';
-  save(new Blob([exportCsv(ctl)], { type: 'text/csv;charset=utf-8' }), `${ctl.sheets.length > 1 ? `${title} - ${sheetName}` : title}.csv`);
+  saveFile(new Blob([exportCsv(ctl)], { type: 'text/csv;charset=utf-8' }), `${ctl.sheets.length > 1 ? `${title} - ${sheetName}` : title}.csv`);
 }
 
 /** Every sheet as one Excel file. */
@@ -84,7 +77,7 @@ export async function downloadXlsx(ctl: SheetController, title: string): Promise
   ctl.commitEdit();
   const { writeXlsx } = await import('../../lib/sheets/xlsx');
   const data = writeXlsx(ctl.book, ctl.engine);
-  save(new Blob([data as BlobPart], { type: XLSX_TYPE }), `${title}.xlsx`);
+  saveFile(new Blob([data as BlobPart], { type: XLSX_TYPE }), `${title}.xlsx`);
 }
 
 /** Locales offered to choose from, besides following each reader's browser. */
