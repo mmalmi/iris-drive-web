@@ -80,7 +80,7 @@ test.describe('README Viewer', () => {
     await createAndEnterTree(page, 'link-test');
 
     // Create a subdir with its own README
-    await page.getByRole('button', { name: 'Folder' }).click();
+    await chooseNew(page, 'Folder');
     await page.locator('input[placeholder="Folder name..."]').fill('subdir');
     await page.getByRole('button', { name: 'Create' }).click();
     const subdirLink = page.locator('a:has-text("subdir")').first();

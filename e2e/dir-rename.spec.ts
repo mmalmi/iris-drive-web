@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures';
-import { setupPageErrorHandler, navigateToPublicFolder, chooseNew, expectFolderEditable } from './test-utils.js';
+import { setupPageErrorHandler, navigateToPublicFolder, chooseNew, expectFolderEditable, openFolderMenu } from './test-utils.js';
 
 test.describe('Directory rename', () => {
   // Increase timeout for all tests since new user setup now creates 3 default folders
@@ -43,7 +43,8 @@ test.describe('Directory rename', () => {
     // URL should now include the folder name
     await expect(page).toHaveURL(/old-folder-name/);
 
-    // Find and click the Rename button (should be visible for subdirectories)
+    // Rename is in the folder's menu (for subdirectories)
+    await openFolderMenu(page);
     await page.click('button:has-text("Rename"):visible');
 
     // Wait for rename modal to appear with pre-filled input
@@ -109,8 +110,9 @@ test.describe('Directory rename', () => {
       await dialog.accept();
     });
 
-    // Click Delete button
-    await page.click('button:has-text("Delete"):visible');
+    // Delete is in the folder's menu
+    await openFolderMenu(page);
+    await page.getByTestId('delete-folder-btn').click();
 
     // Wait for navigation to complete
     await page.waitForURL(/\/public$/, { timeout: 10000 });
