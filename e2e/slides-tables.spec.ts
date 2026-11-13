@@ -116,7 +116,7 @@ test.describe('tables that take shape', () => {
     await page.keyboard.press('Shift+ArrowRight');
     await expect(sheet(page).locator('.el-cell-picked')).toHaveCount(2);
     await page.keyboard.press('Delete');
-    expect(await cellText()).toEqual(['Plan', 'Who', 'What', 'When', 'Ada', '', '']);
+    await expect.poll(cellText).toEqual(['Plan', 'Who', 'What', 'When', 'Ada', '', '']);
     await expect(elements(page, 'table')).toHaveCount(1);
     await page.keyboard.press('ControlOrMeta+z');
     expect(await cellText()).toEqual(['Plan', 'Who', 'What', 'When', 'Ada', 'Engine', 'Monday']);

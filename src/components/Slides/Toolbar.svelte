@@ -109,10 +109,26 @@
   let moreBefore = $state(false);
   let moreAfter = $state(false);
 
+  /** Whether the slide's four buttons are folded into one, because the row has no room for them. */
+  let folded = $state(false);
+  /** How wide the four were when last shown. */
+  let unfoldedWidth = 0;
+
   function measureOverflow(): void {
     if (!bar) return;
     moreBefore = bar.scrollLeft > 1;
     moreAfter = bar.scrollLeft + bar.clientWidth < bar.scrollWidth - 1;
+    if (narrow) return;
+    const wide = [...bar.querySelectorAll<HTMLElement>('.slide-wide > *')].reduce((sum, button) => sum + button.offsetWidth + 2, 0);
+    if (!folded) {
+      if (wide > 0) unfoldedWidth = wide;
+      if (bar.scrollWidth > bar.clientWidth + 1) folded = true;
+      return;
+    }
+    // Unfolded again once the room left over would hold the four, with a little to spare.
+    const spare = (bar.querySelector<HTMLElement>(':scope > .spacer')?.offsetWidth ?? 0) - 8;
+    const compact = bar.querySelector<HTMLElement>('.slide-compact')?.offsetWidth ?? 0;
+    if (unfoldedWidth > 0 && spare >= unfoldedWidth - compact + 12) folded = false;
   }
 
   $effect(() => {
@@ -143,6 +159,7 @@
   class:busy={selected.length > 0 || !!firstText}
   class:more-before={moreBefore}
   class:more-after={moreAfter}
+  class:folded
   bind:this={bar}
   role="toolbar"
   tabindex="-1"
@@ -675,22 +692,20 @@
     display: none;
   }
 
-  /* The words beside the last icons make way when the row fills up with what can be done to a selection; */
+  /* The words beside the last icons make way when the row fills up with what can be done to a selection. */
   @container (max-width: 1300px) {
     .busy .roomy {
       display: none;
     }
   }
 
-  /* when that is still not enough, the slide's four buttons become one. */
-  @container (max-width: 1120px) {
-    .busy .slide-wide {
-      display: none;
-    }
+  /* When that is still not enough, the slide's four buttons become one. */
+  .folded .slide-wide {
+    display: none;
+  }
 
-    .busy .slide-compact {
-      display: inline-flex;
-    }
+  .folded .slide-compact {
+    display: inline-flex;
   }
 
   @media (max-width: 639px) {

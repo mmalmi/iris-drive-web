@@ -9,6 +9,7 @@ import { importPptx } from '../src/lib/slides/pptxImport';
 import { cellKey, newTable, readTable } from '../src/lib/slides/table';
 import { mergeCells, setCellBorders } from '../src/lib/slides/tableCells';
 import { themeById } from '../src/lib/slides/themes';
+import { SlidesEditorState } from '../src/lib/slides/editorState.svelte';
 
 const PNG = Uint8Array.from(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64'));
 
@@ -160,6 +161,20 @@ describe('PowerPoint files brought in', () => {
     expect(result.theme).toBe('light');
     const replaced = await importPptx(bytes, target(), { replace: true });
     expect(replaced.theme).toBe('paper');
+  });
+
+  test('a first slide from an earlier visit that arrives after the file took its place goes away', async () => {
+    const earlier = new Y.Doc();
+    new SlidesEditorState(earlier, { addAttachment: async () => '', canEdit: () => true, deviceId: 'laptop' }).startDeck();
+    const into = target();
+    const state = new SlidesEditorState(into.ydoc, { addAttachment: into.addAttachment, canEdit: () => true, deviceId: 'laptop' });
+    state.startDeck();
+    expect(state.isBlank).toBe(true);
+    await importPptx(inheritedPptx(), into, { replace: true });
+    expect(state.slides).toHaveLength(1);
+    Y.applyUpdate(into.ydoc, Y.encodeStateAsUpdate(earlier), 'stored');
+    expect(state.slides).toHaveLength(1);
+    expect(richTextToPlain(state.slides[0]!.elements.find(element => element.role === 'title')?.content)).toBe('Old house');
   });
 
   test('something that is not a presentation is turned away in plain words', async () => {

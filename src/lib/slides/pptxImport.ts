@@ -721,6 +721,8 @@ export async function importPptx(source: Uint8Array | Blob, target: PptxImportTa
       deck.start(theme);
       deck.meta.set('theme', theme);
       deck.deleteSlides(deck.slideIds());
+      // A first slide another visit made, arriving later, is to go too (see editorState.svelte.ts).
+      deck.meta.set('seedless', true);
     }
     let after = deck.slideIds().at(-1) ?? null;
     for (const plan of plans) {

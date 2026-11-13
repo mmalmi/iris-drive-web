@@ -274,6 +274,12 @@ export class SlidesEditorState {
   #settleSeed(): void {
     if (!this.canEdit) return;
     const seeds = this.slides.filter(slide => slide.seed);
+    // A deck that a file was brought into in place of its first slide has no use for one that arrives late.
+    if (this.deck.meta.get('seedless') === true) {
+      const late = seeds.filter(slide => untouched(slide) && slide.seedBy === this.#deviceId && this.slides.length > 1);
+      if (late.length) this.deck.ydoc.transact(() => late.forEach(slide => this.deck.slides.delete(slide.id)), SEED_ORIGIN);
+      return;
+    }
     if (seeds.length < 2) return;
     const blank = seeds.filter(untouched);
     // Something written on is kept; otherwise the first by id.

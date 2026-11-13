@@ -6,7 +6,7 @@
  * clipboard.ts for what goes on the clipboard.
  */
 import type { SlidesEditorState } from '../../lib/slides/editorState.svelte';
-import { CLIPBOARD_TYPE, WEB_CLIPBOARD_TYPE, clipboardHtml, copyPayload, type Copied } from '../../lib/slides/clipboard';
+import { CLIPBOARD_TYPE, WEB_CLIPBOARD_TYPE, clipboardHtml, copyPayload, imagesOf, readPayload, type ClipboardPayload, type Copied } from '../../lib/slides/clipboard';
 
 export interface ClipboardOptions {
   state: () => SlidesEditorState | null;
@@ -91,7 +91,19 @@ export function createClipboard(options: ClipboardOptions) {
     };
     if (!held.own && !held.html && !held.text && !held.files.length) return;
     event.preventDefault();
+    // Copied here, with no picture that this deck lacks: it goes in at once.
+    const own = readPayload(held.own) ?? (copied && !held.html.includes('data-iris-slides') && (copied.text || ' ') === held.text ? copied.payload : null);
+    if (own && ownMedia(own)) {
+      current.paste(own);
+      return;
+    }
     void loadPaste().then(paste => paste.pasteHeld(current, held, copied, options));
+  }
+
+  /** Whether every picture a payload names is already this deck's. */
+  function ownMedia(payload: ClipboardPayload): boolean {
+    const elements = [...(payload.elements ?? []), ...(payload.slides ?? []).flatMap(slide => slide.elements ?? [])];
+    return imagesOf(elements).every(src => options.urls.has(src));
   }
 
   /** Copy and cut from a menu, where there is no clipboard event to fill. */
