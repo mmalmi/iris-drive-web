@@ -18,6 +18,7 @@ import { open as openShareModal } from '../../components/Modals/ShareModal.svelt
 import { acceptedShares } from '../../drive/shareLibrary';
 import { sharePeopleTarget } from '../../drive/sharePeople';
 import { activeNostrIdentityRootScope } from '../../drive/profileRoute';
+import { itemAccess, type ItemAccess } from '../../drive/itemAccess';
 import { nostrStore, saveOwnTreeRoot } from '../../nostr';
 import type { NostrState } from '../../nostr/store';
 import { flushPendingPublishes } from '../../treeRootCache';
@@ -75,6 +76,21 @@ export class DriveDocument {
     const nostr = this.#nostr.current;
     const scope = documentWriteScope(route.npub, nostr.npub, nostr, this.#shares.current);
     return !!scope && !!route.treeName && !route.isPermalink;
+  });
+
+  /** Who can open the document, or null when that is not known, as for a snapshot. */
+  readonly access = $derived.by((): ItemAccess | null => {
+    const route = this.#route.current;
+    if (route.isPermalink) return null;
+    const nostr = this.#nostr.current;
+    return itemAccess({
+      scope: route.npub,
+      treeName: route.treeName,
+      path: route.path,
+      profileId: activeNostrIdentityRootScope(nostr),
+      appKeyPubkey: nostr.pubkey,
+      records: this.#shares.current,
+    });
   });
 
   /** Link to the folder that holds the document. */

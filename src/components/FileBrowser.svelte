@@ -9,6 +9,8 @@
   import { UserRow, Avatar } from './User';
   import FolderActions from './FolderActions.svelte';
   import VisibilityIcon from './VisibilityIcon.svelte';
+  import AccessBadge from './AccessBadge.svelte';
+  import { itemAccess } from '../drive/itemAccess';
   import FileBrowserTreeList from './FileBrowserTreeList.svelte';
   import ProtectedTreeNotice from './ProtectedTreeNotice.svelte';
   import { treeRootStore, routeStore, createTreesStore, type TreeEntry, currentDirCidStore, isViewingFileStore, resolvingPathStore, directoryEntriesStore, permalinkSnapshotStore } from '../stores';
@@ -129,6 +131,21 @@
   let effectiveTree = $derived(isOwnTrees ? selectedTree : currentTreeFromList);
 
   let currentTreeVisibility = $derived(effectiveTree?.visibility ?? 'public');
+
+  /** Who can open the item at a path of the place being browsed. */
+  function accessAt(path: string[]) {
+    if (route.isPermalink) return null;
+    return itemAccess({
+      scope: viewedNpub,
+      treeName: currentTreeName,
+      path,
+      profileId: activeNostrIdentityRootScope($nostrStore),
+      appKeyPubkey: $nostrStore.pubkey,
+      records: $acceptedShares,
+      treeVisibility: effectiveTree?.visibility,
+    });
+  }
+  let currentAccess = $derived(accessAt(currentPath));
 
   let isProtectedTreeWithoutAccess = $derived(
     !isOwnTrees &&
@@ -541,7 +558,11 @@
             {/each}
           </nav>
           <h1 class="min-w-0 truncate text-base lg:text-xl font-medium text-text-1">{currentDirName}</h1>
-          <VisibilityIcon visibility={currentTreeVisibility} class="text-text-3 shrink-0 ml-1" />
+          {#if currentAccess}
+            <AccessBadge access={currentAccess} label class="ml-1" />
+          {:else}
+            <VisibilityIcon visibility={currentTreeVisibility} class="text-text-3 shrink-0 ml-1" />
+          {/if}
         </div>
         {#if currentDirCid || canEdit}
           <FolderActions
@@ -626,6 +647,7 @@
             {@const documentInfo = entry.type === LinkType.Dir ? documentKindInfo(entry.name) : null}
             {@const isDocument = !!documentInfo}
             {@const isFolder = entry.type === LinkType.Dir && !isDocument}
+            {@const entryAccess = accessAt([...currentPath, entry.name])}
             <a
               href={buildEntryHref(entry, currentNpub, currentTreeName, currentPath, rootCid, linkKey, null)}
               class="p-3 {showDirectoryNavigationRows ? 'pl-9' : 'lg:px-5'} border-b border-surface-2 flex items-center gap-3 no-underline text-text-1 hover:bg-surface-2/50 {selectedEntry?.name === entry.name && focusedIndex < 0 ? 'bg-surface-2' : ''} {focusedIndex === idx + specialItemCount ? 'ring-2 ring-inset ring-accent' : ''} {recentlyChanged.has(entry.name) && selectedEntry?.name !== entry.name ? 'animate-pulse-live' : ''} {draggingEntry === entry.name ? 'opacity-50' : ''} {dropTargetDir === entry.name ? 'bg-accent/20' : ''}"
@@ -638,7 +660,12 @@
               data-testid={isDocument ? 'document-entry' : undefined}
             >
               <span class="shrink-0 {documentInfo ? documentInfo.icon : isFolder ? 'i-lucide-folder text-warning' : `${getFileIcon(entry.name)} text-text-2`}"></span>
-              <span class="truncate flex-1 min-w-0" title={entry.name}>{isDocument ? documentTitle(entry.name) : entry.name}</span>
+              <span class="truncate min-w-0" title={entry.name}>{isDocument ? documentTitle(entry.name) : entry.name}</span>
+              <!-- Marked where sharing starts; inside a shared folder the heading says it once. -->
+              {#if entryAccess && entryAccess.kind !== 'private' && entryAccess.kind !== currentAccess?.kind}
+                <AccessBadge access={entryAccess} class="text-text-3 text-sm" />
+              {/if}
+              <span class="flex-1"></span>
               <span class="shrink-0 text-muted text-sm min-w-12 text-right">
                 {entry.type !== LinkType.Dir && entry.size !== undefined ? formatBytes(entry.size) : ''}
               </span>

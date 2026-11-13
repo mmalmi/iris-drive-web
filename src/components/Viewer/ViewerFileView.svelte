@@ -4,7 +4,11 @@
   import { currentHash, recentlyChangedFiles, permalinkSnapshotStore } from '../../stores';
   import { decodeAsText, formatBytes, getTree } from '../../store';
   import { deleteEntry } from '../../actions';
-  import { npubToPubkey } from '../../nostr';
+  import { nostrStore, npubToPubkey } from '../../nostr';
+  import { acceptedShares } from '../../drive/shareLibrary';
+  import { activeNostrIdentityRootScope } from '../../drive/profileRoute';
+  import { itemAccess } from '../../drive/itemAccess';
+  import AccessBadge from '../AccessBadge.svelte';
   import { getNhashFileUrl } from '../../lib/mediaUrl';
   import { getQueryParamsFromHash } from '../../lib/router.svelte';
   import { open as openBlossomPushModal } from '../Modals/BlossomPushModal.svelte';
@@ -86,6 +90,15 @@
   }: Props = $props();
 
   let hash = $derived($currentHash);
+  let fileAccess = $derived(routeIsPermalink ? null : itemAccess({
+    scope: routeNpub,
+    treeName: routeTreeName,
+    path: routePath,
+    profileId: activeNostrIdentityRootScope($nostrStore),
+    appKeyPubkey: $nostrStore.pubkey,
+    records: $acceptedShares,
+    treeVisibility: currentTreeVisibility,
+  }));
   let fileData = $state<Uint8Array | null>(null);
   let fileContent = $state<string | null>(null);
   let loading = $state(false);
@@ -382,9 +395,10 @@
                   isFolder={false}
                   ownerPubkey={viewedNpub ? npubToPubkey(viewedNpub) : null}
                   showHashIcon={routeIsPermalink && !viewedNpub}
-                  visibility={currentTreeVisibility}
+                  visibility={fileAccess ? undefined : currentTreeVisibility}
                   hasKey={!!rootCid?.key}
                 />
+                <AccessBadge access={fileAccess} label />
                 {#if isLiveStream}
                   <span class="ml-2 px-1.5 py-0.5 text-xs font-bold bg-red-600 text-white rounded animate-pulse">LIVE</span>
                 {/if}

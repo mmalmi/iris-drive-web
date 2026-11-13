@@ -6,6 +6,7 @@
    */
   import type { Snippet } from 'svelte';
   import type { DriveDocument } from '../../lib/yjs';
+  import AccessBadge from '../AccessBadge.svelte';
 
   interface Props {
     drive: DriveDocument;
@@ -26,6 +27,7 @@
   {#if !drive.canEdit && !drive.loading}
     <span class="shrink-0 text-xs px-2 py-0.5 rounded-full bg-surface-2 text-text-2" data-testid="document-view-only">View only</span>
   {/if}
+  <AccessBadge access={drive.access} label onclick={drive.canEdit ? () => void drive.share() : undefined} />
 
   <div class="ml-auto flex items-center gap-1 shrink-0">
     <!-- Saving happens on its own; only its outcome is worth a glance. -->
