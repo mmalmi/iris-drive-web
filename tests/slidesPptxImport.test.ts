@@ -6,7 +6,8 @@ import { inheritedPptx } from '../e2e/slides.pptxSample';
 import { Deck, richTextToJson, richTextToPlain, type SlideElement } from '../src/lib/slides/model';
 import { deckToPptx } from '../src/lib/slides/pptx';
 import { importPptx } from '../src/lib/slides/pptxImport';
-import { cellKey, newTable, readTable, mergeCells, setCellBorders } from '../src/lib/slides/table';
+import { cellKey, newTable, readTable } from '../src/lib/slides/table';
+import { mergeCells, setCellBorders } from '../src/lib/slides/tableCells';
 import { themeById } from '../src/lib/slides/themes';
 
 const PNG = Uint8Array.from(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64'));

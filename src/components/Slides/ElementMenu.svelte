@@ -2,7 +2,7 @@
   /** The menu of the slide itself, opened with a right click: what can be done with what is selected, or pasting. */
   import type { SlidesEditorState } from '../../lib/slides/editorState.svelte';
   import Popover from './Popover.svelte';
-  import { cellChoice, clearPicked, mergePicked, unmergePicked } from '../../lib/slides/tableEditing';
+  import { cellChoice, clearPicked, mergePicked, unmergePicked } from '../../lib/slides/tableCells';
 
   interface Props {
     editorState: SlidesEditorState;

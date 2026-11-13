@@ -9,7 +9,8 @@
   import type { Palette } from '../../lib/slides/themes';
   import type { SlidesEditorState } from '../../lib/slides/editorState.svelte';
   import type { BorderChoice } from '../../lib/slides/table';
-  import { addTableLine, cellChoice, fillCells, mergePicked, removeTableLine, setBorders, unmergePicked } from '../../lib/slides/tableEditing';
+  import { addTableLine, fillCells, removeTableLine } from '../../lib/slides/tableEditing';
+  import { cellChoice, mergePicked, setBorders, unmergePicked } from '../../lib/slides/tableCells';
   import Popover from './Popover.svelte';
   import ColourPanel from './ColourPanel.svelte';
 

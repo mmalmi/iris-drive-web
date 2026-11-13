@@ -6,7 +6,7 @@
  * Loaded only when something is copied.
  */
 import { SLIDE_HEIGHT, SLIDE_WIDTH } from './model';
-import { dataUrlOf } from './clipboard';
+import { dataUrlOf } from './clipboardMedia';
 
 export interface SnapshotOptions {
   /** The ids of the elements to draw; the whole slide when absent. */

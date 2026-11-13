@@ -1,23 +1,11 @@
 /**
- * PowerPoint files coming into the editor: which files are ones, and the
- * file a route asks to bring in (`?import=<file name>`), read from the
- * folder the deck is in. The import itself is in pptxImport.ts, loaded only
- * when it is needed.
+ * The PowerPoint file a route asks to bring in (`?import=<file name>`), read
+ * from the folder the deck is in. Loaded only when a route asks.
  */
 import { get } from 'svelte/store';
 import { LinkType, type CID } from '@hashtree/core';
 import { getTree } from '../../store';
 import { routeStore, treeRootStore } from '../../stores';
-
-export function isPptx(file: { name: string; type?: string }): boolean {
-  return /\.pptx$/i.test(file.name) || file.type === 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
-}
-
-/** The name of the file the route asks to bring into the deck, if any. */
-export function importRequested(): string | null {
-  const name = get(routeStore).params.get('import');
-  return name && !name.includes('/') ? name : null;
-}
 
 async function readFrom(root: CID | null, name: string): Promise<Uint8Array | null> {
   if (!root) return null;

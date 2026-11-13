@@ -240,7 +240,7 @@ function lineMap(line: TableLine): Y.Map<unknown> {
   return map;
 }
 
-function cellMap(content: RichTextJson | null, extra: Partial<Omit<CellJson, 'content'>> = {}): Y.Map<unknown> {
+export function cellMap(content: RichTextJson | null, extra: Partial<Omit<CellJson, 'content'>> = {}): Y.Map<unknown> {
   const map = new Y.Map<unknown>();
   const fragment = new Y.XmlFragment();
   map.set('content', fragment);
@@ -290,7 +290,7 @@ function lines(map: Y.Map<unknown>, kind: 'rows' | 'cols'): Y.Map<Y.Map<unknown>
   return value instanceof Y.Map ? value as Y.Map<Y.Map<unknown>> : null;
 }
 
-function cells(map: Y.Map<unknown>): Y.Map<Y.Map<unknown>> | null {
+export function cells(map: Y.Map<unknown>): Y.Map<Y.Map<unknown>> | null {
   const value = map.get('cells');
   return value instanceof Y.Map ? value as Y.Map<Y.Map<unknown>> : null;
 }
@@ -427,113 +427,7 @@ export function cellRect(table: TableData, from: string, to: string): CellRect |
   return rect;
 }
 
-function isBlank(json: RichTextJson): boolean {
-  return json.every(node => ('name' in node ? node.name === 'paragraph' && isBlank(node.children) : node.text.every(part => part.insert === '')));
-}
-
-/**
- * Merges the cells of a rectangle into one. The words of every cell go into
- * the top-left one, in reading order, so nothing typed is lost. Returns the
- * key of that cell.
- */
-export function mergeCells(map: Y.Map<unknown>, rect: CellRect): string | null {
-  const table = readTable(map);
-  const cellStore = cells(map);
-  if (!table || !cellStore) return null;
-  const keys = rectKeys(table, rect);
-  if (keys.length < 2) return null;
-  const anchorKey = keys[0]!;
-  const anchor = ensureCell(map, anchorKey);
-  if (!anchor) return null;
-  for (const key of keys) {
-    const cell = cellStore.get(key);
-    if (!cell) continue;
-    if (cell.has('merge')) cell.delete('merge');
-    if (key === anchorKey) continue;
-    const content = cell.get('content');
-    if (!(content instanceof Y.XmlFragment) || content.length === 0) continue;
-    const words = richTextToJson(content);
-    if (!isBlank(words)) {
-      // The top-left cell's own empty paragraph makes way for the words.
-      if (isBlank(richTextToJson(anchor)) && anchor.length > 0) anchor.delete(0, anchor.length);
-      anchor.insert(anchor.length, richTextNodesFromJson(words));
-    }
-    content.delete(0, content.length);
-  }
-  cellStore.get(anchorKey)!.set('merge', keys[keys.length - 1]!);
-  return anchorKey;
-}
-
-/** Splits every merged block that has a cell in the rectangle back into its cells. */
-export function unmergeCells(map: Y.Map<unknown>, rect: CellRect): void {
-  const table = readTable(map);
-  const cellStore = cells(map);
-  if (!table || !cellStore) return;
-  const inside = new Set(rectKeys(table, rect));
-  for (const anchor of table.merges.keys()) {
-    const hit = inside.has(anchor) || [...table.covered].some(([key, owner]) => owner === anchor && inside.has(key));
-    if (hit) cellStore.get(anchor)?.delete('merge');
-  }
-}
-
 export type BorderChoice = 'all' | 'outer' | 'inner' | 'top' | 'bottom' | 'left' | 'right';
-
-/**
- * Gives edges of the cells in a rectangle a line of their own: a width and
- * colour, 'none' for no line, or null to hand them back to the table's line.
- */
-export function setCellBorders(map: Y.Map<unknown>, rect: CellRect, which: BorderChoice, border: CellBorder | 'none' | null): void {
-  const table = readTable(map);
-  const cellStore = cells(map);
-  if (!table || !cellStore) return;
-  const value = border ? borderValue(border) : null;
-  const write = (r: number, c: number, side: Side) => {
-    const row = table.rows[r];
-    const col = table.cols[c];
-    if (!row || !col) return;
-    const key = cellKey(row.id, col.id);
-    let cell = cellStore.get(key);
-    if (!cell) {
-      if (!value) return;
-      cell = cellMap(null);
-      cellStore.set(key, cell);
-    }
-    if (value) {
-      if (cell.get(`b${side}`) !== value) cell.set(`b${side}`, value);
-    } else if (cell.has(`b${side}`)) {
-      cell.delete(`b${side}`);
-    }
-  };
-  // Each edge is written on both cells that share it.
-  const edge = (r: number, c: number, side: Side) => {
-    write(r, c, side);
-    if (side === 't') write(r - 1, c, 'b');
-    if (side === 'b') write(r + 1, c, 't');
-    if (side === 'l') write(r, c - 1, 'r');
-    if (side === 'r') write(r, c + 1, 'l');
-  };
-  for (let r = rect.r0; r <= rect.r1; r += 1) {
-    for (let c = rect.c0; c <= rect.c1; c += 1) {
-      const sides: Record<Side, boolean> = {
-        t: which === 'all' || (r === rect.r0 && (which === 'outer' || which === 'top')) || (r > rect.r0 && which === 'inner'),
-        b: which === 'all' || (r === rect.r1 && (which === 'outer' || which === 'bottom')),
-        l: which === 'all' || (c === rect.c0 && (which === 'outer' || which === 'left')) || (c > rect.c0 && which === 'inner'),
-        r: which === 'all' || (c === rect.c1 && (which === 'outer' || which === 'right')),
-      };
-      for (const side of SIDES) if (sides[side]) edge(r, c, side);
-    }
-  }
-}
-
-/** Takes the words out of cells, keeping their fill and lines. */
-export function clearCells(map: Y.Map<unknown>, keys: string[]): void {
-  const cellStore = cells(map);
-  if (!cellStore) return;
-  for (const key of keys) {
-    const content = cellStore.get(key)?.get('content');
-    if (content instanceof Y.XmlFragment && content.length > 0) content.delete(0, content.length);
-  }
-}
 
 /** Every text of a table, cell by cell, row by row; only those of `only` when given. */
 export function tableFragments(map: Y.Map<unknown>, only?: ReadonlySet<string>): Y.XmlFragment[] {

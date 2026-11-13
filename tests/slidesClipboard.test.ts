@@ -2,7 +2,8 @@
 import { describe, expect, test } from 'vitest';
 import * as Y from 'yjs';
 import { SlidesEditorState } from '../src/lib/slides/editorState.svelte';
-import { adoptMedia, clipboardHtml, copyPayload, payloadFromHtml, readForeignHtml, type ClipboardPayload } from '../src/lib/slides/clipboard';
+import { clipboardHtml, copyPayload, payloadFromHtml, type ClipboardPayload } from '../src/lib/slides/clipboard';
+import { adoptMedia, readForeignHtml } from '../src/lib/slides/clipboardMedia';
 
 const PNG_DATA = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 

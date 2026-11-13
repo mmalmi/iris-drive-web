@@ -18,8 +18,7 @@
   import SlideStack from './SlideStack.svelte';
   import Popover from './Popover.svelte';
   import { isPresenterWindow, presenterUrl } from '../../lib/slides/presentSync';
-  import { clearPicked, stretchCells } from '../../lib/slides/tableEditing';
-  import { forgetImportRequest, importRequested, isPptx, readSiblingFile } from './pptxFiles';
+  import { stretchCells } from '../../lib/slides/tableEditing';
 
   interface Props {
     dirName: string;
@@ -70,7 +69,8 @@
       if (!presenterWindow) created.startDeck();
       editorState = created;
       if (!presenterWindow) setTimeout(() => void presentViewLoaded(), 1500);
-      const requested = presenterWindow ? null : importRequested();
+      // `?import=<file name>` asks for a PowerPoint file beside the deck to be brought in.
+      const requested = presenterWindow ? null : new URLSearchParams(window.location.hash.split('?')[1] ?? '').get('import');
       if (requested) void importFromFolder(requested);
     })();
     narrowScreen.addEventListener('change', onNarrowChange);
@@ -161,7 +161,8 @@
 
   /** The file the address asks for, from the folder the deck is in. */
   async function importFromFolder(name: string): Promise<void> {
-    const bytes = await readSiblingFile(name).catch(() => null);
+    const { forgetImportRequest, readSiblingFile } = await import('./pptxFiles');
+    const bytes = name.includes('/') ? null : await readSiblingFile(name).catch(() => null);
     forgetImportRequest();
     if (!bytes) {
       if (editorState) editorState.notice = `Could not find ${name} beside this presentation.`;
@@ -183,7 +184,7 @@
 
   /** A PowerPoint file dropped anywhere on the editor is brought in; pictures are left to the slide. */
   function onDropFile(event: DragEvent): void {
-    const files = [...(event.dataTransfer?.files ?? [])].filter(isPptx);
+    const files = [...(event.dataTransfer?.files ?? [])].filter(file => /\.pptx$/i.test(file.name));
     if (!files.length || !editorState?.canEdit) return;
     event.preventDefault();
     void importPowerPoint(files[0]!, files[0]!.name);
@@ -278,7 +279,7 @@
       }
       if ((key === 'Delete' || key === 'Backspace') && current.pickedCells) {
         done();
-        clearPicked(current);
+        void import('../../lib/slides/tableCells').then(cells => cells.clearPicked(current));
         return;
       }
       if (key === 'Escape' && current.cellRange) {

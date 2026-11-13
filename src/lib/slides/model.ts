@@ -55,23 +55,16 @@ import {
 } from './richTextData';
 import { readTransition, type Transition } from './motion';
 import {
-  clearCells,
   ensureCell,
   insertLine,
-  mergeCells,
   readTable,
   removeLine,
-  setCellBorders,
   setCellFill,
   setLineSize,
   tableFragments,
   tableNeedsV3,
   tableToJson,
-  unmergeCells,
   writeTable,
-  type BorderChoice,
-  type CellBorder,
-  type CellRect,
   type TableData,
   type TableJson,
 } from './table';
@@ -87,7 +80,7 @@ const TABLE_VERSION = 2;
  * Merged table cells, lines given to single cells and cropped pictures raise
  * it to 3: code of version 2 would draw them as if they were not there.
  */
-const V3 = 3;
+export const V3 = 3;
 export const SLIDE_WIDTH = 1280;
 export const SLIDE_HEIGHT = 720;
 
@@ -773,6 +766,16 @@ export class Deck {
 
   // Tables
 
+  /** The stored map of a table element, for changes made outside this class (see tableCells.ts). */
+  tableMap(slideId: string, elementId: string): Y.Map<unknown> | null {
+    return this.#table(slideId, elementId);
+  }
+
+  /** Marks the deck as needing at least this version of the format to be edited. */
+  requireVersion(version: number): void {
+    this.#raise(version);
+  }
+
   #table(slideId: string, elementId: string): Y.Map<unknown> | null {
     const map = this.#elements(slideId)?.get(elementId);
     return map?.get('type') === 'table' ? map : null;
@@ -830,34 +833,6 @@ export class Deck {
     });
   }
 
-  mergeTableCells(slideId: string, elementId: string, rect: CellRect): string | null {
-    const map = this.#table(slideId, elementId);
-    if (!map) return null;
-    return this.transact(() => {
-      const anchor = mergeCells(map, rect);
-      if (anchor) this.#raise(V3);
-      return anchor;
-    });
-  }
-
-  unmergeTableCells(slideId: string, elementId: string, rect: CellRect): void {
-    const map = this.#table(slideId, elementId);
-    if (map) this.transact(() => unmergeCells(map, rect));
-  }
-
-  setTableBorders(slideId: string, elementId: string, rect: CellRect, which: BorderChoice, border: CellBorder | 'none' | null): void {
-    const map = this.#table(slideId, elementId);
-    if (!map) return;
-    this.transact(() => {
-      setCellBorders(map, rect, which, border);
-      if (border) this.#raise(V3);
-    });
-  }
-
-  clearTableCells(slideId: string, elementId: string, cells: string[]): void {
-    const map = this.#table(slideId, elementId);
-    if (map) this.transact(() => clearCells(map, cells));
-  }
 
   /**
    * The text of a table cell, made when a row and a column added on two

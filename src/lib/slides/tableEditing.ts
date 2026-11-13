@@ -4,7 +4,7 @@
  * clearing. Each is one step of undo.
  */
 import { SLIDE_HEIGHT, type Deck, type SlideElement } from './model';
-import { cellPlace, cellRect, rectKeys, stepCell, type BorderChoice, type CellBorder, type CellRect } from './table';
+import { cellPlace, cellRect, rectKeys, stepCell, type CellRect } from './table';
 import type { SlidesEditorState } from './editorState.svelte';
 
 /** The selected table, the cell changes act on, and where that cell is. */
@@ -72,21 +72,6 @@ export function actingRect(state: SlidesEditorState): CellRect | null {
   return { r0: 0, r1: table.rows.length - 1, c0: 0, c1: table.cols.length - 1 };
 }
 
-/** What the cells being acted on are, for menus: how many, and whether they can be merged or split. */
-export function cellChoice(state: SlidesEditorState): { scope: 'picked' | 'cell' | 'all'; canMerge: boolean; canUnmerge: boolean } {
-  const element = state.selectedTable;
-  const table = element?.table;
-  const rect = actingRect(state);
-  if (!table || !rect) return { scope: 'all', canMerge: false, canUnmerge: false };
-  const picked = !!state.pickedCells;
-  const cell = (state.editingId === element.id ? state.editingCell : null) ?? state.tableCell;
-  const keys = rectKeys(table, rect);
-  const canUnmerge = keys.some(key => table.merges.has(key));
-  // Merging a block that is already one merged block would change nothing.
-  const oneBlock = keys.length > 1 && table.merges.has(keys[0]!) && keys.slice(1).every(key => table.covered.get(key) === keys[0]);
-  return { scope: picked ? 'picked' : cell ? 'cell' : 'all', canMerge: picked && keys.length > 1 && !oneBlock, canUnmerge };
-}
-
 /** Fills the cells picked, or the one typed in last, or every cell of the table when there is none. */
 export function fillCells(state: SlidesEditorState, colour: string | null): void {
   const found = target(state);
@@ -96,44 +81,6 @@ export function fillCells(state: SlidesEditorState, colour: string | null): void
   const cells = rectKeys(element.table!, rect);
   state.step(() => state.deck.setCellFill(slideId, element.id, cells, colour), 'cell-fill');
   state.textEditor?.commands.focus();
-}
-
-/** Merges the picked cells into one; their words go into it, top-left first. */
-export function mergePicked(state: SlidesEditorState): void {
-  const found = target(state);
-  const rect = state.pickedRect;
-  if (!found || !rect || !state.pickedCells) return;
-  const anchor = state.step(() => state.deck.mergeTableCells(found.slideId, found.element.id, rect));
-  if (anchor) {
-    state.cellRange = null;
-    state.tableCell = anchor;
-  }
-}
-
-/** Splits the merged blocks among the cells acted on back into their cells. */
-export function unmergePicked(state: SlidesEditorState): void {
-  const found = target(state);
-  const rect = actingRect(state);
-  if (!found || !rect) return;
-  state.stopEditing();
-  state.step(() => state.deck.unmergeTableCells(found.slideId, found.element.id, rect));
-}
-
-/** Gives edges of the cells acted on a line of their own, takes them away ('none'), or hands them back to the table (null). */
-export function setBorders(state: SlidesEditorState, which: BorderChoice, border: CellBorder | 'none' | null): void {
-  const found = target(state);
-  const rect = actingRect(state);
-  if (!found || !rect) return;
-  state.step(() => state.deck.setTableBorders(found.slideId, found.element.id, rect, which, border));
-}
-
-/** Takes the words out of the picked cells. */
-export function clearPicked(state: SlidesEditorState): boolean {
-  const found = target(state);
-  const cells = state.pickedCells;
-  if (!found || !cells) return false;
-  state.step(() => state.deck.clearTableCells(found.slideId, found.element.id, cells));
-  return true;
 }
 
 /** Stores a row or column's new size in slide units, and the next one's when the line between them was moved. */

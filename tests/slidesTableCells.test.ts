@@ -6,18 +6,17 @@ import {
   cellRect,
   edgeBorder,
   insertLine,
-  mergeCells,
   newTable,
   readTable,
   removeLine,
-  setCellBorders,
   stepCell,
   tableToJson,
   writeTable,
 } from '../src/lib/slides/table';
 import { richTextToPlain } from '../src/lib/slides/richTextData';
 import { SlidesEditorState } from '../src/lib/slides/editorState.svelte';
-import { actingRect, cellChoice, clearPicked, fillCells, mergePicked, pickCells, resizeLine, setBorders, stretchCells, unmergePicked } from '../src/lib/slides/tableEditing';
+import { actingRect, fillCells, pickCells, resizeLine, stretchCells } from '../src/lib/slides/tableEditing';
+import { cellChoice, clearPicked, mergeCells, mergePicked, setBorders, setCellBorders, unmergePicked } from '../src/lib/slides/tableCells';
 
 function sync(from: Y.Doc, to: Y.Doc): void {
   Y.applyUpdate(to, Y.encodeStateAsUpdate(from), 'remote');
@@ -60,7 +59,10 @@ describe('merged cells', () => {
     type(readTable(map())!.cells.get(key(map(), 0, 0))!.content!, 'Quarter');
     type(readTable(map())!.cells.get(key(map(), 0, 1))!.content!, 'results');
     expect(deck.version).toBe(2);
-    deck.mergeTableCells(slideId, tableId, { r0: 0, r1: 0, c0: 0, c1: 2 });
+    deck.transact(() => {
+      mergeCells(deck.tableMap(slideId, tableId)!, { r0: 0, r1: 0, c0: 0, c1: 2 });
+      deck.requireVersion(3);
+    });
     const table = readTable(map())!;
     expect(table.merges.get(key(map(), 0, 0))).toEqual({ rows: 1, cols: 3 });
     expect([...table.covered.keys()]).toEqual([key(map(), 0, 1), key(map(), 0, 2)]);
