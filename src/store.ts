@@ -294,7 +294,23 @@ function fipsPeers(): PeerInfo[] {
 }
 
 export async function refreshFipsStats(): Promise<void> {
-  appStore.setPeerSources({ workerPeers: fipsPeers(), daemonPeers: [] });
+  const workerPeers = fipsPeers();
+  lastFipsPeerStates = fipsPeerStates(workerPeers);
+  appStore.setPeerSources({ workerPeers, daemonPeers: [] });
+}
+
+let lastFipsPeerStates = '';
+function fipsPeerStates(peers: PeerInfo[]): string {
+  return peers.map((peer) => `${peer.peerId}:${peer.state}`).join(',');
+}
+
+/** Updates the peers shown only when one connected or left, so an idle app wakes nothing. */
+export function refreshFipsPeersIfChanged(): void {
+  const workerPeers = fipsPeers();
+  const states = fipsPeerStates(workerPeers);
+  if (states === lastFipsPeerStates) return;
+  lastFipsPeerStates = states;
+  appStore.setPeerSources({ workerPeers, daemonPeers: [] });
 }
 
 export function setBlossomBandwidth(stats: BlossomBandwidthState): void {

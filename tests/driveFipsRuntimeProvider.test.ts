@@ -157,7 +157,9 @@ describe('Drive FIPS provider authorization', () => {
 
     authorized = [localPubkey];
     await expect(fake.providerOptions?.providerRoutes?.()).resolves.toEqual([]);
-    await vi.advanceTimersByTimeAsync(3_000);
+    // The app calls this the moment the live roster changes.
+    runtime.refreshAuthorization();
+    await vi.advanceTimersByTimeAsync(0);
     expect(fake.providerOptions?.nostrPeers?.()).toEqual([]);
     expect(runtime.getStats().nostrPeerIds).toEqual([]);
     expect(runtime.getStats().connectedPeerIds).toEqual([allowedPeer, unrelatedPeer].sort());
@@ -185,7 +187,8 @@ describe('Drive FIPS provider authorization', () => {
     await runtime.start();
     expect(fake.providerOptions?.nostrPeers?.()).toEqual([remotePeer]);
     unavailable = true;
-    await vi.advanceTimersByTimeAsync(3_000);
+    // Checked again now and then even when nothing happens.
+    await vi.advanceTimersByTimeAsync(3 * 60_000);
     expect(fake.providerOptions?.nostrPeers?.()).toEqual([]);
     expect(runtime.getStats().connectedPeerIds).toEqual([remotePeer]);
     expect(fake.close).not.toHaveBeenCalled();
