@@ -15,11 +15,15 @@
     /** The cell's size in slide units, so its text is fitted again when that changes. */
     width: number;
     height: number;
+    /** Where it sits in the grid, as a CSS grid-area: merged cells span several rows or columns. */
+    area: string;
     valign: 'top' | 'middle' | 'bottom';
     editing: boolean;
+    /** Picked together with other cells. */
+    picked?: boolean;
     editorState?: SlidesEditorState;
   }
-  let { cell, fragment, fill, color, bold, width, height, valign, editing, editorState }: Props = $props();
+  let { cell, fragment, fill, color, bold, width, height, area, valign, editing, picked = false, editorState }: Props = $props();
 
   let box: HTMLElement | undefined = $state();
   let inner: HTMLElement | undefined = $state();
@@ -37,8 +41,10 @@
 <div
   class="el-cell"
   class:el-cell-editing={editing}
+  class:el-cell-picked={picked}
   bind:this={box}
   data-cell={cell}
+  style:grid-area={area}
   style:background={fill ?? undefined}
   style:color
   style:font-weight={bold ? 700 : undefined}

@@ -4,7 +4,13 @@
  *
  *   rows    Y.Map  <row id> → Y.Map { pos: position key, size?: share of the height }
  *   cols    Y.Map  <column id> → Y.Map { pos: position key, size?: share of the width }
- *   cells   Y.Map  "<row id>:<column id>" → Y.Map { content: Y.XmlFragment, fill?: colour }
+ *   cells   Y.Map  "<row id>:<column id>" → Y.Map
+ *             content      Y.XmlFragment, its text
+ *             fill?        colour
+ *             merge?       "<row id>:<column id>" of the bottom-right cell of the block this
+ *                          cell is the top-left of, when cells are merged (format version 3)
+ *             bt bb bl br  its own top, bottom, left and right line: "none", or
+ *                          "<width> <colour>"; the table's line when absent (version 3)
  *   header  true when the first row is drawn as a heading
  *
  * Rows and columns are found by id and ordered by a key each carries, like
@@ -13,6 +19,12 @@
  * its own text, so people typing in different cells never touch the same
  * text. A cell missing for a row and a column that were added at the same
  * moment on two devices is drawn empty and made when someone types in it.
+ *
+ * A merged block is named by its two corners, so rows and columns added
+ * inside it on another device simply join it. Blocks that came to overlap
+ * because two people merged at once are settled the same way everywhere:
+ * the first block, row by row, wins and the other is drawn unmerged. A line
+ * given to an edge is written on both cells that share the edge.
  */
 import * as Y from 'yjs';
 import { comparePositions, keyBetween, keysBetween, readKey } from './order';
@@ -25,9 +37,33 @@ export interface TableLine {
   size: number;
 }
 
+export type Side = 't' | 'b' | 'l' | 'r';
+
+/** A line along one edge of a cell. */
+export interface CellBorder {
+  width: number;
+  colour: string;
+}
+
 export interface TableCell {
   content: Y.XmlFragment | null;
   fill?: string;
+  /** Edges with a line of their own; 'none' takes the table's line away there. */
+  borders?: Partial<Record<Side, CellBorder | 'none'>>;
+}
+
+/** A block of merged cells: how many rows and columns it covers from its top-left cell. */
+export interface MergedBlock {
+  rows: number;
+  cols: number;
+}
+
+/** A rectangle of cells, by place: first and last row and column, inclusive. */
+export interface CellRect {
+  r0: number;
+  r1: number;
+  c0: number;
+  c1: number;
 }
 
 export interface TableData {
@@ -36,17 +72,32 @@ export interface TableData {
   /** Left to right. */
   cols: TableLine[];
   cells: Map<string, TableCell>;
+  /** Merged blocks, by the key of their top-left cell. */
+  merges: Map<string, MergedBlock>;
+  /** Cells hidden under a merged block, and the top-left cell of that block. */
+  covered: Map<string, string>;
   /** Changes whenever anything but the words in the cells does, to tell when the grid must be drawn again. */
   signature: string;
+}
+
+export interface CellJson {
+  content: RichTextJson;
+  fill?: string;
+  merge?: string;
+  bt?: string;
+  bb?: string;
+  bl?: string;
+  br?: string;
 }
 
 export interface TableJson {
   rows: TableLine[];
   cols: TableLine[];
-  cells: Record<string, { content: RichTextJson; fill?: string }>;
+  cells: Record<string, CellJson>;
 }
 
 export const MAX_TABLE_LINES = 40;
+const SIDES: Side[] = ['t', 'b', 'l', 'r'];
 
 export function cellKey(rowId: string, colId: string): string {
   return `${rowId}:${colId}`;
@@ -67,6 +118,20 @@ function colourOf(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 && value.length < 40 ? value : undefined;
 }
 
+function readBorder(value: unknown): CellBorder | 'none' | undefined {
+  if (value === 'none') return 'none';
+  if (typeof value !== 'string' || value.length > 48) return undefined;
+  const match = /^(\d+(?:\.\d+)?) (\S+)$/.exec(value);
+  if (!match) return undefined;
+  const width = Number(match[1]);
+  return width > 0 && width <= 40 ? { width, colour: match[2]! } : undefined;
+}
+
+/** A line as it is stored. */
+export function borderValue(border: CellBorder | 'none'): string {
+  return border === 'none' ? 'none' : `${Math.round(border.width * 10) / 10} ${border.colour}`;
+}
+
 /** Reads the grid of a table element, or null when it has none. */
 export function readTable(map: Y.Map<unknown>): TableData | null {
   const rows = readLines(map.get('rows'));
@@ -74,7 +139,8 @@ export function readTable(map: Y.Map<unknown>): TableData | null {
   if (rows.length === 0 || cols.length === 0) return null;
   const stored = map.get('cells');
   const cells = new Map<string, TableCell>();
-  const fills: string[] = [];
+  const looks: string[] = [];
+  const wanted: Array<{ key: string; end: string }> = [];
   for (const row of rows) {
     for (const col of cols) {
       const key = cellKey(row.id, col.id);
@@ -82,12 +148,42 @@ export function readTable(map: Y.Map<unknown>): TableData | null {
       if (!(cell instanceof Y.Map)) continue;
       const content = cell.get('content');
       const fill = colourOf(cell.get('fill'));
-      cells.set(key, { content: content instanceof Y.XmlFragment ? content : null, ...(fill ? { fill } : {}) });
-      if (fill) fills.push(`${key}=${fill}`);
+      const read: TableCell = { content: content instanceof Y.XmlFragment ? content : null };
+      if (fill) read.fill = fill;
+      for (const side of SIDES) {
+        const border = readBorder(cell.get(`b${side}`));
+        if (border) (read.borders ??= {})[side] = border;
+      }
+      cells.set(key, read);
+      const merge = cell.get('merge');
+      if (typeof merge === 'string') wanted.push({ key, end: merge });
+      if (fill || read.borders || typeof merge === 'string') {
+        looks.push(`${key}=${fill ?? ''}/${typeof merge === 'string' ? merge : ''}/${read.borders ? JSON.stringify(read.borders) : ''}`);
+      }
     }
   }
+  const merges = new Map<string, MergedBlock>();
+  const covered = new Map<string, string>();
+  const rowIndex = new Map(rows.map((row, index) => [row.id, index]));
+  const colIndex = new Map(cols.map((col, index) => [col.id, index]));
+  // Row by row, so that of two blocks that overlap the same one wins on every device.
+  for (const { key, end } of wanted) {
+    const [rowId, colId] = key.split(':');
+    const [endRow, endCol] = end.split(':');
+    const r0 = rowIndex.get(rowId!);
+    const c0 = colIndex.get(colId!);
+    const r1 = rowIndex.get(endRow ?? '');
+    const c1 = colIndex.get(endCol ?? '');
+    if (r0 === undefined || c0 === undefined || r1 === undefined || c1 === undefined || r1 < r0 || c1 < c0) continue;
+    if (r1 === r0 && c1 === c0) continue;
+    const inside: string[] = [];
+    for (let r = r0; r <= r1; r += 1) for (let c = c0; c <= c1; c += 1) inside.push(cellKey(rows[r]!.id, cols[c]!.id));
+    if (inside.some(cell => merges.has(cell) || covered.has(cell))) continue;
+    merges.set(key, { rows: r1 - r0 + 1, cols: c1 - c0 + 1 });
+    for (const cell of inside) if (cell !== key) covered.set(cell, key);
+  }
   const lines = (list: TableLine[]) => list.map(line => `${line.id}@${line.pos}*${line.size}`).join(',');
-  return { rows, cols, cells, signature: `${lines(rows)}|${lines(cols)}|${[...cells.keys()].join(',')}|${fills.join(',')}` };
+  return { rows, cols, cells, merges, covered, signature: `${lines(rows)}|${lines(cols)}|${[...cells.keys()].join(',')}|${looks.join(',')}` };
 }
 
 function newLineId(): string {
@@ -117,8 +213,24 @@ export function newTable(rowCount: number, colCount: number): TableJson {
 /** A table as plain data, to copy it. */
 export function tableToJson(table: TableData): TableJson {
   const cells: TableJson['cells'] = {};
-  for (const [key, cell] of table.cells) cells[key] = { content: richTextToJson(cell.content), ...(cell.fill ? { fill: cell.fill } : {}) };
+  for (const [key, cell] of table.cells) {
+    const json: CellJson = { content: richTextToJson(cell.content) };
+    if (cell.fill) json.fill = cell.fill;
+    const block = table.merges.get(key);
+    const place = block ? cellPlace(table, key) : null;
+    if (block && place) json.merge = cellKey(table.rows[place.row + block.rows - 1]!.id, table.cols[place.col + block.cols - 1]!.id);
+    for (const side of SIDES) {
+      const border = cell.borders?.[side];
+      if (border) json[`b${side}`] = borderValue(border);
+    }
+    cells[key] = json;
+  }
   return { rows: table.rows.map(line => ({ ...line })), cols: table.cols.map(line => ({ ...line })), cells };
+}
+
+/** Whether a table as plain data uses what needs format version 3: merged cells or lines of their own. */
+export function tableNeedsV3(json: TableJson | undefined): boolean {
+  return !!json && Object.values(json.cells ?? {}).some(cell => !!cell && (cell.merge || cell.bt || cell.bb || cell.bl || cell.br));
 }
 
 function lineMap(line: TableLine): Y.Map<unknown> {
@@ -128,13 +240,19 @@ function lineMap(line: TableLine): Y.Map<unknown> {
   return map;
 }
 
-function cellMap(content: RichTextJson | null, fill?: string): Y.Map<unknown> {
+function cellMap(content: RichTextJson | null, extra: Partial<Omit<CellJson, 'content'>> = {}): Y.Map<unknown> {
   const map = new Y.Map<unknown>();
   const fragment = new Y.XmlFragment();
   map.set('content', fragment);
   const nodes = content ? richTextNodesFromJson(content) : [];
   if (nodes.length) fragment.insert(0, nodes);
+  const fill = colourOf(extra.fill);
   if (fill) map.set('fill', fill);
+  if (typeof extra.merge === 'string' && /^[a-z0-9]{1,16}:[a-z0-9]{1,16}$/.test(extra.merge)) map.set('merge', extra.merge);
+  for (const side of SIDES) {
+    const border = readBorder(extra[`b${side}`]);
+    if (border) map.set(`b${side}`, borderValue(border));
+  }
   return map;
 }
 
@@ -161,8 +279,8 @@ export function writeTable(map: Y.Map<unknown>, json: unknown): void {
   for (const row of useRows) {
     for (const col of useCols) {
       const key = cellKey(row.id, col.id);
-      const cell = (cells as Record<string, { content?: unknown; fill?: unknown }>)[key];
-      cellsMap.set(key, cellMap((cell?.content as RichTextJson | undefined) ?? null, colourOf(cell?.fill)));
+      const cell = (cells as Record<string, Partial<CellJson> | undefined>)[key];
+      cellsMap.set(key, cellMap(cell?.content ?? null, cell && typeof cell === 'object' ? cell : {}));
     }
   }
 }
@@ -200,11 +318,32 @@ export function insertLine(map: Y.Map<unknown>, kind: 'rows' | 'cols', index: nu
   return line.id;
 }
 
-/** Takes a row or column away with its cells. */
+/** Takes a row or column away with its cells. A merged block it crossed loses that line and stays merged. */
 export function removeLine(map: Y.Map<unknown>, kind: 'rows' | 'cols', id: string): void {
   const target = lines(map, kind);
   const cellStore = cells(map);
-  if (!target || !cellStore) return;
+  const table = readTable(map);
+  if (!target || !cellStore || !table) return;
+  const at = (kind === 'rows' ? table.rows : table.cols).findIndex(line => line.id === id);
+  if (at >= 0) {
+    const rowIds = table.rows.map(line => line.id);
+    const colIds = table.cols.map(line => line.id);
+    (kind === 'rows' ? rowIds : colIds).splice(at, 1);
+    for (const [anchor, block] of table.merges) {
+      const place = cellPlace(table, anchor)!;
+      const first = kind === 'rows' ? place.row : place.col;
+      const span = kind === 'rows' ? block.rows : block.cols;
+      if (at < first || at >= first + span) continue;
+      cellStore.get(anchor)?.delete('merge');
+      const r1 = place.row + block.rows - 1 - (kind === 'rows' ? 1 : 0);
+      const c1 = place.col + block.cols - 1 - (kind === 'cols' ? 1 : 0);
+      if (r1 === place.row && c1 === place.col) continue;
+      // Positions after the removed line move up by one; the block's first line stays where it was.
+      const newAnchor = cellKey(rowIds[place.row]!, colIds[place.col]!);
+      if (!cellStore.get(newAnchor)) cellStore.set(newAnchor, cellMap(null));
+      cellStore.get(newAnchor)!.set('merge', cellKey(rowIds[r1]!, colIds[c1]!));
+    }
+  }
   target.delete(id);
   for (const key of [...cellStore.keys()]) {
     const [row, col] = key.split(':');
@@ -240,23 +379,181 @@ export function setCellFill(map: Y.Map<unknown>, keys: string[], fill: string | 
   }
 }
 
-/** Every text of a table, cell by cell, row by row. */
-export function tableFragments(map: Y.Map<unknown>): Y.XmlFragment[] {
+/** Sets the size of one row or column, as a share among the others. */
+export function setLineSize(map: Y.Map<unknown>, kind: 'rows' | 'cols', id: string, size: number): void {
+  const line = lines(map, kind)?.get(id);
+  if (!line || !(size > 0) || !Number.isFinite(size)) return;
+  const rounded = Math.round(size * 10000) / 10000;
+  if (rounded === 1) {
+    if (line.has('size')) line.delete('size');
+  } else if (line.get('size') !== rounded) {
+    line.set('size', rounded);
+  }
+}
+
+/** The keys of the cells in a rectangle, row by row. */
+export function rectKeys(table: TableData, rect: CellRect): string[] {
+  const keys: string[] = [];
+  for (let r = rect.r0; r <= rect.r1; r += 1) {
+    for (let c = rect.c0; c <= rect.c1; c += 1) {
+      const row = table.rows[r];
+      const col = table.cols[c];
+      if (row && col) keys.push(cellKey(row.id, col.id));
+    }
+  }
+  return keys;
+}
+
+/** The rectangle two cells span, grown until no merged block sticks out of it. */
+export function cellRect(table: TableData, from: string, to: string): CellRect | null {
+  const a = cellPlace(table, from);
+  const b = cellPlace(table, to);
+  if (!a || !b) return null;
+  const rect = { r0: Math.min(a.row, b.row), r1: Math.max(a.row, b.row), c0: Math.min(a.col, b.col), c1: Math.max(a.col, b.col) };
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const [anchor, block] of table.merges) {
+      const place = cellPlace(table, anchor)!;
+      const r1 = place.row + block.rows - 1;
+      const c1 = place.col + block.cols - 1;
+      if (place.row > rect.r1 || r1 < rect.r0 || place.col > rect.c1 || c1 < rect.c0) continue;
+      const grown = { r0: Math.min(rect.r0, place.row), r1: Math.max(rect.r1, r1), c0: Math.min(rect.c0, place.col), c1: Math.max(rect.c1, c1) };
+      if (grown.r0 !== rect.r0 || grown.r1 !== rect.r1 || grown.c0 !== rect.c0 || grown.c1 !== rect.c1) {
+        Object.assign(rect, grown);
+        changed = true;
+      }
+    }
+  }
+  return rect;
+}
+
+function isBlank(json: RichTextJson): boolean {
+  return json.every(node => ('name' in node ? node.name === 'paragraph' && isBlank(node.children) : node.text.every(part => part.insert === '')));
+}
+
+/**
+ * Merges the cells of a rectangle into one. The words of every cell go into
+ * the top-left one, in reading order, so nothing typed is lost. Returns the
+ * key of that cell.
+ */
+export function mergeCells(map: Y.Map<unknown>, rect: CellRect): string | null {
+  const table = readTable(map);
+  const cellStore = cells(map);
+  if (!table || !cellStore) return null;
+  const keys = rectKeys(table, rect);
+  if (keys.length < 2) return null;
+  const anchorKey = keys[0]!;
+  const anchor = ensureCell(map, anchorKey);
+  if (!anchor) return null;
+  for (const key of keys) {
+    const cell = cellStore.get(key);
+    if (!cell) continue;
+    if (cell.has('merge')) cell.delete('merge');
+    if (key === anchorKey) continue;
+    const content = cell.get('content');
+    if (!(content instanceof Y.XmlFragment) || content.length === 0) continue;
+    const words = richTextToJson(content);
+    if (!isBlank(words)) {
+      // The top-left cell's own empty paragraph makes way for the words.
+      if (isBlank(richTextToJson(anchor)) && anchor.length > 0) anchor.delete(0, anchor.length);
+      anchor.insert(anchor.length, richTextNodesFromJson(words));
+    }
+    content.delete(0, content.length);
+  }
+  cellStore.get(anchorKey)!.set('merge', keys[keys.length - 1]!);
+  return anchorKey;
+}
+
+/** Splits every merged block that has a cell in the rectangle back into its cells. */
+export function unmergeCells(map: Y.Map<unknown>, rect: CellRect): void {
+  const table = readTable(map);
+  const cellStore = cells(map);
+  if (!table || !cellStore) return;
+  const inside = new Set(rectKeys(table, rect));
+  for (const anchor of table.merges.keys()) {
+    const hit = inside.has(anchor) || [...table.covered].some(([key, owner]) => owner === anchor && inside.has(key));
+    if (hit) cellStore.get(anchor)?.delete('merge');
+  }
+}
+
+export type BorderChoice = 'all' | 'outer' | 'inner' | 'top' | 'bottom' | 'left' | 'right';
+
+/**
+ * Gives edges of the cells in a rectangle a line of their own: a width and
+ * colour, 'none' for no line, or null to hand them back to the table's line.
+ */
+export function setCellBorders(map: Y.Map<unknown>, rect: CellRect, which: BorderChoice, border: CellBorder | 'none' | null): void {
+  const table = readTable(map);
+  const cellStore = cells(map);
+  if (!table || !cellStore) return;
+  const value = border ? borderValue(border) : null;
+  const write = (r: number, c: number, side: Side) => {
+    const row = table.rows[r];
+    const col = table.cols[c];
+    if (!row || !col) return;
+    const key = cellKey(row.id, col.id);
+    let cell = cellStore.get(key);
+    if (!cell) {
+      if (!value) return;
+      cell = cellMap(null);
+      cellStore.set(key, cell);
+    }
+    if (value) {
+      if (cell.get(`b${side}`) !== value) cell.set(`b${side}`, value);
+    } else if (cell.has(`b${side}`)) {
+      cell.delete(`b${side}`);
+    }
+  };
+  // Each edge is written on both cells that share it.
+  const edge = (r: number, c: number, side: Side) => {
+    write(r, c, side);
+    if (side === 't') write(r - 1, c, 'b');
+    if (side === 'b') write(r + 1, c, 't');
+    if (side === 'l') write(r, c - 1, 'r');
+    if (side === 'r') write(r, c + 1, 'l');
+  };
+  for (let r = rect.r0; r <= rect.r1; r += 1) {
+    for (let c = rect.c0; c <= rect.c1; c += 1) {
+      const sides: Record<Side, boolean> = {
+        t: which === 'all' || (r === rect.r0 && (which === 'outer' || which === 'top')) || (r > rect.r0 && which === 'inner'),
+        b: which === 'all' || (r === rect.r1 && (which === 'outer' || which === 'bottom')),
+        l: which === 'all' || (c === rect.c0 && (which === 'outer' || which === 'left')) || (c > rect.c0 && which === 'inner'),
+        r: which === 'all' || (c === rect.c1 && (which === 'outer' || which === 'right')),
+      };
+      for (const side of SIDES) if (sides[side]) edge(r, c, side);
+    }
+  }
+}
+
+/** Takes the words out of cells, keeping their fill and lines. */
+export function clearCells(map: Y.Map<unknown>, keys: string[]): void {
+  const cellStore = cells(map);
+  if (!cellStore) return;
+  for (const key of keys) {
+    const content = cellStore.get(key)?.get('content');
+    if (content instanceof Y.XmlFragment && content.length > 0) content.delete(0, content.length);
+  }
+}
+
+/** Every text of a table, cell by cell, row by row; only those of `only` when given. */
+export function tableFragments(map: Y.Map<unknown>, only?: ReadonlySet<string>): Y.XmlFragment[] {
   const table = readTable(map);
   if (!table) return [];
   const result: Y.XmlFragment[] = [];
   for (const row of table.rows) {
     for (const col of table.cols) {
-      const content = table.cells.get(cellKey(row.id, col.id))?.content;
+      const key = cellKey(row.id, col.id);
+      if (only && !only.has(key)) continue;
+      const content = table.cells.get(key)?.content;
       if (content) result.push(content);
     }
   }
   return result;
 }
 
-/** The cell after (or before, when `back`) the given one, row by row; null past either end. */
+/** The cell after (or before, when `back`) the given one, row by row; null past either end. Cells under a merged block are passed over. */
 export function stepCell(table: TableData, key: string, back: boolean): string | null {
-  const order = table.rows.flatMap(row => table.cols.map(col => cellKey(row.id, col.id)));
+  const order = table.rows.flatMap(row => table.cols.map(col => cellKey(row.id, col.id))).filter(cell => !table.covered.has(cell));
   const at = order.indexOf(key);
   if (at < 0) return order[0] ?? null;
   return order[at + (back ? -1 : 1)] ?? null;
@@ -268,4 +565,22 @@ export function cellPlace(table: TableData, key: string): { row: number; col: nu
   const row = table.rows.findIndex(line => line.id === rowId);
   const col = table.cols.findIndex(line => line.id === colId);
   return row >= 0 && col >= 0 ? { row, col } : null;
+}
+
+/** Where every line of a table falls, in slide units from its top-left corner: rows down, columns across. */
+export function lineEdges(table: TableData, w: number, h: number): { xs: number[]; ys: number[] } {
+  const along = (list: TableLine[], length: number) => {
+    const total = list.reduce((sum, line) => sum + line.size, 0) || 1;
+    const edges = [0];
+    for (const line of list) edges.push(edges[edges.length - 1]! + length * line.size / total);
+    return edges;
+  };
+  return { xs: along(table.cols, w), ys: along(table.rows, h) };
+}
+
+/** The line drawn along an edge: a cell's own on either side, or the table's. Null for none. */
+export function edgeBorder(table: TableData, a: string | null, aSide: Side, b: string | null, bSide: Side, fallback: CellBorder | null): CellBorder | null {
+  const own = (a ? table.cells.get(a)?.borders?.[aSide] : undefined) ?? (b ? table.cells.get(b)?.borders?.[bSide] : undefined);
+  if (own === 'none') return null;
+  return own ?? fallback;
 }

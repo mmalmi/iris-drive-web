@@ -54,15 +54,40 @@ import {
   type RichTextJson,
 } from './richTextData';
 import { readTransition, type Transition } from './motion';
-import { ensureCell, insertLine, readTable, removeLine, setCellFill, tableFragments, tableToJson, writeTable, type TableData, type TableJson } from './table';
+import {
+  clearCells,
+  ensureCell,
+  insertLine,
+  mergeCells,
+  readTable,
+  removeLine,
+  setCellBorders,
+  setCellFill,
+  setLineSize,
+  tableFragments,
+  tableNeedsV3,
+  tableToJson,
+  unmergeCells,
+  writeTable,
+  type BorderChoice,
+  type CellBorder,
+  type CellRect,
+  type TableData,
+  type TableJson,
+} from './table';
 
 export { richTextIsEmpty, richTextToJson, richTextToPlain, type RichTextJson };
 
 /** The newest version of the format this code reads and writes. */
-export const DECK_VERSION = 2;
+export const DECK_VERSION = 3;
 /** What a new deck is written as: tables raise it to 2, since older code would drop them when copying. */
 const FIRST_VERSION = 1;
 const TABLE_VERSION = 2;
+/**
+ * Merged table cells, lines given to single cells and cropped pictures raise
+ * it to 3: code of version 2 would draw them as if they were not there.
+ */
+const V3 = 3;
 export const SLIDE_WIDTH = 1280;
 export const SLIDE_HEIGHT = 720;
 
@@ -74,6 +99,9 @@ export type ShapeKind = 'rect' | 'round' | 'ellipse';
 export type TextRole = 'title' | 'subtitle' | 'body';
 export type TextAlign = 'left' | 'center' | 'right';
 export type VerticalAlign = 'top' | 'middle' | 'bottom';
+
+/** Shares of a picture cut off: left, top, right, bottom; each from 0, and together leaving some of it. */
+export type Crop = [number, number, number, number];
 
 export interface Frame {
   x: number;
@@ -105,6 +133,10 @@ export interface SlideElement extends Frame {
   arrow?: boolean;
   /** Images: the attachment's file name. */
   src?: string;
+  /** Images: what a screen reader says for it, and what PowerPoint keeps as its description. */
+  alt?: string;
+  /** Images: the share of the picture cut off at its left, top, right and bottom (version 3). */
+  crop?: Crop;
   /** Tables: the grid and its cells (see table.ts), and whether the first row is a heading. */
   table?: TableData;
   header?: boolean;
@@ -125,6 +157,9 @@ export interface Slide {
   /** Lowest first. */
   elements: SlideElement[];
 }
+
+/** What is drawn in place of an element's stored frame, grid or crop while it is being dragged. */
+export type ElementOverride = Partial<Frame> & { table?: TableData; crop?: Crop };
 
 /** The properties of an element that can be written, apart from its text. */
 export type ElementProps = Partial<Omit<SlideElement, 'id' | 'content' | 'table'>>;
@@ -149,7 +184,7 @@ const ALIGNS: ReadonlySet<string> = new Set(['left', 'center', 'right']);
 const VALIGNS: ReadonlySet<string> = new Set(['top', 'middle', 'bottom']);
 const WRITABLE_KEYS = [
   'type', 'z', 'x', 'y', 'w', 'h', 'rot', 'role', 'fontSize', 'color', 'align', 'valign',
-  'shape', 'fill', 'stroke', 'strokeWidth', 'arrow', 'src', 'header',
+  'shape', 'fill', 'stroke', 'strokeWidth', 'arrow', 'src', 'header', 'alt', 'crop',
 ] as const;
 
 export function newId(): string {
@@ -167,12 +202,26 @@ function text(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 && value.length < 200 ? value : undefined;
 }
 
+function altText(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim().length > 0 ? value.slice(0, 2000) : undefined;
+}
+
 function oneOf<T extends string>(value: unknown, allowed: ReadonlySet<string>): T | undefined {
   return typeof value === 'string' && allowed.has(value) ? value as T : undefined;
 }
 
 function positive(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
+/** A crop as stored, or undefined when it is not one or cuts nothing. */
+export function readCrop(value: unknown): Crop | undefined {
+  if (!Array.isArray(value) || value.length !== 4) return undefined;
+  const parts = value.map(part => (typeof part === 'number' && Number.isFinite(part) ? Math.min(0.98, Math.max(0, part)) : NaN));
+  if (parts.some(Number.isNaN)) return undefined;
+  const [l, t, r, b] = parts as Crop;
+  if (l + r > 0.98 || t + b > 0.98) return undefined;
+  return l || t || r || b ? [l, t, r, b] : undefined;
 }
 
 function hasContent(type: ElementType): boolean {
@@ -214,6 +263,8 @@ export function readElement(id: string, map: unknown): SlideElement | null {
     arrow: map.get('arrow') === true ? true : undefined,
     header: type === 'table' && map.get('header') === true ? true : undefined,
     src: text(map.get('src')),
+    alt: type === 'image' ? altText(map.get('alt')) : undefined,
+    crop: type === 'image' ? readCrop(map.get('crop')) : undefined,
   };
   for (const [key, value] of Object.entries(optional)) {
     if (value !== undefined) (element as unknown as Record<string, unknown>)[key] = value;
@@ -312,6 +363,11 @@ export class Deck {
 
   readSlide(id: string): Slide | null {
     return readSlide(id, this.slides.get(id));
+  }
+
+  /** Marks the deck as needing at least this version of the format to be edited. */
+  #raise(version: number): void {
+    if (this.version < version) this.meta.set('version', version);
   }
 
   /** Gives a deck that has nothing yet its version and theme. */
@@ -551,8 +607,9 @@ export class Deck {
     }
     if (init.type === 'table') {
       writeTable(map, init.table);
-      if (this.version < TABLE_VERSION) this.meta.set('version', TABLE_VERSION);
+      this.#raise(tableNeedsV3(init.table) ? V3 : TABLE_VERSION);
     }
+    if (init.type === 'image' && readCrop(init.crop)) this.#raise(V3);
     return id;
   }
 
@@ -586,6 +643,13 @@ export class Deck {
           if (!(WRITABLE_KEYS as readonly string[]).includes(key) || key === 'type') continue;
           if (value === undefined || value === null) {
             if (map.has(key)) map.delete(key);
+          } else if (key === 'crop') {
+            const crop = readCrop(value);
+            if (!crop) map.delete(key);
+            else if (JSON.stringify(map.get(key)) !== JSON.stringify(crop)) {
+              map.set(key, crop);
+              this.#raise(V3);
+            }
           } else if (map.get(key) !== value) {
             map.set(key, value);
           }
@@ -647,18 +711,18 @@ export class Deck {
     });
   }
 
-  /** Every text an element holds: that of a text box or shape, or of each cell of a table. */
-  #fragments(slideId: string, elementId: string): Y.XmlFragment[] {
+  /** Every text an element holds: that of a text box or shape, or of each cell of a table (those in `cells`, when given). */
+  #fragments(slideId: string, elementId: string, cells?: ReadonlySet<string>): Y.XmlFragment[] {
     const map = this.#elements(slideId)?.get(elementId);
     if (!map) return [];
-    if (map.get('type') === 'table') return tableFragments(map);
+    if (map.get('type') === 'table') return tableFragments(map, cells);
     const content = map.get('content');
     return content instanceof Y.XmlFragment ? [content] : [];
   }
 
   /** Applies a mark to, or removes it from, all the text of an element. */
-  formatAllText(slideId: string, elementId: string, mark: string, value: Record<string, unknown> | null): void {
-    const fragments = this.#fragments(slideId, elementId);
+  formatAllText(slideId: string, elementId: string, mark: string, value: Record<string, unknown> | null, cells?: ReadonlySet<string>): void {
+    const fragments = this.#fragments(slideId, elementId, cells);
     if (fragments.length === 0) return;
     this.transact(() => {
       for (const fragment of fragments) {
@@ -670,14 +734,20 @@ export class Deck {
   }
 
   /** Takes an attribute, such as its own alignment, off every paragraph of an element. */
-  clearParagraphAttribute(slideId: string, elementId: string, attribute: string): void {
-    const fragments = this.#fragments(slideId, elementId);
+  clearParagraphAttribute(slideId: string, elementId: string, attribute: string, cells?: ReadonlySet<string>, value?: string): void {
+    const fragments = this.#fragments(slideId, elementId, cells);
     if (fragments.length === 0) return;
     this.transact(() => {
       const visit = (node: Y.XmlFragment | Y.XmlElement): void => {
         for (const child of node.toArray()) {
           if (!(child instanceof Y.XmlElement)) continue;
-          if (child.nodeName === 'paragraph' && child.getAttribute(attribute) !== undefined) child.removeAttribute(attribute);
+          if (child.nodeName === 'paragraph') {
+            if (value !== undefined) {
+              if (child.getAttribute(attribute) !== value) child.setAttribute(attribute, value);
+            } else if (child.getAttribute(attribute) !== undefined) {
+              child.removeAttribute(attribute);
+            }
+          }
           visit(child);
         }
       };
@@ -686,10 +756,10 @@ export class Deck {
   }
 
   /** Whether all the text of an element carries a mark; false when it has no text. */
-  allTextHasMark(slideId: string, elementId: string, mark: string): boolean {
+  allTextHasMark(slideId: string, elementId: string, mark: string, cells?: ReadonlySet<string>): boolean {
     let any = false;
     let all = true;
-    for (const fragment of this.#fragments(slideId, elementId)) {
+    for (const fragment of this.#fragments(slideId, elementId, cells)) {
       eachText(fragment, (text) => {
         for (const part of text.toDelta() as Array<{ insert: unknown; attributes?: Record<string, unknown> }>) {
           if (typeof part.insert !== 'string' || part.insert.length === 0) continue;
@@ -728,6 +798,65 @@ export class Deck {
   setCellFill(slideId: string, elementId: string, cells: string[], fill: string | null): void {
     const map = this.#table(slideId, elementId);
     if (map) this.transact(() => setCellFill(map, cells, fill));
+  }
+
+  /**
+   * Gives a row or column of a table a new size, in slide units. Moving the
+   * line between two of them trades size between the two (`next`), keeping
+   * the table as wide; the line at the right or bottom edge makes the table
+   * itself bigger or smaller, the other rows or columns keeping theirs.
+   */
+  resizeTableLine(slideId: string, elementId: string, kind: 'rows' | 'cols', id: string, length: number, next?: { id: string; length: number }): void {
+    const map = this.#table(slideId, elementId);
+    const table = map ? readTable(map) : null;
+    if (!map || !table) return;
+    const list = kind === 'rows' ? table.rows : table.cols;
+    const line = list.find(candidate => candidate.id === id);
+    if (!line) return;
+    const total = list.reduce((sum, candidate) => sum + candidate.size, 0);
+    const extent = finite(map.get(kind === 'rows' ? 'h' : 'w'), 100);
+    const unit = total / extent;
+    this.transact(() => {
+      if (next) {
+        setLineSize(map, kind, id, length * unit);
+        setLineSize(map, kind, next.id, next.length * unit);
+        return;
+      }
+      // The others keep their size in slide units while the table grows by the difference.
+      const old = extent * line.size / total;
+      const grown = Math.max(1, extent + length - old);
+      setLineSize(map, kind, id, line.size + (total * grown / extent - total));
+      map.set(kind === 'rows' ? 'h' : 'w', Math.round(grown * 10) / 10);
+    });
+  }
+
+  mergeTableCells(slideId: string, elementId: string, rect: CellRect): string | null {
+    const map = this.#table(slideId, elementId);
+    if (!map) return null;
+    return this.transact(() => {
+      const anchor = mergeCells(map, rect);
+      if (anchor) this.#raise(V3);
+      return anchor;
+    });
+  }
+
+  unmergeTableCells(slideId: string, elementId: string, rect: CellRect): void {
+    const map = this.#table(slideId, elementId);
+    if (map) this.transact(() => unmergeCells(map, rect));
+  }
+
+  setTableBorders(slideId: string, elementId: string, rect: CellRect, which: BorderChoice, border: CellBorder | 'none' | null): void {
+    const map = this.#table(slideId, elementId);
+    if (!map) return;
+    this.transact(() => {
+      setCellBorders(map, rect, which, border);
+      if (border) this.#raise(V3);
+    });
+  }
+
+  clearTableCells(slideId: string, elementId: string, cells: string[]): void {
+    const map = this.#table(slideId, elementId);
+    if (map) this.transact(() => clearCells(map, cells));
   }
 
   /**

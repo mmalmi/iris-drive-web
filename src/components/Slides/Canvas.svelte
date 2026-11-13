@@ -5,7 +5,9 @@
    * stepping into a box to type. A drag is shown as it goes and stored once,
    * when it ends.
    */
-  import { SLIDE_HEIGHT, SLIDE_WIDTH, type ElementProps, type Frame, type SlideElement } from '../../lib/slides/model';
+  import { SLIDE_HEIGHT, SLIDE_WIDTH, type ElementOverride, type ElementProps, type Frame, type SlideElement } from '../../lib/slides/model';
+  import { lineEdges } from '../../lib/slides/table';
+  import { pickCells, resizeLine } from '../../lib/slides/tableEditing';
   import {
     angleFromCentre,
     boxFromPoints,
@@ -33,6 +35,7 @@
   import { TEXT_PAD_Y } from '../../lib/slides/fitText';
   import type { SlidesEditorState } from '../../lib/slides/editorState.svelte';
   import SlideView from './SlideView.svelte';
+  import Overlay from './Overlay.svelte';
 
   interface Props {
     editorState: SlidesEditorState;
@@ -44,7 +47,6 @@
   }
   let { editorState, urls, onImageFiles, onCopy, onPaste }: Props = $props();
 
-  const HANDLES: Handle[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
   const DRAG_START = 4;
   const SNAP_DISTANCE = 7;
 
@@ -56,13 +58,17 @@
     | { kind: 'group-resize'; start: Point; frames: Record<string, GroupFrame>; box: Box; handle: Handle; moved: boolean }
     | { kind: 'group-rotate'; frames: Record<string, GroupFrame>; box: Box; from: number; moved: boolean }
     | { kind: 'draw'; start: Point; moved: boolean }
-    | { kind: 'marquee'; start: Point; added: string[]; moved: boolean };
+    | { kind: 'marquee'; start: Point; added: string[]; moved: boolean }
+    /** The line between two columns or rows of a table, or its right or bottom edge: `index` counts lines from the first. */
+    | { kind: 'table-line'; id: string; axis: 'cols' | 'rows'; index: number; start: Point; lengths: number[] | null; moved: boolean }
+    /** Picking cells of a table by dragging across them. */
+    | { kind: 'cells'; id: string; anchor: string; focus: string; moved: boolean; captured: boolean };
 
   let stage: HTMLElement | undefined = $state();
   let stageWidth = $state(0);
   let stageHeight = $state(0);
   let drag = $state.raw<Drag | null>(null);
-  let overrides = $state.raw<Record<string, Partial<Frame>>>({});
+  let overrides = $state.raw<Record<string, ElementOverride>>({});
   let guides = $state.raw<Guide[]>([]);
   let marquee = $state.raw<Box | null>(null);
   /** What is being drawn with a tool: a box, or for a line its two ends. */
@@ -150,10 +156,18 @@
     const cell = target.closest('[data-cell]')?.getAttribute('data-cell') ?? null;
     // Inside the box being typed in, the pointer places the cursor and selects words; in a table, another cell is typed in instead.
     if (!tool && !handle && id && id === editing) {
+      if (cell && event.shiftKey && editorState.editingCell) {
+        // Shift and a click picks the cells from the one being typed in to this one.
+        event.preventDefault();
+        pickCells(editorState, id, editorState.editingCell, cell);
+        return;
+      }
       if (cell && cell !== editorState.editingCell) {
         event.preventDefault();
         editorState.startEditing(id, { cell, point: { x: event.clientX, y: event.clientY } });
       }
+      // Dragging on from here into another cell picks cells instead of words.
+      if (cell) drag = { kind: 'cells', id, anchor: cell, focus: cell, moved: false, captured: false };
       return;
     }
 
@@ -181,6 +195,11 @@
       return;
     }
 
+    if (handle && single && (handle.startsWith('col:') || handle.startsWith('row:'))) {
+      drag = { kind: 'table-line', id: single.id, axis: handle.startsWith('col:') ? 'cols' : 'rows', index: Number(handle.slice(4)), start: point, lengths: null, moved: false };
+      return;
+    }
+
     if (handle && single) {
       if (handle === 'move') {
         beginMove(point, null, true);
@@ -196,6 +215,16 @@
 
     if (id) {
       const wasSelected = editorState.selection.includes(id);
+      if (cell && single?.id === id && single.table) {
+        // In a table already selected, a drag picks cells and Shift and a click picks up to the cell clicked.
+        if (event.shiftKey) {
+          pickCells(editorState, id, editorState.cellRange?.anchor ?? editorState.tableCell ?? cell, cell);
+          stage.releasePointerCapture(event.pointerId);
+          return;
+        }
+        drag = { kind: 'cells', id, anchor: cell, focus: cell, moved: false, captured: true };
+        return;
+      }
       if (event.shiftKey || event.metaKey || event.ctrlKey) {
         editorState.select(wasSelected ? editorState.selection.filter(other => other !== id) : [...editorState.selection, id]);
         stage.releasePointerCapture(event.pointerId);
@@ -226,6 +255,58 @@
     const free = event.metaKey || event.ctrlKey;
     const far = (from: Point) => Math.hypot(point.x - from.x, point.y - from.y) * scale >= DRAG_START;
 
+    if (current.kind === 'cells') {
+      const under = document.elementFromPoint(event.clientX, event.clientY);
+      const key = under?.closest('[data-cell]')?.getAttribute('data-cell');
+      if (!key || under?.closest('[data-el]')?.getAttribute('data-el') !== current.id) return;
+      if (!current.moved && key === current.anchor) return;
+      if (!current.moved) {
+        current.moved = true;
+        if (!current.captured) {
+          stage?.setPointerCapture(event.pointerId);
+          current.captured = true;
+        }
+        window.getSelection()?.removeAllRanges();
+      }
+      if (key !== current.focus || !editorState.cellRange) {
+        current.focus = key;
+        pickCells(editorState, current.id, current.anchor, key);
+      }
+      return;
+    }
+    if (current.kind === 'table-line') {
+      const element = slide.elements.find(candidate => candidate.id === current.id);
+      const table = element?.table;
+      if (!element || !table) return;
+      current.moved = true;
+      const cols = current.axis === 'cols';
+      const { xs, ys } = lineEdges(table, element.w, element.h);
+      const edges = cols ? xs : ys;
+      const list = cols ? table.cols : table.rows;
+      const lengths = list.map((_line, index) => edges[index + 1]! - edges[index]!);
+      const least = cols ? 24 : 20;
+      const delta = cols ? point.x - current.start.x : point.y - current.start.y;
+      const at = current.index;
+      // Between two columns the width is traded; a row border, like the table's own edges, makes the table bigger.
+      const trade = cols && at < list.length;
+      if (trade) {
+        const pair = lengths[at - 1]! + lengths[at]!;
+        const before = Math.min(pair - least, Math.max(least, lengths[at - 1]! + delta));
+        lengths[at - 1] = before;
+        lengths[at] = pair - before;
+      } else {
+        lengths[at - 1] = Math.max(least, lengths[at - 1]! + delta);
+      }
+      current.lengths = lengths;
+      const sum = lengths.reduce((total, length) => total + length, 0);
+      const sized = list.map((line, index) => ({ ...line, size: lengths[index]! }));
+      const edge = lengths.slice(0, at).reduce((total, length) => total + length, 0);
+      guides = [cols
+        ? { axis: 'x', pos: element.x + edge, from: element.y - 12, to: element.y + element.h + 12 }
+        : { axis: 'y', pos: element.y + edge, from: element.x - 12, to: element.x + element.w + 12 }];
+      overrides = { [current.id]: { table: { ...table, [current.axis]: sized }, ...(trade ? {} : cols ? { w: sum } : { h: sum }) } };
+      return;
+    }
     if (current.kind === 'move') {
       let dx = point.x - current.start.x;
       let dy = point.y - current.start.y;
@@ -361,6 +442,23 @@
     sketch = null;
     turning = null;
 
+    if (current.kind === 'cells') {
+      // A click without a drag types in the cell clicked.
+      if (!current.moved && current.captured && event.type !== 'pointercancel') {
+        editorState.startEditing(current.id, { cell: current.anchor, point: { x: event.clientX, y: event.clientY } });
+      }
+      return;
+    }
+    if (current.kind === 'table-line') {
+      const element = slide?.elements.find(candidate => candidate.id === current.id);
+      const list = current.axis === 'cols' ? element?.table?.cols : element?.table?.rows;
+      const lengths = current.lengths;
+      if (!list || !lengths || event.type === 'pointercancel') return;
+      const at = current.index;
+      const next = current.axis === 'cols' && at < list.length ? { id: list[at]!.id, length: lengths[at]! } : undefined;
+      resizeLine(editorState, current.id, current.axis, list[at - 1]!.id, lengths[at - 1]!, next);
+      return;
+    }
     if (current.kind === 'draw') {
       if (event.type === 'pointercancel') return;
       if (current.moved && drew) editorState.useTool({ frame: drew });
@@ -369,7 +467,10 @@
     }
     if (current.moved && current.kind !== 'marquee') {
       const changes: Record<string, ElementProps> = {};
-      for (const [id, frame] of Object.entries(pending)) changes[id] = roundFrame(frame);
+      for (const [id, frame] of Object.entries(pending)) {
+        // A table's grid is stored by its own steps, never as a frame.
+        changes[id] = roundFrame(Object.fromEntries(Object.entries(frame).filter(([key]) => key !== 'table')) as ElementProps);
+      }
       if (Object.keys(changes).length) editorState.updateElements(changes);
       return;
     }
@@ -419,23 +520,6 @@
     if (files.length) onImageFiles(files, toSlide(event));
   }
 
-  const CURSORS = ['ns-resize', 'nesw-resize', 'ew-resize', 'nwse-resize'];
-  /** The resize cursor that points the way a handle moves, turned with its frame. */
-  function cursorFor(handle: Handle, rotation: number): string {
-    const base = { n: 0, ne: 45, e: 90, se: 135, s: 180, sw: 225, w: 270, nw: 315 }[handle];
-    return CURSORS[Math.round((((base + rotation) % 180) + 180) % 180 / 45) % 4]!;
-  }
-
-  function handleStyle(handle: Handle, rotation: number): string {
-    const x = handle.includes('w') ? 0 : handle.includes('e') ? 100 : 50;
-    const y = handle.includes('n') ? 0 : handle.includes('s') ? 100 : 50;
-    return `left:${x}%;top:${y}%;cursor:${cursorFor(handle, rotation)}`;
-  }
-
-  /** On a box that is small on screen the middle handles would crowd the corners. */
-  function roomFor(handle: Handle, w: number, h: number): boolean {
-    return handle.length === 2 || ((handle === 'n' || handle === 's') ? w : h) * scale >= 44;
-  }
 </script>
 
 <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
@@ -466,98 +550,7 @@
       <SlideView {slide} theme={editorState.theme} {urls} {width} overrides={drawn} editorState={canEdit ? editorState : undefined} />
 
       {#if canEdit}
-        <div class="overlay">
-          {#each guides as guide, index (index)}
-            {#if guide.axis === 'x'}
-              <div class="guide" style:left="{guide.pos * scale}px" style:top="{guide.from * scale}px" style:height="{(guide.to - guide.from) * scale}px" style:width="1px"></div>
-            {:else}
-              <div class="guide" style:top="{guide.pos * scale}px" style:left="{guide.from * scale}px" style:width="{(guide.to - guide.from) * scale}px" style:height="1px"></div>
-            {/if}
-          {/each}
-
-          {#each shown as element (element.id)}
-            {#if element.type === 'line'}
-              {#if single}
-                <div class="knob" data-handle="start" style:left="{element.x * scale}px" style:top="{element.y * scale}px"></div>
-                <div class="knob" data-handle="end" style:left="{(element.x + element.w) * scale}px" style:top="{(element.y + element.h) * scale}px"></div>
-              {:else}
-                {@const box = frameBox(element)}
-                <div class="frame frame-member" style:left="{box.left * scale}px" style:top="{box.top * scale}px" style:width="{(box.right - box.left) * scale}px" style:height="{(box.bottom - box.top) * scale}px"></div>
-              {/if}
-            {:else}
-              <div
-                class="frame"
-                class:frame-editing={editing === element.id}
-                class:frame-member={!single}
-                style:left="{element.x * scale}px"
-                style:top="{element.y * scale}px"
-                style:width="{element.w * scale}px"
-                style:height="{element.h * scale}px"
-                style:transform={element.rot ? `rotate(${element.rot}deg)` : undefined}
-                data-testid="selection-frame"
-              >
-                {#if single}
-                  {#if editing === element.id}
-                    <!-- While typing, the box is moved by its border. -->
-                    <div class="edge edge-top" data-handle="move"></div>
-                    <div class="edge edge-right" data-handle="move"></div>
-                    <div class="edge edge-bottom" data-handle="move"></div>
-                    <div class="edge edge-left" data-handle="move"></div>
-                  {/if}
-                  <div class="rotate-stem"></div>
-                  <div class="knob knob-rotate" data-handle="rotate" title="Rotate"></div>
-                  {#each HANDLES as handle (handle)}
-                    {#if roomFor(handle, element.w, element.h)}
-                      <div class="knob knob-square" data-handle={handle} style={handleStyle(handle, element.rot)}></div>
-                    {/if}
-                  {/each}
-                {/if}
-              </div>
-            {/if}
-          {/each}
-
-          {#if groupBox}
-            {@const box = turning?.box ?? groupBox}
-            <!-- Several things selected are resized and turned as one, by the box around them all. -->
-            <div
-              class="frame frame-group"
-              style:left="{box.left * scale}px"
-              style:top="{box.top * scale}px"
-              style:width="{(box.right - box.left) * scale}px"
-              style:height="{(box.bottom - box.top) * scale}px"
-              style:transform={turning ? `rotate(${turning.degrees}deg)` : undefined}
-              data-testid="group-frame"
-            >
-              <div class="rotate-stem"></div>
-              <div class="knob knob-rotate" data-group-handle="rotate" title="Rotate"></div>
-              {#each HANDLES as handle (handle)}
-                {#if roomFor(handle, box.right - box.left, box.bottom - box.top)}
-                  <div class="knob knob-square" data-group-handle={handle} style={handleStyle(handle, turning?.degrees ?? 0)}></div>
-                {/if}
-              {/each}
-            </div>
-          {/if}
-
-          {#if sketch && tool?.kind === 'line'}
-            <svg class="sketch-line" width={width} height={height}>
-              <line x1={sketch.x * scale} y1={sketch.y * scale} x2={(sketch.x + sketch.w) * scale} y2={(sketch.y + sketch.h) * scale} />
-            </svg>
-          {:else if sketch}
-            <div
-              class="sketch"
-              class:sketch-round={tool?.kind === 'shape' && tool.shape === 'ellipse'}
-              style:left="{sketch.x * scale}px"
-              style:top="{sketch.y * scale}px"
-              style:width="{sketch.w * scale}px"
-              style:height="{(tool?.kind === 'text' ? Math.max(sketch.h, 64) : sketch.h) * scale}px"
-              data-testid="sketch"
-            ></div>
-          {/if}
-
-          {#if marquee}
-            <div class="marquee" style:left="{marquee.left * scale}px" style:top="{marquee.top * scale}px" style:width="{(marquee.right - marquee.left) * scale}px" style:height="{(marquee.bottom - marquee.top) * scale}px"></div>
-          {/if}
-        </div>
+        <Overlay {shown} {single} {groupBox} {turning} {guides} {sketch} {tool} {marquee} {scale} {width} {height} {editing} />
       {/if}
     </div>
   {/if}
@@ -622,151 +615,7 @@
   /* With a tool in hand the whole slide is somewhere to draw. */
   .stage-tool,
   .stage-tool :global([data-el]),
-  .stage-tool .knob {
+  .stage-tool :global(.knob) {
     cursor: crosshair !important;
-  }
-
-  .overlay {
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-  }
-
-  /* A pale edge around the line keeps it visible on a slide of the same colour. */
-  .frame {
-    position: absolute;
-    box-sizing: border-box;
-    outline: 1.5px solid #916dfe;
-    box-shadow: 0 0 0 2.5px rgb(255 255 255 / 0.6);
-  }
-
-  .frame-editing {
-    outline-style: dashed;
-  }
-
-  .frame-member {
-    outline-width: 1px;
-    outline-color: rgb(145 109 254 / 0.7);
-    box-shadow: none;
-  }
-
-  .frame-group {
-    outline-style: dashed;
-  }
-
-  .edge {
-    position: absolute;
-    pointer-events: auto;
-    cursor: move;
-  }
-
-  .edge-top,
-  .edge-bottom {
-    left: 0;
-    right: 0;
-    height: 10px;
-  }
-
-  .edge-left,
-  .edge-right {
-    top: 0;
-    bottom: 0;
-    width: 10px;
-  }
-
-  .edge-top {
-    top: -8px;
-  }
-
-  .edge-bottom {
-    bottom: -8px;
-  }
-
-  .edge-left {
-    left: -8px;
-  }
-
-  .edge-right {
-    right: -8px;
-  }
-
-  .knob {
-    position: absolute;
-    width: 11px;
-    height: 11px;
-    margin: -5.5px 0 0 -5.5px;
-    border: 1.5px solid #916dfe;
-    border-radius: 50%;
-    background: #fff;
-    pointer-events: auto;
-    cursor: crosshair;
-  }
-
-  /* A larger area than the eye sees, so handles are easy to hit, most of all by finger. */
-  .knob::after {
-    content: '';
-    position: absolute;
-    inset: -7px;
-  }
-
-  @media (pointer: coarse) {
-    .knob::after {
-      inset: -14px;
-    }
-  }
-
-  .knob-square {
-    border-radius: 2px;
-  }
-
-  .knob-rotate {
-    left: 50%;
-    top: -26px;
-    cursor: grab;
-  }
-
-  .rotate-stem {
-    position: absolute;
-    left: 50%;
-    top: -22px;
-    width: 1.5px;
-    height: 22px;
-    margin-left: -0.75px;
-    background: #916dfe;
-  }
-
-  .guide {
-    position: absolute;
-    background: #f0389b;
-  }
-
-  .marquee {
-    position: absolute;
-    border: 1px solid #916dfe;
-    background: rgb(145 109 254 / 0.12);
-  }
-
-  .sketch {
-    position: absolute;
-    box-sizing: border-box;
-    border: 1.5px dashed #916dfe;
-    background: rgb(145 109 254 / 0.1);
-  }
-
-  .sketch-round {
-    border-radius: 50%;
-  }
-
-  .sketch-line {
-    position: absolute;
-    left: 0;
-    top: 0;
-    overflow: visible;
-  }
-
-  .sketch-line line {
-    stroke: #916dfe;
-    stroke-width: 2;
-    stroke-dasharray: 6 4;
   }
 </style>

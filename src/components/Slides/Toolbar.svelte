@@ -15,10 +15,10 @@
   let { editorState, onPickImage }: Props = $props();
 
   type MenuName = 'layout' | 'shape' | 'size' | 'colour' | 'align' | 'fill' | 'border' | 'arrange' | 'relayout' | 'background' | 'theme' | 'motion'
-    | 'table' | 'tableEdit' | 'cellFill';
+    | 'table' | 'tableEdit' | 'cellFill' | 'cellLines';
   let open = $state<Record<MenuName, boolean>>({
     layout: false, shape: false, size: false, colour: false, align: false, fill: false, border: false, arrange: false, relayout: false, background: false, theme: false, motion: false,
-    table: false, tableEdit: false, cellFill: false,
+    table: false, tableEdit: false, cellFill: false, cellLines: false,
   });
   let anchors = $state<Partial<Record<MenuName, HTMLElement>>>({});
 
@@ -42,7 +42,7 @@
   let fill = $derived(shapes[0] ? resolveColour(shapes[0].fill, palette, palette.accent) : null);
   let stroke = $derived(outlined[0] ? resolveColour(outlined[0].stroke, palette, outlined[0].type === 'line' ? palette.text : outlined[0].type === 'table' ? palette.muted : null) : null);
   let cellFill = $derived(table ? activeCell(editorState)?.fill : undefined);
-  let cellChosen = $derived(!!table && !!activeCell(editorState));
+  let cellChosen = $derived(!!table && (!!activeCell(editorState) || !!editorState.pickedCells));
 
   const SHAPES: Array<{ shape: ShapeKind; label: string; icon: string }> = [
     { shape: 'rect', label: 'Rectangle', icon: 'i-lucide-square' },
@@ -317,9 +317,15 @@
         <span class="ink"><span class="i-lucide-paint-bucket"></span><span class="ink-bar" class:ink-none={!cellFill} style:background={resolveColour(cellFill, palette) ?? undefined}></span></span>{#if narrow}<span class="label">Cell fill</span>{/if}
       </button>
     {/if}
-    <button class="tool" bind:this={anchors.border} onclick={() => (open.border = !open.border)} title={boxed ? 'Border' : 'Line'} aria-label={boxed ? 'Border' : 'Line'} aria-expanded={open.border} data-testid="shape-border">
-      <span class="ink"><span class="i-lucide-pen-line"></span><span class="ink-bar" class:ink-none={!stroke} style:background={stroke ?? undefined}></span></span>{#if narrow}<span class="label">{boxed ? 'Border' : 'Line'}</span>{/if}
-    </button>
+    {#if table}
+      <button class="tool" bind:this={anchors.cellLines} onclick={() => (open.cellLines = !open.cellLines)} title="Cell lines" aria-label="Cell lines" aria-expanded={open.cellLines} data-testid="shape-border">
+        <span class="ink"><span class="i-lucide-grid-3x3"></span><span class="ink-bar" class:ink-none={!stroke} style:background={stroke ?? undefined}></span></span>{#if narrow}<span class="label">Lines</span>{/if}
+      </button>
+    {:else}
+      <button class="tool" bind:this={anchors.border} onclick={() => (open.border = !open.border)} title={boxed ? 'Border' : 'Line'} aria-label={boxed ? 'Border' : 'Line'} aria-expanded={open.border} data-testid="shape-border">
+        <span class="ink"><span class="i-lucide-pen-line"></span><span class="ink-bar" class:ink-none={!stroke} style:background={stroke ?? undefined}></span></span>{#if narrow}<span class="label">{boxed ? 'Border' : 'Line'}</span>{/if}
+      </button>
+    {/if}
 {/snippet}
 
 {#snippet selectionTools()}
@@ -393,15 +399,16 @@
   <ColourPanel value={shapes[0]?.fill} {palette} themeChoice="Theme colour" allowNone onPick={colour => pick(() => editorState.updateSelected({ fill: colour ?? undefined }))} />
 </Popover>
 
-{#if open.table || open.tableEdit || open.cellFill}
+{#if open.table || open.tableEdit || open.cellFill || open.cellLines}
   {#await loadTableMenus() then { default: TableMenus }}
     <TableMenus
       {editorState}
       {palette}
-      anchors={{ table: anchors.table, lines: anchors.tableEdit, fill: anchors.cellFill }}
+      anchors={{ table: anchors.table, lines: anchors.tableEdit, fill: anchors.cellFill, borders: anchors.cellLines }}
       bind:insertOpen={open.table}
       bind:linesOpen={open.tableEdit}
       bind:fillOpen={open.cellFill}
+      bind:bordersOpen={open.cellLines}
       onDone={close}
     />
   {/await}
