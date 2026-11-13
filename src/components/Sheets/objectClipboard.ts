@@ -7,7 +7,7 @@
 import type { SheetController } from '../../lib/sheets/controller.svelte';
 import type { CopiedCells } from '../../lib/sheets/controller.svelte';
 import { chartsNow, loadCharts } from './chartLoader';
-import { pngAt } from '../../lib/clipboardPng';
+import { dataUrlOf, pngAt } from '../../lib/pictures';
 import { escapeHtml } from '../../lib/markup';
 import { addObject, removeObject, type ChartContent, type SheetObject } from '../../lib/sheets/objects';
 
@@ -36,15 +36,6 @@ async function pngOf(ctl: SheetController, object: SheetObject): Promise<Blob> {
   return pngAt(url);
 }
 
-function dataUrl(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(blob);
-  });
-}
-
 /** Puts a picture or chart on the clipboard; with `cut`, takes it off the sheet. */
 export async function copyObject(ctl: SheetController, object: SheetObject, cut = false): Promise<void> {
   const token = Math.random().toString(36).slice(2, 12);
@@ -53,7 +44,7 @@ export async function copyObject(ctl: SheetController, object: SheetObject, cut 
   const html = png.then(async (blob) => {
     const { dx, dy, width, height } = object.placement;
     const note = escapeHtml(JSON.stringify({ dx, dy, width, height }));
-    return new Blob([`<img src="${await dataUrl(blob)}" width="${width}" height="${height}" data-iris-object="${note}" data-iris-token="${token}">`], { type: 'text/html' });
+    return new Blob([`<img src="${await dataUrlOf(blob)}" width="${width}" height="${height}" data-iris-object="${note}" data-iris-token="${token}">`], { type: 'text/html' });
   });
   try {
     await navigator.clipboard.write([new ClipboardItem({ 'image/png': png, 'text/html': html })]);

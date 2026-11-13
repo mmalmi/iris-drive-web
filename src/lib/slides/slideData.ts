@@ -3,6 +3,7 @@
  * from one reading of the deck to the next, and measuring a picture.
  */
 import type { Slide } from './model';
+import { pictureSize } from '../pictures';
 
 function shallowEqual(left: object, right: object): boolean {
   const leftKeys = Object.keys(left);
@@ -36,23 +37,6 @@ export function reuse(previous: Slide | undefined, next: Slide): Slide {
 
 /** The size of a picture in pixels; a guess when it cannot be read. */
 export async function imageSize(file: File): Promise<{ width: number; height: number }> {
-  try {
-    const bitmap = await createImageBitmap(file);
-    const size = { width: bitmap.width, height: bitmap.height };
-    bitmap.close();
-    if (size.width > 0 && size.height > 0) return size;
-  } catch {
-    // Some images (SVG) cannot be decoded this way; an <img> can still measure them.
-  }
-  return new Promise((resolve) => {
-    const url = URL.createObjectURL(file);
-    const image = new Image();
-    const done = (width: number, height: number) => {
-      URL.revokeObjectURL(url);
-      resolve({ width: width || 400, height: height || 300 });
-    };
-    image.onload = () => done(image.naturalWidth, image.naturalHeight);
-    image.onerror = () => done(400, 300);
-    image.src = url;
-  });
+  const size = await pictureSize(file);
+  return { width: size?.width || 400, height: size?.height || 300 };
 }

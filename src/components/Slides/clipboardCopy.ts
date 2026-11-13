@@ -5,11 +5,11 @@
  * in it. Loaded the first time something is copied.
  */
 import { WEB_CLIPBOARD_TYPE, clipboardHtml, type Copied } from '../../lib/slides/clipboard';
-import { dataUrlOf, withMediaBytes } from '../../lib/slides/clipboardMedia';
+import { dataUrlAt, withMediaBytes } from '../../lib/slides/clipboardMedia';
 import { snapshotPng } from '../../lib/slides/snapshot';
 import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../../lib/slides/model';
 import { frameBox, unionBox } from '../../lib/slides/geometry';
-import { pngAt } from '../../lib/clipboardPng';
+import { pngAt } from '../../lib/pictures';
 import type { SlidesEditorState } from '../../lib/slides/editorState.svelte';
 
 /** A picture of what was copied, drawn from the slide as it is on the page. */
@@ -59,7 +59,7 @@ export function pngOfSelection(state: SlidesEditorState, root: HTMLElement | und
 export async function makeClipboard(data: Copied, root: HTMLElement | undefined, urls?: Map<string, string>): Promise<{ png: Blob; html: Blob; own: Blob }> {
   const [payload, png] = await Promise.all([withMediaBytes(data.payload), pngOfCopy(data, root, urls)]);
   const url = URL.createObjectURL(png);
-  const image = await dataUrlOf(url).finally(() => URL.revokeObjectURL(url));
+  const image = await dataUrlAt(url).finally(() => URL.revokeObjectURL(url));
   return {
     png,
     html: new Blob([clipboardHtml(payload, data.text, image ?? undefined)], { type: 'text/html' }),
