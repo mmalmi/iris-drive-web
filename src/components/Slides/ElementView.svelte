@@ -6,7 +6,7 @@
   import { resolveColour, textStyle, type Palette, type Theme } from '../../lib/slides/themes';
   import type { SlidesEditorState } from '../../lib/slides/editorState.svelte';
   import { fontSizeCss } from '../../lib/slides/richText';
-  import { MIN_FIT, TEXT_PAD_Y, clearFit, fitText } from '../../lib/slides/fitText';
+  import { ELLIPSE_INSET, MIN_FIT, TEXT_PAD_Y, clearFit, fitText, roomInside } from '../../lib/slides/fitText';
   import RichText from './RichText.svelte';
   import TextEditor from './TextEditor.svelte';
 
@@ -64,20 +64,25 @@
     return { left, top, x1, y1, x2, y2, arrow };
   });
 
-  // Titles, subtitles and body text shrink to stay inside their box; see fitText.ts.
-  let autofit = $derived(element.type === 'text' && !!element.role);
+  // Titles, subtitles, body text and the words in a shape shrink to stay inside; see fitText.ts.
+  let autofit = $derived((element.type === 'text' && !!element.role) || element.type === 'shape');
   let textBox: HTMLElement | undefined = $state();
   let textInner: HTMLElement | undefined = $state();
+  // Text in an ellipse keeps to the rectangle that fits inside the curve.
+  let ellipsePadding = $derived(element.shape === 'ellipse'
+    ? `${Math.max(8, element.h * ELLIPSE_INSET)}px ${Math.max(12, element.w * ELLIPSE_INSET)}px`
+    : undefined);
 
   function fit(): void {
     if (!textBox || !textInner) return;
-    if (autofit && element.role) fitText(textBox, textInner, element.h - TEXT_PAD_Y * 2, MIN_FIT[element.role]);
+    if (element.type === 'shape') fitText(textBox, textInner, roomInside(textBox), MIN_FIT.shape);
+    else if (autofit && element.role) fitText(textBox, textInner, element.h - TEXT_PAD_Y * 2, MIN_FIT[element.role]);
     else clearFit(textBox);
   }
 
   $effect(() => {
     // Anything that changes how the text is laid out calls for fitting it again.
-    void [element.w, element.h, style.fontSize, style.fontFamily, style.fontWeight, style.lineHeight, autofit, editing, hint];
+    void [element.w, element.h, element.shape, style.fontSize, style.fontFamily, style.fontWeight, style.lineHeight, autofit, editing, hint];
     fit();
   });
 
@@ -140,8 +145,9 @@
       {#if element.content}
         <div
           class="el-text"
-          class:el-text-ellipse={element.shape === 'ellipse'}
+          class:el-text-shape={element.type === 'shape'}
           bind:this={textBox}
+          style:padding={ellipsePadding}
           style:font-family={style.fontFamily}
           style:font-size={fontSizeCss(style.fontSize)}
           style:font-weight={style.fontWeight}

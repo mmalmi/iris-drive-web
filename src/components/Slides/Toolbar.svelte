@@ -31,6 +31,8 @@
   let fontSize = $derived(editorState.fontSize);
   let align = $derived(editorState.align);
   let tool = $derived(editorState.tool);
+  /** With no slide there is nothing to put things on. */
+  let noSlide = $derived(!editorState.current);
   let textColour = $derived(editorState.textColour);
   let shownTextColour = $derived(resolveColour(textColour, palette) ?? style?.color ?? palette.text);
   let fill = $derived(shapes[0] ? resolveColour(shapes[0].fill, palette, palette.accent) : null);
@@ -49,7 +51,19 @@
 
   function close(): void {
     for (const name of Object.keys(open) as MenuName[]) open[name] = false;
+    sheetOpen = false;
   }
+
+  /** On a phone the row holds what is used most and the rest is in a sheet. */
+  const narrowScreen = window.matchMedia('(max-width: 639px)');
+  let narrow = $state(narrowScreen.matches);
+  let sheetOpen = $state(false);
+  let sheetButton: HTMLElement | undefined = $state();
+  $effect(() => {
+    const onChange = () => (narrow = narrowScreen.matches);
+    narrowScreen.addEventListener('change', onChange);
+    return () => narrowScreen.removeEventListener('change', onChange);
+  });
 
   function pick(action: () => void): void {
     close();
@@ -120,30 +134,102 @@
 
   <span class="divider"></span>
 
-  <div class="split">
-    <button class="tool labelled" onclick={() => editorState.addSlide()} title="New slide" data-testid="new-slide">
-      <span class="i-lucide-plus"></span><span class="label">Slide</span>
+  {#if narrow}
+    <!-- One button on a phone: it offers the layouts, and a tap on one adds the slide. -->
+    <button class="tool" bind:this={anchors.layout} onclick={() => (open.layout = !open.layout)} title="New slide" aria-label="New slide" aria-expanded={open.layout} data-testid="new-slide-layout">
+      <span class="i-lucide-plus"></span>
     </button>
-    <button class="tool caret" bind:this={anchors.layout} onclick={() => (open.layout = !open.layout)} title="Choose a layout" aria-label="Choose a layout" aria-expanded={open.layout} data-testid="new-slide-layout">
-      <span class="i-lucide-chevron-down"></span>
-    </button>
-  </div>
+  {:else}
+    <div class="split">
+      <button class="tool labelled" onclick={() => editorState.addSlide()} title="New slide" data-testid="new-slide">
+        <span class="i-lucide-plus"></span><span class="label">Slide</span>
+      </button>
+      <button class="tool caret" bind:this={anchors.layout} onclick={() => (open.layout = !open.layout)} title="Choose a layout" aria-label="Choose a layout" aria-expanded={open.layout} data-testid="new-slide-layout">
+        <span class="i-lucide-chevron-down"></span>
+      </button>
+    </div>
+  {/if}
 
   <span class="divider"></span>
 
   <!-- These pick up a tool: the next click or drag on the slide makes the thing there. -->
-  <button class="tool" class:on={tool?.kind === 'text'} onclick={() => editorState.armTool({ kind: 'text' })} title="Text box: click or drag on the slide" aria-label="Text box" aria-pressed={tool?.kind === 'text'} data-testid="add-text">
+  <button class="tool" class:on={tool?.kind === 'text'} onclick={() => editorState.armTool({ kind: 'text' })} disabled={noSlide} title="Text box: click or drag on the slide" aria-label="Text box" aria-pressed={tool?.kind === 'text'} data-testid="add-text">
     <span class="i-lucide-type"></span>
   </button>
-  <button class="tool" class:on={tool?.kind === 'shape' || tool?.kind === 'line'} bind:this={anchors.shape} onclick={() => (open.shape = !open.shape)} title="Shape: click or drag on the slide" aria-label="Shape" aria-expanded={open.shape} data-testid="add-shape">
+  <button class="tool" class:on={tool?.kind === 'shape' || tool?.kind === 'line'} bind:this={anchors.shape} onclick={() => (open.shape = !open.shape)} disabled={noSlide} title="Shape: click or drag on the slide" aria-label="Shape" aria-expanded={open.shape} data-testid="add-shape">
     <span class="i-lucide-shapes"></span>
   </button>
-  <button class="tool" onclick={onPickImage} title="Image" aria-label="Image" data-testid="add-image">
+  <button class="tool" onclick={onPickImage} disabled={noSlide} title="Image" aria-label="Image" data-testid="add-image">
     <span class="i-lucide-image"></span>
   </button>
 
+  {#if narrow}
+    <!-- On a phone the row keeps what is used most; the rest is one tap away, in a sheet. -->
+    {#if editorState.editingId && firstText}
+      <span class="divider"></span>
+      <button class="tool" class:on={editorState.markActive('bold')} onclick={() => editorState.toggleMark('bold')} title="Bold" aria-label="Bold" aria-pressed={editorState.markActive('bold')}>
+        <span class="i-lucide-bold"></span>
+      </button>
+      <button class="tool" class:on={editorState.listActive('bulletList')} onclick={() => editorState.toggleList('bulletList')} title="Bulleted list" aria-label="Bulleted list" aria-pressed={editorState.listActive('bulletList')}>
+        <span class="i-lucide-list"></span>
+      </button>
+    {:else if selected.length > 0}
+      <span class="divider"></span>
+      <button class="tool" onclick={() => editorState.deleteSelected()} title="Delete" aria-label="Delete selection" data-testid="delete-selection">
+        <span class="i-lucide-trash-2"></span>
+      </button>
+    {/if}
+    <span class="spacer"></span>
+    <button class="tool" class:on={sheetOpen} bind:this={sheetButton} onclick={() => (sheetOpen = !sheetOpen)} title="More tools" aria-label="More tools" aria-expanded={sheetOpen} data-testid="toolbar-more">
+      <span class="i-lucide-sliders-horizontal"></span>
+    </button>
+  {:else}
+    {@render formatting()}
+    {@render slideTools()}
+  {/if}
+</div>
+</div>
+
+<Popover bind:open={sheetOpen} anchor={sheetButton} label="Tools" sheet>
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="sheet-body" onmousedown={keepFocus} data-testid="toolbar-sheet">
+    {#if firstText && fontSize !== null}
+      <div class="menu-label">Text</div>
+      <div class="sheet-row">{@render textTools()}</div>
+    {/if}
+    {#if outlined.length > 0}
+      <div class="menu-label">{shapes.length ? 'Shape' : 'Line'}</div>
+      <div class="sheet-row">{@render shapeTools()}</div>
+    {/if}
+    {#if selected.length > 0}
+      <div class="menu-label">Selection</div>
+      <div class="sheet-row">{@render selectionTools()}</div>
+    {/if}
+    <div class="menu-label">Slide</div>
+    <div class="sheet-row">{@render slideTools()}</div>
+  </div>
+</Popover>
+
+{#snippet formatting()}
   {#if firstText && fontSize !== null}
     <span class="divider"></span>
+    {@render textTools()}
+  {/if}
+
+  {#if outlined.length > 0}
+    <span class="divider"></span>
+    {@render shapeTools()}
+  {/if}
+
+  {#if selected.length > 0}
+    <span class="divider"></span>
+    {@render selectionTools()}
+  {/if}
+
+  <span class="spacer"></span>
+{/snippet}
+
+{#snippet textTools()}
     <div class="size" data-testid="font-size">
       <button class="tool narrow" onclick={() => stepFontSize(-1)} title="Smaller" aria-label="Smaller text">
         <span class="i-lucide-minus"></span>
@@ -188,10 +274,9 @@
     <button class="tool" class:on={editorState.listActive('orderedList')} onclick={() => editorState.toggleList('orderedList')} title="Numbered list" aria-label="Numbered list" aria-pressed={editorState.listActive('orderedList')}>
       <span class="i-lucide-list-ordered"></span>
     </button>
-  {/if}
+{/snippet}
 
-  {#if outlined.length > 0}
-    <span class="divider"></span>
+{#snippet shapeTools()}
     {#if shapes.length > 0}
       <button class="tool" bind:this={anchors.fill} onclick={() => (open.fill = !open.fill)} title="Fill" aria-label="Fill" aria-expanded={open.fill} data-testid="shape-fill">
         <span class="ink"><span class="i-lucide-paint-bucket"></span><span class="ink-bar" class:ink-none={!fill} style:background={fill ?? undefined}></span></span>
@@ -200,10 +285,20 @@
     <button class="tool" bind:this={anchors.border} onclick={() => (open.border = !open.border)} title={shapes.length ? 'Border' : 'Line'} aria-label={shapes.length ? 'Border' : 'Line'} aria-expanded={open.border} data-testid="shape-border">
       <span class="ink"><span class="i-lucide-pen-line"></span><span class="ink-bar" class:ink-none={!stroke} style:background={stroke ?? undefined}></span></span>
     </button>
-  {/if}
+{/snippet}
 
-  {#if selected.length > 0}
-    <span class="divider"></span>
+{#snippet selectionTools()}
+  {#if narrow}
+    <button class="tool labelled" bind:this={anchors.arrange} onclick={() => (open.arrange = !open.arrange)} aria-expanded={open.arrange} data-testid="arrange">
+      <span class="i-lucide-layers"></span><span class="label">Arrange</span>
+    </button>
+    <button class="tool labelled" onclick={() => pick(() => editorState.duplicateSelected())}>
+      <span class="i-lucide-copy"></span><span class="label">Duplicate</span>
+    </button>
+    <button class="tool labelled" onclick={() => pick(() => editorState.deleteSelected())}>
+      <span class="i-lucide-trash-2"></span><span class="label">Delete</span>
+    </button>
+  {:else}
     <button class="tool" bind:this={anchors.arrange} onclick={() => (open.arrange = !open.arrange)} title="Arrange" aria-label="Arrange" aria-expanded={open.arrange} data-testid="arrange">
       <span class="i-lucide-layers"></span>
     </button>
@@ -211,20 +306,19 @@
       <span class="i-lucide-trash-2"></span>
     </button>
   {/if}
+{/snippet}
 
-  <span class="spacer"></span>
-
-  <button class="tool labelled" bind:this={anchors.relayout} onclick={() => (open.relayout = !open.relayout)} title="Slide layout" aria-label="Slide layout" aria-expanded={open.relayout} data-testid="slide-layout">
+{#snippet slideTools()}
+  <button class="tool labelled" bind:this={anchors.relayout} onclick={() => (open.relayout = !open.relayout)} disabled={noSlide} title="Slide layout" aria-label="Slide layout" aria-expanded={open.relayout} data-testid="slide-layout">
     <span class="i-lucide-layout-template"></span><span class="label roomy">Layout</span>
   </button>
-  <button class="tool labelled" bind:this={anchors.background} onclick={() => (open.background = !open.background)} title="Slide background" aria-label="Slide background" aria-expanded={open.background} data-testid="slide-background">
+  <button class="tool labelled" bind:this={anchors.background} onclick={() => (open.background = !open.background)} disabled={noSlide} title="Slide background" aria-label="Slide background" aria-expanded={open.background} data-testid="slide-background">
     <span class="i-lucide-paint-roller"></span><span class="label roomy">Background</span>
   </button>
   <button class="tool labelled" bind:this={anchors.theme} onclick={() => (open.theme = !open.theme)} title="Theme" aria-label="Theme" aria-expanded={open.theme} data-testid="deck-theme">
     <span class="i-lucide-palette"></span><span class="label roomy">Theme</span>
   </button>
-</div>
-</div>
+{/snippet}
 
 {#snippet layoutChoices(prefix: string, current: string | undefined, choose: (id: string) => void)}
   <div class="layouts">
@@ -632,5 +726,43 @@
     .themes {
       grid-template-columns: repeat(2, 104px);
     }
+
+    /* Big enough for a finger, and few enough to fit across a phone without scrolling. */
+    .tool {
+      min-width: 34px;
+      height: 36px;
+      padding: 0 6px;
+    }
+
+    .toolbar {
+      padding: 4px 6px;
+    }
+
+    .toolbar > .divider {
+      display: none;
+    }
+  }
+
+  .sheet-body {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .sheet-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+    padding: 0 2px 6px;
+  }
+
+  .sheet-row .label {
+    display: inline;
+  }
+
+  .sheet-row .labelled {
+    padding: 0 12px 0 10px;
+    background: rgb(var(--surface-2) / 0.6);
   }
 </style>
