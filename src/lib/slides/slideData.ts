@@ -29,7 +29,8 @@ export function reuse(previous: Slide | undefined, next: Slide): Slide {
   const same = elements.length === previous.elements.length
     && elements.every((element, index) => element === previous.elements[index])
     && previous.pos === next.pos && previous.layout === next.layout
-    && previous.background === next.background && previous.notes === next.notes;
+    && previous.background === next.background && previous.notes === next.notes
+    && previous.transition === next.transition && previous.build === next.build;
   return same ? previous : { ...next, elements };
 }
 

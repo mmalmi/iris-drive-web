@@ -203,7 +203,12 @@
       onpointercancel={event => onPointerUp(event, slide.id)}
       oncontextmenu={event => onContextMenu(event, slide.id)}
     >
-      <span class="number">{index + 1}</span>
+      <span class="number">
+        {index + 1}
+        {#if slide.transition || slide.build}
+          <span class="motion i-lucide-sparkles" title="Moves when presented" data-testid="slide-moves"></span>
+        {/if}
+      </span>
       <div class="thumb">
         <SlideView {slide} theme={editorState.theme} {urls} width={thumbWidth} />
         {#if canEdit}
@@ -289,6 +294,20 @@
     font-variant-numeric: tabular-nums;
     color: rgb(var(--text-2));
     user-select: none;
+  }
+
+  .motion {
+    display: block;
+    margin: 4px 0 0 auto;
+    font-size: 0.75rem;
+    color: #916dfe;
+  }
+
+  .sideways .motion {
+    display: inline-block;
+    margin: 0 0 0 3px;
+    vertical-align: -1px;
+    color: #fff;
   }
 
   .sideways .number {

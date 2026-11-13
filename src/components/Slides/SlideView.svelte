@@ -8,6 +8,7 @@
   import { paletteFor, resolveColour, type Theme } from '../../lib/slides/themes';
   import type { SlidesEditorState } from '../../lib/slides/editorState.svelte';
   import ElementView from './ElementView.svelte';
+  import { buildPlan } from '../../lib/slides/motion';
 
   interface Props {
     slide: Slide;
@@ -18,8 +19,12 @@
     /** Frames to draw in place of the stored ones, while something is being dragged. */
     overrides?: Record<string, Partial<Frame>>;
     editorState?: SlidesEditorState;
+    /** While presenting: how many steps of the slide's build have been taken. Everything shows when undefined. */
+    step?: number;
   }
-  let { slide, theme, urls, width, overrides, editorState }: Props = $props();
+  let { slide, theme, urls, width, overrides, editorState, step }: Props = $props();
+
+  let plan = $derived(step === undefined ? null : buildPlan(slide));
 
   let scale = $derived(width / SLIDE_WIDTH);
   let palette = $derived(paletteFor(theme, slide.layout));
@@ -42,6 +47,7 @@
   >
     {#each slide.elements as element (element.id)}
       {@const moved = overrides?.[element.id]}
+      {@const offset = plan?.offsets.get(element.id)}
       <ElementView
         element={moved ? { ...element, ...moved } : element}
         {theme}
@@ -50,6 +56,7 @@
         {urls}
         {editorState}
         revision={editorState?.revision}
+        reveal={offset === undefined || step === undefined ? undefined : step - offset}
       />
     {/each}
   </div>
@@ -218,6 +225,24 @@
 
   .slide-surface :global(.slide-text li.slide-empty-point::marker) {
     content: '';
+  }
+
+  /* A point of a slide that builds, as it comes in. */
+  .slide-surface :global(.point-in) {
+    animation: point-in 0.35s ease-out;
+  }
+
+  @keyframes point-in {
+    from {
+      opacity: 0;
+      transform: translateY(0.3em);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .slide-surface :global(.point-in) {
+      animation: none;
+    }
   }
 
   .slide-surface :global(.el-hint) {

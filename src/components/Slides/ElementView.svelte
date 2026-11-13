@@ -21,8 +21,10 @@
     editorState?: SlidesEditorState;
     /** Goes up when the deck changes, so emptiness is looked at again. */
     revision?: number;
+    /** While presenting a slide that builds: how many of this box's points are shown. All when undefined. */
+    reveal?: number;
   }
-  let { element, theme, palette, layout, urls, editorState, revision = 0 }: Props = $props();
+  let { element, theme, palette, layout, urls, editorState, revision = 0, reveal }: Props = $props();
 
   let editing = $derived(!!editorState && editorState.editingId === element.id);
   let style = $derived(textStyle(element, theme, layout));
@@ -173,7 +175,7 @@
             {:else if hint}
               <div class="slide-text el-hint"><p>{hint}</p></div>
             {:else}
-              <RichText fragment={element.content} onDrawn={fit} />
+              <RichText fragment={element.content} onDrawn={fit} {reveal} />
             {/if}
           </div>
         </div>

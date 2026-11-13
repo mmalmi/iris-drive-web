@@ -6,15 +6,17 @@
   import type { SlidesEditorState } from '../../lib/slides/editorState.svelte';
   import Popover from './Popover.svelte';
   import ColourPanel from './ColourPanel.svelte';
+  import { TRANSITIONS } from '../../lib/slides/motion';
 
   interface Props {
     editorState: SlidesEditorState;
     palette: Palette;
-    anchors: { layout?: HTMLElement; relayout?: HTMLElement; background?: HTMLElement; theme?: HTMLElement };
+    anchors: { layout?: HTMLElement; relayout?: HTMLElement; background?: HTMLElement; theme?: HTMLElement; motion?: HTMLElement };
     layoutOpen: boolean;
     relayoutOpen: boolean;
     backgroundOpen: boolean;
     themeOpen: boolean;
+    motionOpen: boolean;
     /** Closes these and every other menu of the toolbar. */
     onDone: () => void;
   }
@@ -26,8 +28,12 @@
     relayoutOpen = $bindable(),
     backgroundOpen = $bindable(),
     themeOpen = $bindable(),
+    motionOpen = $bindable(),
     onDone,
   }: Props = $props();
+
+  let current = $derived(editorState.current);
+  let several = $derived(editorState.pickedSlides.length > 1);
 
   function pick(action: () => void): void {
     onDone();
@@ -88,6 +94,29 @@
       </button>
     {/each}
   </div>
+</Popover>
+
+<Popover bind:open={motionOpen} anchor={anchors.motion} label="Transition">
+  <div class="menu-label">{several ? 'How these slides come on screen' : 'How this slide comes on screen'}</div>
+  {#each TRANSITIONS as choice (choice.id)}
+    <button class="menu-item" onclick={() => editorState.setMotion({ transition: choice.id })} aria-pressed={(current?.transition ?? 'none') === choice.id} data-testid="transition-{choice.id}">
+      <span class={choice.id === 'none' ? 'i-lucide-square' : choice.id === 'fade' ? 'i-lucide-blend' : 'i-lucide-move-right'}></span>{choice.label}
+      {#if (current?.transition ?? 'none') === choice.id}<span class="i-lucide-check ml-auto"></span>{/if}
+    </button>
+  {/each}
+  <div class="menu-divider"></div>
+  <button class="menu-item" onclick={() => editorState.setMotion({ build: !current?.build })} aria-pressed={!!current?.build} data-testid="slide-build">
+    <span class="i-lucide-list-start"></span>Show points one at a time
+    {#if current?.build}<span class="i-lucide-check ml-auto"></span>{/if}
+  </button>
+  <div class="menu-divider"></div>
+  <button
+    class="menu-item"
+    onclick={() => pick(() => editorState.setMotion({ transition: current?.transition ?? 'none', build: !!current?.build }, true))}
+    data-testid="motion-everywhere"
+  >
+    <span class="i-lucide-copy-check"></span>Use for every slide
+  </button>
 </Popover>
 
 <style>

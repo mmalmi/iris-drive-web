@@ -12,6 +12,8 @@
  *                                 devices opening a new deck at once end up with one such slide
  *                     seedBy      the browser that made that slide, so it can still tidy it away
  *                                 after a reload
+ *                     transition  how it comes on screen when presenting: 'fade' or 'slide' (none when absent)
+ *                     build       true when its points are shown one at a time (see motion.ts)
  *                     notes       Y.Text, the speaker notes
  *                     elements    Y.Map  <element id> → Y.Map
  *                                   type     'text' | 'shape' | 'line' | 'image'
@@ -51,6 +53,7 @@ import {
   richTextToPlain,
   type RichTextJson,
 } from './richTextData';
+import { readTransition, type Transition } from './motion';
 import { ensureCell, insertLine, readTable, removeLine, setCellFill, tableFragments, tableToJson, writeTable, type TableData, type TableJson } from './table';
 
 export { richTextIsEmpty, richTextToJson, richTextToPlain, type RichTextJson };
@@ -116,6 +119,8 @@ export interface Slide {
   seed?: boolean;
   /** The browser that made it, when known. */
   seedBy?: string;
+  transition?: Transition;
+  build?: boolean;
   notes: Y.Text | null;
   /** Lowest first. */
   elements: SlideElement[];
@@ -236,6 +241,9 @@ export function readSlide(id: string, map: unknown): Slide | null {
     notes: notes instanceof Y.Text ? notes : null,
     elements,
   };
+  const transition = readTransition(map.get('transition'));
+  if (transition) slide.transition = transition;
+  if (map.get('build') === true) slide.build = true;
   if (map.get('seed') === true) {
     slide.seed = true;
     const by = text(map.get('seedBy'));
@@ -357,6 +365,8 @@ export class Deck {
         map.set('pos', keyBetween(source.pos, order[index + 1]?.pos));
         map.set('layout', source.layout);
         if (source.background) map.set('background', source.background);
+        if (source.transition) map.set('transition', source.transition);
+        if (source.build) map.set('build', true);
         const notes = new Y.Text();
         map.set('notes', notes);
         if (source.notes) notes.insert(0, source.notes.toString());
@@ -397,6 +407,24 @@ export class Deck {
       if (contiguous && order[from - 1] === before && order[from + moving.length] === after) return;
       const keys = keysBetween(before?.pos, after?.pos, moving.length);
       moving.forEach((slide, position) => this.slides.get(slide.id)?.set('pos', keys[position]!));
+    });
+  }
+
+  /** Sets how slides come on screen and whether their points come one at a time; null takes either away. */
+  setSlideMotion(ids: string[], motion: { transition?: Transition | null; build?: boolean | null }): void {
+    this.transact(() => {
+      for (const id of ids) {
+        const map = this.slides.get(id);
+        if (!map) continue;
+        if (motion.transition !== undefined) {
+          if (motion.transition && motion.transition !== 'none') map.set('transition', motion.transition);
+          else if (map.has('transition')) map.delete('transition');
+        }
+        if (motion.build !== undefined) {
+          if (motion.build) map.set('build', true);
+          else if (map.has('build')) map.delete('build');
+        }
+      }
     });
   }
 

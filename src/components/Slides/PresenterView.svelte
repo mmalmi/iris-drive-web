@@ -76,13 +76,16 @@
   });
 </script>
 
-<div class="presenter" bind:this={root} tabindex="-1" role="application" aria-label="Presenter view" data-testid="presenter-view" data-slide-index={run.ended ? -1 : run.index}>
+<div class="presenter" bind:this={root} tabindex="-1" role="application" aria-label="Presenter view" data-testid="presenter-view" data-slide-index={run.ended ? -1 : run.index} data-step={run.step}>
   <header class="bar">
     <span class="clock" title="Time" data-testid="presenter-clock">{clock}</span>
     <button class="timer" onclick={() => (startedAt = Date.now())} title="Start the timer again" data-testid="presenter-timer">
       <span class="i-lucide-timer"></span>{elapsed}
     </button>
     <span class="name">{title}</span>
+    {#if run.steps > 0 && !run.ended}
+      <span class="points" data-testid="presenter-points">Point {run.step} of {run.steps}</span>
+    {/if}
     <span class="count" data-testid="presenter-count">{run.count ? (run.ended ? run.count : run.index + 1) : 0} / {run.count}</span>
   </header>
 
@@ -92,7 +95,7 @@
         <div class="closing">{run.count ? 'End of presentation' : 'No slides'}</div>
       {:else if currentWidth > 0}
         <div class="current" data-testid="presenter-current">
-          <SlideView {slide} {theme} {urls} width={currentWidth} />
+          <SlideView {slide} {theme} {urls} width={currentWidth} step={run.step} />
         </div>
       {/if}
     </section>
@@ -101,8 +104,11 @@
       <div class="coming" bind:clientWidth={sideWidth}>
         <h2>Next</h2>
         <div class="next" data-testid="presenter-next">
-          {#if following && sideWidth > 0}
-            <SlideView slide={following} {theme} {urls} width={sideWidth} />
+          {#if slide && run.step < run.steps && sideWidth > 0}
+            <!-- What the next press brings: the next point of this slide. -->
+            <SlideView {slide} {theme} {urls} width={sideWidth} step={run.step + 1} />
+          {:else if following && sideWidth > 0}
+            <SlideView slide={following} {theme} {urls} width={sideWidth} step={0} />
           {:else}
             <div class="nothing" style:aspect-ratio="16 / 9">{run.ended ? '' : 'Last slide'}</div>
           {/if}
@@ -182,6 +188,12 @@
     text-align: center;
     font-size: 0.875rem;
     color: #a4a6ad;
+  }
+
+  .points {
+    font-size: 0.875rem;
+    color: #a4a6ad;
+    font-variant-numeric: tabular-nums;
   }
 
   .count {

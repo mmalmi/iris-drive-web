@@ -33,6 +33,7 @@ import { MAX_FONT_SIZE, MIN_FONT_SIZE, selectAllText } from './richText';
 import { comparePositions } from './order';
 import { cellPlace, newTable, stepCell } from './table';
 import { growTable } from './tableEditing';
+import { readTransition, type Transition } from './motion';
 import { imageSize, reuse } from './slideData';
 
 /** Transaction origin of a table cell made because someone began typing where none was; not something to undo. */
@@ -43,6 +44,8 @@ export const CLIPBOARD_TYPE = 'application/x-iris-slides';
 interface ClipboardSlide {
   layout: string;
   background?: string;
+  transition?: Transition;
+  build?: boolean;
   notes: string;
   elements: ElementJson[];
 }
@@ -444,6 +447,16 @@ export class SlidesEditorState {
     this.#act(() => this.deck.transact(() => {
       for (const id of ids) this.deck.setSlideBackground(id, colour);
     }), 'background');
+  }
+
+  /** How the picked slides (every slide when `everywhere`) come on screen, and whether their points come one at a time. */
+  setMotion(motion: { transition?: Transition; build?: boolean }, everywhere = false): void {
+    if (!this.canEdit) return;
+    this.#act(() => this.deck.setSlideMotion(everywhere ? this.slides.map(slide => slide.id) : this.#pickedOrCurrent(), motion));
+  }
+
+  #pickedOrCurrent(): string[] {
+    return this.pickedSlides.length ? this.pickedSlides : this.currentId ? [this.currentId] : [];
   }
 
   setTheme(id: string): void {
@@ -930,6 +943,8 @@ export class SlidesEditorState {
           slides: slides.map(slide => ({
             layout: slide.layout,
             ...(slide.background ? { background: slide.background } : {}),
+            ...(slide.transition ? { transition: slide.transition } : {}),
+            ...(slide.build ? { build: true } : {}),
             notes: slide.notes?.toString() ?? '',
             elements: slide.elements.map(elementToJson),
           })),
@@ -956,6 +971,7 @@ export class SlidesEditorState {
       const ids = this.#act(() => this.deck.transact(() => payload.slides!.map((slide) => {
         const id = this.deck.addSlide(typeof slide.layout === 'string' ? slide.layout : 'blank', (slide.elements ?? []) as ElementInit[], after, slide.background);
         if (slide.notes) this.deck.setNotes(id, String(slide.notes));
+        if (slide.transition || slide.build) this.deck.setSlideMotion([id], { transition: readTransition(slide.transition), build: slide.build === true });
         after = id;
         return id;
       })));

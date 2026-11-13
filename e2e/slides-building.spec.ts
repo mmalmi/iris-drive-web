@@ -142,6 +142,74 @@ test.describe('building a talk', () => {
     await expect(thumbs(page).nth(1).locator('[data-cell]')).toHaveCount(9);
   });
 
+  test('slides come in with a transition, and points one at a time, also in the presenter\'s window', async ({ page, context, relayUrl }) => {
+    await prepareFreshSession(page, relayUrl);
+    await createDriveProfile(page);
+    await createPresentation(page, 'Moving');
+    await page.keyboard.type('Moving');
+    await page.keyboard.press('ControlOrMeta+m');
+    await page.keyboard.type('Three things');
+    await page.keyboard.press('Tab');
+    await page.keyboard.type('First');
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('Second');
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('Third');
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Escape');
+
+    // This slide slides in and shows its points one at a time; the strip marks it.
+    await page.getByTestId('slide-motion').click();
+    await page.getByTestId('transition-slide').click();
+    await page.getByTestId('slide-build').click();
+    await expect(page.getByTestId('slide-build')).toHaveAttribute('aria-pressed', 'true');
+    await shot(page, 'build-05-motion-menu');
+    await page.keyboard.press('Escape');
+    await expect(thumbs(page).nth(1).getByTestId('slide-moves')).toBeVisible();
+    await expect(thumbs(page).nth(0).getByTestId('slide-moves')).toHaveCount(0);
+    await expectSlidesSaved(page);
+
+    await thumbs(page).nth(0).click();
+    await page.getByTestId('slides-more').click();
+    const opening = context.waitForEvent('page');
+    await page.getByTestId('present-with-notes').click();
+    const presenter = await opening;
+    const audience = page.getByTestId('present-view');
+    const view = presenter.getByTestId('presenter-view');
+    await expect(view).toBeVisible({ timeout: 60_000 });
+    const shownPoints = () => audience.locator('li').evaluateAll(items => items.filter(item => getComputedStyle(item).visibility !== 'hidden').map(item => item.textContent));
+
+    await page.keyboard.press('ArrowRight');
+    await expect(audience).toHaveAttribute('data-slide-index', '1');
+    await expect(audience).toHaveAttribute('data-step', '0');
+    await expect(audience).toContainText('Three things');
+    expect(await shownPoints()).toEqual([]);
+    await expect(view).toHaveAttribute('data-step', '0');
+    await expect(presenter.getByTestId('presenter-points')).toHaveText('Point 0 of 3');
+    await page.keyboard.press('ArrowRight');
+    await expect(audience).toHaveAttribute('data-step', '1');
+    await expect.poll(shownPoints).toEqual(['First']);
+    // The presenter's window moves the points on too, and shows what comes next.
+    await presenter.keyboard.press('ArrowRight');
+    await expect(audience).toHaveAttribute('data-step', '2');
+    await expect.poll(shownPoints).toEqual(['First', 'Second']);
+    await expect(view).toHaveAttribute('data-step', '2');
+    await presenter.setViewportSize({ width: 1180, height: 720 });
+    await shot(presenter, 'build-06-presenter-points');
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('ArrowRight');
+    await expect(audience).toHaveAttribute('data-slide-index', '-1');
+    // Back from the end: the slide is there complete.
+    await page.keyboard.press('ArrowLeft');
+    await expect(audience).toHaveAttribute('data-slide-index', '1');
+    await expect.poll(shownPoints).toEqual(['First', 'Second', 'Third']);
+    await page.keyboard.press('Escape');
+    await expect(audience).toHaveCount(0);
+    // In the editor every point shows, as always.
+    await expect(elements(page, 'text').nth(1).locator('li')).toHaveCount(3);
+    expect(await elements(page, 'text').nth(1).locator('li').evaluateAll(items => items.every(item => getComputedStyle(item).visibility !== 'hidden'))).toBe(true);
+  });
+
   test('on a phone the common tools fit in one row, and simple edits are easy', async ({ page, browser, relayUrl }) => {
     await prepareFreshSession(page, relayUrl);
     await createDriveProfile(page);

@@ -16,10 +16,10 @@
   }
   let { editorState, onPickImage }: Props = $props();
 
-  type MenuName = 'layout' | 'shape' | 'size' | 'colour' | 'align' | 'fill' | 'border' | 'arrange' | 'relayout' | 'background' | 'theme'
+  type MenuName = 'layout' | 'shape' | 'size' | 'colour' | 'align' | 'fill' | 'border' | 'arrange' | 'relayout' | 'background' | 'theme' | 'motion'
     | 'table' | 'tableEdit' | 'cellFill';
   let open = $state<Record<MenuName, boolean>>({
-    layout: false, shape: false, size: false, colour: false, align: false, fill: false, border: false, arrange: false, relayout: false, background: false, theme: false,
+    layout: false, shape: false, size: false, colour: false, align: false, fill: false, border: false, arrange: false, relayout: false, background: false, theme: false, motion: false,
     table: false, tableEdit: false, cellFill: false,
   });
   let anchors = $state<Partial<Record<MenuName, HTMLElement>>>({});
@@ -341,6 +341,9 @@
   <button class="tool labelled" bind:this={anchors.background} onclick={() => (open.background = !open.background)} disabled={noSlide} title="Slide background" aria-label="Slide background" aria-expanded={open.background} data-testid="slide-background">
     <span class="i-lucide-paint-roller"></span><span class="label roomy">Background</span>
   </button>
+  <button class="tool labelled" class:on={!!(editorState.current?.transition || editorState.current?.build)} bind:this={anchors.motion} onclick={() => (open.motion = !open.motion)} disabled={noSlide} title="Transition" aria-label="Transition" aria-expanded={open.motion} data-testid="slide-motion">
+    <span class="i-lucide-sparkles"></span><span class="label roomy">Transition</span>
+  </button>
   <button class="tool labelled" bind:this={anchors.theme} onclick={() => (open.theme = !open.theme)} title="Theme" aria-label="Theme" aria-expanded={open.theme} data-testid="deck-theme">
     <span class="i-lucide-palette"></span><span class="label roomy">Theme</span>
   </button>
@@ -445,11 +448,12 @@
 <SlideMenus
   {editorState}
   {palette}
-  anchors={{ layout: anchors.layout, relayout: anchors.relayout, background: anchors.background, theme: anchors.theme }}
+  anchors={{ layout: anchors.layout, relayout: anchors.relayout, background: anchors.background, theme: anchors.theme, motion: anchors.motion }}
   bind:layoutOpen={open.layout}
   bind:relayoutOpen={open.relayout}
   bind:backgroundOpen={open.background}
   bind:themeOpen={open.theme}
+  bind:motionOpen={open.motion}
   onDone={close}
 />
 

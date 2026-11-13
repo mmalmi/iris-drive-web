@@ -9,6 +9,8 @@ export interface Showing {
   slideId: string | null;
   /** True on the closing screen after the last slide. */
   ended: boolean;
+  /** How many points of a slide that builds are in; missing from windows of older versions. */
+  step?: number;
 }
 
 type Message =
