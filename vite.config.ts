@@ -126,6 +126,11 @@ export default defineConfig({
     },
   },
   optimizeDeps: {
+    // Scan every source file, not only what index.html reaches: components
+    // loaded with `{#await import(...)}` in markup are invisible to the scan,
+    // and each dependency found late makes the dev server re-bundle and
+    // reload every open page.
+    entries: ['index.html', 'src/**/*.svelte', 'src/**/*.ts', '!src/**/*.d.ts'],
     include: [
       '@noble/hashes/utils.js',
       '@scure/base',
@@ -137,6 +142,10 @@ export default defineConfig({
       // The service worker loads after the page's dependency scan. Prebundle
       // its imports too so a cold start cannot replace the worker mid-session.
       'workbox-precaching',
+      // The storage worker (excluded below) imports dexie. Nothing else on the
+      // page does since the wallet loads on demand, so without this a cold
+      // dev cache serves dexie's UMD build to the worker and the worker crashes.
+      'dexie',
     ],
     exclude: [
       '@hashtree/worker',
