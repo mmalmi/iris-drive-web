@@ -23,13 +23,13 @@ test.describe('Mobile Search', () => {
     await page.getByRole('button', { name: 'Search' }).click();
 
     // Search input should now be visible and expanded (use :visible to get the mobile search, not the hidden desktop one)
-    await expect(page.locator('header input[placeholder="Search"]:visible')).toBeVisible();
+    await expect(page.locator('header input[placeholder="Search Drive"]:visible')).toBeVisible();
   });
 
   test('should collapse search when clicking close button', async ({ page }) => {
     // Click the search icon to expand
     await page.getByRole('button', { name: 'Search' }).click();
-    await expect(page.locator('header input[placeholder="Search"]:visible')).toBeVisible();
+    await expect(page.locator('header input[placeholder="Search Drive"]:visible')).toBeVisible();
 
     // Click the close button (X icon)
     await page.getByRole('button', { name: 'Close search' }).click();
@@ -43,7 +43,7 @@ test.describe('Mobile Search', () => {
     await page.setViewportSize({ width: 1200, height: 800 });
 
     // Regular search should be visible on desktop
-    await expect(page.locator('header input[placeholder="Search"]')).toBeVisible();
+    await expect(page.locator('header input[placeholder="Search Drive"]')).toBeVisible();
 
     // Mobile search icon should be hidden on desktop
     await expect(page.getByRole('button', { name: 'Search' })).toBeHidden();

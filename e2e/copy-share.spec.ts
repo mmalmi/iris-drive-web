@@ -29,10 +29,13 @@ test.describe('Copy and Share functionality', () => {
     }
   }
 
-  // The share button of the signed-in Drive's own folder.
+  // The share button of the signed-in Drive's own folder, which shows once the folder holds something.
   async function goToProfile(page) {
     await closeModals(page);
     await page.getByTestId('home-link').click();
+    await page.waitForFunction(() => (window as any).__testHelpers?.uploadSingleFile);
+    await page.evaluate(() => (window as any).__testHelpers.uploadSingleFile('note.txt', new TextEncoder().encode('share me')));
+    await expect(page.getByTitle('Share').filter({ visible: true }).first()).toBeVisible({ timeout: 30_000 });
     await closeModals(page);
   }
 
@@ -41,14 +44,14 @@ test.describe('Copy and Share functionality', () => {
       await goToProfile(page);
 
       // Click share button (use first() for desktop layout)
-      await page.getByRole('button', { name: 'Share' }).first().click();
+      await page.getByTitle('Share').filter({ visible: true }).first().click();
       await expect(page.getByTestId('share-modal')).toBeVisible();
     });
 
     test('should display QR code in share modal', async ({ page }) => {
       await goToProfile(page);
 
-      await page.getByRole('button', { name: 'Share' }).first().click();
+      await page.getByTitle('Share').filter({ visible: true }).first().click();
       await expect(page.getByTestId('share-modal')).toBeVisible();
 
       const qrCode = page.getByTestId('share-qr-code');
@@ -62,21 +65,21 @@ test.describe('Copy and Share functionality', () => {
     test('should show URL with copy button in share modal', async ({ page }) => {
       await goToProfile(page);
 
-      await page.getByRole('button', { name: 'Share' }).first().click();
+      await page.getByTitle('Share').filter({ visible: true }).first().click();
       await expect(page.getByTestId('share-modal')).toBeVisible();
 
       const copyUrl = page.getByTestId('share-copy-url');
       await expect(copyUrl).toBeVisible();
 
-      // Should contain npub in the URL
+      // A Drive address: the folder's snapshot or its owner's tree
       const text = await copyUrl.textContent();
-      expect(text).toContain('npub');
+      expect(text).toMatch(/#\/(nhash|npub)1/);
     });
 
     test('should copy URL when clicking copy in share modal', async ({ page }) => {
       await goToProfile(page);
 
-      await page.getByRole('button', { name: 'Share' }).first().click();
+      await page.getByTitle('Share').filter({ visible: true }).first().click();
       await expect(page.getByTestId('share-modal')).toBeVisible();
 
       const copyUrl = page.getByTestId('share-copy-url');
@@ -89,7 +92,7 @@ test.describe('Copy and Share functionality', () => {
     test('should close share modal when clicking backdrop', async ({ page }) => {
       await goToProfile(page);
 
-      await page.getByRole('button', { name: 'Share' }).first().click();
+      await page.getByTitle('Share').filter({ visible: true }).first().click();
       await expect(page.getByTestId('share-modal')).toBeVisible();
 
       await page.getByTestId('share-modal-backdrop').click({ position: { x: 10, y: 10 } });
@@ -101,7 +104,7 @@ test.describe('Copy and Share functionality', () => {
     test('should close share modal when clicking QR code', async ({ page }) => {
       await goToProfile(page);
 
-      await page.getByRole('button', { name: 'Share' }).first().click();
+      await page.getByTitle('Share').filter({ visible: true }).first().click();
       await expect(page.getByTestId('share-modal')).toBeVisible();
 
       await page.getByTestId('share-qr-code').click();
@@ -113,7 +116,7 @@ test.describe('Copy and Share functionality', () => {
     test('should close share modal with Escape key', async ({ page }) => {
       await goToProfile(page);
 
-      await page.getByRole('button', { name: 'Share' }).first().click();
+      await page.getByTitle('Share').filter({ visible: true }).first().click();
       await expect(page.getByTestId('share-modal')).toBeVisible();
 
       await page.keyboard.press('Escape');

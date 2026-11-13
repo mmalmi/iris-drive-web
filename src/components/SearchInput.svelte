@@ -63,10 +63,13 @@
     return roots;
   }
 
-  let recents = $derived($recentsStore.map((item) => {
-    const shown = recentDisplay(item, ownProfileId, $acceptedShares);
-    return { name: shown.name, icon: shown.icon, href: recentHref(item), detail: timeAgo(item.timestamp) };
-  }));
+  let recents = $derived($recentsStore
+    .map((item) => {
+      const shown = recentDisplay(item, ownProfileId, $acceptedShares);
+      return { name: shown.name, icon: shown.icon, href: recentHref(item), detail: timeAgo(item.timestamp) };
+    })
+    // Two entries can lead to the same place; it is listed once.
+    .filter((item, index, all) => all.findIndex((other) => other.href === item.href) === index));
 
   function refresh() {
     const query = value.trim().toLowerCase();
