@@ -176,6 +176,7 @@ describe('Drive FIPS identity selection', () => {
       now: () => now,
       maxAgeMs: 10_000,
       refreshAfterMs: 4_000,
+      failedRetryMs: 2_000,
     });
 
     await expect(source()).resolves.toEqual([adminPubkey]);
@@ -203,5 +204,21 @@ describe('Drive FIPS identity selection', () => {
     now += 6_000;
     refreshRosterOps.mockRejectedValueOnce(new Error('relay offline'));
     await expect(source()).resolves.toEqual([]);
+    const failedChecks = refreshRosterOps.mock.calls.length;
+
+    // Failed: stays empty without asking again until the wait is over, then doubles it.
+    now += 1_900;
+    await expect(source()).resolves.toEqual([]);
+    expect(refreshRosterOps).toHaveBeenCalledTimes(failedChecks);
+    now += 100;
+    refreshRosterOps.mockRejectedValueOnce(new Error('relay offline'));
+    await expect(source()).resolves.toEqual([]);
+    expect(refreshRosterOps).toHaveBeenCalledTimes(failedChecks + 1);
+    now += 3_900;
+    await expect(source()).resolves.toEqual([]);
+    expect(refreshRosterOps).toHaveBeenCalledTimes(failedChecks + 1);
+    now += 100;
+    await expect(source()).resolves.toEqual([adminPubkey]);
+    expect(refreshRosterOps).toHaveBeenCalledTimes(failedChecks + 2);
   });
 });

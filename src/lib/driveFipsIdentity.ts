@@ -35,6 +35,8 @@ export interface DriveFipsRosterAuthorizationOptions {
   /** When a trusted roster is checked again in the background (default: half its age). */
   refreshAfterMs?: number;
   refreshTimeoutMs?: number;
+  /** How long after a failed check the relays are asked again; doubles each time. */
+  failedRetryMs?: number;
   onRefreshError?: (error: unknown) => void;
 }
 
@@ -46,7 +48,8 @@ export interface DriveFipsRosterAuthorizationOptions {
  *
  * The live roster subscription keeps the session current, so the relays are
  * asked again only once a snapshot is `refreshAfterMs` old, in the background,
- * while the snapshot keeps answering until it expires.
+ * while the snapshot keeps answering until it expires. After a failed check
+ * the answer stays empty and the relays are asked again later and later.
  */
 export function createDriveFipsRosterAuthorizationSource(
   options: DriveFipsRosterAuthorizationOptions,
@@ -55,6 +58,8 @@ export function createDriveFipsRosterAuthorizationSource(
   const maxAgeMs = options.maxAgeMs ?? 10 * 60_000;
   const refreshAfterMs = Math.min(options.refreshAfterMs ?? Math.floor(maxAgeMs / 2), maxAgeMs);
   const refreshTimeoutMs = options.refreshTimeoutMs ?? 2_000;
+  const failedRetryMs = options.failedRetryMs ?? 30_000;
+  let failure: { fingerprint: string; retryAt: number; waitMs: number } | null = null;
   let snapshot: {
     fingerprint: string;
     refreshAt: number;
@@ -86,6 +91,7 @@ export function createDriveFipsRosterAuthorizationSource(
           return [];
         }
         const at = now();
+        failure = null;
         snapshot = {
           fingerprint: rosterFingerprint(current.rosterOps),
           refreshAt: at + refreshAfterMs,
@@ -98,6 +104,10 @@ export function createDriveFipsRosterAuthorizationSource(
         // A failed check in the background leaves the snapshot to its expiry.
         if (valid(fingerprint)) return [...snapshot!.pubkeys];
         snapshot = null;
+        const waitMs = failure?.fingerprint === fingerprint
+          ? Math.min(failure.waitMs * 2, maxAgeMs)
+          : failedRetryMs;
+        failure = { fingerprint, retryAt: now() + waitMs, waitMs };
         return [];
       }
     })();
@@ -120,6 +130,7 @@ export function createDriveFipsRosterAuthorizationSource(
       if (now() >= snapshot!.refreshAt) void refresh(fingerprint);
       return [...snapshot!.pubkeys];
     }
+    if (failure?.fingerprint === fingerprint && now() < failure.retryAt) return [];
     return [...await refresh(fingerprint)];
   };
 }
