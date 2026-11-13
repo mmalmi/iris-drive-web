@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import { expect, test, type Locator, type Page } from './fixtures';
 import { createDriveProfile, prepareFreshSession } from './documents.helpers';
 import { addShapeAt, createPresentation, elements, expectSlidesSaved, sheet, shot, thumbs } from './slides.helpers';
@@ -140,6 +141,17 @@ test.describe('building a talk', () => {
     expect((await cellText()).slice(0, 4)).toEqual(['Team', 'Spring', 'Autumn', 'North']);
     await expect(cells.nth(4)).toHaveCSS('background-color', 'rgb(242, 201, 76)');
     await expect(thumbs(page).nth(1).locator('[data-cell]')).toHaveCount(9);
+
+    // The deck, table and all, downloads as a PowerPoint file.
+    await page.getByTestId('slides-more').click();
+    const downloading = page.waitForEvent('download');
+    await page.getByTestId('slides-pptx-button').click();
+    const download = await downloading;
+    expect(download.suggestedFilename()).toBe('Table.pptx');
+    const bytes = fs.readFileSync((await download.path())!);
+    if (process.env.SLIDES_SHOTS) fs.writeFileSync(`${process.env.SLIDES_SHOTS}/build-07-table.pptx`, bytes);
+    expect(bytes.subarray(0, 2).toString()).toBe('PK');
+    expect(bytes.includes(Buffer.from('ppt/slides/slide2.xml'))).toBe(true);
   });
 
   test('slides come in with a transition, and points one at a time, also in the presenter\'s window', async ({ page, context, relayUrl }) => {

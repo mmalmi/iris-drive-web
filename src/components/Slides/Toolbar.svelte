@@ -6,8 +6,6 @@
   import type { SlidesEditorState } from '../../lib/slides/editorState.svelte';
   import Popover from './Popover.svelte';
   import ColourPanel from './ColourPanel.svelte';
-  import TableMenus from './TableMenus.svelte';
-  import SlideMenus from './SlideMenus.svelte';
   import { activeCell } from '../../lib/slides/tableEditing';
 
   interface Props {
@@ -56,6 +54,17 @@
   function keepFocus(event: MouseEvent): void {
     if (!(event.target as HTMLElement).closest('input, select')) event.preventDefault();
   }
+
+  // The menus for whole slides and for tables are loaded apart, as they are first needed; once the deck is idle, ahead of time.
+  const loadSlideMenus = () => import('./SlideMenus.svelte');
+  const loadTableMenus = () => import('./TableMenus.svelte');
+  $effect(() => {
+    const early = setTimeout(() => {
+      void loadSlideMenus();
+      void loadTableMenus();
+    }, 2000);
+    return () => clearTimeout(early);
+  });
 
   function close(): void {
     for (const name of Object.keys(open) as MenuName[]) open[name] = false;
@@ -384,15 +393,19 @@
   <ColourPanel value={shapes[0]?.fill} {palette} themeChoice="Theme colour" allowNone onPick={colour => pick(() => editorState.updateSelected({ fill: colour ?? undefined }))} />
 </Popover>
 
-<TableMenus
-  {editorState}
-  {palette}
-  anchors={{ table: anchors.table, lines: anchors.tableEdit, fill: anchors.cellFill }}
-  bind:insertOpen={open.table}
-  bind:linesOpen={open.tableEdit}
-  bind:fillOpen={open.cellFill}
-  onDone={close}
-/>
+{#if open.table || open.tableEdit || open.cellFill}
+  {#await loadTableMenus() then { default: TableMenus }}
+    <TableMenus
+      {editorState}
+      {palette}
+      anchors={{ table: anchors.table, lines: anchors.tableEdit, fill: anchors.cellFill }}
+      bind:insertOpen={open.table}
+      bind:linesOpen={open.tableEdit}
+      bind:fillOpen={open.cellFill}
+      onDone={close}
+    />
+  {/await}
+{/if}
 
 <Popover bind:open={open.border} anchor={anchors.border} label={boxed ? 'Border' : 'Line'}>
   <ColourPanel
@@ -445,17 +458,21 @@
   <button class="menu-item" onclick={() => pick(() => editorState.duplicateSelected())} data-testid="duplicate-selection"><span class="i-lucide-copy"></span>Duplicate</button>
 </Popover>
 
-<SlideMenus
-  {editorState}
-  {palette}
-  anchors={{ layout: anchors.layout, relayout: anchors.relayout, background: anchors.background, theme: anchors.theme, motion: anchors.motion }}
-  bind:layoutOpen={open.layout}
-  bind:relayoutOpen={open.relayout}
-  bind:backgroundOpen={open.background}
-  bind:themeOpen={open.theme}
-  bind:motionOpen={open.motion}
-  onDone={close}
-/>
+{#if open.layout || open.relayout || open.background || open.theme || open.motion}
+  {#await loadSlideMenus() then { default: SlideMenus }}
+    <SlideMenus
+      {editorState}
+      {palette}
+      anchors={{ layout: anchors.layout, relayout: anchors.relayout, background: anchors.background, theme: anchors.theme, motion: anchors.motion }}
+      bind:layoutOpen={open.layout}
+      bind:relayoutOpen={open.relayout}
+      bind:backgroundOpen={open.background}
+      bind:themeOpen={open.theme}
+      bind:motionOpen={open.motion}
+      onDone={close}
+    />
+  {/await}
+{/if}
 
 <style>
   .shell {

@@ -33,7 +33,6 @@
   import { TEXT_PAD_Y } from '../../lib/slides/fitText';
   import type { SlidesEditorState } from '../../lib/slides/editorState.svelte';
   import SlideView from './SlideView.svelte';
-  import ElementMenu from './ElementMenu.svelte';
 
   interface Props {
     editorState: SlidesEditorState;
@@ -564,7 +563,12 @@
   {/if}
 </div>
 
-<ElementMenu {editorState} bind:open={menuOpen} at={menuAt} {onCopy} {onPaste} onDone={() => stage?.focus({ preventScroll: true })} />
+<!-- The menu of the slide is loaded apart, the first time it is opened. -->
+{#if menuOpen}
+  {#await import('./ElementMenu.svelte') then { default: ElementMenu }}
+    <ElementMenu {editorState} bind:open={menuOpen} at={menuAt} {onCopy} {onPaste} onDone={() => stage?.focus({ preventScroll: true })} />
+  {/await}
+{/if}
 
 <style>
   .stage {
