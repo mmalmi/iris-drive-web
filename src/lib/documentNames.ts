@@ -13,6 +13,8 @@ export interface DocumentKindInfo {
   newLabel: string;
   /** Icon and colour classes shown beside the title. */
   icon: string;
+  /** Whether new ones are offered. A kind whose editor is not finished can still be opened. */
+  ready: boolean;
 }
 
 export const DOCUMENT_KINDS: Record<DocumentKind, DocumentKindInfo> = {
@@ -22,6 +24,7 @@ export const DOCUMENT_KINDS: Record<DocumentKind, DocumentKindInfo> = {
     noun: 'document',
     newLabel: 'New Document',
     icon: 'i-lucide-file-text text-accent',
+    ready: true,
   },
   sheet: {
     kind: 'sheet',
@@ -29,6 +32,7 @@ export const DOCUMENT_KINDS: Record<DocumentKind, DocumentKindInfo> = {
     noun: 'spreadsheet',
     newLabel: 'New Spreadsheet',
     icon: 'i-lucide-table-2 text-success',
+    ready: false,
   },
   slides: {
     kind: 'slides',
@@ -36,6 +40,7 @@ export const DOCUMENT_KINDS: Record<DocumentKind, DocumentKindInfo> = {
     noun: 'presentation',
     newLabel: 'New Presentation',
     icon: 'i-lucide-presentation text-orange-500',
+    ready: false,
   },
 };
 
