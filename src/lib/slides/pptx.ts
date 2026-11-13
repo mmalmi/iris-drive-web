@@ -241,9 +241,12 @@ function lineXml(element: SlideElement, palette: Palette, writer: Writer): strin
 function pictureXml(element: SlideElement, image: PptxImage, target: string, writer: Writer): string {
   const id = writer.id++;
   const rel = writer.rel(`${REL}/image`, target);
-  // Pictures fill their frame and are cropped to it, as on the slide.
+  // Pictures fill their frame and are cropped to it, as on the slide: as they were cropped, or else to fill it.
   let crop = '';
-  if (image.width && image.height && element.w > 0 && element.h > 0) {
+  if (element.crop) {
+    const [l, t, r, b] = element.crop.map(share => Math.round(share * 100000));
+    crop = `<a:srcRect l="${l}" t="${t}" r="${r}" b="${b}"/>`;
+  } else if (image.width && image.height && element.w > 0 && element.h > 0) {
     const frame = element.w / element.h;
     const picture = image.width / image.height;
     if (picture > frame) {
@@ -254,7 +257,8 @@ function pictureXml(element: SlideElement, image: PptxImage, target: string, wri
       crop = `<a:srcRect t="${cut}" b="${cut}"/>`;
     }
   }
-  return `<p:pic><p:nvPicPr><p:cNvPr id="${id}" name="Picture ${id}"/><p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr><p:nvPr/></p:nvPicPr><p:blipFill><a:blip r:embed="${rel}"/>${crop}<a:stretch><a:fillRect/></a:stretch></p:blipFill><p:spPr>${xfrm(element)}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:pic>`;
+  const alt = element.alt ? ` descr="${esc(element.alt)}"` : '';
+  return `<p:pic><p:nvPicPr><p:cNvPr id="${id}" name="Picture ${id}"${alt}/><p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr><p:nvPr/></p:nvPicPr><p:blipFill><a:blip r:embed="${rel}"/>${crop}<a:stretch><a:fillRect/></a:stretch></p:blipFill><p:spPr>${xfrm(element)}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:pic>`;
 }
 
 function tableXml(element: SlideElement, theme: Theme, layout: string, palette: Palette, writer: Writer): string {

@@ -90,6 +90,7 @@
   });
 
   let imageUrl = $derived(element.type === 'image' && element.src ? urls.get(element.src) : undefined);
+  let crop = $derived(element.type === 'image' ? element.crop : undefined);
   let radius = $derived(element.shape === 'ellipse' ? '50%' : element.shape === 'round' ? `${Math.min(28, Math.min(element.w, element.h) / 4)}px` : '0');
 </script>
 
@@ -131,8 +132,21 @@
     style:transform={element.rot ? `rotate(${element.rot}deg)` : undefined}
   >
     {#if element.type === 'image'}
-      {#if imageUrl}
-        <img class="el-image" src={imageUrl} alt="" draggable="false" />
+      {#if imageUrl && crop}
+        <!-- A cropped picture: the part kept fills the frame. -->
+        <div class="el-image el-image-crop" role="img" aria-label={element.alt ?? ''}>
+          <img
+            src={imageUrl}
+            alt=""
+            draggable="false"
+            style:left="{-crop[0] / (1 - crop[0] - crop[2]) * 100}%"
+            style:top="{-crop[1] / (1 - crop[1] - crop[3]) * 100}%"
+            style:width="{100 / (1 - crop[0] - crop[2])}%"
+            style:height="{100 / (1 - crop[1] - crop[3])}%"
+          />
+        </div>
+      {:else if imageUrl}
+        <img class="el-image" src={imageUrl} alt={element.alt ?? ''} draggable="false" />
       {:else}
         <div class="el-image el-image-missing"></div>
       {/if}

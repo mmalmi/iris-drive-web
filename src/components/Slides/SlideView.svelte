@@ -112,6 +112,17 @@
     -webkit-user-drag: none;
   }
 
+  .slide-surface :global(.el-image-crop) {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .slide-surface :global(.el-image-crop img) {
+    position: absolute;
+    max-width: none;
+    -webkit-user-drag: none;
+  }
+
   .slide-surface :global(.el-image-missing) {
     background: rgb(128 128 128 / 0.18);
   }

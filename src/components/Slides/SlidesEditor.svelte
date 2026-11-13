@@ -19,6 +19,7 @@
   import Popover from './Popover.svelte';
   import { isPresenterWindow, presenterUrl } from '../../lib/slides/presentSync';
   import { clearPicked, stretchCells } from '../../lib/slides/tableEditing';
+  import { forgetImportRequest, importRequested, isPptx, readSiblingFile } from './pptxFiles';
 
   interface Props {
     dirName: string;
@@ -69,6 +70,8 @@
       if (!presenterWindow) created.startDeck();
       editorState = created;
       if (!presenterWindow) setTimeout(() => void presentViewLoaded(), 1500);
+      const requested = presenterWindow ? null : importRequested();
+      if (requested) void importFromFolder(requested);
     })();
     narrowScreen.addEventListener('change', onNarrowChange);
     if (presenterWindow) return;
@@ -124,6 +127,66 @@
     } finally {
       exporting = false;
     }
+  }
+
+  let importing = $state('');
+  let pptxInput: HTMLInputElement | undefined = $state();
+
+  /**
+   * Brings a PowerPoint file into the deck: in place of a new, untouched
+   * deck, otherwise after its last slide, as one step undo takes back. The
+   * code that reads it is fetched only now.
+   */
+  async function importPowerPoint(file: Blob, name: string, fromRoute = false): Promise<void> {
+    const current = editorState;
+    if (!current?.canEdit || importing) return;
+    moreOpen = false;
+    current.stopEditing();
+    importing = name;
+    current.notice = '';
+    try {
+      const { importPptx } = await import('../../lib/slides/pptxImport');
+      const replace = current.isBlank;
+      const result = await importPptx(file, { ydoc: drive.ydoc, addAttachment: picture => drive.addAttachment(picture) }, { replace });
+      if (fromRoute) current.forgetHistory();
+      if (result.firstId) current.goTo(result.firstId);
+      if (result.skipped.length) current.notice = `Left out of ${name}: ${result.skipped.join(', ')}.`;
+    } catch (error) {
+      console.error('[Slides] Could not bring in the PowerPoint file:', error);
+      current.notice = error instanceof Error && /PowerPoint|slides/.test(error.message) ? error.message : `Could not bring in ${name}.`;
+    } finally {
+      importing = '';
+    }
+  }
+
+  /** The file the address asks for, from the folder the deck is in. */
+  async function importFromFolder(name: string): Promise<void> {
+    const bytes = await readSiblingFile(name).catch(() => null);
+    forgetImportRequest();
+    if (!bytes) {
+      if (editorState) editorState.notice = `Could not find ${name} beside this presentation.`;
+      return;
+    }
+    await importPowerPoint(new Blob([bytes as BlobPart]), name, true);
+  }
+
+  function onPptxPicked(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';
+    if (file) void importPowerPoint(file, file.name);
+  }
+
+  function hasFiles(event: DragEvent): boolean {
+    return !!event.dataTransfer && [...event.dataTransfer.types].includes('Files');
+  }
+
+  /** A PowerPoint file dropped anywhere on the editor is brought in; pictures are left to the slide. */
+  function onDropFile(event: DragEvent): void {
+    const files = [...(event.dataTransfer?.files ?? [])].filter(isPptx);
+    if (!files.length || !editorState?.canEdit) return;
+    event.preventDefault();
+    void importPowerPoint(files[0]!, files[0]!.name);
   }
 
   function print(): void {
@@ -315,7 +378,16 @@
   }
 </script>
 
-<div class="flex-1 flex flex-col min-h-0 bg-surface-0" data-testid="document-editor" bind:this={root}>
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div
+  class="flex-1 flex flex-col min-h-0 bg-surface-0"
+  data-testid="document-editor"
+  bind:this={root}
+  ondragover={event => {
+    if (canEdit && hasFiles(event)) event.preventDefault();
+  }}
+  ondrop={onDropFile}
+>
   <DocumentHeader {drive}>
     {#if editorState && editorState.slides.length > 0 && !presenterWindow}
       <button onclick={present} class="btn-ghost flex items-center gap-1.5 max-sm:px-2.5" title="Present" aria-label="Present" data-testid="present">
@@ -337,6 +409,11 @@
     <button class="menu-item" onclick={() => void savePowerPoint()} disabled={exporting} data-testid="slides-pptx-button">
       <span class={exporting ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-file-down'}></span>Download as PowerPoint
     </button>
+    {#if canEdit}
+      <button class="menu-item" onclick={() => pptxInput?.click()} disabled={!!importing} data-testid="slides-pptx-import">
+        <span class="i-lucide-file-up"></span>Import PowerPoint
+      </button>
+    {/if}
   </Popover>
 
   {#if !editorState}
@@ -359,8 +436,15 @@
       <div class="shrink-0 px-4 py-1.5 text-xs text-text-1 bg-warning/20" role="status">
         This presentation was made with a newer version of Iris Drive. It can be viewed here, not changed.
       </div>
+    {:else if importing}
+      <div class="shrink-0 px-4 py-1.5 text-xs text-text-1 bg-surface-2 flex items-center gap-2" role="status" data-testid="slides-importing">
+        <span class="i-lucide-loader-2 animate-spin"></span>Bringing in {importing}…
+      </div>
     {:else if editorState.notice}
-      <div class="shrink-0 px-4 py-1.5 text-xs text-text-1 bg-warning/20" role="alert">{editorState.notice}</div>
+      <div class="shrink-0 px-4 py-1.5 text-xs text-text-1 bg-warning/20 flex items-center gap-2" role="alert" data-testid="slides-notice">
+        <span class="flex-1">{editorState.notice}</span>
+        <button class="btn-circle btn-ghost w-6 h-6 min-h-0" onclick={() => editorState && (editorState.notice = '')} title="Dismiss" aria-label="Dismiss"><span class="i-lucide-x text-xs"></span></button>
+      </div>
     {/if}
 
     {#if editorState.slides.length === 0}
@@ -421,3 +505,4 @@
 </div>
 
 <input bind:this={imageInput} type="file" accept="image/*" multiple onchange={onImagesPicked} class="hidden" data-testid="slides-image-input" />
+<input bind:this={pptxInput} type="file" accept=".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation" onchange={onPptxPicked} class="hidden" data-testid="slides-pptx-input" />

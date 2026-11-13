@@ -344,6 +344,16 @@ export class SlidesEditorState {
     return element && this.editingHeight ? this.#grown(element, this.editingHeight) : null;
   }
 
+  /** True while the deck holds nothing anyone made: only the slide a new deck gives itself, untouched. */
+  get isBlank(): boolean {
+    return this.slides.every(untouched);
+  }
+
+  /** Forgets what undo could take back, as after a file was brought into a new deck. */
+  forgetHistory(): void {
+    this.#undo.clear();
+  }
+
   undo(): void {
     if (!this.canEdit) return;
     this.#lastAction = '';
