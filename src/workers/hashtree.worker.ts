@@ -6,6 +6,8 @@
 
 console.log('[hashtree.worker] Loading worker module...');
 
+// Must come first: it makes the worker send each block to a file server once.
+import './installUploadOnce';
 // Import shared worker module from @hashtree/worker package
 import '@hashtree/worker/relay-entry';
 
