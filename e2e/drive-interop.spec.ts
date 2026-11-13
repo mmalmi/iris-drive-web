@@ -1,4 +1,4 @@
-import { saveTextFile } from './test-utils.js';
+import { saveTextFile, chooseNew } from './test-utils.js';
 import { expect, test, type Browser, type Page } from './fixtures';
 import {
   addFileViaTreeAPI,
@@ -101,7 +101,7 @@ async function prepareFreshPage(
 }
 
 async function createFileWithContent(page: Page, fileName: string, content: string): Promise<void> {
-  await page.getByRole('button', { name: 'New File' }).click();
+  await chooseNew(page, 'Text file');
   const nameInput = page.locator('input[placeholder="File name..."]');
   await expect(nameInput).toBeVisible({ timeout: 10000 });
   await nameInput.fill(fileName);

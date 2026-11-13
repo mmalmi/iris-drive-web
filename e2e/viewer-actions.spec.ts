@@ -4,6 +4,7 @@ import {
   setupPageErrorHandler,
   navigateToPublicFolder,
   presetLocalRelayInDB,
+  expectFolderEditable,
 } from './test-utils.js';
 
 test.use({
@@ -11,7 +12,7 @@ test.use({
 });
 
 async function waitForWritableTree(page: Page) {
-  await expect(page.getByRole('button', { name: /File/ }).first()).toBeVisible({ timeout: 10000 });
+  await expectFolderEditable(page, 10000);
   await page.waitForFunction(async () => {
     const { getCurrentRootCid } = await import('/src/actions/route.ts');
     return !!getCurrentRootCid();
@@ -77,7 +78,7 @@ test.describe('Viewer Actions', () => {
     await expect(page.getByTestId('viewer-edit')).toBeVisible();
     await expect(page.getByTestId('viewer-delete')).toBeVisible();
     await backButton.click();
-    await expect(page.getByRole('button', { name: /File/ }).first()).toBeVisible();
+    await expectFolderEditable(page);
     await page.locator('a:has-text("actions.js")').first().click();
 
     const shareButton = page.getByTestId('viewer-share');

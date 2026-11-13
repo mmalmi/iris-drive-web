@@ -1,4 +1,4 @@
-import { saveTextFile } from './test-utils.js';
+import { saveTextFile, chooseNew } from './test-utils.js';
 import { test, expect } from './fixtures';
 import { setupPageErrorHandler, navigateToPublicFolder, disableOthersPool, configureBlossomServers, waitForAppReady, goToTreeList, createFolder, clearAllStorage, ensureLoggedIn, waitForFipsConnection, waitForRelayConnected } from './test-utils.js';
 import {
@@ -398,7 +398,7 @@ test.describe('Link-visible Tree Visibility', () => {
     expect(kParam).toBeTruthy();
 
     // Create a new file using the File button
-    await page.getByRole('button', { name: 'New File' }).click();
+    await chooseNew(page, 'Text file');
     const nameInput = page.locator('input[placeholder="File name..."]');
     await expect(nameInput).toBeVisible({ timeout: 10000 });
     await nameInput.fill('uploaded.txt');

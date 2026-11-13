@@ -1,5 +1,6 @@
 import { expect, test, type Page } from './fixtures';
 import { createDocument, createDriveProfile, prepareFreshSession, typeInDocument } from './documents.helpers';
+import { chooseNew } from './test-utils';
 
 const sizes = [
   { width: 1920, height: 1080 },
@@ -72,7 +73,7 @@ test.describe('layout at different window sizes', () => {
 
     // A folder inside another shows the way back up.
     const folderName = 'Quarterly planning and budgets';
-    await page.getByRole('button', { name: 'New Folder' }).filter({ visible: true }).click();
+    await chooseNew(page, 'Folder');
     await page.getByPlaceholder('Folder name...').fill(folderName);
     await page.getByPlaceholder('Folder name...').press('Enter');
     await page.getByTestId('file-list').getByRole('link', { name: folderName }).click();

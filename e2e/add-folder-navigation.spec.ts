@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures';
-import { setupPageErrorHandler, navigateToPublicFolder, disableOthersPool } from './test-utils.js';
+import { setupPageErrorHandler, navigateToPublicFolder, disableOthersPool, chooseNew } from './test-utils.js';
 
 test.describe('Add Folder Navigation', () => {
   test.describe.configure({ timeout: 90000 });
@@ -14,7 +14,7 @@ test.describe('Add Folder Navigation', () => {
     await navigateToPublicFolder(page, { timeoutMs: 60000, requireRelay: false });
 
     // Click "New Folder" button using getByRole - will find the visible one
-    await page.getByRole('button', { name: 'New Folder' }).first().click();
+    await chooseNew(page, 'Folder');
 
     // Type folder name in the modal
     await page.locator('input[placeholder="Folder name..."]').fill('nav-test-folder');

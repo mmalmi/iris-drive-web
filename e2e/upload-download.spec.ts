@@ -46,7 +46,7 @@ test.describe('Upload Download Integrity', () => {
     await setupFreshUser(page);
 
     // Upload video
-    const fileInput = page.locator('input[type="file"][multiple]').first();
+    const fileInput = page.getByTestId('upload-files-input');
     await fileInput.setInputFiles(TEST_VIDEO);
 
     // Wait for file to appear with correct size
@@ -160,7 +160,7 @@ test.describe('Upload Download Integrity', () => {
 
     // Upload video
     console.log('Uploading file...');
-    const fileInput = page.locator('input[type="file"][multiple]').first();
+    const fileInput = page.getByTestId('upload-files-input');
     await fileInput.setInputFiles(TEST_VIDEO);
 
     // Wait for upload to complete - watch for the file to appear
@@ -223,7 +223,7 @@ test.describe('Upload Download Integrity', () => {
     await setupFreshUser(page);
 
     // Upload video
-    const fileInput = page.locator('input[type="file"][multiple]').first();
+    const fileInput = page.getByTestId('upload-files-input');
     await fileInput.setInputFiles(TEST_VIDEO);
 
     // Wait for file to appear

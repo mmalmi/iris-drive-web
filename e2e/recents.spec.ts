@@ -1,4 +1,4 @@
-import { saveTextFile } from './test-utils.js';
+import { saveTextFile, chooseNew } from './test-utils.js';
 import { test, expect } from './fixtures';
 import { setupPageErrorHandler, navigateToPublicFolder, goToTreeList, waitForAppReady } from './test-utils.js';
 
@@ -7,7 +7,7 @@ async function waitForTreeOpen(page: any, name: string, timeout: number = 30000)
   await expect.poll(async () => {
     const hash = await page.evaluate(() => window.location.hash).catch(() => '');
     const inTree = hash.includes(`/${encodedName}`) || hash.includes(`/${name}`);
-    const fileButtonVisible = await page.getByRole('button', { name: /File/ }).first().isVisible().catch(() => false);
+    const fileButtonVisible = await page.getByTestId('upload-files-input').count().then((n: number) => n > 0).catch(() => false);
     const emptyVisible = await page.getByText('Empty directory').isVisible().catch(() => false);
     return inTree && (fileButtonVisible || emptyVisible);
   }, { timeout, intervals: [500, 1000, 2000] }).toBe(true);
@@ -16,8 +16,7 @@ async function waitForTreeOpen(page: any, name: string, timeout: number = 30000)
 // Helper to create tree and navigate into it
 async function createAndEnterTree(page: any, name: string) {
   await goToTreeList(page);
-  await expect(page.getByRole('button', { name: 'New Folder' })).toBeVisible({ timeout: 30000 });
-  await page.getByRole('button', { name: 'New Folder' }).click();
+  await chooseNew(page, 'Folder', { timeoutMs: 30000 });
   await page.locator('input[placeholder="Folder name..."]').fill(name);
   await page.getByRole('button', { name: 'Create' }).click();
 
@@ -38,7 +37,7 @@ async function createAndEnterTree(page: any, name: string) {
 
 // Helper to create a file
 async function createFile(page: any, name: string, content: string = '') {
-  await page.getByRole('button', { name: /File/ }).first().click();
+  await chooseNew(page, 'Text file');
   await page.locator('input[placeholder="File name..."]').fill(name);
   await page.getByRole('button', { name: 'Create' }).click();
   await expect(page.getByRole('button', { name: 'Done' })).toBeVisible({ timeout: 30000 });

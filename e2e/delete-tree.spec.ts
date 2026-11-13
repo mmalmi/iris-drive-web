@@ -4,7 +4,7 @@
  * Tests that deleting a folder removes it from the parent and stays deleted.
  */
 import { test, expect } from './fixtures';
-import { openFolderMenu } from './test-utils.js';
+import { openFolderMenu, chooseNew } from './test-utils.js';
 import { setupPageErrorHandler, navigateToPublicFolder, goToTreeList, disableOthersPool, waitForAppReady, safeGoto, safeReload } from './test-utils.js';
 
 test.describe('Folder Deletion', () => {
@@ -17,8 +17,7 @@ test.describe('Folder Deletion', () => {
     await goToTreeList(page);
 
     const folderName = `delete-test-${Date.now()}`;
-    await expect(page.getByRole('button', { name: 'New Folder' })).toBeVisible({ timeout: 10000 });
-    await page.getByRole('button', { name: 'New Folder' }).click();
+    await chooseNew(page, 'Folder', { timeoutMs: 10000 });
     await page.locator('input[placeholder="Folder name..."]').fill(folderName);
     await page.getByRole('button', { name: 'Create' }).click();
     await expect(page.locator('.fixed.inset-0.bg-black')).not.toBeVisible({ timeout: 10000 });

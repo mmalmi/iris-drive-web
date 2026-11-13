@@ -53,8 +53,7 @@ export async function navigateToPublicFolder(
     return /^#\/npub[^/]+\/public\/?(?:\?.*)?$/.test(window.location.hash);
   }, { timeout: 5000 }).then(() => true).catch(() => false);
   if (alreadyInPublic) {
-    const actionsButton = page.getByRole('button', { name: /New Folder|File/i }).first();
-    await expect(actionsButton).toBeVisible({ timeout: 10000 });
+    await expectFolderEditable(page, 10000);
     return;
   }
 
@@ -146,7 +145,7 @@ export async function navigateToPublicFolder(
     undefined,
     { timeout: timeoutMs }
   );
-  await expect(page.getByRole('button', { name: /New Folder|File/i }).first()).toBeVisible({ timeout: Math.max(20000, timeoutMs) });
+  await expectFolderEditable(page, Math.max(20000, timeoutMs));
 }
 
 /**
@@ -183,15 +182,60 @@ export async function waitForCurrentDirectoryEntries(
   }
 }
 
+export type NewMenuChoice =
+  | 'Folder'
+  | 'Document'
+  | 'Spreadsheet'
+  | 'Presentation'
+  | 'Text file'
+  | 'Upload files'
+  | 'Upload folder';
+
+/** The button that opens the New menu: in the sidebar, in a folder's header, or floating on a phone. */
+export function newMenuButton(page: any) {
+  return page.locator('[data-testid="new-menu"]:visible').first();
+}
+
+/** The open folder's file input, which takes files without opening the New menu. */
+export function uploadFilesInput(page: any) {
+  return page.getByTestId('upload-files-input');
+}
+
+/** Waits until the open folder can be added to: its header offers New. */
+export async function expectFolderEditable(page: any, timeoutMs: number = 30000) {
+  await expect(uploadFilesInput(page)).toBeAttached({ timeout: timeoutMs });
+  await expect(newMenuButton(page)).toBeVisible({ timeout: timeoutMs });
+}
+
+/** Opens the New menu, unless it is open already, and returns it. */
+export async function openNewMenu(page: any) {
+  const menu = page.getByRole('menu', { name: 'New' });
+  if (!await menu.isVisible().catch(() => false)) {
+    await newMenuButton(page).click();
+  }
+  await expect(menu).toBeVisible();
+  return menu;
+}
+
+/**
+ * Makes something in the folder that is open, from the New menu. Creating
+ * opens the dialog for its name; uploading opens the file chooser.
+ */
+export async function chooseNew(page: any, choice: NewMenuChoice, options?: { timeoutMs?: number }) {
+  await expectFolderEditable(page, options?.timeoutMs ?? 30000);
+  const menu = await openNewMenu(page);
+  await menu.getByRole('menuitem', { name: choice, exact: true }).click();
+}
+
 /**
  * Create a new folder using the UI.
- * Clicks "New Folder" button, fills the name, and waits for modal to close.
+ * Chooses New > Folder, fills the name, and waits for modal to close.
  *
  * @param page - Playwright page
  * @param folderName - Name of the folder to create
  */
 export async function createFolder(page: any, folderName: string) {
-  await page.getByRole('button', { name: 'New Folder' }).click();
+  await chooseNew(page, 'Folder');
   const input = page.locator('input[placeholder="Folder name..."]');
   await input.waitFor({ timeout: 5000 });
   await input.fill(folderName);

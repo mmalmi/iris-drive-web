@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { expect, type Page, type Locator } from './fixtures';
+import { chooseNew } from './test-utils';
 
 /** Creates a presentation in the folder that is open and waits for its first slide. */
 export async function createPresentation(page: Page, title: string): Promise<void> {
@@ -11,7 +12,7 @@ export async function createPresentation(page: Page, title: string): Promise<voi
   page.on('console', onConsole);
   page.on('pageerror', onError);
   try {
-    await page.getByTestId('new-slides').filter({ visible: true }).first().click();
+    await chooseNew(page, 'Presentation');
     await page.getByPlaceholder('Presentation name...').fill(title);
     await page.getByPlaceholder('Presentation name...').press('Enter');
     await expect(page.getByTestId('document-title')).toHaveText(title, { timeout: 30_000 });

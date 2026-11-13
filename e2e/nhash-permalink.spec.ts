@@ -7,7 +7,7 @@
  * - Browser 2: Navigates directly to the permalink URL
  */
 import { test, expect, type Page } from './fixtures';
-import { openFolderMenu } from './test-utils.js';
+import { openFolderMenu, chooseNew, expectFolderEditable } from './test-utils.js';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
@@ -27,7 +27,7 @@ async function uploadTempFile(page: Page, name: string, content: string | Buffer
   const tmpDir = os.tmpdir();
   const filePath = path.join(tmpDir, name);
   fs.writeFileSync(filePath, content);
-  const fileInput = page.locator('input[type="file"]').first();
+  const fileInput = page.getByTestId('upload-files-input');
   await fileInput.setInputFiles(filePath);
   fs.unlinkSync(filePath);
 }
@@ -50,7 +50,7 @@ async function initUser(page: Page): Promise<{ npub: string; pubkeyHex: string }
 }
 
 async function createTextFile(page: Page, fileName: string, content: string): Promise<void> {
-  await page.getByRole('button', { name: 'New File' }).click();
+  await chooseNew(page, 'Text file');
   const filenameInput = page.locator('input[placeholder="File name..."]');
   await expect(filenameInput).toBeVisible({ timeout: 10000 });
   await filenameInput.fill(fileName);
@@ -101,7 +101,7 @@ test.describe('nhash file permalinks', () => {
     await createFolder(page1, 'permalink-test');
     await page1.getByTestId('file-list').getByRole('link', { name: 'permalink-test', exact: true }).click();
     await expect(page1).toHaveURL(/permalink-test/, { timeout: 30000 });
-    await expect(page1.getByRole('button', { name: 'New File' })).toBeVisible({ timeout: 30000 });
+    await expectFolderEditable(page1, 30000);
 
     await createTextFile(page1, 'test-permalink.txt', 'Hello from permalink test!');
 

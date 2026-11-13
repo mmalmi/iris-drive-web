@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures';
-import { setupPageErrorHandler, navigateToPublicFolder, goToTreeList, disableOthersPool } from './test-utils.js';
+import { setupPageErrorHandler, navigateToPublicFolder, goToTreeList, disableOthersPool, chooseNew } from './test-utils.js';
 
 test.describe('Multi-file upload', () => {
   test.setTimeout(60000);
@@ -15,7 +15,7 @@ test.describe('Multi-file upload', () => {
       mimeType: 'text/plain',
       buffer: Buffer.from(file.content, 'utf-8'),
     }));
-    const input = page.locator('input[type="file"]').first();
+    const input = page.getByTestId('upload-files-input');
     await input.setInputFiles(payloads);
   }
 
@@ -29,7 +29,7 @@ test.describe('Multi-file upload', () => {
     await goToTreeList(page);
 
     // Click New Folder to create a folder/tree
-    await page.getByRole('button', { name: 'New Folder' }).click();
+    await chooseNew(page, 'Folder');
 
     // Enter folder name in modal
     const input = page.locator('input[placeholder="Folder name..."]');
@@ -61,7 +61,7 @@ test.describe('Multi-file upload', () => {
     await goToTreeList(page);
 
     // Click New Folder to create a folder/tree
-    await page.getByRole('button', { name: 'New Folder' }).click();
+    await chooseNew(page, 'Folder');
 
     // Enter folder name in modal
     const input = page.locator('input[placeholder="Folder name..."]');

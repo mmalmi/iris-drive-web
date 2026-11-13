@@ -1,4 +1,4 @@
-import { saveTextFile } from './test-utils.js';
+import { saveTextFile, chooseNew, expectFolderEditable } from './test-utils.js';
 /**
  * E2E tests for linkvis (link-visible) trees
  *
@@ -72,7 +72,7 @@ export async function createTreeWithVisibility(page: any, name: string, visibili
   });
   await expect(page).toHaveURL(new RegExp(`${name}`), { timeout: 30000 });
   if (previousViewport) await page.setViewportSize(previousViewport);
-  await expect(page.getByRole('button', { name: 'New File' })).toBeVisible({ timeout: 30000 });
+  await expectFolderEditable(page, 30000);
 
   if (visibility === 'link-visible') {
     return waitForLinkKey(page);
@@ -81,7 +81,7 @@ export async function createTreeWithVisibility(page: any, name: string, visibili
 }
 
 export async function createFileWithContent(page: any, fileName: string, content: string): Promise<void> {
-  await page.getByRole('button', { name: 'New File' }).click();
+  await chooseNew(page, 'Text file');
   const nameInput = page.locator('input[placeholder="File name..."]');
   await expect(nameInput).toBeVisible({ timeout: 10000 });
   await nameInput.fill(fileName);

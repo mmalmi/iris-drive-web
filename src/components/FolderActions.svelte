@@ -1,25 +1,20 @@
 <script lang="ts">
-  import { DOCUMENT_KINDS } from '../lib/documentNames';
   /**
-   * Folder actions, used in FileBrowser and Viewer. Renders two siblings for
-   * the parent to place: the adding and creating buttons, and the share button
-   * with a menu of the less common actions.
+   * Folder actions, used in FileBrowser and Viewer: the share button and a
+   * menu of the less common actions. Making and adding things is in NewMenu.
    */
   import { nhashEncode, toHex } from '@hashtree/core';
   import type { CID } from '@hashtree/core';
-  import { open as openCreateModal } from './Modals/CreateModal.svelte';
   import { open as openRenameModal } from './Modals/RenameModal.svelte';
   import { open as openForkModal } from './Modals/ForkModal.svelte';
   import ShareButton from './ShareButton.svelte';
   import { open as openBlossomPushModal } from './Modals/BlossomPushModal.svelte';
   import { npubToPubkey } from '../nostr';
-  import { uploadFiles, uploadDirectory } from '../stores/upload';
   import { deleteCurrentFolder, buildRouteUrl, getCurrentRootCid } from '../actions';
   import { nostrStore, deleteTree } from '../nostr';
   import { getTree } from '../store';
   import { createZipFromDirectory, downloadBlob, ZipCancelledError } from '../utils/compression';
   import { setUploadProgress } from '../stores/upload';
-  import { readFilesFromWebkitDirectory, supportsDirectoryUpload } from '@iris/hashtree-app/directory';
   import { routeStore, createTreesStore, permalinkSnapshotStore } from '../stores';
   import {
     buildTreeEventPermalink,
@@ -39,19 +34,17 @@
     dirCid?: CID | null;
     dirName?: string | null;
     canEdit: boolean;
-    /** Placement of the row of adding and creating buttons within the parent. */
+    /** No longer used: making and adding things moved to NewMenu. */
     toolbarClass?: string;
     /** Placement of the share button and the menu within the parent. */
     menuClass?: string;
   }
 
-  let { dirCid = null, dirName = null, canEdit, toolbarClass = '', menuClass = '' }: Props = $props();
+  let { dirCid = null, dirName = null, canEdit, menuClass = '' }: Props = $props();
 
   let isDownloading = $state(false);
   let zipAbortController = $state<AbortController | null>(null);
-  let dirInputRef: HTMLInputElement | undefined = $state();
 
-  let hasDirectorySupport = supportsDirectoryUpload();
   let route = $derived($routeStore);
   let permalinkSnapshot = $derived($permalinkSnapshotStore);
   let userNpub = $derived($nostrStore.npub);
@@ -228,22 +221,6 @@
     zipAbortController?.abort();
   }
 
-  // Handle file upload
-  function handleFileUpload(e: Event) {
-    const input = e.target as HTMLInputElement;
-    if (input.files) uploadFiles(input.files);
-    input.value = '';
-  }
-
-  // Handle directory upload
-  function handleDirUpload(e: Event) {
-    const input = e.target as HTMLInputElement;
-    if (input.files && input.files.length > 0) {
-      const result = readFilesFromWebkitDirectory(input.files);
-      uploadDirectory(result);
-    }
-    input.value = '';
-  }
 
   let currentShareUrl = $derived(
     window.location.origin
@@ -303,68 +280,6 @@
 </script>
 
 {#if dirCid || canEdit}
-  {#if canEdit}
-    <div class="flex flex-wrap items-center gap-1.5 {toolbarClass}" data-testid="folder-toolbar">
-      <label class="btn-success cursor-pointer {btnClass}" title="Add files">
-        <span class="i-lucide-plus"></span>
-        Add
-        <input
-          type="file"
-          multiple
-          onchange={handleFileUpload}
-          class="hidden"
-        />
-      </label>
-
-      {#if hasDirectorySupport}
-        <label class="btn-ghost cursor-pointer {btnClass}" title="Add a folder with all its contents">
-          <span class="i-lucide-folder-up"></span>
-          Add Folder
-          <input
-            bind:this={dirInputRef}
-            type="file"
-            webkitdirectory
-            onchange={handleDirUpload}
-            class="hidden"
-          />
-        </label>
-      {/if}
-
-      <button
-        onclick={() => openCreateModal('folder')}
-        class="btn-ghost {btnClass}"
-        title="New Folder"
-      >
-        <span class="i-lucide-folder-plus"></span>
-        New Folder
-      </button>
-
-      <button onclick={() => openCreateModal('document')} class="btn-ghost {btnClass}" title="New Document" data-testid="new-document">
-        <span class="i-lucide-file-text"></span>
-        New Document
-      </button>
-
-      {#if DOCUMENT_KINDS.sheet.ready}
-      <button onclick={() => openCreateModal('sheet')} class="btn-ghost {btnClass}" title="New Spreadsheet" data-testid="new-sheet">
-        <span class="i-lucide-table-2"></span>
-        New Spreadsheet
-      </button>
-      {/if}
-
-      {#if DOCUMENT_KINDS.slides.ready}
-      <button onclick={() => openCreateModal('slides')} class="btn-ghost {btnClass}" title="New Presentation" data-testid="new-slides">
-        <span class="i-lucide-presentation"></span>
-        New Presentation
-      </button>
-      {/if}
-
-      <button onclick={() => openCreateModal('file')} class="btn-ghost {btnClass}" title="New File">
-        <span class="i-lucide-file-plus"></span>
-        New File
-      </button>
-    </div>
-  {/if}
-
   <div class="flex shrink-0 items-center gap-1.5 {menuClass}">
     {#if dirCid?.hash}
       {#if latestVersionHref}

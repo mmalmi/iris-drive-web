@@ -2,6 +2,7 @@ import { generateSecretKey } from 'nostr-tools';
 import { expect, test, type Page } from './fixtures';
 import {
   clearAllStorage,
+  expectFolderEditable,
   presetLocalRelayInDB,
   setupPageErrorHandler,
   useLocalRelay,
@@ -66,7 +67,7 @@ test.describe('Drive setup', () => {
     }, undefined, { timeout: 30000 });
     const profileId = await profileIdHandle.jsonValue();
     await expectDriveRoute(page, profileId);
-    await expect(page.locator('label[title="Add files"]:visible')).toBeVisible({ timeout: 30000 });
+    await expectFolderEditable(page, 30000);
 
     const homeLink = page.getByTestId('home-link');
     await expect(homeLink).toHaveAttribute('href', `#/${profileId}/main`);

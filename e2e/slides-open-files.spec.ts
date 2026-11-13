@@ -4,7 +4,7 @@ import { inheritedPptx } from './slides.pptxSample';
 import { expectSlidesSaved, thumbs } from './slides.helpers';
 
 async function upload(page: Page, name: string, mimeType: string, buffer: Buffer): Promise<void> {
-  await page.locator('label[title="Add files"]:visible input[type="file"]').setInputFiles({ name, mimeType, buffer });
+  await page.getByTestId('upload-files-input').setInputFiles({ name, mimeType, buffer });
   await expect(page.getByTestId('viewer-header')).toContainText(name, { timeout: 30_000 });
 }
 

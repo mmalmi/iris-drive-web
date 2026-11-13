@@ -1,8 +1,11 @@
 <script lang="ts">
   import { acceptedShares } from '../drive/shareLibrary';
-  import { activeShareScope } from '../drive/shareScope';
+  import { isEditableDriveRouteScope } from '../drive/profileRoute';
   import { nostrStore } from '../nostr';
-  import { open as openCreateModal } from './Modals/CreateModal.svelte';
+  import { routeStore } from '../stores';
+  import { buildRouteUrl } from '../actions';
+  import { isDocumentFolderName } from '../lib/documentNames';
+  import NewMenu from './NewMenu.svelte';
 
   interface Props {
     currentPath: string;
@@ -13,7 +16,23 @@
 
   let shareScope = $derived(currentPath.split('/').filter(Boolean)[0]);
   let sharedFolderRoute = $derived($acceptedShares.some((record) => record.share_id === shareScope));
-  let sharedFolderWritable = $derived(activeShareScope(shareScope, $nostrStore, $acceptedShares)?.canWrite ?? false);
+  let route = $derived($routeStore);
+
+  /**
+   * Where New puts things: undefined in a folder only to read, where it is not
+   * offered; null for the open folder; or the folder to open first: the one
+   * around an open document, or My Drive from Recent and Shared with me.
+   */
+  let newTarget = $derived.by((): string | null | undefined => {
+    if (route.isPermalink) return undefined;
+    if (!route.treeName) return homeHref;
+    const canEdit = !route.npub || route.npub === $nostrStore.npub
+      || isEditableDriveRouteScope(route.npub, $nostrStore, $acceptedShares);
+    if (!canEdit) return undefined;
+    const documentAt = route.path.findIndex(isDocumentFolderName);
+    if (documentAt < 0) return null;
+    return `#${buildRouteUrl(route.npub, route.treeName, route.path.slice(0, documentAt), undefined, route.params.get('k'))}`;
+  });
   let myDriveActive = $derived(!sharedFolderRoute &&
     currentPath !== '/recent'
       && currentPath !== '/shared-with-me'
@@ -31,16 +50,11 @@
   aria-label="Drive navigation"
   data-testid="drive-sidebar"
 >
-  {#if !sharedFolderRoute || sharedFolderWritable}
-  <button
-    type="button"
-    class="mt-2 mb-4 ml-1 flex h-14 w-28 items-center gap-3 rounded-2xl bg-surface-0 px-4 text-sm font-medium text-text-1 shadow-sm ring-1 ring-surface-2 transition hover:bg-surface-2 hover:shadow"
-    aria-label="New"
-    onclick={() => openCreateModal('folder')}
-  >
-    <span class="i-lucide-plus text-2xl"></span>
-    <span>New</span>
-  </button>
+  {#if newTarget !== undefined}
+    <NewMenu variant="sidebar" goTo={newTarget} class="mt-2 mb-4 ml-1 self-start" />
+  {:else}
+    <!-- Keeps the places below where they were. -->
+    <div class="mt-2 mb-4 h-14 shrink-0"></div>
   {/if}
 
   <nav class="flex flex-col gap-1">

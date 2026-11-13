@@ -161,7 +161,7 @@ test.describe('Settings page', () => {
     await navigateToPublicFolder(page);
 
     const testContent = 'Test file content for storage test - '.repeat(100);
-    const fileInput = page.locator('input[type="file"][multiple]').first();
+    const fileInput = page.getByTestId('upload-files-input');
     await fileInput.setInputFiles({
       name: 'storage-test.txt',
       mimeType: 'text/plain',

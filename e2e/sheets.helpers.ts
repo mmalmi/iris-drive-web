@@ -1,4 +1,5 @@
 import { expect, type Page } from './fixtures';
+import { chooseNew } from './test-utils';
 
 /** The handle the grid leaves on the page in test mode. */
 interface SheetHandle {
@@ -17,7 +18,7 @@ function position(name: string): { row: number; col: number } {
 
 /** Creates a spreadsheet in the folder that is open and waits for its grid. */
 export async function createSpreadsheet(page: Page, title: string): Promise<void> {
-  await page.getByTestId('new-sheet').filter({ visible: true }).first().click();
+  await chooseNew(page, 'Spreadsheet');
   await page.getByPlaceholder('Spreadsheet name...').fill(title);
   await page.getByPlaceholder('Spreadsheet name...').press('Enter');
   await expect(page.getByTestId('document-title')).toHaveText(title, { timeout: 30_000 });

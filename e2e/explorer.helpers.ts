@@ -8,15 +8,14 @@ import {
   safeReload,
   setupPageErrorHandler,
   waitForAppReady,
+  chooseNew,
 } from './test-utils.js';
 
 export { flushPendingPublishes, goToTreeList, safeReload, waitForAppReady };
 
 export async function createAndEnterTree(page: any, name: string) {
   await goToTreeList(page);
-  await expect(page.getByRole('button', { name: 'New Folder' })).toBeVisible({ timeout: 10000 });
-
-  await page.getByRole('button', { name: 'New Folder' }).click();
+  await chooseNew(page, 'Folder', { timeoutMs: 10000 });
   await page.locator('input[placeholder="Folder name..."]').fill(name);
   // Creating a child folder leaves the current directory open.
   const deadline = Date.now() + 10000;
@@ -35,7 +34,7 @@ export async function createAndEnterTree(page: any, name: string) {
 }
 
 export async function createAndOpenFile(page: any, name: string) {
-  await page.getByRole('button', { name: 'New File', exact: true }).click();
+  await chooseNew(page, 'Text file');
   await page.locator('input[placeholder="File name..."]').fill(name);
   await Promise.all([
     page.waitForURL(new RegExp(encodeURIComponent(name)), { timeout: 10000 }),

@@ -145,12 +145,11 @@ test.describe('Hashtree Explorer', () => {
 
   test('should display document folder contents on mobile when navigating to document folder in files app', async ({ page }) => {
     // Navigate to public folder first
-    const { navigateToPublicFolder } = await import('./test-utils.js');
+    const { chooseNew, navigateToPublicFolder, newMenuButton } = await import('./test-utils.js');
     await navigateToPublicFolder(page);
 
-    const newDocButton = page.getByRole('button', { name: 'New Document' });
-    if (await newDocButton.isVisible().catch(() => false)) {
-      await newDocButton.click();
+    if (await newMenuButton(page).isVisible().catch(() => false)) {
+      await chooseNew(page, 'Document');
       const docInput = page.locator('input[placeholder="Document name..."]');
       await expect(docInput).toBeVisible({ timeout: 10000 });
       await docInput.fill('mobile-doc');

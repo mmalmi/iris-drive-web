@@ -8,6 +8,7 @@ import {
   prepareFreshSession,
   typeInDocument,
 } from './documents.helpers';
+import { chooseNew } from './test-utils';
 
 const dir = process.env.LAYOUT_SHOTS_DIR;
 const DESKTOP = { width: 1280, height: 800 };
@@ -73,16 +74,16 @@ test.describe('a walk through the app', () => {
 
     await step('sidebar new', async () => {
       await page.getByRole('button', { name: 'New', exact: true }).click();
-      await shot(page, '04-new-modal');
+      await shot(page, '04-new-menu');
       await page.keyboard.press('Escape');
     });
 
     await step('content', async () => {
-      await page.getByRole('button', { name: 'New Folder' }).filter({ visible: true }).click();
+      await chooseNew(page, 'Folder');
       await page.getByPlaceholder('Folder name...').fill('Trip photos');
       await page.getByPlaceholder('Folder name...').press('Enter');
       await expect(page.getByTestId('file-list').getByRole('link', { name: 'Trip photos' })).toBeVisible();
-      await page.locator('label[title="Add files"]:visible input[type="file"]').setInputFiles([
+      await page.getByTestId('upload-files-input').setInputFiles([
         { name: 'packing list.txt', mimeType: 'text/plain', buffer: Buffer.from('Tent\nMaps\nStove\n') },
         { name: 'notes.md', mimeType: 'text/markdown', buffer: Buffer.from('# Notes\n\nMeet by the **lake** at noon.\n\n- one\n- two\n') },
         { name: 'pixel.png', mimeType: 'image/png', buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAUUlEQVR4nO3PQQ0AIBDAMMC/5+ONAvZoFSzZnplV1uoAgA4AaAeAdgBoB4B2AGgHgHYAaAeAdgBoB4B2AGgHgHYAaAeAdgBoB4B2AGgHgNYBFscCfdwmhjwAAAAASUVORK5CYII=', 'base64') },

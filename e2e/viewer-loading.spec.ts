@@ -1,12 +1,11 @@
-import { saveTextFile } from './test-utils.js';
+import { saveTextFile, chooseNew } from './test-utils.js';
 import { test, expect } from './fixtures';
 import { setupPageErrorHandler, navigateToPublicFolder, goToTreeList, disableOthersPool, configureBlossomServers } from './test-utils.js';
 
 // Helper to create tree and navigate into it
 async function createAndEnterTree(page: any, name: string) {
   await goToTreeList(page);
-  await expect(page.getByRole('button', { name: 'New Folder' })).toBeVisible({ timeout: 30000 });
-  await page.getByRole('button', { name: 'New Folder' }).click();
+  await chooseNew(page, 'Folder', { timeoutMs: 30000 });
   await page.locator('input[placeholder="Folder name..."]').fill(name);
   await page.getByRole('button', { name: 'Create' }).click();
   await expect(page.getByText('Empty directory')).toBeVisible({ timeout: 30000 });
@@ -14,7 +13,7 @@ async function createAndEnterTree(page: any, name: string) {
 
 // Helper to create a file
 async function createFile(page: any, name: string, content: string = '') {
-  await page.getByRole('button', { name: /File/ }).first().click();
+  await chooseNew(page, 'Text file');
   await page.locator('input[placeholder="File name..."]').fill(name);
   await page.getByRole('button', { name: 'Create' }).click();
   await expect(page.getByRole('button', { name: 'Done' })).toBeVisible({ timeout: 30000 });

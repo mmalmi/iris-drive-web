@@ -134,7 +134,7 @@ test.describe('Blossom Push', () => {
 
     try {
       // Upload file to the public folder
-      const fileInput = page.locator('input[type="file"]:not([webkitdirectory])').first();
+      const fileInput = page.getByTestId('upload-files-input');
       await expect(fileInput).toBeAttached({ timeout: 30000 });
       await fileInput.setInputFiles(testFilePath, { timeout: 60000 });
 
@@ -221,7 +221,7 @@ test.describe('Blossom Push', () => {
 
     try {
       // Upload file to the public folder
-      const fileInput = page.locator('input[type="file"]:not([webkitdirectory])').first();
+      const fileInput = page.getByTestId('upload-files-input');
       await expect(fileInput).toBeAttached({ timeout: 30000 });
       await fileInput.setInputFiles(testFilePath, { timeout: 60000 });
 

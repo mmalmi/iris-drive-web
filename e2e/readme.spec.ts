@@ -1,4 +1,4 @@
-import { saveTextFile } from './test-utils.js';
+import { saveTextFile, chooseNew, expectFolderEditable } from './test-utils.js';
 import { test, expect } from './fixtures';
 import type { Page } from '@playwright/test';
 import { navigateToPublicFolder, goToTreeList, setupFreshUser, waitForCurrentDirectoryEntries } from './test-utils.js';
@@ -10,21 +10,20 @@ test.use({
 // Helper to create tree and navigate into it
 async function createAndEnterTree(page: Page, name: string) {
   await goToTreeList(page);
-  await expect(page.getByRole('button', { name: 'New Folder' })).toBeVisible({ timeout: 10000 });
-  await page.getByRole('button', { name: 'New Folder' }).click();
+  await chooseNew(page, 'Folder', { timeoutMs: 10000 });
   await page.locator('input[placeholder="Folder name..."]').fill(name);
   await page.getByRole('button', { name: 'Create' }).click();
   const folderLink = page.locator('a').filter({ hasText: name }).first();
   await expect(folderLink).toBeVisible({ timeout: 10000 });
   await folderLink.click();
   await expect(page).toHaveURL(new RegExp(`/${name}(?:[?#]|$)`), { timeout: 30000 });
-  await expect(page.getByRole('button', { name: 'New File' })).toBeVisible({ timeout: 30000 });
+  await expectFolderEditable(page, 30000);
   await expect(page.getByText('Empty directory')).toBeVisible({ timeout: 10000 });
 }
 
 // Helper to create a file
 async function createFile(page: Page, name: string, content: string = '') {
-  await page.getByRole('button', { name: /File/ }).first().click();
+  await chooseNew(page, 'Text file');
   await page.locator('input[placeholder="File name..."]').fill(name);
   await page.getByRole('button', { name: 'Create' }).click();
   const doneButton = page.getByRole('button', { name: 'Done' });
@@ -81,20 +80,20 @@ test.describe('README Viewer', () => {
     await createAndEnterTree(page, 'link-test');
 
     // Create a subdir with its own README
-    await page.getByRole('button', { name: 'Folder' }).click();
+    await chooseNew(page, 'Folder');
     await page.locator('input[placeholder="Folder name..."]').fill('subdir');
     await page.getByRole('button', { name: 'Create' }).click();
     const subdirLink = page.locator('a:has-text("subdir")').first();
     await expect(subdirLink).toBeVisible({ timeout: 10000 });
     await subdirLink.click();
-    await expect(page.getByRole('button', { name: /File/ }).first()).toBeVisible({ timeout: 10000 });
+    await expectFolderEditable(page, 10000);
 
     // Create README in subdir
     await createFile(page, 'README.md', '# Subdir Docs\n\nThis is the subdir readme.');
 
     // Go back to parent
     await page.getByRole('link', { name: '..' }).click();
-    await expect(page.getByRole('button', { name: /File/ }).first()).toBeVisible({ timeout: 10000 });
+    await expectFolderEditable(page, 10000);
 
     // Create root README with relative link
     await createFile(page, 'README.md', '# Main\n\nSee [subdir docs](subdir/README.md) for more.');

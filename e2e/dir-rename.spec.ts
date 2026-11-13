@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures';
-import { setupPageErrorHandler, navigateToPublicFolder } from './test-utils.js';
+import { setupPageErrorHandler, navigateToPublicFolder, chooseNew, expectFolderEditable, openFolderMenu } from './test-utils.js';
 
 test.describe('Directory rename', () => {
   // Increase timeout for all tests since new user setup now creates 3 default folders
@@ -11,11 +11,11 @@ test.describe('Directory rename', () => {
 
     // Now we're in the user's public folder, which starts empty
     // Wait for the Folder button to be available (may take a moment for UI to settle)
-    await expect(page.getByRole('button', { name: 'New Folder' })).toBeVisible({ timeout: 10000 });
+    await expectFolderEditable(page, 10000);
     await expect(page.getByText(/Drop or click to add|Empty directory/).first()).toBeVisible({ timeout: 10000 });
 
     // Create a subdirectory - use the Folder button in the toolbar
-    await page.getByRole('button', { name: 'New Folder' }).click();
+    await chooseNew(page, 'Folder');
 
     // Enter subdirectory name in modal
     const subInput = page.locator('input[placeholder="Folder name..."]');
@@ -43,7 +43,8 @@ test.describe('Directory rename', () => {
     // URL should now include the folder name
     await expect(page).toHaveURL(/old-folder-name/);
 
-    // Find and click the Rename button (should be visible for subdirectories)
+    // Rename is in the folder's menu (for subdirectories)
+    await openFolderMenu(page);
     await page.click('button:has-text("Rename"):visible');
 
     // Wait for rename modal to appear with pre-filled input
@@ -76,7 +77,7 @@ test.describe('Directory rename', () => {
 
     // Should NOT see a Rename button for root directory (public folder)
     // The "Folder" button should exist (for creating subfolders) but not Rename
-    await expect(page.getByRole('button', { name: 'New Folder' })).toBeVisible();
+    await expectFolderEditable(page);
     await expect(page.locator('button:has-text("Rename")')).not.toBeVisible();
   });
 
@@ -89,7 +90,7 @@ test.describe('Directory rename', () => {
     await expect(page.getByText(/Drop or click to add|Empty directory/).first()).toBeVisible({ timeout: 10000 });
 
     // Create a subdirectory - use visible button with folder-plus icon
-    await page.getByRole('button', { name: 'New Folder' }).click();
+    await chooseNew(page, 'Folder');
     const subInput = page.locator('input[placeholder="Folder name..."]');
     await subInput.waitFor({ timeout: 5000 });
     await subInput.fill('folder-to-delete');
@@ -109,8 +110,9 @@ test.describe('Directory rename', () => {
       await dialog.accept();
     });
 
-    // Click Delete button
-    await page.click('button:has-text("Delete"):visible');
+    // Delete is in the folder's menu
+    await openFolderMenu(page);
+    await page.getByTestId('delete-folder-btn').click();
 
     // Wait for navigation to complete
     await page.waitForURL(/\/public$/, { timeout: 10000 });

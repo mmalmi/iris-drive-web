@@ -48,7 +48,7 @@ test.describe('HTML file viewing', () => {
 
       await createAndEnterTree(page, 'html-test');
 
-      const fileInput = page.locator('input[type="file"]').first();
+      const fileInput = page.getByTestId('upload-files-input');
       await fileInput.setInputFiles(cssPath);
       await ensureFolderView(page);
       await expect(page.locator('[data-testid="file-list"] a:has-text("style.css")')).toBeVisible({ timeout: 10000 });

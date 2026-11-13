@@ -18,6 +18,7 @@ import {
   setupPageErrorHandler,
   useLocalRelay,
   waitForAppReady,
+  chooseNew,
 } from './test-utils.js';
 
 async function initUser(page: Page): Promise<{ npub: string; pubkeyHex: string }> {
@@ -131,7 +132,7 @@ test.describe('nhash directory navigation', () => {
     await navigateToPublicFolder(page);
 
     // Create a test folder with files
-    await page.getByRole('button', { name: 'New Folder' }).click();
+    await chooseNew(page, 'Folder');
     const folderInput = page.locator('input[placeholder="Folder name..."]');
     await folderInput.waitFor({ timeout: 5000 });
     await folderInput.fill('direct-nav-test');
@@ -195,7 +196,7 @@ test.describe('nhash directory navigation', () => {
     await navigateToPublicFolder(page);
 
     // Create a test folder via UI
-    await page.getByRole('button', { name: 'New Folder' }).click();
+    await chooseNew(page, 'Folder');
     const folderInput = page.locator('input[placeholder="Folder name..."]');
     await folderInput.waitFor({ timeout: 5000 });
     await folderInput.fill('nhash-test-folder');
@@ -274,7 +275,7 @@ test.describe('nhash directory navigation', () => {
       const user1 = await initUser(page1);
 
       // Create a test folder and files
-      await page1.getByRole('button', { name: 'New Folder' }).click();
+      await chooseNew(page1, 'Folder');
       const folderInput = page1.locator('input[placeholder="Folder name..."]');
       await folderInput.waitFor({ timeout: 5000 });
       await folderInput.fill('nhash-test-dir');
