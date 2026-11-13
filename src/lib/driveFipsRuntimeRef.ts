@@ -15,3 +15,9 @@ export function registerDriveFipsRuntimeGetter(getter: () => DriveFipsRuntime | 
 export function getLoadedDriveFipsRuntime(): DriveFipsRuntime | null {
   return current();
 }
+
+// Read-only connection stats for diagnosing the peer network from the console.
+if (typeof window !== 'undefined') {
+  (window as Window & { __driveFipsStats?: () => ReturnType<DriveFipsRuntime['getStats']> | null })
+    .__driveFipsStats = () => current()?.getStats() ?? null;
+}

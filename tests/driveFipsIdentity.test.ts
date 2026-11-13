@@ -91,7 +91,7 @@ describe('Drive FIPS identity selection', () => {
       .toEqual([adminPubkey, readerPubkey].sort());
   });
 
-  test('coalesces fresh roster reads, observes live changes, and fails closed after expiry', async () => {
+  test('coalesces fresh roster checks, takes live roster changes at once, and fails closed after expiry', async () => {
     const profileId = '89f3d04f-41fb-437b-9339-75df537bf291';
     const admin = generateSecretKey();
     const adminPubkey = getPublicKey(admin);
@@ -123,14 +123,13 @@ describe('Drive FIPS identity selection', () => {
       op: { op: 'tombstone_facet', pubkey: phonePubkey },
     });
     let now = 1_000;
-    let rosterOps = [bootstrap, phone];
     let session = {
       profileId,
       appKeyPubkey: adminPubkey,
       status: 'active' as const,
-      rosterOps,
+      rosterOps: [bootstrap, phone],
     };
-    const refreshRosterOps = vi.fn(async () => rosterOps);
+    const refreshRosterOps = vi.fn(async () => ({ status: 'confirmed' as const, confirmedAt: now, unanswered: [] }));
     const source = createDriveFipsRosterAuthorizationSource({
       identity: { appKeyPubkey: adminPubkey, deviceSecretKey: '00'.repeat(32), profileId },
       getSession: () => session,
@@ -145,17 +144,18 @@ describe('Drive FIPS identity selection', () => {
     ]);
     expect(refreshRosterOps).toHaveBeenCalledTimes(1);
 
-    rosterOps = [bootstrap, phone, removePhone];
-    session = { ...session, rosterOps };
+    // The live roster removes the phone: it leaves at once, and the relays are asked behind.
+    session = { ...session, rosterOps: [bootstrap, phone, removePhone] };
     await expect(source()).resolves.toEqual([adminPubkey]);
     expect(refreshRosterOps).toHaveBeenCalledTimes(2);
+    await flush();
 
     now += 3_001;
     refreshRosterOps.mockRejectedValueOnce(new Error('relay offline'));
     await expect(source()).resolves.toEqual([]);
   });
 
-  test('answers from the held roster and checks with the relays in the background once it is old', async () => {
+  test('keeps answering while relays fail, asks again later and later, and fails closed after expiry', async () => {
     const profileId = '89f3d04f-41fb-437b-9339-75df537bf291';
     const admin = generateSecretKey();
     const adminPubkey = getPublicKey(admin);
@@ -165,10 +165,14 @@ describe('Drive FIPS identity selection', () => {
       createdAt: 200,
       op: { op: 'add_facet', facet: appFacet(adminPubkey, 200, 'Admin', true, true) },
     });
-    let now = 1_000;
+    let now = 0;
     const session = { profileId, appKeyPubkey: adminPubkey, status: 'active' as const, rosterOps: [bootstrap] };
-    let answer: (() => void) | null = null;
-    const refreshRosterOps = vi.fn(async () => [bootstrap]);
+    // One relay answered; another did not.
+    const refreshRosterOps = vi.fn(async () => ({
+      status: 'confirmed' as const,
+      confirmedAt: now,
+      unanswered: ['wss://slow.example'],
+    }));
     const source = createDriveFipsRosterAuthorizationSource({
       identity: { appKeyPubkey: adminPubkey, deviceSecretKey: '00'.repeat(32), profileId },
       getSession: () => session,
@@ -176,49 +180,50 @@ describe('Drive FIPS identity selection', () => {
       now: () => now,
       maxAgeMs: 10_000,
       refreshAfterMs: 4_000,
-      failedRetryMs: 2_000,
+      failedRetryMs: 1_000,
     });
 
     await expect(source()).resolves.toEqual([adminPubkey]);
     expect(refreshRosterOps).toHaveBeenCalledTimes(1);
+    await flush();
 
-    // Young: no relay check at all.
-    now += 3_000;
+    // The relay that did not answer is asked again after 1 s, then 2 s.
+    now = 999;
     await expect(source()).resolves.toEqual([adminPubkey]);
     expect(refreshRosterOps).toHaveBeenCalledTimes(1);
-
-    // Old: answered at once while the relays are asked, which never answer.
-    now += 2_000;
-    refreshRosterOps.mockImplementationOnce(() => new Promise((_, reject) => {
-      answer = () => reject(new Error('relay offline'));
-    }));
+    now = 1_000;
     await expect(source()).resolves.toEqual([adminPubkey]);
+    expect(refreshRosterOps).toHaveBeenCalledTimes(2);
+    await flush();
+    now = 2_999;
     await expect(source()).resolves.toEqual([adminPubkey]);
     expect(refreshRosterOps).toHaveBeenCalledTimes(2);
 
-    // A failed background check leaves the roster trusted until it expires.
-    answer!();
-    await Promise.resolve();
-    await expect(source()).resolves.toEqual([adminPubkey]);
-
-    now += 6_000;
+    // A failed check keeps the confirmed roster answering, without waiting.
+    now = 3_000;
     refreshRosterOps.mockRejectedValueOnce(new Error('relay offline'));
-    await expect(source()).resolves.toEqual([]);
-    const failedChecks = refreshRosterOps.mock.calls.length;
-
-    // Failed: stays empty without asking again until the wait is over, then doubles it.
-    now += 1_900;
-    await expect(source()).resolves.toEqual([]);
-    expect(refreshRosterOps).toHaveBeenCalledTimes(failedChecks);
-    now += 100;
-    refreshRosterOps.mockRejectedValueOnce(new Error('relay offline'));
-    await expect(source()).resolves.toEqual([]);
-    expect(refreshRosterOps).toHaveBeenCalledTimes(failedChecks + 1);
-    now += 3_900;
-    await expect(source()).resolves.toEqual([]);
-    expect(refreshRosterOps).toHaveBeenCalledTimes(failedChecks + 1);
-    now += 100;
     await expect(source()).resolves.toEqual([adminPubkey]);
-    expect(refreshRosterOps).toHaveBeenCalledTimes(failedChecks + 2);
+    expect(refreshRosterOps).toHaveBeenCalledTimes(3);
+    await flush();
+    now = 6_999;
+    await expect(source()).resolves.toEqual([adminPubkey]);
+    expect(refreshRosterOps).toHaveBeenCalledTimes(3);
+
+    // Ten minutes, here 10 s, after the last confirmation nobody is admitted.
+    now = 11_000;
+    refreshRosterOps.mockResolvedValueOnce({ status: 'unconfirmed', confirmedAt: 1_000, unanswered: ['wss://slow.example'] });
+    await expect(source()).resolves.toEqual([]);
+    expect(refreshRosterOps).toHaveBeenCalledTimes(4);
+    await flush();
+    now = 11_500;
+    await expect(source()).resolves.toEqual([]);
+    expect(refreshRosterOps).toHaveBeenCalledTimes(4);
+    now = 12_000;
+    await expect(source()).resolves.toEqual([adminPubkey]);
+    expect(refreshRosterOps).toHaveBeenCalledTimes(5);
   });
 });
+
+function flush(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}

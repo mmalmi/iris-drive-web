@@ -394,7 +394,7 @@ describe('authoritative Drive roster refresh', () => {
     const refreshed = await fetchAuthoritativeDriveRoster({
       profileId: PROFILE_ID,
       trustedRosterOps: [bootstrap, initialDck],
-      fetchAuthors: async () => ({ complete: true, rosterOps: published }),
+      fetchAuthors: async () => ({ relays: [{ relay: 'wss://one.example', complete: true }], rosterOps: published }),
     });
 
     expect(published.map((op) => op.op_id)).toEqual([bootstrap.op_id, initialDck.op_id]);
@@ -449,7 +449,7 @@ describe('authoritative Drive roster refresh', () => {
       },
     });
     const fetchAuthors = vi.fn(async (authors: readonly string[]) => ({
-      complete: true,
+      relays: [{ relay: 'wss://one.example', complete: true }],
       rosterOps: authors.includes(adminPubkey)
         ? [spam, bootstrap, addSecondAdmin]
         : authors.includes(secondAdminPubkey)
@@ -497,11 +497,14 @@ describe('authoritative Drive roster refresh', () => {
       },
     });
 
-    await expect(fetchAuthoritativeDriveRoster({
+    const admission = await fetchAuthoritativeDriveRoster({
       profileId: PROFILE_ID,
       trustedRosterOps: [bootstrap, addPhone],
-      fetchAuthors: async () => ({ complete: false, rosterOps: [] }),
-    })).rejects.toThrow('complete Drive roster snapshot');
+      fetchAuthors: async () => ({ relays: [{ relay: 'wss://one.example', complete: false }], rosterOps: [] }),
+    });
+    expect(admission.status).toBe('unconfirmed');
+    expect(admission.appKeys).toEqual([]);
+    expect(admission.unanswered).toEqual(['wss://one.example']);
   });
 
   it('rejects an EOSE-marked partial snapshot that omits known author history', async () => {
@@ -517,11 +520,13 @@ describe('authoritative Drive roster refresh', () => {
       },
     });
 
-    await expect(fetchAuthoritativeDriveRoster({
+    const admission = await fetchAuthoritativeDriveRoster({
       profileId: PROFILE_ID,
       trustedRosterOps: [bootstrap],
-      fetchAuthors: async () => ({ complete: true, rosterOps: [] }),
-    })).rejects.toThrow('complete Drive roster snapshot');
+      fetchAuthors: async () => ({ relays: [{ relay: 'wss://one.example', complete: true }], rosterOps: [] }),
+    });
+    expect(admission.status).toBe('unconfirmed');
+    expect(admission.appKeys).toEqual([]);
   });
 
   it('applies a fetched revocation and never asks relays for an event-count-limited profile query', async () => {
@@ -558,7 +563,7 @@ describe('authoritative Drive roster refresh', () => {
     const refreshed = await fetchAuthoritativeDriveRoster({
       profileId: PROFILE_ID,
       trustedRosterOps: [bootstrap, addPhone],
-      fetchAuthors: async () => ({ complete: true, rosterOps: [bootstrap, addPhone, revokePhone] }),
+      fetchAuthors: async () => ({ relays: [{ relay: 'wss://one.example', complete: true }], rosterOps: [bootstrap, addPhone, revokePhone] }),
     });
 
     expect(refreshed.projection.active_facets).not.toHaveProperty(phonePubkey);
@@ -609,7 +614,7 @@ describe('authoritative Drive roster refresh', () => {
       op: { op: 'tombstone_facet', pubkey: currentAdminPubkey },
     });
     const fetchAuthors = vi.fn(async () => ({
-      complete: true,
+      relays: [{ relay: 'wss://one.example', complete: true }],
       rosterOps: [bootstrap, addCurrentAdmin, revokeFirstAdmin, malformedRevokedOp],
     }));
 

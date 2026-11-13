@@ -67,6 +67,7 @@ async function watchDriveRosterForFips(runtime: { refreshAuthorization(): void }
   });
 }
 import {
+  authorizedDriveFipsAppKeyPubkeys,
   createDriveFipsRosterAuthorizationSource,
   resolveDriveFipsIdentity,
   type ResolvedDriveFipsIdentity,
@@ -154,7 +155,7 @@ function startFipsForAdapter(
     }
 
     try {
-      const authorizedAppKeyPubkeys = await driveFipsAuthorizedAppKeySource(identity);
+      const { authorizedAppKeyPubkeys, routeAppKeyPubkeys } = await driveFipsAuthorizedAppKeySource(identity);
       const { startDriveFipsRuntime, attachDriveFipsProvider } = await loadFipsRuntime();
       const runtime = await startDriveFipsRuntime({
         relays,
@@ -163,6 +164,7 @@ function startFipsForAdapter(
         deviceSecretKey: identity.deviceSecretKey,
         profileId: identity.profileId,
         authorizedAppKeyPubkeys,
+        routeAppKeyPubkeys,
         log: isTestMode,
       });
       if (version !== fipsSyncVersion || getWorkerAdapter() !== adapter) {
@@ -199,21 +201,36 @@ function startFipsForAdapter(
 
 async function driveFipsAuthorizedAppKeySource(
   identity: ResolvedDriveFipsIdentity,
-): Promise<() => Promise<string[]>> {
+): Promise<{
+  authorizedAppKeyPubkeys: () => Promise<string[]>;
+  routeAppKeyPubkeys?: () => string[];
+}> {
   const profileId = identity.profileId;
-  if (!profileId) return async () => [identity.appKeyPubkey];
+  if (!profileId) return { authorizedAppKeyPubkeys: async () => [identity.appKeyPubkey] };
   const {
     getCurrentNostrIdentitySession,
     refreshCurrentDriveRosterOps,
   } = await import('../nostr/auth');
-  return createDriveFipsRosterAuthorizationSource({
-    identity: { ...identity, profileId },
-    getSession: getCurrentNostrIdentitySession,
-    refreshRosterOps: refreshCurrentDriveRosterOps,
-    onRefreshError: (error) => {
-      console.warn('[WorkerInit] Failed to refresh FIPS AppKey authorization:', error);
+  return {
+    authorizedAppKeyPubkeys: createDriveFipsRosterAuthorizationSource({
+      identity: { ...identity, profileId },
+      getSession: getCurrentNostrIdentitySession,
+      refreshRosterOps: refreshCurrentDriveRosterOps,
+      onRefreshError: (error) => {
+        console.warn('[WorkerInit] Failed to refresh FIPS AppKey authorization:', error);
+      },
+    }),
+    // Routes to blocks come from the roster held, never waiting for relays.
+    routeAppKeyPubkeys: () => {
+      const session = getCurrentNostrIdentitySession();
+      if (session?.status !== 'active' || session.profileId !== profileId) return [identity.appKeyPubkey];
+      try {
+        return authorizedDriveFipsAppKeyPubkeys(profileId, session.rosterOps);
+      } catch {
+        return [identity.appKeyPubkey];
+      }
     },
-  });
+  };
 }
 
 function resolveFipsIdentityForBackend(identity: WorkerInitIdentity): ResolvedDriveFipsIdentity | null {

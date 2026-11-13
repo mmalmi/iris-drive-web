@@ -88,6 +88,7 @@ import {
   rosterAuthorFilter,
   type DriveRosterAuthorSnapshot,
 } from './driveRosterRefresh';
+import type { DriveRosterAdmission } from './driveRosterAdmission';
 import {
   publishDriveRosterHistory,
 } from './driveRosterPublish';
@@ -1597,16 +1598,23 @@ async function currentDriveRosterOps(session: NostrIdentitySession): Promise<Sig
   return fetchNostrIdentityRosterOps(session.profileId, 3000, session.rosterOps);
 }
 
+/**
+ * Asks the relays for the current Drive roster, keeps every valid operation
+ * any of them returned (a revocation applies at once), and says whether peers
+ * may be admitted (see `decideRosterAdmission`).
+ */
 export async function refreshCurrentDriveRosterOps(
   profileId: NostrIdentityId,
   timeoutMs = 3000,
-): Promise<SignedNostrIdentityRosterOp[]> {
+  previous: { confirmedAt: number | null; maxAgeMs?: number } = { confirmedAt: null },
+): Promise<DriveRosterAdmission> {
   const session = currentNostrIdentitySession;
   if (!session || session.status !== 'active' || session.profileId !== profileId) {
     throw new Error('No matching active Drive roster session');
   }
   const appKeyPubkey = session.appKeyPubkey;
-  const refreshed = await fetchNostrIdentityRosterOps(profileId, timeoutMs, session.rosterOps);
+  const admission = await fetchDriveRosterAdmission(profileId, timeoutMs, session.rosterOps, previous);
+  const refreshed = admission.rosterOps;
   const current = currentNostrIdentitySession;
   if (
     !current
@@ -1621,7 +1629,7 @@ export async function refreshCurrentDriveRosterOps(
   const unchanged = refreshed.length === current.rosterOps.length
     && refreshed.every((op, index) => op.op_id === current.rosterOps[index].op_id);
   if (!unchanged) replaceCurrentNostrIdentitySessionRosterOps(profileId, refreshed);
-  return refreshed;
+  return admission;
 }
 
 async function collectDriveDeviceLabels(
@@ -1768,17 +1776,27 @@ async function fetchNostrIdentityRosterOps(
   trustedRosterOps?: readonly SignedNostrIdentityRosterOp[],
 ): Promise<SignedNostrIdentityRosterOp[]> {
   if (trustedRosterOps?.length) {
-    await waitForWorkerAdapter(2000).catch(() => null);
-    const deadline = Date.now() + timeoutMs;
-    const authoritative = await fetchAuthoritativeDriveRoster({
-      profileId,
-      trustedRosterOps,
-      fetchAuthors: (authors) => fetchDriveRosterAuthorSnapshots(profileId, authors, deadline),
-    });
-    return authoritative.rosterOps;
+    return (await fetchDriveRosterAdmission(profileId, timeoutMs, trustedRosterOps)).rosterOps;
   }
 
   return fetchUnanchoredNostrIdentityRosterOps(profileId, timeoutMs);
+}
+
+async function fetchDriveRosterAdmission(
+  profileId: NostrIdentityId,
+  timeoutMs: number,
+  trustedRosterOps: readonly SignedNostrIdentityRosterOp[],
+  previous: { confirmedAt: number | null; maxAgeMs?: number } = { confirmedAt: null },
+): Promise<DriveRosterAdmission> {
+  await waitForWorkerAdapter(2000).catch(() => null);
+  const deadline = Date.now() + timeoutMs;
+  return fetchAuthoritativeDriveRoster({
+    profileId,
+    trustedRosterOps,
+    fetchAuthors: (authors) => fetchDriveRosterAuthorSnapshots(profileId, authors, deadline),
+    confirmedAt: previous.confirmedAt,
+    maxAgeMs: previous.maxAgeMs,
+  });
 }
 
 const DRIVE_ROSTER_AUTHOR_BATCH_SIZE = 32;
@@ -1795,18 +1813,23 @@ async function fetchDriveRosterAuthorSnapshots(
   }
   const remainingMs = deadline - Date.now();
   if (remainingMs <= DRIVE_ROSTER_EOSE_DRAIN_MS) {
-    return { rosterOps: [], complete: false };
+    return { rosterOps: [], relays: [] };
   }
   const snapshots = await Promise.all(
     batches.map((batch) => fetchDriveRosterAuthorBatch(profileId, batch, remainingMs)),
   );
   const byId = new Map<string, SignedNostrIdentityRosterOp>();
+  // A relay answered only when it answered every batch completely.
+  const relayComplete = new Map<string, boolean>();
   for (const snapshot of snapshots) {
     for (const op of snapshot.rosterOps) byId.set(op.op_id, op);
+    for (const answer of snapshot.relays) {
+      relayComplete.set(answer.relay, (relayComplete.get(answer.relay) ?? true) && answer.complete);
+    }
   }
   return {
     rosterOps: [...byId.values()],
-    complete: snapshots.every((snapshot) => snapshot.complete),
+    relays: [...relayComplete].map(([relay, complete]) => ({ relay, complete })),
   };
 }
 
@@ -1816,7 +1839,7 @@ async function fetchDriveRosterAuthorBatch(
   timeoutMs: number,
 ): Promise<DriveRosterAuthorSnapshot> {
   const adapter = getWorkerAdapter() ?? await waitForWorkerAdapter(timeoutMs);
-  if (!adapter?.queryEvents) return { rosterOps: [], complete: false };
+  if (!adapter?.queryEvents) return { rosterOps: [], relays: [] };
   const report = await adapter.queryEvents([rosterAuthorFilter(profileId, authors)], {
     cache: 'network-only', localEcho: false, relays: getNostrRelayUrls(), sources: [], deadline: Date.now() + timeoutMs,
   });
@@ -1829,7 +1852,11 @@ async function fetchDriveRosterAuthorBatch(
       if (signed.content.profile_id === profileId) byId.set(signed.op_id, signed);
     } catch { /* Unrelated or invalid signed events cannot authorize a device. */ }
   }
-  return { rosterOps: [...byId.values()], complete: report.complete };
+  // Every relay asked is listed: one still pending at the deadline as not complete.
+  return {
+    rosterOps: [...byId.values()],
+    relays: report.sources.map((source) => ({ relay: source.id, complete: source.complete })),
+  };
 
 }
 

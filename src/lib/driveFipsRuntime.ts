@@ -52,6 +52,11 @@ export interface DriveFipsRuntimeOptions {
   iceGatherTimeoutMs?: number;
   requestTimeoutMs?: number;
   authorizedAppKeyPubkeys: DriveFipsAuthorizedAppKeySource;
+  /**
+   * The app keys of the roster this device holds, for preferring routes to
+   * blocks. Reading blocks never waits for the relay check of the roster.
+   */
+  routeAppKeyPubkeys?: () => readonly string[];
   log?: boolean;
 }
 
@@ -112,6 +117,7 @@ export class DriveFipsPeerPolicy {
   constructor(
     localAppKeyPubkey: string,
     private readonly authorizedAppKeyPubkeys: DriveFipsAuthorizedAppKeySource,
+    private readonly routeAppKeyPubkeys?: () => readonly string[],
   ) {
     const normalized = normalizeAppKeyPubkey(localAppKeyPubkey);
     if (!normalized) throw new Error('local Drive AppKey pubkey is invalid');
@@ -121,7 +127,9 @@ export class DriveFipsPeerPolicy {
   async providerRoutes(): Promise<FipsBlobRoute[]> {
     // Roster peers are preferred routes, not a block-serving access list.
     // The shared provider also discovers advertised Hashtree services.
-    const authorized = await this.authorizedAppKeys();
+    const authorized = this.routeAppKeyPubkeys
+      ? normalizedAppKeys(this.routeAppKeyPubkeys())
+      : await this.authorizedAppKeys();
     return [...authorized]
       .filter((pubkey) => pubkey !== this.localAppKeyPubkey)
       .sort()
@@ -140,12 +148,15 @@ export class DriveFipsPeerPolicy {
   }
 
   private async authorizedAppKeys(): Promise<Set<string>> {
-    const pubkeys = await this.authorizedAppKeyPubkeys();
-    return new Set(pubkeys.flatMap((pubkey) => {
-      const normalized = normalizeAppKeyPubkey(pubkey);
-      return normalized ? [normalized] : [];
-    }));
+    return normalizedAppKeys(await this.authorizedAppKeyPubkeys());
   }
+}
+
+function normalizedAppKeys(pubkeys: readonly string[]): Set<string> {
+  return new Set(pubkeys.flatMap((pubkey) => {
+    const normalized = normalizeAppKeyPubkey(pubkey);
+    return normalized ? [normalized] : [];
+  }));
 }
 
 export function compressedPubkeyHexToXOnly(peerId: string): string {
@@ -225,6 +236,7 @@ export class DriveFipsRuntime {
     const peerPolicy = new DriveFipsPeerPolicy(
       toHex(identity.xOnlyPubkey),
       this.options.authorizedAppKeyPubkeys,
+      this.options.routeAppKeyPubkeys,
     );
     const storeName = this.options.storeName ?? 'hashtree-worker';
     const localStore = new DexieStore(storeName);
