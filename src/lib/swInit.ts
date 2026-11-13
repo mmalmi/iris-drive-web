@@ -7,6 +7,10 @@ import { registerSW } from 'virtual:pwa-register';
 import { getHtreePrefix } from './mediaUrl';
 import { shouldPreferSameOriginHtreeRoutes } from './nativeHtree';
 
+// A service worker that registers takes well under a second. Past this the
+// app starts without one rather than not at all.
+const SW_READY_TIMEOUT_MS = 15_000;
+
 interface InitOptions {
   /** Require cross-origin isolation (for SharedArrayBuffer/FFmpeg) */
   requireCrossOriginIsolation?: boolean;
@@ -78,6 +82,14 @@ export async function initServiceWorker(options: InitOptions = {}): Promise<void
     return;
   }
 
+  // Registration can fail: site storage blocked, some privacy settings or
+  // policies. The app must then start without a service worker, not wait for
+  // one forever with the account never signed back in.
+  let registrationFailed: () => void = () => {};
+  const failed = new Promise<'failed'>((resolve) => {
+    registrationFailed = () => resolve('failed');
+  });
+
   // Register service worker
   const updateSW = registerSW({
     immediate: true,
@@ -92,6 +104,7 @@ export async function initServiceWorker(options: InitOptions = {}): Promise<void
     },
     onRegisterError(error: unknown) {
       console.error('[SW] Registration error:', error);
+      registrationFailed();
     },
   });
 
@@ -100,7 +113,15 @@ export async function initServiceWorker(options: InitOptions = {}): Promise<void
     console.log('[SW] Waiting for controller...');
 
     // Wait for SW to be ready (active)
-    await navigator.serviceWorker.ready;
+    const ready = await Promise.race([
+      navigator.serviceWorker.ready.then(() => 'ready' as const),
+      failed,
+      new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), SW_READY_TIMEOUT_MS)),
+    ]);
+    if (ready !== 'ready') {
+      console.warn(`[SW] Continuing without a service worker (${ready === 'failed' ? 'registration failed' : 'not ready in time'})`);
+      return;
+    }
 
     // If still no controller after SW is ready, wait for controllerchange or reload
     if (!navigator.serviceWorker.controller) {
