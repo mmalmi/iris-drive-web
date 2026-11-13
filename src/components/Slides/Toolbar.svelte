@@ -1,12 +1,12 @@
 <script lang="ts">
   /** The buttons above the slide. Those for text, shapes and lines show only while such a thing is selected. */
-  import { SLIDE_HEIGHT, SLIDE_WIDTH, type ShapeKind } from '../../lib/slides/model';
-  import { LAYOUTS } from '../../lib/slides/layouts';
-  import { THEMES, resolveColour, textStyle } from '../../lib/slides/themes';
+  import type { ShapeKind } from '../../lib/slides/model';
+  import { resolveColour, textStyle } from '../../lib/slides/themes';
   import { FONT_SIZES } from '../../lib/slides/richText';
   import type { SlidesEditorState } from '../../lib/slides/editorState.svelte';
   import Popover from './Popover.svelte';
   import ColourPanel from './ColourPanel.svelte';
+  import { activeCell } from '../../lib/slides/tableEditing';
 
   interface Props {
     editorState: SlidesEditorState;
@@ -14,9 +14,11 @@
   }
   let { editorState, onPickImage }: Props = $props();
 
-  type MenuName = 'layout' | 'shape' | 'size' | 'colour' | 'align' | 'fill' | 'border' | 'arrange' | 'relayout' | 'background' | 'theme';
+  type MenuName = 'layout' | 'shape' | 'size' | 'colour' | 'align' | 'fill' | 'border' | 'arrange' | 'relayout' | 'background' | 'theme' | 'motion'
+    | 'table' | 'tableEdit' | 'cellFill';
   let open = $state<Record<MenuName, boolean>>({
-    layout: false, shape: false, size: false, colour: false, align: false, fill: false, border: false, arrange: false, relayout: false, background: false, theme: false,
+    layout: false, shape: false, size: false, colour: false, align: false, fill: false, border: false, arrange: false, relayout: false, background: false, theme: false, motion: false,
+    table: false, tableEdit: false, cellFill: false,
   });
   let anchors = $state<Partial<Record<MenuName, HTMLElement>>>({});
 
@@ -25,7 +27,9 @@
   let textBoxes = $derived(editorState.selectedText);
   let shapes = $derived(selected.filter(element => element.type === 'shape'));
   let lines = $derived(selected.filter(element => element.type === 'line'));
-  let outlined = $derived([...shapes, ...lines]);
+  let table = $derived(editorState.selectedTable);
+  let outlined = $derived([...shapes, ...lines, ...(table ? [table] : [])]);
+  let boxed = $derived(shapes.length > 0 || !!table);
   let firstText = $derived(editorState.editing ?? textBoxes[0]);
   let style = $derived(firstText ? textStyle(firstText, editorState.theme, editorState.current?.layout ?? 'blank') : null);
   let fontSize = $derived(editorState.fontSize);
@@ -36,7 +40,9 @@
   let textColour = $derived(editorState.textColour);
   let shownTextColour = $derived(resolveColour(textColour, palette) ?? style?.color ?? palette.text);
   let fill = $derived(shapes[0] ? resolveColour(shapes[0].fill, palette, palette.accent) : null);
-  let stroke = $derived(outlined[0] ? resolveColour(outlined[0].stroke, palette, outlined[0].type === 'line' ? palette.text : null) : null);
+  let stroke = $derived(outlined[0] ? resolveColour(outlined[0].stroke, palette, outlined[0].type === 'line' ? palette.text : outlined[0].type === 'table' ? palette.muted : null) : null);
+  let cellFill = $derived(table ? activeCell(editorState)?.fill : undefined);
+  let cellChosen = $derived(!!table && !!activeCell(editorState));
 
   const SHAPES: Array<{ shape: ShapeKind; label: string; icon: string }> = [
     { shape: 'rect', label: 'Rectangle', icon: 'i-lucide-square' },
@@ -48,6 +54,17 @@
   function keepFocus(event: MouseEvent): void {
     if (!(event.target as HTMLElement).closest('input, select')) event.preventDefault();
   }
+
+  // The menus for whole slides and for tables are loaded apart, as they are first needed; once the deck is idle, ahead of time.
+  const loadSlideMenus = () => import('./SlideMenus.svelte');
+  const loadTableMenus = () => import('./TableMenus.svelte');
+  $effect(() => {
+    const early = setTimeout(() => {
+      void loadSlideMenus();
+      void loadTableMenus();
+    }, 2000);
+    return () => clearTimeout(early);
+  });
 
   function close(): void {
     for (const name of Object.keys(open) as MenuName[]) open[name] = false;
@@ -162,6 +179,11 @@
   <button class="tool" onclick={onPickImage} disabled={noSlide} title="Image" aria-label="Image" data-testid="add-image">
     <span class="i-lucide-image"></span>
   </button>
+  {#if !narrow}
+    <button class="tool" bind:this={anchors.table} onclick={() => (open.table = !open.table)} disabled={noSlide} title="Table" aria-label="Table" aria-expanded={open.table} data-testid="add-table">
+      <span class="i-lucide-table"></span>
+    </button>
+  {/if}
 
   {#if narrow}
     <!-- On a phone the row keeps what is used most; the rest is one tap away, in a sheet. -->
@@ -198,7 +220,7 @@
       <div class="sheet-row">{@render textTools()}</div>
     {/if}
     {#if outlined.length > 0}
-      <div class="menu-label">{shapes.length ? 'Shape' : 'Line'}</div>
+      <div class="menu-label">{table ? 'Table' : shapes.length ? 'Shape' : 'Line'}</div>
       <div class="sheet-row">{@render shapeTools()}</div>
     {/if}
     {#if selected.length > 0}
@@ -206,7 +228,12 @@
       <div class="sheet-row">{@render selectionTools()}</div>
     {/if}
     <div class="menu-label">Slide</div>
-    <div class="sheet-row">{@render slideTools()}</div>
+    <div class="sheet-row">
+      <button class="tool labelled" bind:this={anchors.table} onclick={() => (open.table = !open.table)} disabled={noSlide} aria-expanded={open.table} data-testid="add-table">
+        <span class="i-lucide-table"></span><span class="label">Table</span>
+      </button>
+      {@render slideTools()}
+    </div>
   </div>
 </Popover>
 
@@ -279,11 +306,19 @@
 {#snippet shapeTools()}
     {#if shapes.length > 0}
       <button class="tool" bind:this={anchors.fill} onclick={() => (open.fill = !open.fill)} title="Fill" aria-label="Fill" aria-expanded={open.fill} data-testid="shape-fill">
-        <span class="ink"><span class="i-lucide-paint-bucket"></span><span class="ink-bar" class:ink-none={!fill} style:background={fill ?? undefined}></span></span>
+        <span class="ink"><span class="i-lucide-paint-bucket"></span><span class="ink-bar" class:ink-none={!fill} style:background={fill ?? undefined}></span></span>{#if narrow}<span class="label">Fill</span>{/if}
       </button>
     {/if}
-    <button class="tool" bind:this={anchors.border} onclick={() => (open.border = !open.border)} title={shapes.length ? 'Border' : 'Line'} aria-label={shapes.length ? 'Border' : 'Line'} aria-expanded={open.border} data-testid="shape-border">
-      <span class="ink"><span class="i-lucide-pen-line"></span><span class="ink-bar" class:ink-none={!stroke} style:background={stroke ?? undefined}></span></span>
+    {#if table}
+      <button class="tool" bind:this={anchors.tableEdit} onclick={() => (open.tableEdit = !open.tableEdit)} title="Rows and columns" aria-label="Rows and columns" aria-expanded={open.tableEdit} data-testid="table-lines">
+        <span class="i-lucide-table-properties"></span>{#if narrow}<span class="label">Rows and columns</span>{/if}
+      </button>
+      <button class="tool" bind:this={anchors.cellFill} onclick={() => (open.cellFill = !open.cellFill)} title={cellChosen ? 'Cell fill' : 'Fill for every cell'} aria-label="Cell fill" aria-expanded={open.cellFill} data-testid="cell-fill">
+        <span class="ink"><span class="i-lucide-paint-bucket"></span><span class="ink-bar" class:ink-none={!cellFill} style:background={resolveColour(cellFill, palette) ?? undefined}></span></span>{#if narrow}<span class="label">Cell fill</span>{/if}
+      </button>
+    {/if}
+    <button class="tool" bind:this={anchors.border} onclick={() => (open.border = !open.border)} title={boxed ? 'Border' : 'Line'} aria-label={boxed ? 'Border' : 'Line'} aria-expanded={open.border} data-testid="shape-border">
+      <span class="ink"><span class="i-lucide-pen-line"></span><span class="ink-bar" class:ink-none={!stroke} style:background={stroke ?? undefined}></span></span>{#if narrow}<span class="label">{boxed ? 'Border' : 'Line'}</span>{/if}
     </button>
 {/snippet}
 
@@ -315,40 +350,13 @@
   <button class="tool labelled" bind:this={anchors.background} onclick={() => (open.background = !open.background)} disabled={noSlide} title="Slide background" aria-label="Slide background" aria-expanded={open.background} data-testid="slide-background">
     <span class="i-lucide-paint-roller"></span><span class="label roomy">Background</span>
   </button>
+  <button class="tool labelled" class:on={!!(editorState.current?.transition || editorState.current?.build)} bind:this={anchors.motion} onclick={() => (open.motion = !open.motion)} disabled={noSlide} title="Transition" aria-label="Transition" aria-expanded={open.motion} data-testid="slide-motion">
+    <span class="i-lucide-sparkles"></span><span class="label roomy">Transition</span>
+  </button>
   <button class="tool labelled" bind:this={anchors.theme} onclick={() => (open.theme = !open.theme)} title="Theme" aria-label="Theme" aria-expanded={open.theme} data-testid="deck-theme">
     <span class="i-lucide-palette"></span><span class="label roomy">Theme</span>
   </button>
 {/snippet}
-
-{#snippet layoutChoices(prefix: string, current: string | undefined, choose: (id: string) => void)}
-  <div class="layouts">
-    {#each LAYOUTS as layout (layout.id)}
-      <button class="layout" class:on={layout.id === current} onclick={() => pick(() => choose(layout.id))} data-testid="{prefix}-{layout.id}">
-        <span class="layout-preview">
-          {#each layout.elements as element, index (index)}
-            <span
-              class="layout-box"
-              class:layout-title={element.role === 'title'}
-              style:left="{(element.x ?? 0) / SLIDE_WIDTH * 100}%"
-              style:top="{(element.y ?? 0) / SLIDE_HEIGHT * 100}%"
-              style:width="{(element.w ?? 0) / SLIDE_WIDTH * 100}%"
-              style:height="{(element.h ?? 0) / SLIDE_HEIGHT * 100}%"
-            ></span>
-          {/each}
-        </span>
-        <span class="layout-name">{layout.name}</span>
-      </button>
-    {/each}
-  </div>
-{/snippet}
-
-<Popover bind:open={open.layout} anchor={anchors.layout} label="New slide">
-  {@render layoutChoices('layout', undefined, id => editorState.addSlide(id))}
-</Popover>
-
-<Popover bind:open={open.relayout} anchor={anchors.relayout} label="Slide layout">
-  {@render layoutChoices('relayout', editorState.current?.layout, id => editorState.setLayout(id))}
-</Popover>
 
 <Popover bind:open={open.shape} anchor={anchors.shape} label="Shapes">
   {#each SHAPES as item (item.shape)}
@@ -385,12 +393,26 @@
   <ColourPanel value={shapes[0]?.fill} {palette} themeChoice="Theme colour" allowNone onPick={colour => pick(() => editorState.updateSelected({ fill: colour ?? undefined }))} />
 </Popover>
 
-<Popover bind:open={open.border} anchor={anchors.border} label={shapes.length ? 'Border' : 'Line'}>
+{#if open.table || open.tableEdit || open.cellFill}
+  {#await loadTableMenus() then { default: TableMenus }}
+    <TableMenus
+      {editorState}
+      {palette}
+      anchors={{ table: anchors.table, lines: anchors.tableEdit, fill: anchors.cellFill }}
+      bind:insertOpen={open.table}
+      bind:linesOpen={open.tableEdit}
+      bind:fillOpen={open.cellFill}
+      onDone={close}
+    />
+  {/await}
+{/if}
+
+<Popover bind:open={open.border} anchor={anchors.border} label={boxed ? 'Border' : 'Line'}>
   <ColourPanel
     value={outlined[0]?.stroke}
     {palette}
     themeChoice={shapes.length ? undefined : 'Theme colour'}
-    allowNone={shapes.length > 0}
+    allowNone={boxed}
     onPick={colour => pick(() => editorState.updateSelected({ stroke: colour ?? undefined }))}
   />
   <div class="menu-divider"></div>
@@ -399,7 +421,7 @@
     {#each WIDTHS as width (width)}
       <button
         class="tool"
-        class:on={(outlined[0]?.strokeWidth ?? (outlined[0]?.type === 'line' ? 4 : 3)) === width}
+        class:on={(outlined[0]?.strokeWidth ?? (outlined[0]?.type === 'line' ? 4 : outlined[0]?.type === 'table' ? 1.5 : 3)) === width}
         onclick={() => pick(() => editorState.updateSelected({ strokeWidth: width }))}
         title={String(width)}
         aria-label="Thickness {width}"
@@ -436,30 +458,21 @@
   <button class="menu-item" onclick={() => pick(() => editorState.duplicateSelected())} data-testid="duplicate-selection"><span class="i-lucide-copy"></span>Duplicate</button>
 </Popover>
 
-<Popover bind:open={open.background} anchor={anchors.background} label="Slide background">
-  <ColourPanel
-    value={editorState.current?.background}
-    {palette}
-    themeChoice="Theme background"
-    themeColours={false}
-    onPick={colour => pick(() => editorState.setBackground(colour))}
-  />
-</Popover>
-
-<Popover bind:open={open.theme} anchor={anchors.theme} label="Themes">
-  <div class="themes">
-    {#each THEMES as theme (theme.id)}
-      <button class="theme" class:on={editorState.themeId === theme.id} onclick={() => pick(() => editorState.setTheme(theme.id))} data-testid="theme-{theme.id}">
-        <span class="theme-preview" style:background={theme.base.background} style:color={theme.base.text} style:font-family={theme.titleFont}>
-          <span class="theme-cover" style:background={theme.cover.background}></span>
-          <span class="theme-sample" style:font-weight={theme.titleWeight}>Aa</span>
-          <span class="theme-dot" style:background={theme.base.accent}></span>
-        </span>
-        <span class="layout-name">{theme.name}</span>
-      </button>
-    {/each}
-  </div>
-</Popover>
+{#if open.layout || open.relayout || open.background || open.theme || open.motion}
+  {#await loadSlideMenus() then { default: SlideMenus }}
+    <SlideMenus
+      {editorState}
+      {palette}
+      anchors={{ layout: anchors.layout, relayout: anchors.relayout, background: anchors.background, theme: anchors.theme, motion: anchors.motion }}
+      bind:layoutOpen={open.layout}
+      bind:relayoutOpen={open.relayout}
+      bind:backgroundOpen={open.background}
+      bind:themeOpen={open.theme}
+      bind:motionOpen={open.motion}
+      onDone={close}
+    />
+  {/await}
+{/if}
 
 <style>
   .shell {
@@ -625,87 +638,6 @@
     background: currentColor;
   }
 
-  .layouts,
-  .themes {
-    display: grid;
-    grid-template-columns: repeat(3, 104px);
-    gap: 6px;
-    padding: 4px;
-  }
-
-  .layout,
-  .theme {
-    display: flex;
-    flex-direction: column;
-    align-items: stretch;
-    gap: 5px;
-    padding: 6px;
-    border-radius: 8px;
-  }
-
-  .layout:hover,
-  .theme:hover {
-    background: rgb(var(--surface-2));
-  }
-
-  .theme.on,
-  .layout.on {
-    background: rgb(145 109 254 / 0.16);
-  }
-
-  .layout-preview,
-  .theme-preview {
-    position: relative;
-    display: block;
-    aspect-ratio: 16 / 9;
-    border-radius: 4px;
-    border: 1px solid rgb(128 128 128 / 0.35);
-    background: #fff;
-    overflow: hidden;
-  }
-
-  .layout-box {
-    position: absolute;
-    border-radius: 1.5px;
-    background: #d5d6dc;
-  }
-
-  .layout-title {
-    background: #8d8f9b;
-  }
-
-  .layout-name {
-    font-size: 0.75rem;
-    text-align: center;
-    color: rgb(var(--text-1));
-  }
-
-  .theme-cover {
-    position: absolute;
-    left: 0;
-    top: 0;
-    bottom: 0;
-    width: 34%;
-  }
-
-  .theme-sample {
-    position: absolute;
-    left: 44%;
-    top: 50%;
-    transform: translateY(-50%);
-    font-size: 1.15rem;
-    line-height: 1;
-  }
-
-  .theme-dot {
-    position: absolute;
-    right: 8px;
-    bottom: 8px;
-    width: 9px;
-    height: 9px;
-    border-radius: 50%;
-  }
-
   /* The words beside the last three icons make way when the row fills up with what can be done to a selection. */
   @container (max-width: 1300px) {
     .busy .roomy {
@@ -720,11 +652,6 @@
 
     .labelled {
       padding: 0 7px;
-    }
-
-    .layouts,
-    .themes {
-      grid-template-columns: repeat(2, 104px);
     }
 
     /* Big enough for a finger, and few enough to fit across a phone without scrolling. */

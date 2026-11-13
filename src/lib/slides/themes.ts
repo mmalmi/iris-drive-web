@@ -146,18 +146,19 @@ export function textStyle(element: SlideElement, theme: Theme, layout: string): 
   const cover = palette === theme.cover;
   const role = element.role;
   const shape = element.type === 'shape';
+  const table = element.type === 'table';
   const filled = shape && resolveColour(element.fill, palette, palette.accent) !== null;
   const defaultColour = shape
     ? (filled ? (element.fill ? readableOn(resolveColour(element.fill, palette, palette.accent)!, palette) : palette.onAccent) : palette.text)
     : role === 'subtitle' ? palette.muted : palette.text;
   return {
     fontFamily: role === 'title' ? theme.titleFont : theme.bodyFont,
-    fontSize: element.fontSize ?? (role ? (role === 'title' && cover ? COVER_TITLE_SIZE : ROLE_SIZE[role]) : shape ? 24 : 28),
+    fontSize: element.fontSize ?? (role ? (role === 'title' && cover ? COVER_TITLE_SIZE : ROLE_SIZE[role]) : shape ? 24 : table ? 22 : 28),
     fontWeight: role === 'title' ? theme.titleWeight : 400,
     lineHeight: role === 'title' ? 1.12 : 1.3,
     color: resolveColour(element.color, palette, defaultColour) ?? defaultColour,
     align: element.align ?? (shape ? 'center' : 'left'),
-    valign: element.valign ?? (shape ? 'middle' : 'top'),
+    valign: element.valign ?? (shape || table ? 'middle' : 'top'),
   };
 }
 

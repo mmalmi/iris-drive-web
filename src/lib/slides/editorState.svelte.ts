@@ -31,12 +31,21 @@ import { DEFAULT_LAYOUT, layoutById } from './layouts';
 import { DEFAULT_THEME, paletteFor, textStyle, themeById, type Palette, type Theme } from './themes';
 import { MAX_FONT_SIZE, MIN_FONT_SIZE, selectAllText } from './richText';
 import { comparePositions } from './order';
+import { cellPlace, newTable, stepCell } from './table';
+import { growTable } from './tableEditing';
+import { readTransition, type Transition } from './motion';
+import { imageSize, reuse } from './slideData';
+
+/** Transaction origin of a table cell made because someone began typing where none was; not something to undo. */
+const CELL_ORIGIN = 'slides-cell';
 
 export const CLIPBOARD_TYPE = 'application/x-iris-slides';
 
 interface ClipboardSlide {
   layout: string;
   background?: string;
+  transition?: Transition;
+  build?: boolean;
   notes: string;
   elements: ElementJson[];
 }
@@ -56,6 +65,8 @@ export interface StartEditingOptions {
   insert?: string;
   /** Something to do with the editor once it is there. */
   then?: (editor: Editor) => void;
+  /** For a table: the cell to type in; the one last typed in, or the first, otherwise. */
+  cell?: string;
 }
 
 export type TextMark = 'bold' | 'italic' | 'underline' | 'strike';
@@ -70,30 +81,6 @@ const SEED_ORIGIN = 'slides-seed';
 function untouched(slide: Slide): boolean {
   return !!slide.seed && !slide.background && !slide.notes?.length
     && slide.elements.every(element => element.type === 'text' && !!element.role && richTextIsEmpty(element.content));
-}
-
-function shallowEqual(left: object, right: object): boolean {
-  const leftKeys = Object.keys(left);
-  if (leftKeys.length !== Object.keys(right).length) return false;
-  for (const key of leftKeys) {
-    if ((left as Record<string, unknown>)[key] !== (right as Record<string, unknown>)[key]) return false;
-  }
-  return true;
-}
-
-/** Keeps the objects of the previous reading where nothing changed, so only what changed is redrawn. */
-function reuse(previous: Slide | undefined, next: Slide): Slide {
-  if (!previous) return next;
-  const before = new Map(previous.elements.map(element => [element.id, element]));
-  const elements = next.elements.map((element) => {
-    const old = before.get(element.id);
-    return old && shallowEqual(old, element) ? old : element;
-  });
-  const same = elements.length === previous.elements.length
-    && elements.every((element, index) => element === previous.elements[index])
-    && previous.pos === next.pos && previous.layout === next.layout
-    && previous.background === next.background && previous.notes === next.notes;
-  return same ? previous : { ...next, elements };
 }
 
 export interface SlidesEditorOptions {
@@ -144,8 +131,12 @@ export class SlidesEditorState {
   pickedSlides = $state.raw<string[]>([]);
   /** Elements selected on the current slide. */
   selection = $state.raw<string[]>([]);
-  /** The text box or shape being typed in. */
+  /** The text box, shape or table being typed in. */
   editingId = $state<string | null>(null);
+  /** The cell of the table being typed in. */
+  editingCell = $state<string | null>(null);
+  /** The cell of the selected table that row and column changes act on: the one typed in last. */
+  tableCell = $state<string | null>(null);
   textEditor = $state.raw<Editor | null>(null);
   /** Goes up whenever the text editor's cursor or content changes. */
   editorTick = $state(0);
@@ -167,7 +158,9 @@ export class SlidesEditorState {
     this.current?.elements.find(element => element.id === this.editingId) ?? null,
   );
   /** Selected elements that hold text. */
-  readonly selectedText: SlideElement[] = $derived(this.selected.filter(element => element.type === 'text' || element.type === 'shape'));
+  readonly selectedText: SlideElement[] = $derived(this.selected.filter(element => element.type === 'text' || element.type === 'shape' || element.type === 'table'));
+  /** The table that is selected, when one is, alone. */
+  readonly selectedTable: SlideElement | null = $derived(this.selected.length === 1 && this.selected[0]!.type === 'table' ? this.selected[0]! : null);
 
   constructor(ydoc: Y.Doc, options: SlidesEditorOptions) {
     this.deck = new Deck(ydoc);
@@ -308,6 +301,11 @@ export class SlidesEditorState {
     if (boxes.length && this.measureText && this.currentId) void this.#refit(this.currentId, boxes, !merge);
     else if (!merge) this.#undo.stopCapturing();
     return result;
+  }
+
+  /** One step of this user's editing, for changes made from outside this class, such as to tables. */
+  step<T>(change: () => T, merge = ''): T {
+    return this.#act(change, merge);
   }
 
   /** Set by the canvas: how tall the text of an element on it is right now, in slide units. */
@@ -451,6 +449,16 @@ export class SlidesEditorState {
     }), 'background');
   }
 
+  /** How the picked slides (every slide when `everywhere`) come on screen, and whether their points come one at a time. */
+  setMotion(motion: { transition?: Transition; build?: boolean }, everywhere = false): void {
+    if (!this.canEdit) return;
+    this.#act(() => this.deck.setSlideMotion(everywhere ? this.slides.map(slide => slide.id) : this.#pickedOrCurrent(), motion));
+  }
+
+  #pickedOrCurrent(): string[] {
+    return this.pickedSlides.length ? this.pickedSlides : this.currentId ? [this.currentId] : [];
+  }
+
   setTheme(id: string): void {
     if (!this.canEdit) return;
     this.#act(() => this.deck.setTheme(id));
@@ -478,6 +486,7 @@ export class SlidesEditorState {
 
   select(ids: string[]): void {
     if (this.editingId && !(ids.length === 1 && ids[0] === this.editingId)) this.stopEditing();
+    if (!(ids.length === 1 && ids[0] === this.selection[0] && this.selection.length === 1)) this.tableCell = null;
     this.selection = ids;
     this.area = 'canvas';
   }
@@ -556,6 +565,14 @@ export class SlidesEditorState {
     const init: ElementInit = { type: 'line', ...vector, rot: 0 };
     if (arrow) init.arrow = true;
     this.#add([init]);
+  }
+
+  /** A table of the given size in the middle of the slide, ready to type in its first cell. */
+  addTable(rows: number, cols: number): void {
+    const w = Math.min(1120, Math.max(320, cols * 200));
+    const h = Math.min(600, Math.max(80, rows * 64));
+    const [id] = this.#add([{ type: 'table', ...this.#place(w, h), w, h, rot: 0, header: rows > 1 ? true : undefined, table: newTable(rows, cols) }]);
+    if (id) this.startEditing(id);
   }
 
   /** Stores an image with the deck and puts it on the slide, centred on `at` when given. */
@@ -644,17 +661,28 @@ export class SlidesEditorState {
   startEditing(id: string, options: StartEditingOptions = {}): void {
     if (!this.canEdit) return;
     const element = this.current?.elements.find(candidate => candidate.id === id);
-    if (!element?.content) return;
-    if (this.editingId && this.editingId !== id) this.stopEditing();
+    if (!element || (!element.content && !element.table)) return;
+    let cell: string | null = null;
+    if (element.table) {
+      const table = element.table;
+      const wanted = options.cell ?? (this.editingId === id ? this.editingCell : null) ?? (this.selection[0] === id ? this.tableCell : null);
+      cell = wanted && cellPlace(table, wanted) ? wanted : stepCell(table, '', false);
+      if (!cell || !this.currentId || !this.deck.tableCell(this.currentId, id, cell, CELL_ORIGIN)) return;
+    }
+    const sameBox = this.editingId === id && (!cell || cell === this.editingCell);
+    if (this.editingId && !sameBox) this.stopEditing();
     this.#undo.stopCapturing();
     this.#lastAction = '';
+    if (this.selection.length !== 1 || this.selection[0] !== id) this.tableCell = null;
     this.selection = [id];
     this.area = 'canvas';
-    if (this.editingId === id && this.textEditor) {
+    if (sameBox && this.textEditor) {
       this.#applyEditOptions(this.textEditor, options);
       return;
     }
     this.#pendingEdit = options;
+    this.editingCell = cell;
+    if (cell) this.tableCell = cell;
     this.editingId = id;
   }
 
@@ -708,6 +736,7 @@ export class SlidesEditorState {
     const element = this.editing;
     const slideId = this.currentId;
     this.editingId = null;
+    this.editingCell = null;
     this.#pendingEdit = null;
     this.#undo.stopCapturing();
     this.#lastAction = '';
@@ -725,7 +754,23 @@ export class SlidesEditorState {
 
   /** Moves typing on to the next box that holds text (the previous one when `back`), in the order they were made. */
   editNext(back = false): void {
-    const boxes = this.current?.elements.filter(element => element.content) ?? [];
+    const editing = this.editing;
+    // In a table Tab goes from cell to cell, and past the last one adds a row.
+    if (editing?.table && this.editingCell) {
+      let next = stepCell(editing.table, this.editingCell, back);
+      if (!next && !back) {
+        const slideId = this.currentId!;
+        const rowId = this.#act(() => this.deck.transact(() => {
+          const made = this.deck.insertTableLine(slideId, editing.id, 'rows', editing.table!.rows.length);
+          growTable(this.deck, slideId, editing);
+          return made;
+        }));
+        if (rowId) next = `${rowId}:${editing.table.cols[0]!.id}`;
+      }
+      if (next) this.startEditing(editing.id, { cell: next, selectAll: true });
+      return;
+    }
+    const boxes = this.current?.elements.filter(element => element.content || element.table) ?? [];
     const at = boxes.findIndex(element => element.id === this.editingId);
     const next = boxes[at + (back ? -1 : 1)];
     if (at < 0 || !next) return;
@@ -898,6 +943,8 @@ export class SlidesEditorState {
           slides: slides.map(slide => ({
             layout: slide.layout,
             ...(slide.background ? { background: slide.background } : {}),
+            ...(slide.transition ? { transition: slide.transition } : {}),
+            ...(slide.build ? { build: true } : {}),
             notes: slide.notes?.toString() ?? '',
             elements: slide.elements.map(elementToJson),
           })),
@@ -924,6 +971,7 @@ export class SlidesEditorState {
       const ids = this.#act(() => this.deck.transact(() => payload.slides!.map((slide) => {
         const id = this.deck.addSlide(typeof slide.layout === 'string' ? slide.layout : 'blank', (slide.elements ?? []) as ElementInit[], after, slide.background);
         if (slide.notes) this.deck.setNotes(id, String(slide.notes));
+        if (slide.transition || slide.build) this.deck.setSlideMotion([id], { transition: readTransition(slide.transition), build: slide.build === true });
         after = id;
         return id;
       })));
@@ -956,26 +1004,4 @@ export class SlidesEditorState {
     const h = 64;
     this.#add([{ type: 'text', ...this.#place(w, h), w, h, rot: 0, text: trimmed }]);
   }
-}
-
-async function imageSize(file: File): Promise<{ width: number; height: number }> {
-  try {
-    const bitmap = await createImageBitmap(file);
-    const size = { width: bitmap.width, height: bitmap.height };
-    bitmap.close();
-    if (size.width > 0 && size.height > 0) return size;
-  } catch {
-    // Some images (SVG) cannot be decoded this way; an <img> can still measure them.
-  }
-  return new Promise((resolve) => {
-    const url = URL.createObjectURL(file);
-    const image = new Image();
-    const done = (width: number, height: number) => {
-      URL.revokeObjectURL(url);
-      resolve({ width: width || 400, height: height || 300 });
-    };
-    image.onload = () => done(image.naturalWidth, image.naturalHeight);
-    image.onerror = () => done(400, 300);
-    image.src = url;
-  });
 }

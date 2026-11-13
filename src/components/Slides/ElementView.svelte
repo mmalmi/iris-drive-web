@@ -9,6 +9,7 @@
   import { ELLIPSE_INSET, MIN_FIT, TEXT_PAD_Y, clearFit, fitText, roomInside } from '../../lib/slides/fitText';
   import RichText from './RichText.svelte';
   import TextEditor from './TextEditor.svelte';
+  import TableView from './TableView.svelte';
 
   interface Props {
     element: SlideElement;
@@ -20,8 +21,10 @@
     editorState?: SlidesEditorState;
     /** Goes up when the deck changes, so emptiness is looked at again. */
     revision?: number;
+    /** While presenting a slide that builds: how many of this box's points are shown. All when undefined. */
+    reveal?: number;
   }
-  let { element, theme, palette, layout, urls, editorState, revision = 0 }: Props = $props();
+  let { element, theme, palette, layout, urls, editorState, revision = 0, reveal }: Props = $props();
 
   let editing = $derived(!!editorState && editorState.editingId === element.id);
   let style = $derived(textStyle(element, theme, layout));
@@ -133,6 +136,16 @@
       {:else}
         <div class="el-image el-image-missing"></div>
       {/if}
+    {:else if element.table}
+      <div
+        class="el-table-box"
+        style:font-family={style.fontFamily}
+        style:--cell-size="{style.fontSize}px"
+        style:line-height={style.lineHeight}
+        style:text-align={style.align}
+      >
+        <TableView {element} {palette} {style} {editorState} />
+      </div>
     {:else}
       {#if element.type === 'shape'}
         <div
@@ -162,7 +175,7 @@
             {:else if hint}
               <div class="slide-text el-hint"><p>{hint}</p></div>
             {:else}
-              <RichText fragment={element.content} onDrawn={fit} />
+              <RichText fragment={element.content} onDrawn={fit} {reveal} />
             {/if}
           </div>
         </div>

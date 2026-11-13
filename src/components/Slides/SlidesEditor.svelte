@@ -14,9 +14,6 @@
   import SlideStrip from './SlideStrip.svelte';
   import Toolbar from './Toolbar.svelte';
   import NotesBox from './NotesBox.svelte';
-  import PresentView from './PresentView.svelte';
-  import PresenterView from './PresenterView.svelte';
-  import PrintView from './PrintView.svelte';
   import SlideStack from './SlideStack.svelte';
   import Popover from './Popover.svelte';
   import { isPresenterWindow, presenterUrl } from '../../lib/slides/presentSync';
@@ -35,6 +32,14 @@
   let copied: { payload: ClipboardPayload; text: string } | null = null;
 
   let canEdit = $derived(!!editorState?.canEdit);
+
+  // Presenting, the presenter's window and printing are loaded apart from the editor, so a deck opens light.
+  // Presenting is fetched once the deck is open, so that it starts at once when asked for.
+  let presentView: ReturnType<typeof loadPresentView> | null = null;
+  function loadPresentView() {
+    return import('./PresentView.svelte');
+  }
+  const presentViewLoaded = () => (presentView ??= loadPresentView());
   let urls = $derived(drive.attachmentUrls);
 
   /** This window was opened beside a presentation, for the one presenting. */
@@ -56,6 +61,7 @@
       });
       if (!presenterWindow) created.startDeck();
       editorState = created;
+      if (!presenterWindow) setTimeout(() => void presentViewLoaded(), 1500);
     })();
     narrowScreen.addEventListener('change', onNarrowChange);
     if (presenterWindow) return;
@@ -91,6 +97,26 @@
     moreOpen = false;
     openNotesWindow();
     present();
+  }
+
+  let exporting = $state(false);
+
+  /** The deck as a .pptx file. The code that writes it is fetched only now. */
+  async function savePowerPoint(): Promise<void> {
+    const current = editorState;
+    if (!current || exporting) return;
+    exporting = true;
+    current.stopEditing();
+    try {
+      const { downloadPptx } = await import('../../lib/slides/pptx');
+      await downloadPptx({ slides: current.slides, theme: current.theme, title: drive.title, urls });
+      moreOpen = false;
+    } catch (error) {
+      console.error('[Slides] Could not make the PowerPoint file:', error);
+      current.notice = 'Could not make the PowerPoint file.';
+    } finally {
+      exporting = false;
+    }
   }
 
   function print(): void {
@@ -232,8 +258,8 @@
     } else if (mod && (lower === 'b' || lower === 'i' || lower === 'u') && current.selectedText.length > 0) {
       done();
       current.toggleMark(lower === 'b' ? 'bold' : lower === 'i' ? 'italic' : 'underline');
-    } else if (key === 'Tab' && !mod && current.current && current.current.elements.length > 0 && !strip) {
-      // Tab walks through the elements of the slide.
+    } else if (key === 'Tab' && !mod && selected && current.current && current.current.elements.length > 0) {
+      // With something selected, Tab walks through the elements of the slide; with nothing, it moves on to the notes as usual.
       const elements = current.current.elements;
       const at = elements.findIndex(element => element.id === current.selection[0]);
       const next = elements[(at + (event.shiftKey ? -1 : 1) + elements.length) % elements.length] ?? elements[0]!;
@@ -375,6 +401,9 @@
     <button class="menu-item" onclick={print} data-testid="slides-print-button">
       <span class="i-lucide-printer"></span>Print or save as PDF
     </button>
+    <button class="menu-item" onclick={() => void savePowerPoint()} disabled={exporting} data-testid="slides-pptx-button">
+      <span class={exporting ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-file-down'}></span>Download as PowerPoint
+    </button>
   </Popover>
 
   {#if !editorState}
@@ -386,7 +415,9 @@
       {/if}
     </div>
   {:else if presenterWindow}
-    <PresenterView slides={editorState.slides} theme={editorState.theme} {urls} title={drive.title} revision={editorState.revision} />
+    {#await import('./PresenterView.svelte') then { default: PresenterView }}
+      <PresenterView slides={editorState.slides} theme={editorState.theme} {urls} title={drive.title} revision={editorState.revision} />
+    {/await}
   {:else}
     {#if canEdit}
       <Toolbar {editorState} onPickImage={() => imageInput?.click()} />
@@ -431,6 +462,7 @@
     {/if}
 
     {#if editorState.presenting}
+      {#await presentViewLoaded() then { default: PresentView }}
       <PresentView
         slides={editorState.slides}
         theme={editorState.theme}
@@ -445,9 +477,12 @@
         }}
         onOpenNotes={openNotesWindow}
       />
+      {/await}
     {/if}
     {#if printing}
-      <PrintView slides={editorState.slides} theme={editorState.theme} {urls} onDone={() => (printing = false)} />
+      {#await import('./PrintView.svelte') then { default: PrintView }}
+        <PrintView slides={editorState.slides} theme={editorState.theme} {urls} onDone={() => (printing = false)} />
+      {/await}
     {/if}
   {/if}
 </div>

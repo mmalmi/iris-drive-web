@@ -88,7 +88,8 @@ describe('position keys', () => {
 describe('slides', () => {
   test('a started deck has a version and a theme, and starting again changes nothing', () => {
     const deck = newDeck();
-    expect(deck.version).toBe(DECK_VERSION);
+    // A new deck is written as the first version; only what older code would lose, such as a table, raises it.
+    expect(deck.version).toBe(1);
     expect(deck.theme).toBe('light');
     deck.setTheme('dark');
     deck.start('light');

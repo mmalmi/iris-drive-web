@@ -12,6 +12,8 @@
  *                                 devices opening a new deck at once end up with one such slide
  *                     seedBy      the browser that made that slide, so it can still tidy it away
  *                                 after a reload
+ *                     transition  how it comes on screen when presenting: 'fade' or 'slide' (none when absent)
+ *                     build       true when its points are shown one at a time (see motion.ts)
  *                     notes       Y.Text, the speaker notes
  *                     elements    Y.Map  <element id> → Y.Map
  *                                   type     'text' | 'shape' | 'line' | 'image'
@@ -42,15 +44,32 @@
  */
 import * as Y from 'yjs';
 import { comparePositions, keyBetween, keysBetween, readKey } from './order';
+import {
+  eachText,
+  paragraphsFromText,
+  richTextIsEmpty,
+  richTextNodesFromJson,
+  richTextToJson,
+  richTextToPlain,
+  type RichTextJson,
+} from './richTextData';
+import { readTransition, type Transition } from './motion';
+import { ensureCell, insertLine, readTable, removeLine, setCellFill, tableFragments, tableToJson, writeTable, type TableData, type TableJson } from './table';
 
-export const DECK_VERSION = 1;
+export { richTextIsEmpty, richTextToJson, richTextToPlain, type RichTextJson };
+
+/** The newest version of the format this code reads and writes. */
+export const DECK_VERSION = 2;
+/** What a new deck is written as: tables raise it to 2, since older code would drop them when copying. */
+const FIRST_VERSION = 1;
+const TABLE_VERSION = 2;
 export const SLIDE_WIDTH = 1280;
 export const SLIDE_HEIGHT = 720;
 
 /** Transaction origin of edits made in this editor; the only ones undo reverts. */
 export const LOCAL_ORIGIN = 'slides';
 
-export type ElementType = 'text' | 'shape' | 'line' | 'image';
+export type ElementType = 'text' | 'shape' | 'line' | 'image' | 'table';
 export type ShapeKind = 'rect' | 'round' | 'ellipse';
 export type TextRole = 'title' | 'subtitle' | 'body';
 export type TextAlign = 'left' | 'center' | 'right';
@@ -86,6 +105,9 @@ export interface SlideElement extends Frame {
   arrow?: boolean;
   /** Images: the attachment's file name. */
   src?: string;
+  /** Tables: the grid and its cells (see table.ts), and whether the first row is a heading. */
+  table?: TableData;
+  header?: boolean;
 }
 
 export interface Slide {
@@ -97,39 +119,37 @@ export interface Slide {
   seed?: boolean;
   /** The browser that made it, when known. */
   seedBy?: string;
+  transition?: Transition;
+  build?: boolean;
   notes: Y.Text | null;
   /** Lowest first. */
   elements: SlideElement[];
 }
 
 /** The properties of an element that can be written, apart from its text. */
-export type ElementProps = Partial<Omit<SlideElement, 'id' | 'content'>>;
+export type ElementProps = Partial<Omit<SlideElement, 'id' | 'content' | 'table'>>;
 
 /** A new element: its properties and, optionally, the text it starts with, one paragraph per line. */
 export interface ElementInit extends ElementProps {
   type: ElementType;
   text?: string;
+  table?: TableJson;
 }
-
-/** Rich text as plain data, for the clipboard. */
-export type RichTextJson = Array<
-  | { name: string; attrs: Record<string, unknown>; children: RichTextJson }
-  | { text: Array<{ insert: string; attributes?: Record<string, unknown> }> }
->;
 
 export interface ElementJson extends ElementProps {
   type: ElementType;
   content?: RichTextJson;
+  table?: TableJson;
 }
 
-const ELEMENT_TYPES: ReadonlySet<string> = new Set(['text', 'shape', 'line', 'image']);
+const ELEMENT_TYPES: ReadonlySet<string> = new Set(['text', 'shape', 'line', 'image', 'table']);
 const SHAPES: ReadonlySet<string> = new Set(['rect', 'round', 'ellipse']);
 const ROLES: ReadonlySet<string> = new Set(['title', 'subtitle', 'body']);
 const ALIGNS: ReadonlySet<string> = new Set(['left', 'center', 'right']);
 const VALIGNS: ReadonlySet<string> = new Set(['top', 'middle', 'bottom']);
 const WRITABLE_KEYS = [
   'type', 'z', 'x', 'y', 'w', 'h', 'rot', 'role', 'fontSize', 'color', 'align', 'valign',
-  'shape', 'fill', 'stroke', 'strokeWidth', 'arrow', 'src',
+  'shape', 'fill', 'stroke', 'strokeWidth', 'arrow', 'src', 'header',
 ] as const;
 
 export function newId(): string {
@@ -176,6 +196,11 @@ export function readElement(id: string, map: unknown): SlideElement | null {
     rot: finite(map.get('rot'), 0),
   };
   if (hasContent(type) && content instanceof Y.XmlFragment) element.content = content;
+  if (type === 'table') {
+    const table = readTable(map);
+    if (!table) return null;
+    element.table = table;
+  }
   const optional: ElementProps = {
     role: oneOf<TextRole>(map.get('role'), ROLES),
     fontSize: positive(map.get('fontSize')),
@@ -187,6 +212,7 @@ export function readElement(id: string, map: unknown): SlideElement | null {
     stroke: text(map.get('stroke')),
     strokeWidth: positive(map.get('strokeWidth')),
     arrow: map.get('arrow') === true ? true : undefined,
+    header: type === 'table' && map.get('header') === true ? true : undefined,
     src: text(map.get('src')),
   };
   for (const [key, value] of Object.entries(optional)) {
@@ -215,6 +241,9 @@ export function readSlide(id: string, map: unknown): Slide | null {
     notes: notes instanceof Y.Text ? notes : null,
     elements,
   };
+  const transition = readTransition(map.get('transition'));
+  if (transition) slide.transition = transition;
+  if (map.get('build') === true) slide.build = true;
   if (map.get('seed') === true) {
     slide.seed = true;
     const by = text(map.get('seedBy'));
@@ -223,100 +252,11 @@ export function readSlide(id: string, map: unknown): Slide | null {
   return slide;
 }
 
-/** The plain text of a text box, one line per paragraph. */
-export function richTextToPlain(fragment: Y.XmlFragment | undefined): string {
-  if (!fragment) return '';
-  const lines: string[] = [];
-  const visit = (node: Y.XmlFragment | Y.XmlElement): void => {
-    let line = '';
-    let hasText = false;
-    for (const child of node.toArray()) {
-      if (child instanceof Y.XmlText) {
-        hasText = true;
-        for (const part of child.toDelta() as Array<{ insert: unknown }>) {
-          if (typeof part.insert === 'string') line += part.insert;
-        }
-      } else if (child instanceof Y.XmlElement) {
-        if (child.nodeName === 'hardBreak') {
-          hasText = true;
-          line += '\n';
-        } else {
-          visit(child);
-        }
-      }
-    }
-    if (hasText || (node instanceof Y.XmlElement && node.nodeName === 'paragraph' && node.length === 0)) lines.push(line);
-  };
-  visit(fragment);
-  return lines.join('\n');
-}
-
-export function richTextIsEmpty(fragment: Y.XmlFragment | undefined): boolean {
-  return richTextToPlain(fragment).trim() === '';
-}
-
-/** Paragraph nodes for plain text, one per line. */
-function paragraphsFromText(value: string): Y.XmlElement[] {
-  return value.split('\n').map((line) => {
-    const paragraph = new Y.XmlElement('paragraph');
-    if (line) {
-      const node = new Y.XmlText();
-      node.insert(0, line);
-      paragraph.insert(0, [node]);
-    }
-    return paragraph;
-  });
-}
-
-export function richTextToJson(fragment: Y.XmlFragment | Y.XmlElement | undefined): RichTextJson {
-  if (!fragment) return [];
-  const result: RichTextJson = [];
-  for (const child of fragment.toArray()) {
-    if (child instanceof Y.XmlText) {
-      const delta = (child.toDelta() as Array<{ insert: unknown; attributes?: Record<string, unknown> }>)
-        .filter(part => typeof part.insert === 'string')
-        .map(part => part.attributes ? { insert: part.insert as string, attributes: part.attributes } : { insert: part.insert as string });
-      result.push({ text: delta });
-    } else if (child instanceof Y.XmlElement) {
-      result.push({ name: child.nodeName, attrs: child.getAttributes() as Record<string, unknown>, children: richTextToJson(child) });
-    }
-  }
-  return result;
-}
-
-function nodesFromJson(json: unknown, depth = 0): Array<Y.XmlElement | Y.XmlText> {
-  if (!Array.isArray(json) || depth > 12) return [];
-  const nodes: Array<Y.XmlElement | Y.XmlText> = [];
-  for (const item of json as Array<Record<string, unknown>>) {
-    if (!item || typeof item !== 'object') continue;
-    if (Array.isArray(item.text)) {
-      const node = new Y.XmlText();
-      const delta = (item.text as Array<Record<string, unknown>>)
-        .filter(part => part && typeof part.insert === 'string')
-        .map(part => part.attributes && typeof part.attributes === 'object'
-          ? { insert: part.insert as string, attributes: part.attributes as Record<string, unknown> }
-          : { insert: part.insert as string });
-      node.applyDelta(delta);
-      nodes.push(node);
-    } else if (typeof item.name === 'string' && /^[A-Za-z][A-Za-z0-9]*$/.test(item.name)) {
-      const node = new Y.XmlElement(item.name);
-      if (item.attrs && typeof item.attrs === 'object') {
-        for (const [key, value] of Object.entries(item.attrs as Record<string, unknown>)) {
-          if (value !== undefined && value !== null) node.setAttribute(key, value as string);
-        }
-      }
-      const children = nodesFromJson(item.children, depth + 1);
-      if (children.length) node.insert(0, children);
-      nodes.push(node);
-    }
-  }
-  return nodes;
-}
-
 export function elementToJson(element: SlideElement): ElementJson {
-  const { content, ...rest } = element;
+  const { content, table, ...rest } = element;
   const props: ElementJson & { id?: string } = { ...rest };
   delete props.id;
+  if (table) props.table = tableToJson(table);
   return content ? { ...props, content: richTextToJson(content) } : props;
 }
 
@@ -377,7 +317,7 @@ export class Deck {
   /** Gives a deck that has nothing yet its version and theme. */
   start(theme: string): void {
     this.transact(() => {
-      if (this.meta.get('version') === undefined) this.meta.set('version', DECK_VERSION);
+      if (this.meta.get('version') === undefined) this.meta.set('version', FIRST_VERSION);
       if (this.meta.get('theme') === undefined) this.meta.set('theme', theme);
     });
   }
@@ -425,6 +365,8 @@ export class Deck {
         map.set('pos', keyBetween(source.pos, order[index + 1]?.pos));
         map.set('layout', source.layout);
         if (source.background) map.set('background', source.background);
+        if (source.transition) map.set('transition', source.transition);
+        if (source.build) map.set('build', true);
         const notes = new Y.Text();
         map.set('notes', notes);
         if (source.notes) notes.insert(0, source.notes.toString());
@@ -465,6 +407,24 @@ export class Deck {
       if (contiguous && order[from - 1] === before && order[from + moving.length] === after) return;
       const keys = keysBetween(before?.pos, after?.pos, moving.length);
       moving.forEach((slide, position) => this.slides.get(slide.id)?.set('pos', keys[position]!));
+    });
+  }
+
+  /** Sets how slides come on screen and whether their points come one at a time; null takes either away. */
+  setSlideMotion(ids: string[], motion: { transition?: Transition | null; build?: boolean | null }): void {
+    this.transact(() => {
+      for (const id of ids) {
+        const map = this.slides.get(id);
+        if (!map) continue;
+        if (motion.transition !== undefined) {
+          if (motion.transition && motion.transition !== 'none') map.set('transition', motion.transition);
+          else if (map.has('transition')) map.delete('transition');
+        }
+        if (motion.build !== undefined) {
+          if (motion.build) map.set('build', true);
+          else if (map.has('build')) map.delete('build');
+        }
+      }
     });
   }
 
@@ -586,8 +546,12 @@ export class Deck {
     if (hasContent(init.type)) {
       const content = new Y.XmlFragment();
       map.set('content', content);
-      const nodes = init.content ? nodesFromJson(init.content) : init.text ? paragraphsFromText(init.text) : [];
+      const nodes = init.content ? richTextNodesFromJson(init.content) : init.text ? paragraphsFromText(init.text) : [];
       if (nodes.length) content.insert(0, nodes);
+    }
+    if (init.type === 'table') {
+      writeTable(map, init.table);
+      if (this.version < TABLE_VERSION) this.meta.set('version', TABLE_VERSION);
     }
     return id;
   }
@@ -683,28 +647,32 @@ export class Deck {
     });
   }
 
+  /** Every text an element holds: that of a text box or shape, or of each cell of a table. */
+  #fragments(slideId: string, elementId: string): Y.XmlFragment[] {
+    const map = this.#elements(slideId)?.get(elementId);
+    if (!map) return [];
+    if (map.get('type') === 'table') return tableFragments(map);
+    const content = map.get('content');
+    return content instanceof Y.XmlFragment ? [content] : [];
+  }
+
   /** Applies a mark to, or removes it from, all the text of an element. */
   formatAllText(slideId: string, elementId: string, mark: string, value: Record<string, unknown> | null): void {
-    const content = this.#elements(slideId)?.get(elementId)?.get('content');
-    if (!(content instanceof Y.XmlFragment)) return;
+    const fragments = this.#fragments(slideId, elementId);
+    if (fragments.length === 0) return;
     this.transact(() => {
-      const visit = (node: Y.XmlFragment | Y.XmlElement): void => {
-        for (const child of node.toArray()) {
-          if (child instanceof Y.XmlText) {
-            if (child.length > 0) child.format(0, child.length, { [mark]: value });
-          } else if (child instanceof Y.XmlElement) {
-            visit(child);
-          }
-        }
-      };
-      visit(content);
+      for (const fragment of fragments) {
+        eachText(fragment, (text) => {
+          if (text.length > 0) text.format(0, text.length, { [mark]: value });
+        });
+      }
     });
   }
 
   /** Takes an attribute, such as its own alignment, off every paragraph of an element. */
   clearParagraphAttribute(slideId: string, elementId: string, attribute: string): void {
-    const content = this.#elements(slideId)?.get(elementId)?.get('content');
-    if (!(content instanceof Y.XmlFragment)) return;
+    const fragments = this.#fragments(slideId, elementId);
+    if (fragments.length === 0) return;
     this.transact(() => {
       const visit = (node: Y.XmlFragment | Y.XmlElement): void => {
         for (const child of node.toArray()) {
@@ -713,30 +681,64 @@ export class Deck {
           visit(child);
         }
       };
-      visit(content);
+      for (const fragment of fragments) visit(fragment);
     });
   }
 
   /** Whether all the text of an element carries a mark; false when it has no text. */
   allTextHasMark(slideId: string, elementId: string, mark: string): boolean {
-    const content = this.#elements(slideId)?.get(elementId)?.get('content');
-    if (!(content instanceof Y.XmlFragment)) return false;
     let any = false;
     let all = true;
-    const visit = (node: Y.XmlFragment | Y.XmlElement): void => {
-      for (const child of node.toArray()) {
-        if (child instanceof Y.XmlText) {
-          for (const part of child.toDelta() as Array<{ insert: unknown; attributes?: Record<string, unknown> }>) {
-            if (typeof part.insert !== 'string' || part.insert.length === 0) continue;
-            any = true;
-            if (!part.attributes || !(mark in part.attributes)) all = false;
-          }
-        } else if (child instanceof Y.XmlElement) {
-          visit(child);
+    for (const fragment of this.#fragments(slideId, elementId)) {
+      eachText(fragment, (text) => {
+        for (const part of text.toDelta() as Array<{ insert: unknown; attributes?: Record<string, unknown> }>) {
+          if (typeof part.insert !== 'string' || part.insert.length === 0) continue;
+          any = true;
+          if (!part.attributes || !(mark in part.attributes)) all = false;
         }
-      }
-    };
-    visit(content);
+      });
+    }
     return any && all;
+  }
+
+  // Tables
+
+  #table(slideId: string, elementId: string): Y.Map<unknown> | null {
+    const map = this.#elements(slideId)?.get(elementId);
+    return map?.get('type') === 'table' ? map : null;
+  }
+
+  /** Adds a row or column to a table at `index` (at the end when it is past the last). Returns its id. */
+  insertTableLine(slideId: string, elementId: string, kind: 'rows' | 'cols', index: number): string | null {
+    const map = this.#table(slideId, elementId);
+    return map ? this.transact(() => insertLine(map, kind, index)) : null;
+  }
+
+  /** Takes a row or column out of a table; the table goes when it was the last one. */
+  removeTableLine(slideId: string, elementId: string, kind: 'rows' | 'cols', id: string): void {
+    const map = this.#table(slideId, elementId);
+    if (!map) return;
+    const table = readTable(map);
+    this.transact(() => {
+      if (table && (kind === 'rows' ? table.rows : table.cols).every(line => line.id === id)) this.#elements(slideId)?.delete(elementId);
+      else removeLine(map, kind, id);
+    });
+  }
+
+  setCellFill(slideId: string, elementId: string, cells: string[], fill: string | null): void {
+    const map = this.#table(slideId, elementId);
+    if (map) this.transact(() => setCellFill(map, cells, fill));
+  }
+
+  /**
+   * The text of a table cell, made when a row and a column added on two
+   * devices at once left none where they cross. Made as `origin`, so that
+   * it is not a step of anyone's undo.
+   */
+  tableCell(slideId: string, elementId: string, cell: string, origin: unknown): Y.XmlFragment | null {
+    const map = this.#table(slideId, elementId);
+    if (!map) return null;
+    const existing = readTable(map)?.cells.get(cell)?.content;
+    return existing ?? this.ydoc.transact(() => ensureCell(map, cell), origin);
   }
 }

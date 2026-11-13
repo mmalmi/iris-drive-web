@@ -33,7 +33,6 @@
   import { TEXT_PAD_Y } from '../../lib/slides/fitText';
   import type { SlidesEditorState } from '../../lib/slides/editorState.svelte';
   import SlideView from './SlideView.svelte';
-  import Popover from './Popover.svelte';
 
   interface Props {
     editorState: SlidesEditorState;
@@ -48,10 +47,9 @@
   const HANDLES: Handle[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
   const DRAG_START = 4;
   const SNAP_DISTANCE = 7;
-  const modifier = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl+';
 
   type Drag =
-    | { kind: 'move'; start: Point; frames: Record<string, Frame>; moved: boolean; clicked: string | null; wasSelected: boolean }
+    | { kind: 'move'; start: Point; frames: Record<string, Frame>; moved: boolean; clicked: string | null; wasSelected: boolean; cell: string | null }
     | { kind: 'resize'; start: Point; id: string; frame: Frame; handle: Handle; moved: boolean }
     | { kind: 'rotate'; id: string; frame: Frame; moved: boolean }
     | { kind: 'line-end'; id: string; frame: Frame; end: 'start' | 'end'; moved: boolean }
@@ -149,8 +147,15 @@
     const handle = target.closest<HTMLElement>('[data-handle]')?.dataset.handle;
     const groupHandle = target.closest<HTMLElement>('[data-group-handle]')?.dataset.groupHandle;
     const id = elementAt(target);
-    // Inside the box being typed in, the pointer places the cursor and selects words.
-    if (!tool && !handle && id && id === editing) return;
+    const cell = target.closest('[data-cell]')?.getAttribute('data-cell') ?? null;
+    // Inside the box being typed in, the pointer places the cursor and selects words; in a table, another cell is typed in instead.
+    if (!tool && !handle && id && id === editing) {
+      if (cell && cell !== editorState.editingCell) {
+        event.preventDefault();
+        editorState.startEditing(id, { cell, point: { x: event.clientX, y: event.clientY } });
+      }
+      return;
+    }
 
     event.preventDefault();
     stage.focus({ preventScroll: true });
@@ -198,7 +203,7 @@
       }
       if (!wasSelected) editorState.select([id]);
       else if (editing) editorState.stopEditing();
-      beginMove(point, id, wasSelected);
+      beginMove(point, id, wasSelected, cell);
       return;
     }
 
@@ -207,10 +212,10 @@
     drag = { kind: 'marquee', start: point, added: keep, moved: false };
   }
 
-  function beginMove(point: Point, clicked: string | null, wasSelected: boolean): void {
+  function beginMove(point: Point, clicked: string | null, wasSelected: boolean, cell: string | null = null): void {
     const frames: Record<string, Frame> = {};
     for (const element of editorState.selected) frames[element.id] = frameOf(element);
-    drag = { kind: 'move', start: point, frames, moved: false, clicked, wasSelected };
+    drag = { kind: 'move', start: point, frames, moved: false, clicked, wasSelected, cell };
   }
 
   function onPointerMove(event: PointerEvent): void {
@@ -375,6 +380,9 @@
       lastClick = { id: current.clicked, time: event.timeStamp };
       if (element?.content && (element.type === 'text' || double)) {
         editorState.startEditing(element.id, { point: { x: event.clientX, y: event.clientY } });
+      } else if (element?.table && current.cell) {
+        // A click in a table types in the cell it landed in.
+        editorState.startEditing(element.id, { cell: current.cell, point: { x: event.clientX, y: event.clientY } });
       }
     }
   }
@@ -391,12 +399,6 @@
     editorState.area = 'canvas';
     menuAt = { x: event.clientX, y: event.clientY };
     menuOpen = true;
-  }
-
-  function run(action: () => void): void {
-    menuOpen = false;
-    stage?.focus({ preventScroll: true });
-    action();
   }
 
   function hasFiles(event: DragEvent): boolean {
@@ -561,44 +563,12 @@
   {/if}
 </div>
 
-<Popover bind:open={menuOpen} anchor={menuAt} label="Element options">
-  {#if editorState.selection.length > 0}
-    <button class="menu-item" onclick={() => run(() => onCopy(true))} data-testid="element-menu-cut">
-      <span class="i-lucide-scissors"></span>Cut<span class="keys">{modifier}X</span>
-    </button>
-    <button class="menu-item" onclick={() => run(() => onCopy(false))} data-testid="element-menu-copy">
-      <span class="i-lucide-copy"></span>Copy<span class="keys">{modifier}C</span>
-    </button>
-  {/if}
-  <button class="menu-item" onclick={() => run(onPaste)} data-testid="element-menu-paste">
-    <span class="i-lucide-clipboard"></span>Paste<span class="keys">{modifier}V</span>
-  </button>
-  {#if editorState.selection.length > 0}
-    <button class="menu-item" onclick={() => run(() => editorState.duplicateSelected())} data-testid="element-menu-duplicate">
-      <span class="i-lucide-copy-plus"></span>Duplicate<span class="keys">{modifier}D</span>
-    </button>
-    <button class="menu-item" onclick={() => run(() => editorState.deleteSelected())} data-testid="element-menu-delete">
-      <span class="i-lucide-trash-2"></span>Delete
-    </button>
-    <div class="menu-divider"></div>
-    <button class="menu-item" onclick={() => run(() => editorState.arrange('front'))} data-testid="element-menu-front">
-      <span class="i-lucide-bring-to-front"></span>Bring to front
-    </button>
-    <button class="menu-item" onclick={() => run(() => editorState.arrange('forward'))} data-testid="element-menu-forward">
-      <span class="i-lucide-arrow-up"></span>Bring forward<span class="keys">{modifier}]</span>
-    </button>
-    <button class="menu-item" onclick={() => run(() => editorState.arrange('backward'))} data-testid="element-menu-backward">
-      <span class="i-lucide-arrow-down"></span>Send backward<span class="keys">{modifier}[</span>
-    </button>
-    <button class="menu-item" onclick={() => run(() => editorState.arrange('back'))} data-testid="element-menu-back">
-      <span class="i-lucide-send-to-back"></span>Send to back
-    </button>
-  {:else}
-    <button class="menu-item" onclick={() => run(() => editorState.selectAll())} data-testid="element-menu-select-all">
-      <span class="i-lucide-box-select"></span>Select all<span class="keys">{modifier}A</span>
-    </button>
-  {/if}
-</Popover>
+<!-- The menu of the slide is loaded apart, the first time it is opened. -->
+{#if menuOpen}
+  {#await import('./ElementMenu.svelte') then { default: ElementMenu }}
+    <ElementMenu {editorState} bind:open={menuOpen} at={menuAt} {onCopy} {onPaste} onDone={() => stage?.focus({ preventScroll: true })} />
+  {/await}
+{/if}
 
 <style>
   .stage {
@@ -624,6 +594,12 @@
     }
   }
 
+  /* Reached by keyboard, the slide shows that keys now act on it. */
+  .stage:focus-visible .sheet {
+    outline: 2px solid rgb(145 109 254 / 0.6);
+    outline-offset: 3px;
+  }
+
   .stage-dropping .sheet {
     outline: 2px solid #916dfe;
     outline-offset: 2px;
@@ -638,7 +614,8 @@
     cursor: move;
   }
 
-  .stage-editable :global([data-el][data-type='text']) {
+  .stage-editable :global([data-el][data-type='text']),
+  .stage-editable :global([data-el][data-type='table']) {
     cursor: text;
   }
 

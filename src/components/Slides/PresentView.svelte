@@ -10,6 +10,8 @@
   import { Presentation } from '../../lib/slides/presentation.svelte';
   import { presentationKey } from '../../lib/slides/presentSync';
   import SlideView from './SlideView.svelte';
+  import { cubicOut } from 'svelte/easing';
+  import type { TransitionConfig } from 'svelte/transition';
 
   interface Props {
     slides: Slide[];
@@ -42,6 +44,24 @@
   let slideWidth = $derived(Math.min(width, height * 16 / 9));
 
   const show = (target: number) => run.go(target);
+
+  const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  /** How a slide comes in: by its own transition, from the side it lies on. */
+  function enter(_node: Element, { slide: coming, direction }: { slide: Slide | null; direction: 1 | -1 }): TransitionConfig {
+    const kind = coming?.transition;
+    if (still || !kind) return { duration: 0 };
+    if (kind === 'fade') return { duration: 450, css: t => `opacity: ${t}` };
+    return { duration: 450, easing: cubicOut, css: t => `transform: translateX(${(1 - t) * 100 * direction}%)` };
+  }
+
+  /** The slide going out stays under a fading one, and makes way for a sliding one. */
+  function leave(_node: Element, { slide: coming, direction }: { slide: Slide | null; direction: 1 | -1 }): TransitionConfig {
+    const kind = coming?.transition;
+    if (still || !kind) return { duration: 0 };
+    if (kind === 'fade') return { duration: 450, css: () => 'z-index: -1' };
+    return { duration: 450, easing: cubicOut, css: (_t, u) => `transform: translateX(${-u * 100 * direction}%)` };
+  }
   const previous = () => run.previous();
 
   function next(): void {
@@ -142,6 +162,7 @@
   aria-label="Presentation"
   data-testid="present-view"
   data-slide-index={ended ? -1 : index}
+  data-step={run.step}
   onpointerdown={onPointerDown}
   onpointerup={onPointerUp}
   onpointermove={wake}
@@ -153,7 +174,14 @@
   {#if ended || !slide}
     <div class="end" data-testid="present-end">{slides.length ? 'End of presentation' : 'No slides'}</div>
   {:else if slideWidth > 0}
-    <SlideView {slide} {theme} {urls} width={slideWidth} />
+    <div class="frame" style:width="{slideWidth}px" style:height="{slideWidth * 9 / 16}px">
+      <!-- Each slide comes in the way it was given: fading in over the last one, or sliding in from the side it lies on. -->
+      {#key slide.id}
+        <div class="layer" in:enter={{ slide, direction: run.direction }} out:leave={{ slide: run.slide, direction: run.direction }}>
+          <SlideView {slide} {theme} {urls} width={slideWidth} step={run.step} />
+        </div>
+      {/key}
+    </div>
   {/if}
 
   <div class="controls" data-present-controls>
@@ -194,6 +222,16 @@
 
   .present.quiet {
     cursor: none;
+  }
+
+  .frame {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .layer {
+    position: absolute;
+    inset: 0;
   }
 
   .end {
