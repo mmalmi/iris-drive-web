@@ -299,15 +299,18 @@ export function insertBeside(ctl: SheetController, axis: 'row' | 'col', after: b
     added = sheet.insert(axis, at, count);
     if (added === 0) return;
     // New rows look like the row they were added next to, so a table keeps its look.
-    const model = after ? from + count - 1 : from + added;
-    const key = axis === 'row' ? `${sheet.rows.ids[model]}:` : `:${sheet.cols.ids[model]}`;
-    const style = sheet.styles.get(key);
-    const size = sheet.props.get(`${axis === 'row' ? 'h' : 'w'}:${(axis === 'row' ? sheet.rows : sheet.cols).ids[model]}`);
-    for (let index = at; index < at + added; index += 1) {
-      const id = (axis === 'row' ? sheet.rows : sheet.cols).ids[index];
-      if (style) sheet.styles.set(axis === 'row' ? `${id}:` : `:${id}`, style);
-      if (size !== undefined && axis === 'col') sheet.props.set(`w:${id}`, size);
+    const live = axis === 'row' ? sheet.rows : sheet.cols;
+    const model = live.ids[after ? from + count - 1 : from + added];
+    const fresh = live.ids.slice(at, at + added);
+    const width = axis === 'col' ? sheet.props.get(`w:${model}`) : undefined;
+    for (const [key, style] of [...sheet.styles.entries()]) {
+      const split = key.indexOf(':');
+      const rowId = key.slice(0, split);
+      const colId = key.slice(split + 1);
+      if ((axis === 'row' ? rowId : colId) !== model) continue;
+      for (const id of fresh) sheet.styles.set(axis === 'row' ? `${id}:${colId}` : `${rowId}:${id}`, style);
     }
+    if (width !== undefined) for (const id of fresh) sheet.props.set(`w:${id}`, width);
   });
   if (added === 0) {
     ctl.say(axis === 'row' ? 'The sheet cannot have more rows.' : 'The sheet cannot have more columns.');

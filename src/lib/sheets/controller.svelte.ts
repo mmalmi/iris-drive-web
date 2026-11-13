@@ -35,10 +35,21 @@ export interface EditState {
   point: { start: number; end: number } | null;
 }
 
+interface SelectionIds {
+  anchorRow: string;
+  anchorCol: string;
+  focusRow: string;
+  focusCol: string;
+  activeRow: string;
+  activeCol: string;
+}
+
 interface SelectionMemo {
   anchor: CellPos;
   focus: CellPos;
   active: CellPos;
+  /** The same cells by the ids of their rows and columns, which survive rows moving. */
+  ids: SelectionIds;
   scope: SelectionScope;
   scrollX: number;
   scrollY: number;
@@ -93,13 +104,15 @@ export class SheetController {
   focusGrid: () => void = () => {};
 
   private readonly memos = new Map<string, SelectionMemo>();
-  private selectionIds = { anchorRow: '', anchorCol: '', focusRow: '', focusCol: '', activeRow: '', activeCol: '' };
+  private selectionIds: SelectionIds = { anchorRow: '', anchorCol: '', focusRow: '', focusCol: '', activeRow: '', activeCol: '' };
   private pointAnchor: CellPos | null = null;
   private pointFocus: CellPos | null = null;
   /** The column Tab started from, so Enter returns under it as when filling in a table. */
   private tabOrigin: number | null = null;
   /** The formula text for which the list of functions was closed with Escape. */
   private completionClosedFor = $state('');
+  private memoBeforeChange: SelectionMemo | null = null;
+  private sheetBeforeChange = '';
   private readonly unsubscribe: () => void;
   private noticeTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -108,8 +121,9 @@ export class SheetController {
     this.engine = new Engine(this.book);
     this.undoManager = new Y.UndoManager(doc, { trackedOrigins: new Set([LOCAL_ORIGIN]), captureTimeout: 0 });
     this.undoManager.on('stack-item-added', (event: { stackItem: { meta: Map<string, unknown> } }) => {
-      event.stackItem.meta.set('selection', this.selectionMemo());
-      event.stackItem.meta.set('sheet', this.edit?.sheetId ?? this.sheetId);
+      // The selection as it was when the change was made, before it followed moved rows.
+      event.stackItem.meta.set('selection', this.memoBeforeChange ?? this.selectionMemo());
+      event.stackItem.meta.set('sheet', this.sheetBeforeChange || (this.edit?.sheetId ?? this.sheetId));
       this.refreshUndo();
     });
     this.undoManager.on('stack-item-popped', (event: { stackItem: { meta: Map<string, unknown> }; type: 'undo' | 'redo' }) => {
@@ -124,8 +138,8 @@ export class SheetController {
       }
       if (sheetId && this.book.nameOf(sheetId) !== undefined && sheetId !== this.sheetId) this.showSheet(sheetId);
       if (memo) {
-        this.setSelection(memo.anchor, memo.focus, memo.active, memo.scope);
-        this.reveal(memo.active.row, memo.active.col);
+        this.applyMemo(memo);
+        this.reveal(this.active.row, this.active.col);
       }
       this.refreshUndo();
     });
@@ -178,6 +192,8 @@ export class SheetController {
   // --- Following changes ---
 
   private afterChange(change: BookChange): void {
+    this.memoBeforeChange = this.hasSheet ? this.selectionMemo() : null;
+    this.sheetBeforeChange = this.sheetId;
     if (change.sheets) {
       this.sheets = this.book.sheets;
       if (this.book.nameOf(this.sheetId) === undefined) {
@@ -344,13 +360,32 @@ export class SheetController {
   // --- Sheets ---
 
   private selectionMemo(): SelectionMemo {
-    return { anchor: this.anchor, focus: this.focus, active: this.active, scope: this.scope, ...this.scrollPosition() };
+    return { anchor: this.anchor, focus: this.focus, active: this.active, ids: { ...this.selectionIds }, scope: this.scope, ...this.scrollPosition() };
+  }
+
+  /**
+   * Selects what a memo remembers: the same rows and columns wherever they
+   * are now, or the old positions when they are gone.
+   */
+  private applyMemo(memo: SelectionMemo): void {
+    const { rows, cols } = this.sheet;
+    const place = (axis: typeof rows, id: string, fallback: number) => {
+      const index = axis.indexOf(id);
+      return index >= 0 ? index : fallback;
+    };
+    const { ids } = memo;
+    this.setSelection(
+      { row: place(rows, ids.anchorRow, memo.anchor.row), col: place(cols, ids.anchorCol, memo.anchor.col) },
+      { row: place(rows, ids.focusRow, memo.focus.row), col: place(cols, ids.focusCol, memo.focus.col) },
+      { row: place(rows, ids.activeRow, memo.active.row), col: place(cols, ids.activeCol, memo.active.col) },
+      memo.scope,
+    );
   }
 
   private restoreMemo(): void {
     const memo = this.memos.get(this.sheetId);
     if (memo) {
-      this.setSelection(memo.anchor, memo.focus, memo.active, memo.scope);
+      this.applyMemo(memo);
       this.restoreScroll(memo.scrollX, memo.scrollY);
     } else {
       this.setSelection({ row: 0, col: 0 });
