@@ -539,7 +539,15 @@ function drawPaneOverlays(ctx: CanvasRenderingContext2D, scene: GridScene, theme
     ctx.setLineDash([]);
   }
 
-  const { selection, active, sheet } = scene;
+  const { selection, active, sheet, engine } = scene;
+  // A thin line around a formula's result while its formula's cell or one of its cells is active, as in Google Sheets.
+  const spillRect = scene.showSelection && !scene.editing ? engine.spillAround(sheet, active.row, active.col) : null;
+  const spill = spillRect && rectInPane(scene, pane, spillRect);
+  if (spill) {
+    ctx.strokeStyle = theme.accent;
+    strokeInside(ctx, spill, 1);
+  }
+
   const activeRect = sheet.mergeAt(active.row, active.col) ?? { r1: active.row, c1: active.col, r2: active.row, c2: active.col };
   const single = selection.r1 === activeRect.r1 && selection.r2 === activeRect.r2 && selection.c1 === activeRect.c1 && selection.c2 === activeRect.c2;
   const box = scene.showSelection ? rectInPane(scene, pane, selection) : null;
@@ -553,7 +561,8 @@ function drawPaneOverlays(ctx: CanvasRenderingContext2D, scene: GridScene, theme
         const style = lookAt(scene, active.row, active.col);
         ctx.fillStyle = style.bg || theme.sheet;
         ctx.fillRect(activeBox.x, activeBox.y, activeBox.width - 1, activeBox.height - 1);
-        if (!(scene.editing && scene.editing.row === active.row && scene.editing.col === active.col) && !sheet.isEmpty(active.row, active.col)) {
+        const shows = !sheet.isEmpty(active.row, active.col) || engine.isSpilled(sheet, active.row, active.col);
+        if (!(scene.editing && scene.editing.row === active.row && scene.editing.col === active.col) && shows) {
           const many = activeRect.r2 > activeRect.r1 || activeRect.c2 > activeRect.c1;
           drawCellText(ctx, scene, theme, pane, active.row, active.col, () => true, many ? {
             x: pane.offsetX + scene.cols.start(activeRect.c1),

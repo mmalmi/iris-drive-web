@@ -48,6 +48,8 @@ async function upload(page: Page, name: string, buffer: Buffer) {
 
 async function copyShare(page: Page, file = true) {
   await (file ? page.getByTestId('viewer-share') : page.getByRole('button', { name: 'Share', exact: true })).click();
+  // A folder's dialog opens on inviting people; its copy link is the other tab.
+  if (!file) await page.getByTestId('share-tab-link').click();
   await page.getByTestId('share-copy-url').click();
   const url = await page.evaluate(() => navigator.clipboard.readText());
   expect(url).toMatch(/^https:\/\/drive\.iris\.to\/#\/nhash1/);

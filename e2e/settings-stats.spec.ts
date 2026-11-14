@@ -13,9 +13,9 @@ test.describe('Settings Stats', () => {
     await goToSettings(page);
     await page.getByRole('button', { name: 'Storage' }).click();
 
-    await expect(page.getByText('Local Storage').first()).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByText('Items', { exact: true })).toBeVisible();
-    await expect(page.getByText('Size', { exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'On this device' })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText('Used', { exact: true })).toBeVisible();
+    await expect(page.getByTestId('storage-size')).toBeVisible();
   });
 
   test('describes FIPS device peers without treating them as Nostr users', async ({ page }) => {

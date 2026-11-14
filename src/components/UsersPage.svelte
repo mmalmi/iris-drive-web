@@ -366,12 +366,10 @@
     <div class="identity-recovery-shell bg-surface-1 rounded-lg p-4 space-y-3" data-testid="identity-recovery-section">
       <section class="rounded-lg bg-surface-2 p-3 space-y-3" data-testid="device-approval-request-section">
         <div class="flex items-center justify-between gap-3">
-          <h2 class="text-sm font-semibold text-text-1">Request Link</h2>
-          <div class="flex items-center gap-2 text-xs text-text-3">
-            <span class="i-lucide-loader-2 animate-spin"></span>
-            <span>Waiting for approval</span>
-          </div>
+          <h2 class="text-sm font-semibold text-text-1">Use a device you are signed in on</h2>
+          <span class="i-lucide-loader-2 animate-spin text-text-3 shrink-0" title="Waiting for approval"></span>
         </div>
+        <p class="text-sm text-text-2">There, open Settings › Devices and scan this code, or paste the link.</p>
         {#if approvalLink}
           <div class="grid gap-3 justify-items-center">
             {#if approvalQrUrl}
@@ -389,7 +387,7 @@
               data-testid="copy-device-approval-request"
             >
               <span class="i-lucide-link"></span>
-              <span>Copy Request Link</span>
+              <span>Copy link</span>
             </button>
             {#if copyRequestFeedback}
               <p class="text-xs text-text-3" data-testid="copy-device-approval-feedback">{copyRequestFeedback}</p>

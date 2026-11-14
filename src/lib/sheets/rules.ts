@@ -215,7 +215,7 @@ export class RuleLooks {
     if (!found) {
       const numbers: number[] = [];
       const { rect } = placed;
-      const used = this.sheet.usedRect();
+      const used = this.engine.usedRect(this.sheet);
       const r2 = Math.min(rect.r2, used?.r2 ?? -1);
       const c2 = Math.min(rect.c2, used?.c2 ?? -1);
       for (let row = rect.r1; row <= r2; row += 1) {

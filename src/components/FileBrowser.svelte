@@ -29,7 +29,7 @@
   import { isNostrIdentityId } from '../utils/route';
   import IdentityName from './User/IdentityName.svelte';
 
-  import { getFileIcon } from '@iris/hashtree-app/fileIcon';
+  import { fileIcon } from '../lib/fileIcon';
   import { documentKindInfo, documentTitle } from '../lib/documentNames';
   import { BREAKPOINTS } from '@iris/hashtree-app/breakpoints';
 
@@ -727,7 +727,7 @@
                 use:longPress={(at) => openEntryMenu(entry, { ...at, opener: null })}
                 data-testid={isDocument ? 'document-entry' : undefined}
               >
-                <span class="shrink-0 {documentInfo ? documentInfo.icon : isFolder ? 'i-lucide-folder text-warning' : `${getFileIcon(entry.name)} text-text-2`}"></span>
+                <span class="shrink-0 {documentInfo ? documentInfo.icon : isFolder ? 'i-lucide-folder text-warning' : `${fileIcon(entry.name)} text-text-2`}"></span>
                 <span class="truncate min-w-0" title={entry.name}>{isDocument ? documentTitle(entry.name) : entry.name}</span>
                 <!-- Marked where sharing starts; inside a shared folder the heading says it once. -->
                 {#if entryAccess && entryAccess.kind !== 'private' && entryAccess.kind !== currentAccess?.kind}

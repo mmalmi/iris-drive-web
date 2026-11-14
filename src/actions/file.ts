@@ -11,6 +11,7 @@ import { getCurrentRootCid, getCurrentPathFromUrl, updateRoute } from './route';
 import { initVirtualTree } from './tree';
 import { setEntryForDriveRoute } from '../drive/profileDriveRouteEntry';
 import { captureRouteWriteGuard } from '../lib/routeWriteGuard';
+import { inTurn } from '../lib/driveWrites';
 
 async function setCurrentRouteEntry(
   root: CID,
@@ -111,12 +112,15 @@ export async function createFile(name: string, content: string = '') {
 /** Adds a file or folder that is already stored, such as one copied from another folder, to the open folder. */
 export async function addCopiedEntry(name: string, entry: { cid: CID; size: number; type: LinkType }): Promise<void> {
   const isCurrent = captureRouteWriteGuard();
-  const rootCid = getCurrentRootCid();
-  if (!rootCid) throw new Error('No folder is open');
-  const newRootCid = await setCurrentRouteEntry(rootCid, getCurrentPathFromUrl(), name, entry.cid, entry.size, entry.type);
-  if (!isCurrent()) return;
-  autosaveIfOwn(newRootCid);
-  markFilesChanged(new Set([name]));
+  const path = getCurrentPathFromUrl();
+  await inTurn(async () => {
+    const rootCid = getCurrentRootCid();
+    if (!rootCid) throw new Error('No folder is open');
+    const newRootCid = await setCurrentRouteEntry(rootCid, path, name, entry.cid, entry.size, entry.type);
+    if (!isCurrent()) return;
+    autosaveIfOwn(newRootCid);
+    markFilesChanged(new Set([name]));
+  });
 }
 
 // Upload a single file (used for "Keep as ZIP" option)

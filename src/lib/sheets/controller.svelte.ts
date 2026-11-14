@@ -407,7 +407,7 @@ export class SheetController {
   move(dRow: number, dCol: number, options: { extend?: boolean; far?: boolean } = {}): void {
     const from = this.leaveMerge(options.extend ? this.focus : this.active, dRow, dCol);
     const to = this.skipHidden(from, options.far
-      ? jump(this.sheet, from, dRow, dCol)
+      ? jump(this.engine, this.sheet, from, dRow, dCol)
       : this.clampPos({ row: from.row + dRow, col: from.col + dCol }), dRow, dCol);
     this.tabOrigin = null;
     if (options.extend) this.setSelection(this.active, to, this.active);
@@ -512,11 +512,11 @@ export class SheetController {
   }
 
   goEnd(wholeSheet: boolean, extend: boolean): void {
-    const used = this.sheet.usedRect();
+    const used = this.engine.usedRect(this.sheet);
     const row = (extend ? this.focus : this.active).row;
     const to = wholeSheet
       ? { row: used?.r2 ?? 0, col: used?.c2 ?? 0 }
-      : { row, col: lastFilledCol(this.sheet, row) };
+      : { row, col: lastFilledCol(this.engine, this.sheet, row) };
     this.select(to, extend);
     this.reveal(to.row, to.col);
   }

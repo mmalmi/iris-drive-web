@@ -15,6 +15,7 @@ import { getLocalRootCache, updateLocalRootCache } from '../treeRootCache';
 import { activeNostrIdentityRootScope, isEditableDriveRouteScope } from '../drive/profileRoute';
 import { setEntryForDriveRoute } from '../drive/profileDriveRouteEntry';
 import { captureRouteWriteGuard } from '../lib/routeWriteGuard';
+import { inTurn } from '../lib/driveWrites';
 import { freeName } from '../lib/driveClipboard';
 import { toast } from '../stores/toast';
 export { forkTree } from './treeFork';
@@ -88,16 +89,17 @@ export async function createFolder(name: string) {
   const isCurrent = captureRouteWriteGuard();
   if (!name) return;
 
-  const rootCid = getCurrentRootCid();
   const tree = getTree();
   const currentPath = getCurrentPathFromUrl();
 
   // putDirectory returns CID (encrypted by default)
   const { cid: emptyDirCid } = await tree.putDirectory([]);
 
-  if (rootCid) {
-    // Add to existing tree
-    if (!isCurrent()) return;
+  // In turn with uploads, from the root as the last of them saved it.
+  const added = await inTurn(async () => {
+    const rootCid = getCurrentRootCid();
+    if (!rootCid) return false;
+    if (!isCurrent()) return true;
     const newRootCid = await setEntryForDriveRoute(
       tree,
       rootCid,
@@ -108,9 +110,10 @@ export async function createFolder(name: string) {
       useNostrStore.getState(),
     );
     // Publish to nostr - resolver will pick up the update
-    if (!isCurrent()) return;
-    autosaveIfOwn(newRootCid);
-  } else {
+    if (isCurrent()) autosaveIfOwn(newRootCid);
+    return true;
+  });
+  if (!added) {
     // Initialize virtual tree with this folder
     if (!isCurrent()) return;
     await initVirtualTree([{ name, cid: emptyDirCid, size: 0, type: LinkType.Dir }]);

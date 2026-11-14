@@ -13,7 +13,7 @@ function chartSource(ctl: SheetController): Rect | null {
   const one = rect.r1 === rect.r2 && rect.c1 === rect.c2;
   if (!one) {
     // Whole columns are shown as far as they are filled.
-    const used = ctl.sheet.usedRect();
+    const used = ctl.engine.usedRect(ctl.sheet);
     if (ctl.scope !== 'cells' && used) {
       return { ...rect, r2: Math.min(rect.r2, Math.max(rect.r1, used.r2)), c2: Math.min(rect.c2, Math.max(rect.c1, used.c2)) };
     }
@@ -40,7 +40,7 @@ export function insertChart(ctl: SheetController, type: ChartType = 'column', ro
   // Beside the cells, past any filled ones to their right, so it hides nothing.
   let right = source.c2;
   for (let row = source.r1; row <= Math.min(source.r2, source.r1 + 30); row += 1) {
-    for (let col = right + 1; col < Math.min(sheet.cols.length, right + 30); col += 1) if (!sheet.isEmpty(row, col)) right = col;
+    for (let col = right + 1; col < Math.min(sheet.cols.length, right + 30); col += 1) if (ctl.engine.hasData(sheet, row, col)) right = col;
   }
   const col = narrow ? source.c1 : Math.min(right + 1, sheet.cols.length - 1);
   const row = narrow ? Math.min(source.r2 + 2, sheet.rows.length - 1) : source.r1;

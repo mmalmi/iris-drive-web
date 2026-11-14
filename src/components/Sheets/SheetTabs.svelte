@@ -137,7 +137,7 @@
   let filterCount = $derived.by(() => {
     void ctl.revision;
     const filter = ctl.filter;
-    const rect = filter && ctl.hasSheet ? filterRect(ctl.sheet, filter) : null;
+    const rect = filter && ctl.hasSheet ? filterRect(ctl.sheet, ctl.engine, filter) : null;
     if (!rect) return null;
     const total = rect.r2 - rect.r1;
     return { shown: total - ctl.visibility.filtered.size, total };

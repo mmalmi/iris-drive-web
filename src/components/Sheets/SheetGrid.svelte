@@ -106,7 +106,7 @@
   let filterHeader = $derived.by(() => {
     void ctl.layoutRevision;
     const filter = ctl.filter;
-    const rect = filter && ctl.hasSheet ? filterRect(ctl.sheet, filter) : null;
+    const rect = filter && ctl.hasSheet ? filterRect(ctl.sheet, ctl.engine, filter) : null;
     if (!filter || !rect) return null;
     const active = new Set([...filter.columns.keys()].map(colId => ctl.sheet.cols.indexOf(colId)));
     return { row: rect.r1, c1: rect.c1, c2: rect.c2, active };

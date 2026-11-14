@@ -58,12 +58,27 @@ export interface FnSpec {
   lazy?: (args: Node[], ctx: FnContext) => Value;
   /** Arguments are calculated cell by cell over whole ranges, as in SUMPRODUCT(A1:A3*B1:B3). */
   arrays?: boolean;
+  /**
+   * The arguments that take one value: all of them, or those at these
+   * positions. Inside ARRAYFORMULA a range there gives a result for each of
+   * its cells, as LEN(A1:A9) gives nine lengths.
+   */
+  cellwise?: true | readonly number[];
 }
 
 export const FUNCTIONS = new Map<string, FnSpec>();
 
 export function defineFunction(names: string | string[], spec: FnSpec): void {
   for (const name of Array.isArray(names) ? names : [names]) FUNCTIONS.set(name, spec);
+}
+
+/** Marks functions already defined as taking one value in some arguments; see FnSpec.cellwise. */
+export function cellwise(names: string[], args: true | readonly number[] = true): void {
+  for (const name of names) {
+    const spec = FUNCTIONS.get(name);
+    if (!spec || spec.lazy) throw new Error(`${name} is not a function that can work cell by cell`);
+    spec.cellwise = args;
+  }
 }
 
 class CellRange implements RangeMatrix {
@@ -264,11 +279,26 @@ class Evaluator implements FnContext {
       const wanted = spec.min === spec.max ? `${spec.min}` : spec.max === Infinity ? `at least ${spec.min}` : `${spec.min} to ${spec.max}`;
       return err('#N/A', `${name} takes ${wanted} ${spec.min === 1 && spec.max === 1 ? 'value' : 'values'}, not ${args.length}`);
     }
+    // Inside ARRAYFORMULA, a function of single values given ranges works out each cell.
+    const lifting = this.arrayDepth > 0 && spec.cellwise !== undefined;
     if (spec.arrays) this.arrayDepth += 1;
     try {
       if (spec.lazy) return spec.lazy(args, this);
       const values = args.map(this.evaluate);
-      return (spec.fn as NonNullable<FnSpec['fn']>)(values, this);
+      const fn = spec.fn as NonNullable<FnSpec['fn']>;
+      const each = lifting ? values.map((value, index) => (spec.cellwise === true || spec.cellwise?.includes(index)) && isMatrix(value) && (value.rows > 1 || value.cols > 1)) : [];
+      if (each.some(Boolean)) {
+        return elementwise(values.filter((_value, index) => each[index]), (cells) => {
+          let next = 0;
+          try {
+            return this.scalar(fn(values.map((value, index) => (each[index] ? cells[next++] : value)), this));
+          } catch (error) {
+            if (error instanceof SheetError) return error;
+            throw error;
+          }
+        });
+      }
+      return fn(values, this);
     } catch (error) {
       if (error instanceof SheetError) return error;
       if (error instanceof RangeError) return err('#NUM!', 'The calculation is too large');

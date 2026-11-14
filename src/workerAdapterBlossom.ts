@@ -92,22 +92,6 @@ export class WorkerAdapterBlossom extends WorkerAdapterCore {
   }
 
   /**
-   * Republish all cached tree events to relays
-   * @param prefix - Optional URL-encoded prefix to filter trees by d-tag
-   * @returns Result with count and any trees with encryption errors
-   */
-  async republishTrees(prefix?: string): Promise<{ count: number; encryptionErrors?: string[] }> {
-    const id = generateRequestId();
-    const response = await this.request<{ count: number; error?: string; encryptionErrors?: string[] }>({
-      type: 'republishTrees',
-      id,
-      prefix,
-    } as ExtendedWorkerRequest);
-    if (response.error) throw new Error(response.error);
-    return { count: response.count, encryptionErrors: response.encryptionErrors };
-  }
-
-  /**
    * Republish a single tree's event to relays (preserves original event)
    * Works for any user's tree, not just own.
    * @param pubkey - Pubkey of the tree owner

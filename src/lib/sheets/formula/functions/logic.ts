@@ -80,6 +80,10 @@ define('IFNA', {
   max: 2,
   lazy: ([value, fallback], ctx) => {
     const result = ctx.evaluate(value);
+    if (ctx.arrays && isMatrix(result) && (result.rows > 1 || result.cols > 1)) {
+      const other = fallback ? ctx.evaluate(fallback) : '';
+      return elementwise([result, other], ([cell, instead]) => (isError(cell) && cell.code === '#N/A' ? instead : cell));
+    }
     const scalar = ctx.scalar(result);
     if (isError(scalar) && scalar.code === '#N/A') return fallback ? ctx.evaluate(fallback) : '';
     return result;

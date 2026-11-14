@@ -212,7 +212,7 @@
             class="min-w-0 flex-1 rounded-lg border border-surface-3 bg-surface-1 px-3 py-2 text-sm text-text-1 outline-none focus:border-accent"
             type="text"
             value={approvalInput}
-            placeholder="Request Link"
+            placeholder="Link from your other device"
             autocomplete="off"
             autocapitalize="none"
             spellcheck="false"

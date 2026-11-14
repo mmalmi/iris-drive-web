@@ -1,6 +1,6 @@
 /** Finding values in tables. */
 import { cellName, quoteSheetName } from '../../address';
-import { compareValues, isError, isRange, type Matrix, type Scalar, type Value } from '../../values';
+import { ArrayMatrix, compareValues, isError, isRange, type Matrix, type Scalar, type Value } from '../../values';
 import { defineFunction as define, sliceMatrix, type FnContext } from '../evaluate';
 import { err, hasWildcard, int, matrix, plain, text, wildcardMatcher } from '../helpers';
 
@@ -175,12 +175,14 @@ define('INDEX', {
   },
 });
 
+// Inside ARRAYFORMULA, ROW and COLUMN of a range give the number of each of its rows or columns.
 define('ROW', {
   min: 0,
   max: 1,
   fn: ([ref], ctx) => {
     if (ref === undefined) return ctx.scope.row + 1;
     if (!isRange(ref)) throw err('#VALUE!', 'ROW needs a cell');
+    if (ctx.arrays && ref.rows > 1) return new ArrayMatrix(Array.from({ length: ref.rows }, (_unused, index) => [ref.top + index + 1]));
     return ref.top + 1;
   },
 });
@@ -190,6 +192,7 @@ define('COLUMN', {
   fn: ([ref], ctx) => {
     if (ref === undefined) return ctx.scope.col + 1;
     if (!isRange(ref)) throw err('#VALUE!', 'COLUMN needs a cell');
+    if (ctx.arrays && ref.cols > 1) return new ArrayMatrix([Array.from({ length: ref.cols }, (_unused, index) => ref.left + index + 1)]);
     return ref.left + 1;
   },
 });

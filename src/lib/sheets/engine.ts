@@ -240,6 +240,24 @@ export class Engine {
     return this.spillSourceAt(sheet, row, col) !== null;
   }
 
+  /**
+   * Whether a cell holds data, as Ctrl+arrow and filling to the end of a
+   * column see it: content of its own, or a value another formula's result
+   * puts there. Empty places in such a result count as empty.
+   */
+  hasData(sheet: Sheet, row: number, col: number): boolean {
+    if (!sheet.isEmpty(row, col)) return true;
+    if (!this.isSpilled(sheet, row, col)) return false;
+    const value = this.valueAt(sheet, row, col);
+    return value !== null && value !== '';
+  }
+
+  /** The cells a result of several cells fills, when the cell is its formula's or one of them. */
+  spillAround(sheet: Sheet, row: number, col: number): Rect | null {
+    const source = this.spillSourceAt(sheet, row, col) ?? { row, col };
+    return this.spillRectAt(sheet, source.row, source.col);
+  }
+
   /** The cells a formula's result fills, its own included, when that is more than one. */
   spillRectAt(sheet: Sheet, row: number, col: number): Rect | null {
     const rowId = sheet.rows.ids[row];
@@ -250,14 +268,21 @@ export class Engine {
     return { r1: row, c1: col, r2: row + spill.values.length - 1, c2: col + spill.values[0].length - 1 };
   }
 
-  /** The smallest rectangle from A1 holding every cell with content or with part of a formula's result. */
-  usedRect(sheet: Sheet): Rect | null {
-    let used = sheet.usedRect();
+  /** Every result of several cells laid out on a sheet: the cells it fills, its formula's first. */
+  spillRects(sheet: Sheet): Rect[] {
+    const rects: Rect[] = [];
     for (const formula of this.arrays) {
       const spill = formula.spill;
       if (formula.sheet !== sheet || !spill) continue;
-      const r2 = spill.row + spill.values.length - 1;
-      const c2 = spill.col + spill.values[0].length - 1;
+      rects.push({ r1: spill.row, c1: spill.col, r2: spill.row + spill.values.length - 1, c2: spill.col + spill.values[0].length - 1 });
+    }
+    return rects;
+  }
+
+  /** The smallest rectangle from A1 holding every cell with content or with part of a formula's result. */
+  usedRect(sheet: Sheet): Rect | null {
+    let used = sheet.usedRect();
+    for (const { r2, c2 } of this.spillRects(sheet)) {
       used = { r1: 0, c1: 0, r2: Math.max(used?.r2 ?? 0, r2), c2: Math.max(used?.c2 ?? 0, c2) };
     }
     return used;
