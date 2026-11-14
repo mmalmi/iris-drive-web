@@ -215,6 +215,17 @@
     margin: 0;
   }
 
+  /* A link reads as one. It opens only while presenting; elsewhere a click goes to its box. */
+  .slide-surface :global(.slide-text a) {
+    color: inherit;
+    text-decoration: underline;
+    pointer-events: none;
+  }
+
+  .slide-surface :global(.el-editing .slide-text a) {
+    pointer-events: auto;
+  }
+
   .slide-surface :global(.slide-text ul),
   .slide-surface :global(.slide-text ol) {
     margin: 0;

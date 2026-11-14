@@ -167,6 +167,8 @@ define(['CODE', 'UNICODE'], {
     return code;
   },
 });
+// The cell shows the label, or the address; where it links to is read from the formula (see Engine.linkAt).
+define('HYPERLINK', { min: 1, max: 2, fn: ([address, label], ctx) => (label === undefined ? text(address, ctx) : plain(label, ctx)) });
 define('T', { min: 1, max: 1, fn: ([value], ctx) => { const v = plain(value, ctx); return typeof v === 'string' ? v : ''; } });
 define('N', { min: 1, max: 1, fn: ([value], ctx) => { const v = plain(value, ctx); return typeof v === 'number' ? v : v === true ? 1 : 0; } });
 define('VALUE', {

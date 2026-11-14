@@ -83,10 +83,20 @@
     hideTimer = setTimeout(() => (controls = false), 2500);
   }
 
+  /** A slide number being typed: Enter then goes to that slide. */
+  let typedNumber = '';
+
   function onKey(event: KeyboardEvent): void {
     if (event.metaKey || event.ctrlKey || event.altKey) return;
     const key = event.key;
-    if (key === 'Escape') exit();
+    const number = typedNumber;
+    typedNumber = /^[0-9]$/.test(key) ? number + key : '';
+    if (typedNumber) {
+      event.preventDefault();
+      return;
+    }
+    if (key === 'Enter' && number) show(Math.min(slides.length, Math.max(1, Number(number))) - 1);
+    else if (key === 'Escape') exit();
     else if (key === 'ArrowRight' || key === 'ArrowDown' || key === 'PageDown' || key === ' ' || key === 'Enter' || key === 'n') next();
     else if (key === 'ArrowLeft' || key === 'ArrowUp' || key === 'PageUp' || key === 'Backspace' || key === 'p') previous();
     else if (key === 'Home') show(0);
@@ -114,7 +124,8 @@
   }
 
   function onPointerUp(event: PointerEvent): void {
-    if ((event.target as HTMLElement).closest('[data-present-controls]')) return;
+    // The controls do their own thing, and a link opens without moving on.
+    if ((event.target as HTMLElement).closest('[data-present-controls], a[href]')) return;
     if (event.pointerType === 'mouse') {
       if (event.button === 0) next();
       return;
@@ -222,6 +233,12 @@
 
   .present.quiet {
     cursor: none;
+  }
+
+  /* Links on the slide open in a new tab. */
+  .present :global(.slide-surface .slide-text a) {
+    pointer-events: auto;
+    cursor: pointer;
   }
 
   .frame {

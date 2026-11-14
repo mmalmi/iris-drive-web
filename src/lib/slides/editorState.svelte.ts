@@ -28,7 +28,7 @@ import { DEFAULT_LAYOUT, layoutById } from './layouts';
 import { DEFAULT_THEME, paletteFor, textStyle, themeById, type Palette, type Theme } from './themes';
 import { MAX_FONT_SIZE, MIN_FONT_SIZE, selectAllText } from './richText';
 import { comparePositions } from './order';
-import { cellPlace, cellRect, newTable, rectKeys, stepCell, type CellRect } from './table';
+import { cellKey, cellPlace, cellRect, newTable, rectKeys, stepCell, type CellRect } from './table';
 import { growTable } from './tableEditing';
 import { readTransition, type Transition } from './motion';
 import { reuse } from './slideData';
@@ -536,6 +536,18 @@ export class SlidesEditorState {
     const h = Math.min(600, Math.max(80, rows * 64));
     const [id] = this.#add([{ type: 'table', ...this.#place(w, h), w, h, rot: 0, header: rows > 1 ? true : undefined, table: newTable(rows, cols) }]);
     if (id) this.startEditing(id);
+  }
+
+  /** Cells copied from a spreadsheet or a web page, as a table of the same shape with the first row as its heading. */
+  pasteTable(rows: string[][]): void {
+    const table = newTable(rows.length, Math.max(...rows.map(row => row.length)));
+    table.rows.forEach((row, r) => table.cols.forEach((col, c) => {
+      const words = rows[r]?.[c]?.trim();
+      if (words) table.cells[cellKey(row.id, col.id)] = { content: words.split('\n').map(line => ({ name: 'paragraph', attrs: {}, children: line ? [{ text: [{ insert: line }] }] : [] })) };
+    }));
+    const w = Math.min(1120, Math.max(320, table.cols.length * 200));
+    const h = Math.min(600, Math.max(80, table.rows.length * 52));
+    this.#add([{ type: 'table', ...this.#place(w, h), w, h, rot: 0, header: table.rows.length > 1 ? true : undefined, table }]);
   }
 
   /** Stores an image with the deck and puts it on the slide, centred on `at` when given. */

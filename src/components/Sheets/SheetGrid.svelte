@@ -37,6 +37,7 @@
   import FilterMenu from './FilterMenu.svelte';
   import FindBar from './FindBar.svelte';
   import FormulaHelp from './FormulaHelp.svelte';
+  import LinkChip from './LinkChip.svelte';
   import PopupMenu, { type MenuItem } from './PopupMenu.svelte';
   import { handleEditingKey, handleGridKey } from './gridKeys';
   import { listenToTouch, watchKeyboard, type TouchHost } from './gridTouch';
@@ -326,11 +327,10 @@
     if (caret[0] !== edit.caret[0] || caret[1] !== edit.caret[1]) ctl.setEditText(edit.text, caret, 'cell');
   }
 
-  function insertNewline(): void {
-    if (!editor || !ctl.edit) return;
+  /** Puts text where the cursor is in the cell being typed into: a line break, or today's date. */
+  function insertText(inserted: string): void {
     const [start, end] = readCaret();
-    const text = `${editor.value.slice(0, start)}\n${editor.value.slice(end)}`;
-    ctl.setEditText(text, [start + 1, start + 1], 'cell');
+    if (editor && ctl.edit) ctl.setEditText(`${editor.value.slice(0, start)}${inserted}${editor.value.slice(end)}`, [start + inserted.length, start + inserted.length], 'cell');
   }
 
   // --- Keyboard ---
@@ -345,7 +345,7 @@
       if (event.key === 'Escape') closeMenu();
       return;
     }
-    const handled = ctl.edit ? handleEditingKey(ctl, event, insertNewline) : handleGridKey(ctl, event, pageRows());
+    const handled = ctl.edit ? handleEditingKey(ctl, event, insertText) : handleGridKey(ctl, event, pageRows());
     if (handled) {
       event.preventDefault();
       event.stopPropagation();
@@ -780,6 +780,7 @@
     />
   {/if}
 
+  {#if view && !menu}<LinkChip {ctl} {view} room={height - keyboardInset} />{/if}
   <FindBar {ctl} />
 
   {#if ctl.commentFor && view}

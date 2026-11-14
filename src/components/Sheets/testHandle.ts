@@ -10,6 +10,7 @@ export function installTestHandle(
     get ctl() { return controller(); },
     text: (row: number, col: number) => controller().engine.textAt(controller().sheet, row, col),
     style: (row: number, col: number) => ({ ...controller().sheet.styleAt(row, col) }),
+    link: (row: number, col: number) => controller().engine.linkAt(controller().sheet, row, col),
     box: (row: number, col: number) => {
       const where = place();
       if (!where) return null;

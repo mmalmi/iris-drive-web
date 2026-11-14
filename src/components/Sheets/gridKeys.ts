@@ -1,7 +1,34 @@
 /** What the keyboard does in the grid. */
 import { applyStyle, clearContents, clearFormatting, fillWithin, toggleStyle } from '../../lib/sheets/commands';
 import type { SheetController } from '../../lib/sheets/controller.svelte';
+import { serialFromLocalDate } from '../../lib/sheets/dates';
+import { NUMBER_FORMATS, editTextOf } from '../../lib/sheets/format';
 import { listChoices, toggleCheckboxes } from '../../lib/sheets/ruleCommands';
+
+/** Ctrl+Shift and a digit, as in Google Sheets: number, time, date, currency and percent. */
+const FORMAT_KEYS: Record<string, string> = {
+  Digit1: NUMBER_FORMATS.number,
+  Digit2: NUMBER_FORMATS.time,
+  Digit3: NUMBER_FORMATS.date,
+  Digit4: NUMBER_FORMATS.dollar,
+  Digit5: NUMBER_FORMATS.percent,
+};
+
+/** Ctrl+; asks for today's date, Ctrl+Shift+; for the time; null for other keys. */
+function nowKey(event: KeyboardEvent): 'date' | 'time' | null {
+  if (!(event.ctrlKey || event.metaKey) || event.altKey) return null;
+  // By the key's place where it has one, else by what it writes (on a German keyboard ; is Shift and comma).
+  if (event.code === 'Semicolon') return event.shiftKey ? 'time' : 'date';
+  return event.key === ';' ? 'date' : event.key === ':' ? 'time' : null;
+}
+
+/** Today's date or the time now, written the way it would be typed here. */
+function nowText(ctl: SheetController, what: 'date' | 'time'): string {
+  const serial = serialFromLocalDate(new Date());
+  return what === 'date'
+    ? editTextOf(Math.floor(serial), NUMBER_FORMATS.date, ctl.book.numberLocale)
+    : editTextOf(serial - Math.floor(serial), NUMBER_FORMATS.time, ctl.book.numberLocale);
+}
 
 /** Keys for the list of suggested functions, while it shows. */
 export function handleCompletionKey(ctl: SheetController, event: KeyboardEvent): boolean {
@@ -16,16 +43,21 @@ export function handleCompletionKey(ctl: SheetController, event: KeyboardEvent):
   }
 }
 
-/** Keys while a cell is being typed into. Returns true when the key was dealt with. */
-export function handleEditingKey(ctl: SheetController, event: KeyboardEvent, insertNewline: () => void): boolean {
+/** Keys while a cell is being typed into. Returns true when the key was dealt with. `insert` puts text where the cursor is. */
+export function handleEditingKey(ctl: SheetController, event: KeyboardEvent, insert: (text: string) => void): boolean {
   const edit = ctl.edit;
   if (!edit) return false;
   if (handleCompletionKey(ctl, event)) return true;
   const mod = event.ctrlKey || event.metaKey;
+  const now = nowKey(event);
+  if (now) {
+    insert(nowText(ctl, now));
+    return true;
+  }
   switch (event.key) {
     case 'Enter':
       if (event.isComposing) return false;
-      if (event.altKey || mod) insertNewline();
+      if (event.altKey || mod) insert('\n');
       else ctl.commitEdit(event.shiftKey ? 'up' : 'down');
       return true;
     case 'Tab':
@@ -98,6 +130,17 @@ export function handleGridKey(ctl: SheetController, event: KeyboardEvent, pageRo
       else return toggleCheckboxes(ctl);
       return true;
     default:
+  }
+  // Ctrl+; and Ctrl+Shift+;: today's date or the time, typed in to be confirmed with Enter.
+  const now = nowKey(event);
+  if (now) {
+    ctl.startEdit({ text: nowText(ctl, now) });
+    return true;
+  }
+  const format = mod && shift && !event.altKey ? FORMAT_KEYS[event.code] : undefined;
+  if (format) {
+    if (ctl.canEdit) applyStyle(ctl, { nf: format });
+    return true;
   }
   // Ctrl+Alt+M: a comment on the active cell.
   if (mod && event.altKey && event.code === 'KeyM' && ctl.canEdit) {

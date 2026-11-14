@@ -1,6 +1,6 @@
 /**
  * The text of a text box or shape: paragraphs and lists with bold, italic,
- * underline, strikethrough, colour and size, each paragraph aligned as it
+ * underline, strikethrough, colour, size and links, each paragraph aligned as it
  * likes. While someone types in it the
  * text is a tiptap editor; everywhere else (other boxes, thumbnails,
  * presenting) the same stored text is drawn by `renderRichText`. Both produce
@@ -43,6 +43,11 @@ export function validFontSize(value: unknown): number | null {
  */
 export function fontSizeCss(size: number): string {
   return `calc(${size}px * var(--fit, 1))`;
+}
+
+/** The address of a stored link, when it is one that may be opened: a web or mail address. */
+export function linkHref(value: unknown): string | null {
+  return typeof value === 'string' && value.length < 2048 && /^(https?:\/\/|mailto:)\S+$/i.test(value) ? value : null;
 }
 
 function validAlign(value: unknown): 'left' | 'center' | 'right' | null {
@@ -157,7 +162,8 @@ export function createTextEditor(options: TextEditorOptions): Editor {
         codeBlock: false,
         code: false,
         horizontalRule: false,
-        link: false,
+        // Addresses become links as they are typed or pasted; they open while presenting, not while typing.
+        link: { openOnClick: false, defaultProtocol: 'https' },
         // A list at the end of a box must not grow an empty line after it.
         trailingNode: false,
         dropcursor: false,
@@ -232,6 +238,13 @@ function renderText(node: Y.XmlText, parent: HTMLElement, doc: Document): boolea
     if (colour) wrap('span').setAttribute('style', `color: ${colour}`);
     const size = validFontSize((attributes.fontSize as { size?: unknown } | undefined)?.size);
     if (size) wrap('span').setAttribute('style', `font-size: ${fontSizeCss(size)}`);
+    const href = linkHref((attributes.link as { href?: unknown } | undefined)?.href);
+    if (href) {
+      const link = wrap('a');
+      link.setAttribute('href', href);
+      link.setAttribute('target', '_blank');
+      link.setAttribute('rel', 'noopener noreferrer nofollow');
+    }
     for (const [mark, tag] of SIMPLE_MARKS) {
       if (mark in attributes && attributes[mark] !== null && attributes[mark] !== false) wrap(tag);
     }
