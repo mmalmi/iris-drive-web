@@ -664,13 +664,6 @@ export class SlidesEditorState {
     this.editingId = id;
   }
 
-  /** A key typed into the box being typed in before its editor is there; it goes in after the rest. */
-  typeAhead(key: string): void {
-    if (!this.editingId || this.textEditor) return;
-    const pending = this.#pendingEdit ?? {};
-    this.#pendingEdit = { ...pending, insert: (pending.insert ?? '') + key };
-  }
-
   /**
    * Called by the text box once its editor exists, with the origin of what
    * the editor writes, so that typing is undone with the rest of the deck.

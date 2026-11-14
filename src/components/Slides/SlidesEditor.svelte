@@ -17,6 +17,7 @@
   import SlideStrip from './SlideStrip.svelte';
   import Toolbar from './Toolbar.svelte';
   import NotesBox from './NotesBox.svelte';
+  import { loadTextEditor } from './TextEditor.svelte';
   import SlideStack from './SlideStack.svelte';
   import Popover from './Popover.svelte';
   import DocumentLinkMenu from '../Viewer/DocumentLinkMenu.svelte';
@@ -53,9 +54,10 @@
   $effect(() => {
     if (!editorState?.textEditor) linkEditing = false;
   });
-  // The text editor is fetched once the deck is shown to someone who may change it, not before.
+  // The text editor (tiptap) is only for someone who may change the deck: it
+  // loads beside the deck for them, and never for someone who only looks.
   $effect(() => {
-    if (canEdit) void import('../../lib/slides/richTextEditor');
+    if (drive.canEdit) loadTextEditor().catch(() => undefined);
   });
 
   // Presenting, the presenter's window and printing are loaded apart from the editor, so a deck opens light.
@@ -80,6 +82,9 @@
   onMount(() => {
     void (async () => {
       if (!await drive.open()) return;
+      // Typing works from the first key: the deck is shown once its editor is
+      // here, or without it when it cannot be had.
+      if (drive.canEdit) await loadTextEditor().catch(() => undefined);
       const created = new SlidesEditorState(drive.ydoc, {
         addAttachment: file => drive.addAttachment(file),
         canEdit: () => drive.canEdit,
@@ -316,10 +321,6 @@
         done();
         current.stopEditing();
         focusCanvas();
-      } else if (!current.textEditor && key.length === 1 && !mod && !event.altKey) {
-        // The box's editor is still on its way: what is typed meanwhile goes in once it is there.
-        done();
-        current.typeAhead(key);
       } else if (where !== 'text') {
         // A box is being typed in but the cursor is elsewhere: keys must not act on the box itself.
         current.textEditor?.view.focus();

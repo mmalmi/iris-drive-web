@@ -5,7 +5,7 @@
    */
   import { onMount } from 'svelte';
   import { qrCodeDataUrl } from '../lib/qrCode';
-  import { parseDeviceApprovalBootstrap } from '@iris/identity/deviceLink';
+  import { parseDeviceApprovalBootstrap } from '@iris/identity';
   import AccountSwitcher from '@iris/svelte-ui/AccountSwitcher.svelte';
   import IdentityRecoveryPanel from '@iris/svelte-ui/IdentityRecoveryPanel.svelte';
   import type {

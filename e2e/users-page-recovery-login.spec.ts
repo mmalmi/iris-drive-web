@@ -26,6 +26,10 @@ type RecoveryRunOptions = {
 
 async function prepareRecoveryPage(page: Page, relayUrl: string): Promise<void> {
   setupPageErrorHandler(page);
+  // Signed out from the start: no test account is made while the page is set up.
+  await page.addInitScript(() => {
+    localStorage.setItem('hashtree:disableTestAutoCreate', '1');
+  });
   await page.goto('/', { waitUntil: 'domcontentloaded' });
   await clearAllStorage(page);
   await presetLocalRelayInDB(page, relayUrl);

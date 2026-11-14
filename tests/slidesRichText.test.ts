@@ -169,14 +169,12 @@ test('links are drawn as they are edited, and only web and mail addresses open',
   expect(container.textContent).toBe('See the plan, mail and this');
 });
 
-test('keys typed while the text editor loads go in once it is there, and typing is undone with the deck', () => {
+test('what is typed in a box is undone with the rest of the deck', () => {
   const state = new SlidesEditorState(new Y.Doc(), { addAttachment: async () => 'image.png', canEdit: () => true });
   cleanups.push(() => state.deck.ydoc.destroy());
   state.startDeck();
   const title = state.current!.elements[0]!;
-  state.startEditing(title.id, { insert: 'H' });
-  state.typeAhead('i');
-  state.typeAhead('!');
+  state.startEditing(title.id, { insert: 'Hi!' });
   const element = document.createElement('div');
   document.body.append(element);
   const editor = createTextEditor({ element, fragment: title.content! });
