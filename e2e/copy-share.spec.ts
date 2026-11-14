@@ -1,6 +1,6 @@
 import { expect, test } from './fixtures';
 import { createDriveProfile, prepareFreshSession } from './documents.helpers';
-import { uploadFilesInput } from './test-utils';
+import { uploadAndOpen } from './test-utils';
 
 // Opening the share dialog, copying its address and Escape are covered with
 // documents, files and presentations; this is the QR code and the other ways out.
@@ -8,7 +8,7 @@ test('the share dialog shows a QR code and closes from its backdrop or its QR co
   test.setTimeout(120_000);
   await prepareFreshSession(page, relayUrl);
   await createDriveProfile(page, 'Share Test');
-  await uploadFilesInput(page).setInputFiles({ name: 'note.txt', mimeType: 'text/plain', buffer: Buffer.from('share me') });
+  await uploadAndOpen(page, { name: 'note.txt', mimeType: 'text/plain', buffer: Buffer.from('share me') });
   const share = page.getByTestId('viewer-share');
   const modal = page.getByTestId('share-modal');
 

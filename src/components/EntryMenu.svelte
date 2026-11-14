@@ -1,0 +1,132 @@
+<script lang="ts" module>
+  import type { TreeEntry } from '@hashtree/core';
+
+  /** What to show a menu for, and where. */
+  export interface EntryMenuRequest {
+    entry: TreeEntry;
+    /** Where the entry opens. */
+    href: string;
+    /** The point it opens at: the pointer, or below the ⋮ button or the row. */
+    x: number;
+    y: number;
+    /** On a phone it rises from the bottom of the screen, as the New menu does. */
+    sheet: boolean;
+    /** Where the keyboard goes back to when it closes. */
+    opener: HTMLElement | null;
+  }
+</script>
+
+<script lang="ts">
+  /**
+   * The menu of a file or folder in the list, from its ⋮ button, a right
+   * click, a long press on a phone, or the menu key: what can be done with
+   * it, by the same actions and dialogs as everywhere else.
+   */
+  import { LinkType } from '@hashtree/core';
+  import Menu, { type MenuItem } from './ui/Menu.svelte';
+  import { deleteEntry, makeCopyOfFolder } from '../actions';
+  import { open as openRenameModal } from './Modals/RenameModal.svelte';
+  import { open as openMoveModal } from './Modals/MoveModal.svelte';
+  import { open as openShareModal } from './Modals/ShareModal.svelte';
+  import { routeStore } from '../stores';
+  import { nostrStore } from '../nostr';
+  import { acceptedShares } from '../drive/shareLibrary';
+  import { activeNostrIdentityRootScope } from '../drive/profileRoute';
+  import { sharePeopleTarget } from '../drive/sharePeople';
+  import { contentHref, createDriveShareLinkVariants, fileCopyHref, folderCopyHref } from '../lib/shareUrls';
+  import { documentKindInfo, documentTitle, snapshotLinkQuery } from '../lib/documentNames';
+  import { downloadFile, downloadFolderZip } from '../lib/downloadEntry';
+  import { isNostrIdentityId } from '../utils/route';
+  import { toast } from '../stores/toast';
+
+  interface Props {
+    request: EntryMenuRequest;
+    /** The folder the entry is in. */
+    path: string[];
+    canEdit: boolean;
+    onClose: (returnFocus: boolean) => void;
+  }
+
+  let { request, path, canEdit, onClose }: Props = $props();
+
+  let route = $derived($routeStore);
+  let entry = $derived(request.entry);
+  let isDir = $derived(entry.type === LinkType.Dir);
+  let documentInfo = $derived(isDir ? documentKindInfo(entry.name) : null);
+  let isFolder = $derived(isDir && !documentInfo);
+  let title = $derived(documentInfo ? documentTitle(entry.name) : entry.name);
+  // In Drive a folder is copied where it is; trees outside it are forked from the folder's page.
+  let inDrive = $derived(isNostrIdentityId(route.npub ?? ''));
+
+  function share() {
+    const copy = documentInfo
+      ? `${contentHref(entry.cid)}?${snapshotLinkQuery(entry.name)}`
+      : isDir ? folderCopyHref(entry.cid, entry.name) : fileCopyHref(entry.cid, entry.name);
+    const here = `${window.location.origin}${window.location.pathname}`;
+    const [primary, secondary] = createDriveShareLinkVariants({
+      permalinkUrl: `${here}${copy}`,
+      currentUrl: `${here}${request.href}`,
+      routeScope: route.npub,
+      isPermalink: route.isPermalink,
+    });
+    const people = isDir && canEdit && !route.isPermalink ? sharePeopleTarget({
+      scope: route.npub,
+      treeName: route.treeName,
+      path: [...path, entry.name],
+      profileId: activeNostrIdentityRootScope($nostrStore),
+      records: $acceptedShares,
+    }) : null;
+    if (primary) openShareModal(primary.url, secondary?.url ?? null, people, Boolean(people && documentInfo));
+  }
+
+  async function makeCopy() {
+    const name = await makeCopyOfFolder([...path, entry.name]).catch(() => null);
+    if (name) toast.success(`Made “${name}”`);
+    else toast.error('Could not make a copy.');
+  }
+
+  async function download() {
+    try {
+      if (isDir) await downloadFolderZip(entry.cid, entry.name);
+      else await downloadFile(entry);
+    } catch (error) {
+      console.warn('[Drive] Could not download:', error);
+      toast.error(`Could not download ${title}`);
+    }
+  }
+
+  function remove() {
+    if (!confirm(`Delete ${title}?`)) return;
+    void deleteEntry(entry.name).catch(() => toast.error(`Could not delete ${title}`));
+  }
+
+  // Lucide has no filled set; these are its plainest outlines.
+  let items = $derived.by((): MenuItem[] => {
+    const href = request.href;
+    const list: MenuItem[] = [
+      { label: 'Open', icon: 'i-lucide-square-arrow-out-up-right', testid: 'row-menu-open', href },
+      { label: 'Share', icon: 'i-lucide-share', testid: 'row-menu-share', run: share },
+    ];
+    if (canEdit) {
+      list.push(
+        { label: 'Rename', icon: 'i-lucide-pencil', testid: 'row-menu-rename', run: () => openRenameModal(entry.name) },
+        { label: 'Move', icon: 'i-lucide-folder-input', testid: 'row-menu-move', run: () => openMoveModal(entry.name, path) },
+      );
+      if (isFolder && inDrive) list.push({ label: 'Make a copy', icon: 'i-lucide-copy', testid: 'row-menu-copy', run: () => void makeCopy() });
+    }
+    if (!documentInfo) list.push({ label: 'Download', icon: 'i-lucide-download', testid: 'row-menu-download', run: () => void download() });
+    if (canEdit) list.push({ label: 'Delete', icon: 'i-lucide-trash-2', testid: 'row-menu-delete', run: remove, danger: true });
+    return list;
+  });
+</script>
+
+<Menu
+  {items}
+  label={title}
+  heading={title}
+  at={{ x: request.x, y: request.y }}
+  sheet={request.sheet}
+  inside={[request.opener]}
+  testid="row-menu"
+  {onClose}
+/>

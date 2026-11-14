@@ -1,5 +1,5 @@
 import { expect, test, type Page } from './fixtures';
-import { chooseNew, openFolderMenu } from './test-utils';
+import { chooseNew, openFileMenu, openFolderMenu } from './test-utils';
 import { createDriveProfile, prepareFreshSession } from './documents.helpers';
 
 /** General access by link: anyone with the link views the latest version, signed out, until it is turned off. */
@@ -37,8 +37,7 @@ test.describe('anyone with the link can view', () => {
     await row(page, 'Trip').click();
     await expect(page).toHaveURL(/\/main\/Trip$/, { timeout: 30_000 });
     await page.getByTestId('upload-files-input').setInputFiles({ name: 'plan.txt', mimeType: 'text/plain', buffer: Buffer.from('Day one') });
-    await expect(page.getByText('Day one')).toBeVisible({ timeout: 30_000 });
-    await page.getByTestId('viewer-back').click();
+    await expect(row(page, 'plan.txt')).toBeVisible({ timeout: 30_000 });
 
     // Restricted until it is changed; then a link to copy.
     await openGeneralAccess(page);
@@ -76,7 +75,10 @@ test.describe('anyone with the link can view', () => {
       await expect(visitor.getByText('Seat 12')).toBeVisible({ timeout: 60_000 });
       // A visitor can look, not change anything.
       await expect(visitor.getByTestId('upload-files-input')).toHaveCount(0);
-      await expect(visitor.getByTestId('viewer-delete')).toHaveCount(0);
+      const visitorMenu = await openFileMenu(visitor);
+      await expect(visitorMenu.getByTestId('viewer-copy')).toBeVisible();
+      await expect(visitorMenu.getByTestId('viewer-delete')).toHaveCount(0);
+      await visitor.keyboard.press('Escape');
 
       // Renamed, it keeps its link.
       await page.getByTestId('viewer-back').click().catch(() => {});

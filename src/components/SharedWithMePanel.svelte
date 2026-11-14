@@ -37,9 +37,12 @@
   // an answer the folders this browser has joined are shown.
   let nativeAnswered = $state(false);
   let usingNative = $derived(Boolean(nativeActionEndpoint && nativeAnswered));
-  let shares = $derived.by((): SharedWithMeRow[] => (
+  let allShares = $derived.by((): SharedWithMeRow[] => (
     usingNative ? $nativeShareStore : localShareViews
   ));
+  // Folders someone removed this profile from no longer open; they are listed apart, at the bottom.
+  let shares = $derived(allShares.filter((share) => share.key_status !== 'revoked'));
+  let removed = $derived(allShares.filter((share) => share.key_status === 'revoked'));
 
   $effect(() => {
     if (!nativeActionEndpoint) return;
@@ -141,25 +144,20 @@
       </div>
     {/if}
     {#each shares as share (share.share_id)}
-      {@const revoked = share.key_status === 'revoked'}
       {@const documentIcon = documentKindInfo(sharedDocumentName(share))?.icon}
       {@const sharedBy = owner(share.share_id)}
-      <div
-        class="flex items-center border-b border-surface-2 {revoked ? 'opacity-60' : 'hover:bg-surface-2/50'}"
-        data-testid="shared-with-me-row"
-      >
-        <svelte:element
-          this={revoked ? 'div' : 'a'}
-          href={revoked ? undefined : shareHref(share)}
+      <div class="flex items-center border-b border-surface-2 hover:bg-surface-2/50" data-testid="shared-with-me-row">
+        <a
+          href={shareHref(share)}
           class="min-w-0 flex-1 flex items-center gap-3 p-3 lg:px-5 no-underline text-text-1"
-          data-testid={revoked ? undefined : 'shared-with-me-open'}
+          data-testid="shared-with-me-open"
         >
           <span class="shrink-0 {documentIcon ?? 'i-lucide-folder text-warning'}"></span>
           <span class="min-w-0 flex-1 sm:flex sm:items-center sm:gap-3">
             <span class="block truncate sm:flex-1" title={share.display_name}>{share.display_name}</span>
             <span class="block truncate text-xs text-text-3 sm:shrink-0 sm:text-sm">{detailText(share)}</span>
           </span>
-        </svelte:element>
+        </a>
         {#if sharedBy}
           <a
             class="shrink-0 max-w-32 truncate text-xs text-text-3 no-underline hover:underline mr-3 lg:mr-5"
@@ -168,9 +166,7 @@
             data-testid="shared-with-me-owner"
           >{sharedBy.name}</a>
         {/if}
-        {#if revoked}
-          <span class="i-lucide-lock-keyhole text-text-3 shrink-0 mr-3 lg:mr-5" aria-label="Access removed"></span>
-        {:else if usingNative && share.shortcut_paths.length === 0}
+        {#if usingNative && share.shortcut_paths.length === 0}
           <button
             class="btn-circle btn-ghost shrink-0 mr-3 lg:mr-5"
             title="Add shortcut to My Drive"
@@ -186,5 +182,21 @@
         {/if}
       </div>
     {/each}
+    {#if standalone && removed.length > 0}
+      <div class="mt-8" data-testid="shared-with-me-removed-section">
+        <h2 class="px-4 lg:px-5 pb-2 text-xs font-medium text-text-3">Removed from</h2>
+        {#each removed as share (share.share_id)}
+          {@const documentIcon = documentKindInfo(sharedDocumentName(share))?.icon}
+          <div
+            class="flex items-center gap-3 px-4 py-2 lg:px-5 border-t border-surface-2 text-sm text-text-3"
+            title="You no longer have access"
+            data-testid="shared-with-me-removed"
+          >
+            <span class="shrink-0 opacity-70 {documentIcon ?? 'i-lucide-folder'}"></span>
+            <span class="min-w-0 flex-1 truncate">{share.display_name}</span>
+          </div>
+        {/each}
+      </div>
+    {/if}
   </section>
 {/if}

@@ -1,6 +1,6 @@
 import { expect, test, type Page } from './fixtures';
 import { createDriveProfile, prepareFreshSession } from './documents.helpers';
-import { chooseNew, createAndEnterFolder, createTextFile, openFolderMenu, saveTextFile } from './test-utils';
+import { chooseFileAction, chooseNew, createAndEnterFolder, createTextFile, openFolderMenu, saveTextFile } from './test-utils';
 
 function listed(page: Page, name: string) {
   return page.getByTestId('file-list').getByRole('link', { name: new RegExp(`^${name.replace(/\./g, '\\.')}(\\s|$)`) });
@@ -26,7 +26,7 @@ test.describe('files and folders in My Drive', () => {
 
     await listed(page, 'hello.txt').click();
     await expect(page.locator('pre')).toContainText('Hello, World!', { timeout: 30_000 });
-    await page.getByTestId('viewer-edit').click();
+    await chooseFileAction(page, 'viewer-edit');
     await expect(page.locator('textarea')).toHaveValue('Hello, World!');
     await page.locator('textarea').fill('Updated content');
     await saveTextFile(page);
@@ -34,7 +34,7 @@ test.describe('files and folders in My Drive', () => {
     await expect(page.locator('pre')).toContainText('Updated content');
 
     // Leaving with changes not saved asks first; Don't Save keeps the saved text.
-    await page.getByTestId('viewer-edit').click();
+    await chooseFileAction(page, 'viewer-edit');
     await page.locator('textarea').fill('This will be dropped');
     await page.getByRole('button', { name: 'Done' }).click();
     await expect(page.getByRole('heading', { name: 'Unsaved Changes' })).toBeVisible();
@@ -76,13 +76,13 @@ test.describe('files and folders in My Drive', () => {
 
     // A file's own buttons rename and delete it.
     await listed(page, 'old-name.txt').click();
-    await page.getByTestId('viewer-rename').click();
+    await chooseFileAction(page, 'viewer-rename');
     await page.getByPlaceholder('New name...').fill('new-name.txt');
     await page.getByPlaceholder('New name...').press('Enter');
     await expect(listed(page, 'new-name.txt')).toBeVisible({ timeout: 30_000 });
     await listed(page, 'to-delete.txt').click();
     page.once('dialog', (dialog) => dialog.accept());
-    await page.getByTestId('viewer-delete').click();
+    await chooseFileAction(page, 'viewer-delete');
     await expect(listed(page, 'to-delete.txt')).toHaveCount(0);
 
     await page.goto(folderUrl);

@@ -13,7 +13,7 @@
   } from '../../nostr';
   import { projectNostrIdentityRoster, type NostrIdentitySession, type NostrIdentityRosterProjection } from '../../drive/protocol';
   import { appStore } from '../../store';
-  import { currentBrowserDeviceLabel } from '../../drive/deviceLabels';
+  import { currentBrowserDeviceLabel, distinctDeviceLabels } from '../../drive/deviceLabels';
   import QRScanner from '../QRScanner.svelte';
 
   let session = $state<NostrIdentitySession | null>(null);
@@ -39,8 +39,9 @@
       .map((peer) => peer.pubkey),
   ));
 
+  // Two devices of one kind are told apart: "Chrome on macOS" and "Chrome on macOS (2)".
   let keys = $derived<UserSettingsKey[]>(projection
-    ? Object.values(projection.active_facets).map((facet) => ({
+    ? distinctDeviceLabels(Object.values(projection.active_facets).map((facet) => ({
         pubkey: facet.pubkey,
         label: deviceLabelForKey(facet.pubkey),
         purposes: facet.purposes,
@@ -48,7 +49,7 @@
         addedAt: facet.added_at,
         current: facet.pubkey === session?.appKeyPubkey,
         online: facet.pubkey === session?.appKeyPubkey || connectedDevicePubkeys.has(facet.pubkey),
-      }))
+      })))
     : []);
 
   onMount(() => {

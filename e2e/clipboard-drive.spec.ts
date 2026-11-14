@@ -1,6 +1,6 @@
 import { expect, test, type Page } from './fixtures';
 import { createDriveProfile, prepareFreshSession } from './documents.helpers';
-import { chooseNew } from './test-utils';
+import { chooseFileAction, chooseNew, openFileMenu } from './test-utils';
 
 /** A 30 × 20 PNG picture made in the page, as a screenshot tool would copy it. */
 async function copyScreenshot(page: Page): Promise<void> {
@@ -111,7 +111,9 @@ test.describe('the system clipboard and drag and drop in a Drive folder', () => 
     await page.keyboard.press('ControlOrMeta+v');
     await expect(row(page, /^Pasted image \d{4}-\d\d-\d\d at \d\d\.\d\d\.\d\d\.png$/)).toBeVisible({ timeout: 30_000 });
     await expect(page.getByText(/Saved as Pasted image/)).toBeVisible();
-    // It opens, and it is the picture that was pasted.
+    // The folder stays open; opened, it is the picture that was pasted.
+    await expect(page.getByTestId('viewer-back')).toHaveCount(0);
+    await row(page, /^Pasted image /).click();
     await expect(page.getByTestId('image-viewer')).toHaveJSProperty('naturalWidth', 30, { timeout: 30_000 });
     await page.screenshot({ path: test.info().outputPath('clipboard-pasted-screenshot.png') });
 
@@ -120,6 +122,7 @@ test.describe('the system clipboard and drag and drop in a Drive folder', () => 
     await fileList(page).focus();
     await page.keyboard.press('ControlOrMeta+v');
     await expect(row(page, /^Pasted text .*\.txt$/)).toBeVisible({ timeout: 30_000 });
+    await row(page, /^Pasted text .*\.txt$/).click();
     await expect(page.getByText('Shopping list:')).toBeVisible({ timeout: 30_000 });
 
     // Pasting into the name of a new folder is pasting a name, not a file.
@@ -213,16 +216,18 @@ test.describe('the system clipboard and drag and drop in a Drive folder', () => 
     await expect.poll(() => clipboardPicture(page), { timeout: 15_000 }).toMatchObject({ types: ['image/png'], width: 24, height: 16 });
     await expect(page.getByText('Copied the picture square.png')).toBeVisible();
 
-    // The open text file, copied with the Copy button.
+    // The open text file, copied from its ⋮ menu.
     await row(page, 'notes.txt').click();
-    await expect(page.getByTestId('viewer-copy')).toBeVisible({ timeout: 30_000 });
-    await page.getByTestId('viewer-copy').click();
+    await expect(page.getByTestId('viewer-header')).toContainText('notes.txt', { timeout: 30_000 });
+    await expect((await openFileMenu(page)).getByTestId('viewer-copy')).toHaveText('Copy text');
+    await chooseFileAction(page, 'viewer-copy');
     await expect.poll(() => page.evaluate(() => navigator.clipboard.readText()), { timeout: 15_000 }).toBe('Remember the milk');
 
     // Anything else goes as a link that opens it.
     await row(page, 'report.pdf').click();
-    await expect(page.getByTestId('viewer-copy')).toBeVisible({ timeout: 30_000 });
-    await page.getByTestId('viewer-copy').click();
+    await expect(page.getByTestId('viewer-header')).toContainText('report.pdf', { timeout: 30_000 });
+    await expect((await openFileMenu(page)).getByTestId('viewer-copy')).toHaveText('Copy link');
+    await chooseFileAction(page, 'viewer-copy');
     await expect.poll(() => page.evaluate(() => navigator.clipboard.readText()), { timeout: 15_000 }).toMatch(/#\/nhash1[a-z0-9]+\/report\.pdf$/);
     await expect(page.getByText('Copied a link to report.pdf')).toBeVisible();
 

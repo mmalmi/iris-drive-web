@@ -1,5 +1,27 @@
+import { nhashEncode, toHex } from '@hashtree/core';
 import type { AppType } from '../appType';
 import { canUseSameOriginHtreeProtocolStreaming, getInjectedHtreeServerUrl } from './nativeHtree';
+
+type ContentId = { hash: Uint8Array; key?: Uint8Array };
+
+/** Content as it is now, by its hash: it never changes. */
+export function contentHref(cid: ContentId): string {
+  return `#/${nhashEncode({ hash: toHex(cid.hash), decryptKey: cid.key ? toHex(cid.key) : undefined })}`;
+}
+
+/** The query that names a read-only copy of a folder, which its address alone does not. */
+export const COPY_NAME_PARAM = 'name';
+
+/** A read-only copy of a folder as it is now, opening under the folder's name. */
+export function folderCopyHref(cid: ContentId, name: string | null | undefined): string {
+  const trimmed = name?.trim();
+  return `${contentHref(cid)}${trimmed ? `?${COPY_NAME_PARAM}=${encodeURIComponent(trimmed)}` : ''}`;
+}
+
+/** A read-only copy of a file as it is now. */
+export function fileCopyHref(cid: ContentId, name: string): string {
+  return `${contentHref(cid)}/${encodeURIComponent(name)}`;
+}
 
 export type ShareUrlOptionId = 'web' | 'htree';
 export type ShareLinkVariantId = 'snapshot' | 'latest';

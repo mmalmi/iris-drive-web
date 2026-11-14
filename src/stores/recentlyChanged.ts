@@ -46,3 +46,6 @@ export function markFilesChanged(fileNames: Set<string>) {
     clearFileAfterDelay(fileName, 5000);
   }
 }
+
+/** A file just added here that the list should scroll to, once it shows it. */
+export const revealFile = writable<string | null>(null);

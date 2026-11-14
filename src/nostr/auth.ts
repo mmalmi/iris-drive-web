@@ -69,6 +69,7 @@ import {
   decryptDriveDeviceLabelsWithDck,
   encryptDriveDeviceLabelsWithDck,
   encryptedDeviceLabelPayloadsFromEventJson,
+  freeDeviceLabel,
   readStoredDeviceLabels,
   removeStoredDeviceLabels,
   saveStoredDeviceLabel,
@@ -645,7 +646,12 @@ export async function approveDriveDeviceApprovalBootstrap(
   const label = bootstrap.label?.trim();
   const deviceLabels = await collectDriveDeviceLabels(session, rosterOps);
   if (label) {
-    deviceLabels[deviceAppKeyPubkey] = label;
+    // A second "Chrome on macOS" joins as "Chrome on macOS (2)", so the two can be told apart.
+    const activeFacets = projectNostrIdentityRoster(session.profileId, rosterOps).active_facets;
+    const taken = Object.keys(activeFacets)
+      .filter((pubkey) => pubkey !== deviceAppKeyPubkey)
+      .map((pubkey) => deviceLabels[pubkey] ?? '');
+    deviceLabels[deviceAppKeyPubkey] = freeDeviceLabel(label, taken);
   }
   const dckPlaintext = randomDriveContentKey();
   const secretEpoch = nextSecretEpochNumber(session.profileId, rosterOps);

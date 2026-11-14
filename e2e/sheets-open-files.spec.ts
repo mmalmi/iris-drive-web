@@ -1,6 +1,7 @@
 import { strToU8, zipSync } from 'fflate';
 import { expect, test, type Page } from './fixtures';
 import { createDriveProfile, prepareFreshSession } from './documents.helpers';
+import { openListedFile, uploadAndOpen } from './test-utils';
 import { cellStyle, expectCell, expectSaved, goTo, shotPath, waitForGrid } from './sheets.helpers';
 
 /** A small Excel workbook: a sales table with a bold header and a total formula. */
@@ -28,9 +29,9 @@ function makeWorkbook(): Buffer {
   }));
 }
 
+/** Adds a file to the open folder, which stays open, and opens it. */
 async function upload(page: Page, name: string, mimeType: string, buffer: Buffer): Promise<void> {
-  await page.getByTestId('upload-files-input').setInputFiles({ name, mimeType, buffer });
-  await expect(page.getByTestId('viewer-header')).toContainText(name, { timeout: 30_000 });
+  await uploadAndOpen(page, { name, mimeType, buffer });
 }
 
 test.describe('spreadsheet files in the Drive', () => {
@@ -70,7 +71,7 @@ test.describe('spreadsheet files in the Drive', () => {
     // Back in the folder both are there; opening the file again opens the same spreadsheet, edits kept.
     await page.getByRole('link', { name: 'Back to folder' }).click();
     await expect(page.getByText('Sales.irissheet').or(page.getByText('Sales', { exact: true })).first()).toBeVisible({ timeout: 30_000 });
-    await page.getByText('Sales.xlsx').first().click();
+    await openListedFile(page, 'Sales.xlsx');
     await expect(page.getByTestId('viewer-open-as-document')).toBeVisible({ timeout: 30_000 });
     await page.getByTestId('viewer-open-as-document').click();
     await expect(page.getByTestId('document-title')).toHaveText('Sales', { timeout: 30_000 });

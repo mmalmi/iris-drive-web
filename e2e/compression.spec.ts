@@ -13,8 +13,8 @@ test.describe('forking and extracting', () => {
     const { profileId } = await createDriveProfile(page, 'Copy Test');
     await createAndEnterFolder(page, 'Plans');
     await uploadFilesInput(page).setInputFiles({ name: 'goals.txt', mimeType: 'text/plain', buffer: Buffer.from('ship it') });
-    await expect(page).toHaveURL(/goals\.txt$/, { timeout: 30_000 });
-    await page.goto(`/#/${profileId}/main/Plans`);
+    await expect(page.getByTestId('file-list').getByRole('link', { name: /^goals\.txt/ })).toBeVisible({ timeout: 30_000 });
+    await expect(page).toHaveURL(new RegExp(`#/${profileId}/main/Plans$`));
     const makeCopy = async () => {
       await openFolderMenu(page);
       await expect(page.getByRole('button', { name: 'Fork' })).toHaveCount(0);
@@ -36,7 +36,7 @@ test.describe('forking and extracting', () => {
     await listed('Copy of Plans').first().click();
     await expect(listed('goals.txt').first()).toBeVisible({ timeout: 30_000 });
     await uploadFilesInput(page).setInputFiles({ name: 'extra.txt', mimeType: 'text/plain', buffer: Buffer.from('only here') });
-    await expect(page).toHaveURL(/extra\.txt$/, { timeout: 30_000 });
+    await expect(listed('extra.txt')).toBeVisible({ timeout: 30_000 });
     await page.goto(`/#/${profileId}/main/Plans`);
     await expect(listed('goals.txt').first()).toBeVisible({ timeout: 30_000 });
     await expect(listed('extra.txt')).toHaveCount(0);

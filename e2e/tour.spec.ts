@@ -8,7 +8,7 @@ import {
   prepareFreshSession,
   typeInDocument,
 } from './documents.helpers';
-import { chooseNew } from './test-utils';
+import { chooseFileAction, chooseNew } from './test-utils';
 
 const dir = process.env.LAYOUT_SHOTS_DIR;
 const DESKTOP = { width: 1280, height: 800 };
@@ -109,7 +109,7 @@ test.describe('a walk through the app', () => {
       await page.getByTestId('file-list').getByRole('link', { name: /packing list\.txt/ }).click();
       await expect(page.getByTestId('viewer-header')).toContainText('packing list.txt', { timeout: 30_000 });
       await shot(page, '08-file-text');
-      await page.getByTestId('viewer-edit').click();
+      await chooseFileAction(page, 'viewer-edit');
       await shot(page, '09-file-edit');
       await page.goto(`${origin}/#/${owner.profileId}/main`);
     });

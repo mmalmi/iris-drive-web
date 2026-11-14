@@ -265,11 +265,70 @@ export async function addFileViaTreeAPI(page: any, routePath: string[], filename
 
 /**
  * Opens the menu beside a folder's name that holds its less common actions:
- * Snapshot, Download ZIP, Fork, Push, Stream, Rename and Delete.
+ * Read-only copy, Download ZIP, Make a copy or Fork, Save to file servers,
+ * Rename, Move and Delete.
  */
 export async function openFolderMenu(page: any): Promise<void> {
   const menu = page.getByTestId('folder-menu').filter({ visible: true });
   if (await menu.count()) return;
   await page.getByTestId('folder-menu-btn').filter({ visible: true }).first().click();
   await expect(menu).toBeVisible();
+}
+
+/** A file or folder's row in the open folder's list, by its full name. */
+export function fileRow(page: any, name: string) {
+  return page.getByTestId('file-list').getByTestId('file-row')
+    .filter({ has: page.getByTitle(name, { exact: true }) });
+}
+
+/** Opens a row's menu from its ⋮ button and returns the menu. */
+export async function openRowMenu(page: any, name: string) {
+  const row = fileRow(page, name);
+  await row.hover();
+  await row.getByTestId('row-menu-btn').click();
+  const menu = page.getByTestId('row-menu');
+  await expect(menu).toBeVisible();
+  return menu;
+}
+
+/** Opens the ⋮ menu of the open file's page, unless it is open already, and returns it. */
+export async function openFileMenu(page: any) {
+  const menu = page.getByTestId('viewer-menu');
+  if (!await menu.isVisible().catch(() => false)) {
+    await page.getByTestId('viewer-menu-btn').click();
+  }
+  await expect(menu).toBeVisible();
+  return menu;
+}
+
+/** Chooses an action of the open file's ⋮ menu by its test id (`viewer-rename`, `viewer-edit`, …). */
+export async function chooseFileAction(page: any, testId: string) {
+  const menu = await openFileMenu(page);
+  await menu.getByTestId(testId).click();
+}
+
+type UploadedFile = { name: string; mimeType: string; buffer: Buffer };
+
+/**
+ * Uploads files into the open folder from its file input. The folder stays
+ * open; this waits until each file is listed.
+ */
+export async function uploadIntoFolder(page: any, files: UploadedFile | UploadedFile[]) {
+  const list = Array.isArray(files) ? files : [files];
+  await uploadFilesInput(page).setInputFiles(list);
+  for (const file of list) {
+    await expect(fileRow(page, file.name)).toBeVisible({ timeout: 30000 });
+  }
+}
+
+/** Opens a file listed in the open folder and waits for its page. */
+export async function openListedFile(page: any, name: string) {
+  await fileRow(page, name).getByRole('link').click();
+  await expect(page.getByTestId('viewer-header')).toContainText(name, { timeout: 30000 });
+}
+
+/** Uploads one file into the open folder and opens it. */
+export async function uploadAndOpen(page: any, file: UploadedFile) {
+  await uploadIntoFolder(page, file);
+  await openListedFile(page, file.name);
 }

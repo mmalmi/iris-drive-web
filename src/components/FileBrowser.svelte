@@ -1,10 +1,11 @@
 <script lang="ts">
   import { acceptedShares } from '../drive/shareLibrary';
-  import { toHex, nhashEncode, LinkType, type TreeEntry as FileEntry } from '@hashtree/core';
+  import { toHex, LinkType, type TreeEntry as FileEntry } from '@hashtree/core';
+  import { COPY_NAME_PARAM } from '../lib/shareUrls';
   import { formatBytes } from '../store';
   import { addCopiedEntry, deleteEntry, moveEntry, moveToParent } from '../actions';
   import { uploadFiles } from '../stores/upload';
-  import { recentlyChangedFiles } from '../stores/recentlyChanged';
+  import { recentlyChangedFiles, revealFile } from '../stores/recentlyChanged';
   import { toast } from '../stores/toast';
   import { getNhashFileUrl } from '../lib/mediaUrl';
   import { copiedEntryIn, copiedMessage, copyEntry, copyKind, downloadDragData, entryLink, freeName, isOutsideDrag, noteCopied, pastedIntoFolder } from '../lib/driveClipboard';
@@ -13,6 +14,8 @@
   import { UserRow, Avatar } from './User';
   import FolderActions from './FolderActions.svelte';
   import NewMenu from './NewMenu.svelte';
+  import EntryMenu, { type EntryMenuRequest } from './EntryMenu.svelte';
+  import { longPress } from '../lib/longPress';
   import VisibilityIcon from './VisibilityIcon.svelte';
   import AccessBadge from './AccessBadge.svelte';
   import { itemAccess } from '../drive/itemAccess';
@@ -60,6 +63,7 @@
       linkKey,
       gitRootPath,
       snapshot: currentSnapshotForHref(),
+      rootName: copyName,
     });
   }
 
@@ -98,7 +102,9 @@
     !!viewedNpub && currentTreeName === 'main' && !route.isPermalink
       && viewedNpub === activeNostrIdentityRootScope($nostrStore),
   );
-  let rootName = $derived(isMyDrive ? 'My Drive' : sharedFolder?.display_name || currentTreeName);
+  /** A read-only copy of a folder has no name of its own; its link carries the folder's. */
+  let copyName = $derived(route.isPermalink ? route.params.get(COPY_NAME_PARAM) : null);
+  let rootName = $derived(isMyDrive ? 'My Drive' : sharedFolder?.display_name || currentTreeName || copyName);
   let canEdit = $derived(isLoggedIn && !route.isPermalink && isOwnTrees);
 
   let missingDecryptionKey = $derived(!rootCid?.key);
@@ -291,6 +297,7 @@
       rootCid,
       linkKey,
       snapshot: currentSnapshotForHref(),
+      rootName: copyName,
     });
   }
 
@@ -320,7 +327,7 @@
   let currentDirName = $derived(
     currentPath.length > 0
       ? currentPath[currentPath.length - 1]
-      : rootName || (rootCid?.hash ? nhashEncode({ hash: toHex(rootCid.hash), decryptKey: rootCid.key ? toHex(rootCid.key) : undefined }).slice(0, 16) + '...' : '')
+      : rootName || (rootCid?.hash ? 'Shared folder' : '')
   );
 
   let selectedFileName = $derived(isViewingFile && lastSegment ? lastSegment : null);
@@ -402,7 +409,7 @@
       if (!pasted) return;
       event.preventDefault();
       const many = pasted.files.length > 1;
-      void uploadFiles(pasted.files).then(() => {
+      void uploadFiles(pasted.files, { quiet: true }).then(() => {
         toast.success(many ? `Pasted ${pasted.summary}` : `Saved as ${pasted.summary}`);
       }, () => toast.error('Could not save what was pasted.'));
     };
@@ -437,8 +444,77 @@
     return () => document.removeEventListener('copy', onCopy);
   });
 
+  /** The menu of one file or folder, from its ⋮ button, a right click, a long press or the menu key. */
+  let entryMenu = $state<EntryMenuRequest | null>(null);
+  /** A mouse drags rows; a finger's long press is for the menu instead. */
+  const finePointer = window.matchMedia('(pointer: fine)').matches;
+
+  function rowElement(name: string): HTMLElement | null {
+    return fileListRef?.querySelector<HTMLElement>(`[data-entry-name="${CSS.escape(name)}"]`) ?? null;
+  }
+
+  function openEntryMenu(entry: FileEntry, at: { x: number; y: number; opener: HTMLElement | null }) {
+    entryMenu = {
+      entry,
+      href: buildEntryHref(entry, currentNpub, currentTreeName, currentPath, rootCid, linkKey, null),
+      x: at.x,
+      y: at.y,
+      // On a phone, as the New menu does, it rises from the bottom.
+      sheet: window.innerWidth < 640,
+      opener: at.opener,
+    };
+  }
+
+  function closeEntryMenu(returnFocus: boolean) {
+    const opener = entryMenu?.opener;
+    entryMenu = null;
+    if (returnFocus) opener?.focus();
+  }
+
+  function handleMenuButton(e: MouseEvent, entry: FileEntry) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (entryMenu?.entry.name === entry.name) {
+      closeEntryMenu(false);
+      return;
+    }
+    const button = e.currentTarget as HTMLElement;
+    const box = button.getBoundingClientRect();
+    openEntryMenu(entry, { x: box.right - 224, y: box.bottom + 4, opener: button });
+  }
+
+  /** A right click, or Android's long press; iOS's long press comes through `longPress`. */
+  function handleRowContextMenu(e: MouseEvent, entry: FileEntry) {
+    e.preventDefault();
+    e.stopPropagation();
+    openEntryMenu(entry, { x: e.clientX, y: e.clientY, opener: e.currentTarget as HTMLElement });
+  }
+
+  // A file just uploaded here scrolls into view once the list shows it.
+  $effect(() => {
+    const name = $revealFile;
+    if (!name || !entries.some((entry) => entry.name === name)) return;
+    revealFile.set(null);
+    queueMicrotask(() => rowElement(name)?.scrollIntoView({ block: 'nearest' }));
+  });
+
   function handleKeyDown(e: KeyboardEvent) {
     const key = e.key.toLowerCase();
+
+    if (key === 'contextmenu' || (key === 'f10' && e.shiftKey)) {
+      const entryIndex = focusedIndex - specialItemCount;
+      const targetEntry = focusedIndex >= 0 ? entries[entryIndex] : selectedEntry;
+      if (!targetEntry) return;
+      e.preventDefault();
+      const row = rowElement(targetEntry.name);
+      const box = row?.getBoundingClientRect();
+      openEntryMenu(targetEntry, {
+        x: box ? box.left + 48 : 0,
+        y: box ? box.bottom : 0,
+        opener: fileListRef ?? null,
+      });
+      return;
+    }
 
     if ((key === 'delete' || key === 'backspace') && canEdit) {
       const entryIndex = focusedIndex - specialItemCount;
@@ -599,6 +675,7 @@
       role="listbox"
       aria-label="File list"
       onkeydown={handleKeyDown}
+      oncontextmenu={(e) => { if (entryMenu) e.preventDefault(); }}
       ondragover={handleFileDragOver}
       ondragleave={handleFileDragLeave}
       ondrop={handleFileDrop}
@@ -667,31 +744,58 @@
             {@const isDocument = !!documentInfo}
             {@const isFolder = entry.type === LinkType.Dir && !isDocument}
             {@const entryAccess = accessAt([...currentPath, entry.name])}
-            <a
-              href={buildEntryHref(entry, currentNpub, currentTreeName, currentPath, rootCid, linkKey, null)}
-              class="p-3 {showDirectoryNavigationRows ? 'pl-9' : 'lg:px-5'} border-b border-surface-2 flex items-center gap-3 no-underline text-text-1 hover:bg-surface-2/50 {selectedEntry?.name === entry.name && focusedIndex < 0 ? 'bg-surface-2' : ''} {focusedIndex === idx + specialItemCount ? 'ring-2 ring-inset ring-accent' : ''} {recentlyChanged.has(entry.name) && selectedEntry?.name !== entry.name ? 'animate-pulse-live' : ''} {draggingEntry === entry.name ? 'opacity-50' : ''} {dropTargetDir === entry.name ? 'bg-accent/20 ring-2 ring-inset ring-accent' : ''}"
-              draggable={canEdit || entry.type !== LinkType.Dir}
-              ondragstart={(e) => handleEntryDragStart(e, entry)}
-              ondragend={handleEntryDragEnd}
+            {@const menuOpen = entryMenu?.entry.name === entry.name}
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <div
+              class="group flex items-center border-b border-surface-2 hover:bg-surface-2/50 {selectedEntry?.name === entry.name && focusedIndex < 0 ? 'bg-surface-2' : ''} {menuOpen ? 'bg-surface-2/70' : ''} {focusedIndex === idx + specialItemCount ? 'ring-2 ring-inset ring-accent' : ''} {recentlyChanged.has(entry.name) && selectedEntry?.name !== entry.name ? 'animate-pulse-live' : ''} {draggingEntry === entry.name ? 'opacity-50' : ''} {dropTargetDir === entry.name ? 'bg-accent/20 ring-2 ring-inset ring-accent' : ''}"
+              data-testid="file-row"
+              data-entry-name={entry.name}
+              data-changed={recentlyChanged.has(entry.name) ? '' : undefined}
               ondragover={isFolder ? (e) => handleDirDragOver(e, entry.name) : undefined}
               ondragleave={isFolder ? handleDirDragLeave : undefined}
               ondrop={isFolder ? (e) => handleDirDrop(e, entry.name) : undefined}
-              data-testid={isDocument ? 'document-entry' : undefined}
             >
-              <span class="shrink-0 {documentInfo ? documentInfo.icon : isFolder ? 'i-lucide-folder text-warning' : `${getFileIcon(entry.name)} text-text-2`}"></span>
-              <span class="truncate min-w-0" title={entry.name}>{isDocument ? documentTitle(entry.name) : entry.name}</span>
-              <!-- Marked where sharing starts; inside a shared folder the heading says it once. -->
-              {#if entryAccess && entryAccess.kind !== 'private' && entryAccess.kind !== currentAccess?.kind}
-                <AccessBadge access={entryAccess} class="text-text-3 text-sm" />
-              {/if}
-              <span class="flex-1"></span>
-              <span class="shrink-0 text-muted text-sm min-w-12 text-right">
-                {entry.type !== LinkType.Dir && entry.size !== undefined ? formatBytes(entry.size) : ''}
-              </span>
-            </a>
+              <a
+                href={buildEntryHref(entry, currentNpub, currentTreeName, currentPath, rootCid, linkKey, null)}
+                class="min-w-0 flex-1 p-3 {showDirectoryNavigationRows ? 'pl-9' : 'lg:pl-5'} pr-1 flex items-center gap-3 no-underline text-text-1 select-none [-webkit-touch-callout:none]"
+                draggable={finePointer && (canEdit || entry.type !== LinkType.Dir)}
+                ondragstart={(e) => handleEntryDragStart(e, entry)}
+                ondragend={handleEntryDragEnd}
+                oncontextmenu={(e) => handleRowContextMenu(e, entry)}
+                use:longPress={(at) => openEntryMenu(entry, { ...at, opener: null })}
+                data-testid={isDocument ? 'document-entry' : undefined}
+              >
+                <span class="shrink-0 {documentInfo ? documentInfo.icon : isFolder ? 'i-lucide-folder text-warning' : `${getFileIcon(entry.name)} text-text-2`}"></span>
+                <span class="truncate min-w-0" title={entry.name}>{isDocument ? documentTitle(entry.name) : entry.name}</span>
+                <!-- Marked where sharing starts; inside a shared folder the heading says it once. -->
+                {#if entryAccess && entryAccess.kind !== 'private' && entryAccess.kind !== currentAccess?.kind}
+                  <AccessBadge access={entryAccess} class="text-text-3 text-sm" />
+                {/if}
+                <span class="flex-1"></span>
+                <span class="shrink-0 text-muted text-sm min-w-12 text-right">
+                  {entry.type !== LinkType.Dir && entry.size !== undefined ? formatBytes(entry.size) : ''}
+                </span>
+              </a>
+              <button
+                type="button"
+                class="btn-circle shrink-0 mr-1.5 {showDirectoryNavigationRows ? '' : 'lg:mr-3'} b-0 bg-transparent cursor-pointer text-text-3 hover:text-text-1 hover:bg-surface-3 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 {menuOpen ? 'sm:opacity-100 bg-surface-3' : ''}"
+                title="More actions"
+                aria-label="More actions for {isDocument ? documentTitle(entry.name) : entry.name}"
+                aria-haspopup="menu"
+                aria-expanded={menuOpen}
+                tabindex="-1"
+                data-testid="row-menu-btn"
+                onclick={(e) => handleMenuButton(e, entry)}
+              >
+                <span class="i-lucide-ellipsis-vertical text-base"></span>
+              </button>
+            </div>
           {/each}
         {/if}
       {/if}
     </div>
+  {/if}
+  {#if entryMenu}
+    <EntryMenu request={entryMenu} path={currentPath} {canEdit} onClose={closeEntryMenu} />
   {/if}
 </div>

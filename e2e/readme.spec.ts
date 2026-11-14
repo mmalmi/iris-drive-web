@@ -1,6 +1,6 @@
 import { expect, test, type Page } from './fixtures';
 import { createDriveProfile, prepareFreshSession } from './documents.helpers';
-import { createAndEnterFolder, createTextFile, uploadFilesInput } from './test-utils';
+import { createAndEnterFolder, createTextFile, openFileMenu, uploadIntoFolder } from './test-utils';
 
 const INSTALL = 'curl -fsSL https://upload.iris.to/npub1xdhnr9mrv47kkrn95k6cwecearydeh8e895990n3acntwvmgk2dsdeeycm/releases%2Fhashtree/latest/install.sh | sh';
 const LONG_TOKEN = `htree://npub1xdhnr9mrv47kkrn95k6cwecearydeh8e895990n3acntwvmgk2dsdeeycm/${'iris-client-'.repeat(18)}`;
@@ -33,14 +33,14 @@ test.describe('markdown files', () => {
     await createAndEnterFolder(page, 'subdir');
     await createTextFile(page, 'README.md', '# Subdir Docs');
     await page.getByRole('navigation', { name: 'Folder path' }).getByRole('link', { name: 'docs' }).click();
-    await uploadFilesInput(page).setInputFiles({ name: 'wide.svg', mimeType: 'image/svg+xml', buffer: Buffer.from(WIDE_SVG) });
-    await page.getByTestId('viewer-back').click();
+    await uploadIntoFolder(page, { name: 'wide.svg', mimeType: 'image/svg+xml', buffer: Buffer.from(WIDE_SVG) });
     await createTextFile(page, 'README.md', README);
     await openFile(page, 'README.md');
 
     const markdown = page.locator('.markdown-content').first();
     await expect(markdown.getByRole('heading', { name: 'Main' })).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByTestId('viewer-edit')).toBeVisible();
+    await expect((await openFileMenu(page)).getByTestId('viewer-edit')).toBeVisible();
+    await page.keyboard.press('Escape');
 
     // Inline code, links and quotes stand out from the text; a long token wraps.
     const looks = await markdown.evaluate((container) => {

@@ -16,8 +16,10 @@
   import { open as openRenameModal } from '../Modals/RenameModal.svelte';
   import { open as openMoveModal } from '../Modals/MoveModal.svelte';
   import { open as openShareModal } from '../Modals/ShareModal.svelte';
-  import { createDriveShareLinkVariants } from '../../lib/shareUrls';
+  import { COPY_NAME_PARAM, createDriveShareLinkVariants } from '../../lib/shareUrls';
   import { TreeRow } from '../ui';
+  import Menu, { type MenuItem } from '../ui/Menu.svelte';
+  import { downloadFile } from '../../lib/downloadEntry';
   import CodeViewer from './CodeViewer.svelte';
   import FileEditor from './FileEditor.svelte';
   import MediaPlayer from './MediaPlayer.svelte';
@@ -30,23 +32,6 @@
   const FILE_RETRY_DELAY_MS = 1500;
   const FILE_RETRY_MAX = 6;
   const TEXT_EXTENSIONS = new Set(['txt', 'md', 'json', 'js', 'ts', 'jsx', 'tsx', 'css', 'scss', 'html', 'xml', 'yaml', 'yml', 'toml', 'ini', 'cfg', 'conf', 'sh', 'bash', 'py', 'rb', 'go', 'rs', 'c', 'cpp', 'h', 'hpp', 'java', 'php', 'sql', 'svelte', 'vue']);
-  const MIME_TYPES: Record<string, string> = {
-    png: 'image/png',
-    jpg: 'image/jpeg',
-    jpeg: 'image/jpeg',
-    gif: 'image/gif',
-    webp: 'image/webp',
-    avif: 'image/avif',
-    svg: 'image/svg+xml',
-    ico: 'image/x-icon',
-    bmp: 'image/bmp',
-    pdf: 'application/pdf',
-    mp3: 'audio/mpeg',
-    wav: 'audio/wav',
-    flac: 'audio/flac',
-    m4a: 'audio/mp4',
-    ogg: 'audio/ogg',
-  };
 
   interface Props {
     entry: TreeEntry | null;
@@ -119,11 +104,6 @@
 
   function extensionOf(filename: string): string {
     return filename.split('.').pop()?.toLowerCase() || '';
-  }
-
-  function getMimeType(filename?: string): string | null {
-    if (!filename) return null;
-    return MIME_TYPES[extensionOf(filename)] || null;
   }
 
   let isTextFile = $derived(TEXT_EXTENSIONS.has(extensionOf(urlFileName)));
@@ -289,6 +269,7 @@
       gitRootPath: null,
       snapshot: routeIsPermalink && getQueryParamsFromHash(hash).get('snapshot') === '1'
         ? $permalinkSnapshotStore.snapshot : null,
+      rootName: routeIsPermalink ? getQueryParamsFromHash(hash).get(COPY_NAME_PARAM) : null,
     });
   }
 
@@ -337,35 +318,7 @@
   }
 
   async function handleDownload() {
-    if (!entry) return;
-    const tree = getTree();
-    const mimeType = getMimeType(urlFileName) || 'application/octet-stream';
-    const fileName = entry.name;
-
-    if (window.showSaveFilePicker) {
-      try {
-        const handle = await window.showSaveFilePicker({
-          suggestedName: fileName,
-          types: [{
-            description: 'File',
-            accept: { [mimeType]: ['.' + (fileName.split('.').pop() || '')] },
-          }],
-        });
-        const writable = await handle.createWritable();
-        for await (const chunk of tree.readFileStream(entry.cid, { prefetch: 5 })) {
-          await writable.write(chunk as BufferSource);
-        }
-        await writable.close();
-        return;
-      } catch (err: unknown) {
-        if (err instanceof Error && err.name === 'AbortError') return;
-        console.warn('File System Access API failed, falling back to blob:', err);
-      }
-    }
-
-    const baseUrl = getNhashFileUrl(entry.cid, fileName);
-    const separator = baseUrl.includes('?') ? '&' : '?';
-    window.location.href = `${baseUrl}${separator}download=1`;
+    if (entry) await downloadFile(entry);
   }
 
   /** Puts the file on the system clipboard for other apps: a picture, its text, or a link. */
@@ -382,6 +335,63 @@
     const [primary, secondary] = shareLinks;
     if (primary) openShareModal(primary.url, secondary?.url ?? null);
   }
+
+  function openImport() {
+    if (!fileImport) return;
+    opening = true;
+    void openAsDocument(urlFileName, fileImport.kind).finally(() => { opening = false; });
+  }
+
+  // Everything but Download and Share is behind ⋮; on a phone it rises from the bottom.
+  let moreOpen = $state(false);
+  let moreButton: HTMLButtonElement | undefined = $state();
+  let phone = $state(false);
+  $effect(() => {
+    const query = window.matchMedia('(max-width: 639px)');
+    const update = () => { phone = query.matches; };
+    update();
+    query.addEventListener('change', update);
+    return () => query.removeEventListener('change', update);
+  });
+
+  let moreItems = $derived.by((): MenuItem[] => {
+    if (!entry) return [];
+    const current = entry;
+    const kind = copyKind(current);
+    const items: MenuItem[] = [];
+    if (canEdit && fileImport && !routeIsPermalink) {
+      items.push({ label: fileImport.label, icon: 'i-lucide-file-input', testid: 'viewer-menu-open-as-document', run: openImport, disabled: opening, class: 'sm:hidden' });
+    }
+    if (filesCount > 1 && prevFile && nextFile) {
+      const previous = prevFile.name;
+      const next = nextFile.name;
+      items.push(
+        { label: 'Next file', icon: 'i-lucide-chevron-right', testid: 'viewer-menu-next', run: () => navigateToFile(next), class: 'sm:hidden' },
+        { label: 'Previous file', icon: 'i-lucide-chevron-left', testid: 'viewer-menu-previous', run: () => navigateToFile(previous), class: 'sm:hidden' },
+      );
+    }
+    if (canEdit && isTextFile) {
+      items.push({ label: 'Edit', icon: 'i-lucide-pencil-line', testid: 'viewer-edit', run: enterEditMode, disabled: loading || fileContent === null });
+    }
+    items.push({
+      label: kind === 'picture' ? 'Copy picture' : kind === 'text' ? 'Copy text' : 'Copy link',
+      icon: 'i-lucide-clipboard-copy',
+      testid: 'viewer-copy',
+      run: handleCopy,
+    });
+    if (permalinkUrl) items.push({ label: 'Read-only copy', icon: rootCid?.key ? 'i-lucide-lock' : 'i-lucide-link', testid: 'viewer-permalink', href: permalinkUrl });
+    if (openSiteHref) items.push({ label: 'Open as web page', icon: 'i-lucide-globe', testid: 'viewer-open-site', href: openSiteHref, external: true });
+    items.push({ label: 'Full screen', icon: 'i-lucide-maximize', testid: 'viewer-fullscreen', run: toggleFullscreen });
+    if (canEdit) {
+      items.push(
+        { label: 'Save to file servers', icon: 'i-lucide-upload-cloud', testid: 'viewer-push', run: () => openBlossomPushModal(current.cid, current.name, false, routeNpub ? (npubToPubkey(routeNpub) ?? undefined) : undefined, routeTreeName ?? undefined) },
+        { label: 'Rename', icon: 'i-lucide-pencil', testid: 'viewer-rename', run: () => openRenameModal(current.name) },
+        { label: 'Move', icon: 'i-lucide-folder-input', testid: 'viewer-move', run: () => openMoveModal(current.name, routePath.slice(0, -1)) },
+        { label: 'Delete', icon: 'i-lucide-trash-2', testid: 'viewer-delete', run: handleDelete, danger: true },
+      );
+    }
+    return items;
+  });
 </script>
 
 {#if isEditing}
@@ -395,91 +405,87 @@
 {:else if entry}
   <div class="flex-1 flex flex-col min-h-0 bg-surface-0">
     {#if !isFullscreen}
-      <div class="shrink-0 px-3 py-2 border-b border-surface-2 flex flex-wrap items-center justify-between gap-2" data-testid="viewer-header">
-        <div class="mx-auto flex w-full flex-wrap items-center justify-between gap-2">
-          <div class="flex items-center gap-2 min-w-0 max-sm:w-full">
-            <a href={backUrl} class="btn-circle btn-ghost h-8 w-8 min-h-8 min-w-8 no-underline" title="Back to folder" data-testid="viewer-back">
-              <span class="i-lucide-chevron-left text-lg"></span>
-            </a>
-            <div class="min-w-0">
-              <div class="flex min-w-0 items-center gap-2">
-                <TreeRow
-                  name={entry.name}
-                  isFolder={false}
-                  ownerPubkey={viewedNpub ? npubToPubkey(viewedNpub) : null}
-                  showHashIcon={routeIsPermalink && !viewedNpub}
-                  visibility={fileAccess ? undefined : currentTreeVisibility}
-                  hasKey={!!rootCid?.key}
-                />
-                <AccessBadge access={fileAccess} label />
-              </div>
-            </div>
-          </div>
-
-          <div class="flex items-center gap-1 flex-wrap max-sm:w-full">
-            {#if canEdit && fileImport && !routeIsPermalink}
-              <button
-                onclick={() => { opening = true; void openAsDocument(urlFileName, fileImport.kind).finally(() => { opening = false; }); }}
-                class="btn-ghost text-accent"
-                disabled={opening}
-                data-testid="viewer-open-as-document"
-              >{fileImport.label}</button>
-            {/if}
-            <button onclick={handleDownload} class="btn-ghost" title="Download file" data-testid="viewer-download" disabled={loading && !isVideo}>Download</button>
-            <button
-              onclick={handleCopy}
-              class="btn-ghost"
-              title={copyKind(entry) === 'picture' ? 'Copy the picture' : copyKind(entry) === 'text' ? 'Copy the text' : 'Copy a link'}
-              data-testid="viewer-copy"
-            >Copy</button>
-            {#if permalinkUrl}
-              <a href={permalinkUrl} class="btn-ghost no-underline" title={entry?.cid?.hash ? toHex(entry.cid.hash) : ''} data-testid="viewer-permalink">Snapshot</a>
-            {/if}
-            {#if latestVersionUrl}
-              <a href={latestVersionUrl} class="btn-ghost no-underline" data-testid="viewer-latest-version">See latest version</a>
-            {/if}
-            {#if openSiteHref}
-              <a href={openSiteHref} target="_blank" rel="noreferrer" class="btn-ghost no-underline" data-testid="viewer-open-site">Open Site</a>
-            {/if}
-            <button onclick={toggleFullscreen} class="btn-circle btn-ghost h-8 w-8 min-h-8 min-w-8" title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'} data-testid="viewer-fullscreen">
-              <span class={isFullscreen ? 'i-lucide-minimize text-base' : 'i-lucide-maximize text-base'}></span>
-            </button>
-            <button
-              onclick={handleShare}
-              class="btn-circle btn-ghost h-8 w-8 min-h-8 min-w-8"
-              title={shareLinks.length > 0 ? 'Share' : 'Preparing share link…'}
-              data-testid="viewer-share"
-              disabled={shareLinks.length === 0}
-            >
-              <span class={shareLinks.length > 0 ? 'i-lucide-share text-base' : 'i-lucide-loader-2 animate-spin text-base'}></span>
-            </button>
-            {#if canEdit && entry?.cid}
-              <button
-                onclick={() => openBlossomPushModal(entry.cid, entry.name, false, routeNpub ? (npubToPubkey(routeNpub) ?? undefined) : undefined, routeTreeName ?? undefined)}
-                class="btn-circle btn-ghost h-8 w-8 min-h-8 min-w-8"
-                title="Push to file servers"
-                data-testid="viewer-push"
-              >
-                <span class="i-lucide-upload-cloud text-base"></span>
-              </button>
-            {/if}
-            {#if canEdit}
-              <button onclick={() => openRenameModal(entry.name)} class="btn-ghost" data-testid="viewer-rename">Rename</button>
-              <button onclick={() => openMoveModal(entry.name, routePath.slice(0, -1))} class="btn-ghost" data-testid="viewer-move">Move</button>
-              {#if isTextFile}
-                <button onclick={enterEditMode} class="btn-ghost" disabled={loading || fileContent === null} data-testid="viewer-edit">Edit</button>
-              {/if}
-              <button onclick={handleDelete} class="btn-ghost text-danger" data-testid="viewer-delete">Delete</button>
-            {/if}
-            {#if filesCount > 1 && prevFile && nextFile}
-              <button onclick={() => navigateToFile(prevFile.name)} class="btn-circle btn-ghost h-8 w-8 min-h-8 min-w-8 lg:hidden" title={`Previous: ${prevFile.name}`}>
-                <span class="i-lucide-chevron-left text-base"></span>
-              </button>
-              <button onclick={() => navigateToFile(nextFile.name)} class="btn-circle btn-ghost h-8 w-8 min-h-8 min-w-8 lg:hidden" title={`Next: ${nextFile.name}`}>
-                <span class="i-lucide-chevron-right text-base"></span>
-              </button>
-            {/if}
-          </div>
+      <!-- One row on a phone too: the name, Download, Share, and the rest behind ⋮. -->
+      <div class="shrink-0 px-2 sm:px-3 py-2 border-b border-surface-2 flex items-center gap-1 sm:gap-2" data-testid="viewer-header">
+        <a href={backUrl} class="btn-circle btn-ghost h-8 w-8 min-h-8 min-w-8 shrink-0 no-underline" title="Back to folder" aria-label="Back to folder" data-testid="viewer-back">
+          <span class="i-lucide-chevron-left text-lg"></span>
+        </a>
+        <div class="min-w-0 flex-1 flex items-center gap-2">
+          <TreeRow
+            name={entry.name}
+            isFolder={false}
+            ownerPubkey={viewedNpub ? npubToPubkey(viewedNpub) : null}
+            showHashIcon={routeIsPermalink && !viewedNpub}
+            visibility={fileAccess ? undefined : currentTreeVisibility}
+            hasKey={!!rootCid?.key}
+          />
+          <AccessBadge access={fileAccess} label />
+        </div>
+        {#if canEdit && fileImport && !routeIsPermalink}
+          <button
+            onclick={openImport}
+            class="btn-ghost text-accent shrink-0 max-sm:hidden"
+            disabled={opening}
+            data-testid="viewer-open-as-document"
+          >{fileImport.label}</button>
+        {/if}
+        {#if latestVersionUrl}
+          <a href={latestVersionUrl} class="btn-ghost shrink-0 no-underline flex items-center gap-1.5 max-sm:w-9 max-sm:px-0 max-sm:justify-center" title="See latest version" data-testid="viewer-latest-version">
+            <span class="i-lucide-history text-base"></span><span class="max-sm:hidden">See latest version</span>
+          </a>
+        {/if}
+        <!-- Beside the list there is no need; on a phone they are behind ⋮, so the name has room. -->
+        {#if filesCount > 1 && prevFile && nextFile}
+          <button onclick={() => navigateToFile(prevFile.name)} class="btn-circle btn-ghost h-8 w-8 min-h-8 min-w-8 shrink-0 max-sm:hidden lg:hidden" title={`Previous: ${prevFile.name}`} aria-label={`Previous: ${prevFile.name}`}>
+            <span class="i-lucide-chevron-left text-base"></span>
+          </button>
+          <button onclick={() => navigateToFile(nextFile.name)} class="btn-circle btn-ghost h-8 w-8 min-h-8 min-w-8 shrink-0 max-sm:hidden lg:hidden" title={`Next: ${nextFile.name}`} aria-label={`Next: ${nextFile.name}`}>
+            <span class="i-lucide-chevron-right text-base"></span>
+          </button>
+        {/if}
+        <button
+          onclick={handleDownload}
+          class="btn-ghost shrink-0 flex items-center gap-1.5 max-sm:w-9 max-sm:px-0 max-sm:justify-center"
+          title="Download"
+          data-testid="viewer-download"
+          disabled={loading && !isVideo}
+        >
+          <span class="i-lucide-download text-base"></span><span class="max-sm:hidden">Download</span>
+        </button>
+        <button
+          onclick={handleShare}
+          class="btn-circle btn-ghost shrink-0"
+          title={shareLinks.length > 0 ? 'Share' : 'Preparing share link…'}
+          aria-label="Share"
+          data-testid="viewer-share"
+          disabled={shareLinks.length === 0}
+        >
+          <span class={shareLinks.length > 0 ? 'i-lucide-share text-base' : 'i-lucide-loader-2 animate-spin text-base'}></span>
+        </button>
+        <div class="relative shrink-0">
+          <button
+            bind:this={moreButton}
+            onclick={() => { moreOpen = !moreOpen; }}
+            class="btn-circle btn-ghost"
+            title="More actions"
+            aria-label="More actions"
+            aria-haspopup="menu"
+            aria-expanded={moreOpen}
+            data-testid="viewer-menu-btn"
+          >
+            <span class="i-lucide-ellipsis-vertical text-base"></span>
+          </button>
+          {#if moreOpen}
+            <Menu
+              items={moreItems}
+              label="More actions"
+              heading={entry.name}
+              sheet={phone}
+              inside={[moreButton]}
+              testid="viewer-menu"
+              onClose={(returnFocus) => { moreOpen = false; if (returnFocus) moreButton?.focus(); }}
+            />
+          {/if}
         </div>
       </div>
     {/if}

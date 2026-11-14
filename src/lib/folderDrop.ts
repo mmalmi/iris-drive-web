@@ -41,7 +41,7 @@ export async function addDropped(data: DataTransfer, { currentPath, taken, dirNa
   } else if (files.length > 0 || dropped.files.length > 0) {
     const added = files.length > 0 ? files : dropped.files;
     await uploadFiles(added, target);
-    // One file in the open folder opens; anything else is said.
+    // One file in the open folder is said by the upload itself.
     if (dirName || added.length > 1) toast.success(`Added ${added.length === 1 ? added[0]!.name : `${added.length} files`}${where}`);
   } else if (pictureUrl) {
     const { fetchPicture } = await import('./driveClipboardData');

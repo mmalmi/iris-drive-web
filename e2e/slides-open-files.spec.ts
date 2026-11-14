@@ -1,11 +1,12 @@
 import { expect, test, type Page } from './fixtures';
 import { createDriveProfile, prepareFreshSession } from './documents.helpers';
+import { uploadAndOpen } from './test-utils';
 import { inheritedPptx } from './slides.pptxSample';
 import { expectSlidesSaved, thumbs } from './slides.helpers';
 
+/** Adds a file to the open folder, which stays open, and opens it. */
 async function upload(page: Page, name: string, mimeType: string, buffer: Buffer): Promise<void> {
-  await page.getByTestId('upload-files-input').setInputFiles({ name, mimeType, buffer });
-  await expect(page.getByTestId('viewer-header')).toContainText(name, { timeout: 30_000 });
+  await uploadAndOpen(page, { name, mimeType, buffer });
 }
 
 test.describe('presentation files in the Drive', () => {

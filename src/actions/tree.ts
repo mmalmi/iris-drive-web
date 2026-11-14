@@ -117,15 +117,14 @@ export async function createFolder(name: string) {
 }
 
 /**
- * Make a copy: the open folder again beside it, as "Copy of <name>". Content
- * is addressed by its hash, so the copy stores nothing twice and the two
- * change apart from then on. The copy's name, or null when there is no folder
- * to copy here.
+ * Make a copy: the folder at `path` (the open one unless given) again beside
+ * it, as "Copy of <name>". Content is addressed by its hash, so the copy
+ * stores nothing twice and the two change apart from then on. The copy's
+ * name, or null when there is no folder to copy here.
  */
-export async function makeCopyOfFolder(): Promise<string | null> {
+export async function makeCopyOfFolder(path: string[] = getCurrentPathFromUrl()): Promise<string | null> {
   const isCurrent = captureRouteWriteGuard();
   const rootCid = getCurrentRootCid();
-  const path = getCurrentPathFromUrl();
   const name = path.at(-1);
   if (!rootCid || !name) return null;
   const tree = getTree();

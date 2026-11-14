@@ -3,7 +3,7 @@ import path from 'node:path';
 import { test, expect } from './fixtures';
 import { configureNativeRelay, runIdriveJson } from './native-idrive';
 import { openProfile, acceptAndOpen, waitForSharedFolderPublished } from './shared-folder.helpers';
-import { getTestBlossomUrl, waitForRelayConnected } from './test-utils';
+import { chooseFileAction, getTestBlossomUrl, openListedFile, waitForRelayConnected } from './test-utils';
 
 test('trip collaborators add, rename and delete files while a reader reconnects and reopens an old invite', async ({ page, browser, relayUrl }, testInfo) => {
   test.setTimeout(240_000);
@@ -71,8 +71,9 @@ test('trip collaborators add, rename and delete files while a reader reconnects 
     await page.getByTestId('upload-files-input').setInputFiles({
       name: 'Packing café.txt', mimeType: 'text/plain', buffer: bytes,
     });
-    await expect(page.getByTestId('viewer-header')).toContainText('Packing café.txt');
-    await page.getByTestId('viewer-rename').click();
+    // The folder stays open after an upload; the file opens from its row.
+    await openListedFile(page, 'Packing café.txt');
+    await chooseFileAction(page, 'viewer-rename');
     await page.getByPlaceholder('New name...').fill('Packing final.txt');
     await page.getByRole('button', { name: 'Rename', exact: true }).last().click();
     await expect(page.getByTestId('viewer-header')).toContainText('Packing final.txt');
@@ -100,7 +101,7 @@ test('trip collaborators add, rename and delete files while a reader reconnects 
     await readerPage.screenshot({ path: testInfo.outputPath('reconnected-reader-mobile.png') });
 
     page.once('dialog', dialog => dialog.accept());
-    await page.getByTestId('viewer-delete').click();
+    await chooseFileAction(page, 'viewer-delete');
     await expect(page.getByRole('link', { name: /^Plan\.txt\b/ })).toBeVisible();
     await waitForSharedFolderPublished(page, share.share_id, { lacks: ['Packing final.txt'] });
     await readerPage.goto(folderUrl);
@@ -124,8 +125,10 @@ test('trip collaborators add, rename and delete files while a reader reconnects 
     await readerPage.goto(folderUrl);
     await expect(readerPage.getByText('You no longer have access to this folder.', { exact: true })).toBeVisible();
     await expect(readerPage.getByRole('link', { name: /^Plan\.txt\b/ })).toHaveCount(0);
+    // Shared with me lists it apart, under "Removed from", where it no longer opens.
     await readerPage.goto(`${new URL(folderUrl).origin}/#/shared-with-me`);
-    await expect(readerPage.getByTestId('shared-with-me-row')).toContainText('Revoked');
+    await expect(readerPage.getByTestId('shared-with-me-removed')).toContainText('Trip');
+    await expect(readerPage.getByTestId('shared-with-me-row')).toHaveCount(0);
     await expect(readerPage.getByTestId('shared-with-me-open')).toHaveCount(0);
   } catch (error) {
     console.log('editor upload state', JSON.stringify(await uploadState().catch(String)));

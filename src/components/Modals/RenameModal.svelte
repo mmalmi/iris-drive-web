@@ -1,14 +1,17 @@
 <script lang="ts" module>
   /**
-   * Modal for renaming files/folders
+   * Modal for renaming files and folders. A document, spreadsheet or
+   * presentation is renamed by its title; it stays the kind it is.
    */
+  import { documentFolderName, documentKind, documentTitle } from '../../lib/documentNames';
+
   let show = $state(false);
   let originalName = $state('');
   let modalInput = $state('');
 
   export function open(name: string) {
     originalName = name;
-    modalInput = name;
+    modalInput = documentKind(name) ? documentTitle(name) : name;
     show = true;
   }
 
@@ -34,8 +37,9 @@
 
   async function handleSubmit(e: Event) {
     e.preventDefault();
-    const newName = modalInput.trim();
-    if (!newName || newName === originalName) {
+    const kind = documentKind(originalName);
+    const newName = kind ? documentFolderName(modalInput, kind) : modalInput.trim();
+    if (!modalInput.trim() || newName === originalName) {
       close();
       return;
     }

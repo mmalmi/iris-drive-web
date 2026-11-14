@@ -1,5 +1,6 @@
 import { expect, test, type Page } from './fixtures';
 import { createDriveProfile, prepareFreshSession } from './documents.helpers';
+import { chooseFileAction } from './test-utils';
 
 function row(page: Page, name: string) {
   return page.getByTestId('file-list').locator('a').filter({ has: page.getByTitle(name, { exact: true }) });
@@ -25,11 +26,11 @@ test.describe('Recent', () => {
     await openFile(page, 'old.txt');
 
     page.once('dialog', dialog => void dialog.accept());
-    await page.getByTestId('viewer-delete').click();
+    await chooseFileAction(page, 'viewer-delete');
     await expect(row(page, 'old.txt')).toHaveCount(0, { timeout: 30_000 });
 
     await openFile(page, 'notes.txt');
-    await page.getByTestId('viewer-rename').click();
+    await chooseFileAction(page, 'viewer-rename');
     await page.getByPlaceholder('New name...').fill('shopping.txt');
     await page.getByPlaceholder('New name...').press('Enter');
     await expect(row(page, 'shopping.txt')).toBeVisible({ timeout: 30_000 });

@@ -3,8 +3,9 @@
    * Folder actions, used in FileBrowser and Viewer: the share button and a
    * menu of the less common actions. Making and adding things is in NewMenu.
    */
-  import { nhashEncode, toHex } from '@hashtree/core';
+  import { toHex } from '@hashtree/core';
   import type { CID } from '@hashtree/core';
+  import { folderCopyHref } from '../lib/shareUrls';
   import { open as openRenameModal } from './Modals/RenameModal.svelte';
   import { open as openMoveModal } from './Modals/MoveModal.svelte';
   import { open as openForkModal } from './Modals/ForkModal.svelte';
@@ -14,9 +15,7 @@
   import { deleteCurrentFolder, buildRouteUrl, getCurrentRootCid, makeCopyOfFolder } from '../actions';
   import { toast } from '../stores/toast';
   import { nostrStore, deleteTree } from '../nostr';
-  import { getTree } from '../store';
-  import { createZipFromDirectory, downloadBlob, ZipCancelledError } from '../utils/compression';
-  import { setUploadProgress } from '../stores/upload';
+  import { downloadFolderZip } from '../lib/downloadEntry';
   import { routeStore, createTreesStore, permalinkSnapshotStore, isViewingFileStore } from '../stores';
   import {
     buildTreeEventPermalink,
@@ -65,6 +64,14 @@
   });
 
   let ownTreeNames = $derived(ownTrees.map(t => t.name));
+  /** The folder's own name, carried by a read-only copy's link so it opens under that name. */
+  let copyName = $derived(
+    route.path.length > 0
+      ? route.path[route.path.length - 1]!
+      : route.isPermalink
+        ? route.params.get('name')
+        : dirName !== 'My Drive' ? dirName : null,
+  );
   let permalinkHref = $state<string | null>(null);
   let latestVersionHref = $state<string | null>(null);
 
@@ -83,10 +90,7 @@
       return;
     }
 
-    const fallbackHref = `#/${nhashEncode({
-      hash: toHex(directoryCid.hash),
-      decryptKey: directoryCid.key ? toHex(directoryCid.key) : undefined,
-    })}`;
+    const fallbackHref = folderCopyHref(directoryCid, copyName);
 
     // UUID-scoped Drive roots are not legacy npub trees. The directory CID is
     // already the portable immutable snapshot and is available immediately.
@@ -203,28 +207,11 @@
     isDownloading = true;
     zipAbortController = new AbortController();
     try {
-      const tree = getTree();
-      const cancel = () => zipAbortController?.abort();
-      const zipData = await createZipFromDirectory(tree, dirCid, forkBaseName, (progress) => {
-        setUploadProgress({
-          current: progress.current,
-          total: progress.total,
-          fileName: progress.fileName,
-          status: 'zipping',
-          cancel,
-        });
-      }, zipAbortController.signal);
-      setUploadProgress(null);
-      const zipName = `${forkBaseName}.zip`;
-      downloadBlob(zipData, zipName, 'application/zip');
+      await downloadFolderZip(dirCid, forkBaseName, zipAbortController.signal);
     } catch (err) {
-      if (err instanceof ZipCancelledError) {
-        return;
-      }
       console.error('Failed to create ZIP:', err);
-      alert('Failed to create ZIP file');
+      toast.error('Could not make the ZIP file.');
     } finally {
-      setUploadProgress(null);
       zipAbortController = null;
       isDownloading = false;
     }
@@ -344,7 +331,7 @@
               data-testid="permalink-link"
             >
               <span class="{dirCid.key ? 'i-lucide-lock' : 'i-lucide-link'} text-base text-text-2"></span>
-              Snapshot
+              Read-only copy
             </a>
           {/if}
 
@@ -378,11 +365,10 @@
             <button
               onclick={() => openBlossomPushModal(dirCid!, forkBaseName, true, route.npub ? (npubToPubkey(route.npub) ?? undefined) : undefined, route.treeName ?? undefined)}
               class={itemClass}
-              title="Push to file servers"
               data-testid="blossom-push-btn"
             >
               <span class="i-lucide-upload-cloud text-base text-text-2"></span>
-              Push
+              Save to file servers
             </button>
           {/if}
 

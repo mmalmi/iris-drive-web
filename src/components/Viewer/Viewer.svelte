@@ -18,6 +18,7 @@
   import { isEditableDriveRouteScope } from '../../drive/profileRoute';
   import { isNostrIdentityId } from '../../utils/route';
   import { buildDirHref } from '../fileBrowserHrefs';
+  import { COPY_NAME_PARAM } from '../../lib/shareUrls';
 
   let route = $derived($routeStore);
   let rootCid = $derived($treeRootStore);
@@ -261,6 +262,7 @@
         rootCid,
         linkKey: route.params.get('k'),
         snapshot: route.params.get('snapshot') === '1' ? permalinkSnapshot.snapshot : null,
+        rootName: route.params.get(COPY_NAME_PARAM),
       });
     }
     const dirPath = route.path.slice(0, -1);

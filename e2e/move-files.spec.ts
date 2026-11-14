@@ -1,6 +1,6 @@
 import { expect, test, type Page } from './fixtures';
 import { createDriveProfile, prepareFreshSession } from './documents.helpers';
-import { chooseNew, openFolderMenu } from './test-utils';
+import { chooseFileAction, chooseNew, openFolderMenu, openListedFile } from './test-utils';
 
 function row(page: Page, name: string) {
   return page.getByTestId('file-list').locator('a').filter({ has: page.getByTitle(name, { exact: true }) });
@@ -35,9 +35,10 @@ test.describe('moving files and folders', () => {
       await page.getByRole('link', { name: 'Back' }).click();
       await expect(row(page, 'Inbox')).toBeVisible({ timeout: 30_000 });
       await page.getByTestId('upload-files-input').setInputFiles({ name: 'plan.txt', mimeType: 'text/plain', buffer: Buffer.from('Plant the beans') });
+      await openListedFile(page, 'plan.txt');
       await expect(page.getByText('Plant the beans')).toBeVisible({ timeout: 30_000 });
 
-      await page.getByTestId('viewer-move').click();
+      await chooseFileAction(page, 'viewer-move');
       const dialog = page.getByTestId('move-dialog');
       await expect(dialog.getByTestId('move-here-name')).toHaveText('My Drive');
       // Where it already is cannot be chosen.
@@ -68,8 +69,7 @@ test.describe('moving files and folders', () => {
     await makeFolder(page, 'Inbox');
     await openFolder(page, 'Inbox');
     await page.getByTestId('upload-files-input').setInputFiles({ name: 'note.txt', mimeType: 'text/plain', buffer: Buffer.from('Inside') });
-    await expect(page.getByTestId('viewer-back')).toBeVisible({ timeout: 30_000 });
-    await page.getByTestId('viewer-back').click();
+    await expect(row(page, 'note.txt')).toBeVisible({ timeout: 30_000 });
 
     await openFolderMenu(page);
     await page.getByTestId('move-folder-btn').click();

@@ -1,13 +1,15 @@
 import { nhashEncode, toHex, type LinkType } from '@hashtree/core';
 import { buildTreeEventPermalink } from '../lib/treeEventSnapshots';
+import { COPY_NAME_PARAM } from '../lib/shareUrls';
 
 type RootCidForHref = { hash: Uint8Array; key?: Uint8Array } | null;
 type TreeSnapshot = Parameters<typeof buildTreeEventPermalink>[0] | null;
 
-function buildQueryString(params: { k?: string | null; g?: string | null }): string {
+function buildQueryString(params: { k?: string | null; g?: string | null; name?: string | null }): string {
   const parts: string[] = [];
   if (params.k) parts.push(`k=${params.k}`);
   if (params.g !== null && params.g !== undefined) parts.push(`g=${encodeURIComponent(params.g)}`);
+  if (params.name) parts.push(`${COPY_NAME_PARAM}=${encodeURIComponent(params.name)}`);
   return parts.length > 0 ? '?' + parts.join('&') : '';
 }
 
@@ -20,8 +22,10 @@ export function buildEntryHref(options: {
   linkKey: string | null;
   gitRootPath: string | null;
   snapshot: TreeSnapshot;
+  /** The name a read-only copy of a folder opens under, kept while going through it. */
+  rootName?: string | null;
 }): string {
-  const { entry, currentNpub, currentTreeName, currentPath, rootCid, linkKey, gitRootPath, snapshot } = options;
+  const { entry, currentNpub, currentTreeName, currentPath, rootCid, linkKey, gitRootPath, snapshot, rootName } = options;
   const parts: string[] = [];
   const suffix = buildQueryString({ k: linkKey, g: gitRootPath });
 
@@ -36,7 +40,7 @@ export function buildEntryHref(options: {
       decryptKey: rootCid.key ? toHex(rootCid.key) : undefined,
     });
     parts.push(nhash, ...currentPath, entry.name);
-    return '#/' + parts.map(encodeURIComponent).join('/') + suffix;
+    return '#/' + parts.map(encodeURIComponent).join('/') + buildQueryString({ k: linkKey, g: gitRootPath, name: rootName });
   }
 
   parts.push(...currentPath, entry.name);
@@ -50,8 +54,10 @@ export function buildDirHref(options: {
   rootCid: RootCidForHref;
   linkKey: string | null;
   snapshot: TreeSnapshot;
+  /** The name a read-only copy of a folder opens under, kept while going through it. */
+  rootName?: string | null;
 }): string {
-  const { path, currentNpub, currentTreeName, rootCid, linkKey, snapshot } = options;
+  const { path, currentNpub, currentTreeName, rootCid, linkKey, snapshot, rootName } = options;
   const parts: string[] = [];
   const suffix = linkKey ? `?k=${linkKey}` : '';
 
@@ -66,7 +72,7 @@ export function buildDirHref(options: {
       decryptKey: rootCid.key ? toHex(rootCid.key) : undefined,
     });
     parts.push(nhash, ...path);
-    return '#/' + parts.map(encodeURIComponent).join('/') + suffix;
+    return '#/' + parts.map(encodeURIComponent).join('/') + buildQueryString({ k: linkKey, name: rootName });
   }
 
   parts.push(...path);

@@ -29,6 +29,38 @@ export function currentBrowserDeviceLabel(): string {
   return 'Browser';
 }
 
+/**
+ * A name for a device that no other device has: two Chrome windows on one
+ * kind of computer are "Chrome on macOS" and "Chrome on macOS (2)".
+ */
+export function freeDeviceLabel(label: string, taken: Iterable<string>): string {
+  const base = label.trim();
+  const used = new Set([...taken].map((name) => name.trim().toLowerCase()));
+  let name = base;
+  for (let count = 2; used.has(name.toLowerCase()); count += 1) name = `${base} (${count})`;
+  return name;
+}
+
+/**
+ * Devices named so that they can be told apart: of two with one name, the
+ * one added later is numbered, the same way on every device.
+ */
+export function distinctDeviceLabels<T extends { pubkey: string; label?: string; addedAt?: number }>(keys: T[]): T[] {
+  const byAge = [...keys].sort((a, b) => (a.addedAt ?? 0) - (b.addedAt ?? 0) || a.pubkey.localeCompare(b.pubkey));
+  const taken: string[] = [];
+  const names = new Map<string, string>();
+  for (const key of byAge) {
+    if (!key.label?.trim()) continue;
+    const name = freeDeviceLabel(key.label, taken);
+    taken.push(name);
+    names.set(key.pubkey, name);
+  }
+  return keys.map((key) => {
+    const name = names.get(key.pubkey);
+    return name && name !== key.label ? { ...key, label: name } : key;
+  });
+}
+
 export function readStoredDeviceLabels(
   profileId: string,
   storage: Pick<Storage, 'getItem'> = localStorage,

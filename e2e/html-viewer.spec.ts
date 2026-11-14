@@ -1,6 +1,6 @@
 import { test, expect } from './fixtures';
 import type { Page } from '@playwright/test';
-import { createAndEnterFolder, goToTreeList, setupPageErrorHandler, navigateToPublicFolder } from './test-utils.js';
+import { createAndEnterFolder, goToTreeList, setupPageErrorHandler, navigateToPublicFolder, openFileMenu } from './test-utils.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -67,7 +67,8 @@ test.describe('HTML file viewing', () => {
 
       await page.locator('[data-testid="file-list"] a:has-text("index.html")').click();
 
-      const viewerOpenSite = page.getByTestId('viewer-open-site');
+      await expect(page.getByTestId('viewer-header')).toContainText('index.html', { timeout: 10000 });
+      const viewerOpenSite = (await openFileMenu(page)).getByTestId('viewer-open-site');
       await expect(viewerOpenSite).toBeVisible({ timeout: 10000 });
       const viewerHref = await viewerOpenSite.getAttribute('href');
       expect(viewerHref).toMatch(/https:\/\/sites\.iris\.to\/#\//);

@@ -5,6 +5,7 @@ import {
   navigateToPublicFolder,
   presetLocalRelayInDB,
   expectFolderEditable,
+  openFileMenu,
 } from './test-utils.js';
 
 test.use({
@@ -70,13 +71,17 @@ test.describe('Viewer Actions', () => {
     const downloadButton = page.getByTestId('viewer-download');
     await expect(downloadButton).toBeVisible();
     await expect(downloadButton).toHaveText('Download');
-    const permalinkButton = page.getByTestId('viewer-permalink');
+    // The rest is behind ⋮, in plain words.
+    const menu = await openFileMenu(page);
+    const permalinkButton = menu.getByTestId('viewer-permalink');
     await expect(permalinkButton).toBeVisible();
-    await expect(permalinkButton).toHaveText('Snapshot');
+    await expect(permalinkButton).toHaveText('Read-only copy');
     await expect(permalinkButton).toHaveAttribute('href', /#\/nhash/);
-    await expect(page.getByTestId('viewer-rename')).toBeVisible();
-    await expect(page.getByTestId('viewer-edit')).toBeVisible();
-    await expect(page.getByTestId('viewer-delete')).toBeVisible();
+    await expect(menu.getByTestId('viewer-rename')).toBeVisible();
+    await expect(menu.getByTestId('viewer-edit')).toBeVisible();
+    await expect(menu.getByTestId('viewer-delete')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(menu).toBeHidden();
     await backButton.click();
     await expectFolderEditable(page);
     await page.locator('a:has-text("actions.js")').first().click();

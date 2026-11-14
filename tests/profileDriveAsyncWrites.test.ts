@@ -31,7 +31,7 @@ vi.mock('../src/utils/route', () => ({
 }));
 vi.mock('../src/actions/route', () => ({ getCurrentPathFromUrl: () => shared.route.path }));
 vi.mock('../src/stores/treeRoot', () => ({ getTreeRootSync: () => shared.root }));
-vi.mock('../src/stores/recentlyChanged', () => ({ markFilesChanged: vi.fn() }));
+vi.mock('../src/stores/recentlyChanged', () => ({ markFilesChanged: vi.fn(), revealFile: { set: vi.fn() } }));
 vi.mock('../src/utils/navigate', () => ({ navigate: vi.fn() }));
 vi.mock('../src/components/Modals/ExtractModal.svelte', () => ({ open: vi.fn() }));
 vi.mock('../src/components/Modals/GitignoreModal.svelte', () => ({ open: vi.fn() }));

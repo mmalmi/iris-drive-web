@@ -179,10 +179,12 @@ test.describe('the New menu', () => {
     await chooseNew(page, 'Folder');
     await nameIt(page, 'Folder name...', 'Phone folder');
     await expect(listed(page, 'Phone folder')).toBeVisible({ timeout: 30_000 });
+    // An upload leaves the folder open, with the file in it.
+    const folderUrl = page.url();
     await uploadFilesInput(page).setInputFiles({ name: 'phone.txt', mimeType: 'text/plain', buffer: Buffer.from('hi') });
-    await expect(page).toHaveURL(/phone\.txt$/, { timeout: 30_000 });
-    await page.goto(`/#/${owner.profileId}/main`);
     await expect(listed(page, /phone\.txt/)).toBeVisible({ timeout: 30_000 });
+    expect(page.url()).toBe(folderUrl);
+    expect(folderUrl).toMatch(new RegExp(`#/${owner.profileId}/main$`));
     await shot(page, 'phone-folder-with-files');
 
     // Between a phone and a window with a sidebar, New sits in the folder's header.

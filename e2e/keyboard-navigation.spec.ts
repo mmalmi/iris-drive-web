@@ -28,8 +28,8 @@ test('the arrow keys and j/k step through a folder, and Enter opens a folder', a
   await page.keyboard.press('ArrowUp');
   await expect(shown).toContainText('Alpha');
   await page.keyboard.press('ArrowUp');
-  const inner = list.getByRole('link', { name: 'Inner', exact: true });
-  await expect(inner).toHaveClass(/ring-accent/);
+  // The whole row is marked, its ⋮ button too.
+  await expect(list.getByTestId('file-row').filter({ has: page.getByRole('link', { name: 'Inner', exact: true }) })).toHaveClass(/ring-accent/);
   await page.keyboard.press('Enter');
   await expect(page).toHaveURL(/\/main\/Keys\/Inner$/);
   await expect(page.getByTestId('empty-folder')).toBeVisible();

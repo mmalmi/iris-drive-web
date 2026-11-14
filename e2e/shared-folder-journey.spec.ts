@@ -4,7 +4,7 @@ import { test, expect } from './fixtures';
 import { configureNativeRelay, runIdriveJson, irisDriveAvailable } from './native-idrive';
 import { openProfile, acceptAndOpen } from './shared-folder.helpers';
 import {
-  flushPendingPublishes, getTestBlossomUrl, saveTextFile,
+  chooseFileAction, flushPendingPublishes, getTestBlossomUrl, openFileMenu, saveTextFile,
 } from './test-utils';
 
 test('reader and editor join short native invites, edit across apps, reload and receive role changes', async ({ page, browser, relayUrl }, testInfo) => {
@@ -43,8 +43,10 @@ test('reader and editor join short native invites, edit across apps, reload and 
     await expect(readerPage.getByRole('button', { name: 'New', exact: true })).toHaveCount(0);
     await readerPage.getByRole('link', { name: /^Plan\.txt\b/ }).click();
     await expect(readerPage.getByText('Meet at noon.', { exact: true })).toBeVisible();
-    await expect(readerPage.getByTestId('viewer-edit')).toHaveCount(0);
-    await expect(readerPage.getByTestId('viewer-push')).toHaveCount(0);
+    const readerMenu = await openFileMenu(readerPage);
+    await expect(readerMenu.getByTestId('viewer-edit')).toHaveCount(0);
+    await expect(readerMenu.getByTestId('viewer-push')).toHaveCount(0);
+    await readerPage.keyboard.press('Escape');
     const downloadPromise = readerPage.waitForEvent('download');
     await readerPage.getByTestId('viewer-download').click();
     const downloaded = await downloadPromise;
@@ -54,7 +56,7 @@ test('reader and editor join short native invites, edit across apps, reload and 
     await openProfile(page, dirs.bob!, relayUrl);
     await acceptAndOpen(page, editor.invite);
     await page.getByRole('link', { name: /^Plan\.txt\b/ }).click();
-    await page.getByTestId('viewer-edit').click();
+    await chooseFileAction(page, 'viewer-edit');
     await page.locator('textarea').fill('Bob updated the picnic plan.');
     await saveTextFile(page, 30_000);
     await page.getByRole('button', { name: 'Done', exact: true }).click();
@@ -69,7 +71,8 @@ test('reader and editor join short native invites, edit across apps, reload and 
     await page.screenshot({ path: testInfo.outputPath('editor-file.png') });
     runIdriveJson(dirs.alice!, ['shares', 'role', share.share_id, editor.profileId, 'reader']);
     runIdriveJson(dirs.alice!, ['publish', '--relay', relayUrl, '--timeout', '2']);
-    await expect(page.getByTestId('viewer-edit')).toHaveCount(0, { timeout: 30_000 });
+    await expect((await openFileMenu(page)).getByTestId('viewer-edit')).toHaveCount(0, { timeout: 30_000 });
+    await page.keyboard.press('Escape');
     await expect(page.getByText('Bob updated the picnic plan.', { exact: true })).toBeVisible();
     await readerPage.screenshot({ path: testInfo.outputPath('reader-file.png') });
     runIdriveJson(dirs.alice!, ['shares', 'revoke', share.share_id, reader.profileId]);

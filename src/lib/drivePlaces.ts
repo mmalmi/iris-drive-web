@@ -1,5 +1,6 @@
 // @unocss-include: the icon classes below are built from this file.
 import { isOwnShare, type AcceptedShareRecord } from '../drive/shareLibrary';
+import { isNostrIdentityId } from '../utils/route';
 
 /** A place in Drive, as the sidebar, its rail and the phone's tabs show it. */
 export interface DrivePlace {
@@ -18,13 +19,17 @@ export function drivePlaces(currentPath: string, homeHref: string, records: Acce
   const inShared = records.some((record) => record.share_id === scope && !isOwnShare(record));
   const recent = currentPath === '/recent';
   const shared = inShared || currentPath === '/shared-with-me';
+  // A Drive or shared folder this account holds no record of is no place of its own: "You need access".
+  const homeScope = homeHref.replace(/^#?\//, '').split('/')[0];
+  const unknown = isNostrIdentityId(scope) && scope !== homeScope
+    && !records.some((record) => record.share_id === scope && record.local_profile_id === homeScope);
   return [
     {
       href: homeHref,
       label: 'My Drive',
       short: 'My Drive',
       icon: 'i-lucide-hard-drive',
-      active: !recent && !shared && !currentPath.startsWith('/settings'),
+      active: !recent && !shared && !unknown && !currentPath.startsWith('/settings'),
     },
     { href: '#/recent', label: 'Recent', short: 'Recent', icon: 'i-lucide-clock-3', active: recent },
     { href: '#/shared-with-me', label: 'Shared with me', short: 'Shared', icon: 'i-lucide-users', active: shared },

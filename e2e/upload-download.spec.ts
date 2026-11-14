@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { expect, test } from './fixtures';
 import { createDriveProfile, prepareFreshSession } from './documents.helpers';
-import { uploadFilesInput } from './test-utils';
+import { uploadAndOpen } from './test-utils';
 
 const VIDEO = path.join(process.cwd(), 'e2e', 'fixtures', 'Big_Buck_Bunny_360_10s.webm');
 const sha256 = (bytes: Buffer) => crypto.createHash('sha256').update(bytes).digest('hex');
@@ -12,8 +12,7 @@ test('a video added to My Drive plays at its full length and downloads byte for 
   test.setTimeout(120_000);
   await prepareFreshSession(page, relayUrl);
   await createDriveProfile(page, 'Video Test');
-  // One file added is opened.
-  await uploadFilesInput(page).setInputFiles(VIDEO);
+  await uploadAndOpen(page, { name: path.basename(VIDEO), mimeType: 'video/webm', buffer: fs.readFileSync(VIDEO) });
   const video = page.locator('video');
   await expect(video).toBeVisible({ timeout: 30_000 });
   await video.evaluate((element: HTMLVideoElement) => {

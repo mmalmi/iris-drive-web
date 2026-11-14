@@ -7,6 +7,9 @@ import {
   configureBlossomServers,
   presetLocalRelayInDB,
   waitForAppReady,
+  chooseFileAction,
+  openFileMenu,
+  openListedFile,
   waitForRelayConnected,
 } from './test-utils';
 
@@ -36,10 +39,11 @@ async function createProfile(page: Page) {
   await expectFolderEditable(page);
 }
 
+/** Uploads a file into the open folder, which stays open, and opens it. */
 async function upload(page: Page, name: string, buffer: Buffer) {
   await page.getByTestId('upload-files-input')
     .setInputFiles({ name, mimeType: 'application/octet-stream', buffer });
-  await expect(page.getByTestId('viewer-header')).toContainText(name);
+  await openListedFile(page, name);
 }
 
 async function copyShare(page: Page, file = true) {
@@ -84,9 +88,12 @@ test.describe('basic file-sharing journeys', () => {
       await expect(guest.getByTestId('viewer-header')).toContainText(name);
       await expect(guest.getByText('private-notes.txt')).toHaveCount(0);
       expect(await guest.evaluate(() => localStorage.getItem('iris:identity:session'))).toBeNull();
-      await expect(guest.getByTestId('viewer-edit')).toHaveCount(0);
-      await expect(guest.getByTestId('viewer-rename')).toHaveCount(0);
-      await expect(guest.getByTestId('viewer-delete')).toHaveCount(0);
+      const guestMenu = await openFileMenu(guest);
+      await expect(guestMenu.getByTestId('viewer-copy')).toBeVisible();
+      await expect(guestMenu.getByTestId('viewer-edit')).toHaveCount(0);
+      await expect(guestMenu.getByTestId('viewer-rename')).toHaveCount(0);
+      await expect(guestMenu.getByTestId('viewer-delete')).toHaveCount(0);
+      await guest.keyboard.press('Escape');
       const downloaded = await downloadedBytes(guest, guest.getByTestId('viewer-download'));
       expect(downloaded.name).toBe(name);
       expect(downloaded.bytes.equals(bytes)).toBe(true);
@@ -129,12 +136,15 @@ test.describe('basic file-sharing journeys', () => {
       await expect(guest.getByRole('button', { name: 'Delete', exact: true })).toHaveCount(0);
       await guest.getByRole('link', { name: /Plan.txt/ }).click();
       await expect(guest.getByText('Meet by the lake at noon.', { exact: true })).toBeVisible();
-      await guest.goto(`${guest.url()}?edit=1`);
+      // The copy's address already has a query: its folder's name.
+      await guest.goto(`${guest.url()}${guest.url().includes('?') ? '&' : '?'}edit=1`);
       await expect(guest.locator('textarea')).toHaveCount(0);
       await guest.setViewportSize({ width: 390, height: 844 });
-      await guest.getByRole('button', { name: 'Next: Snacks.txt', exact: true }).click();
+      // On a phone the next and previous files are behind ⋮, leaving the name room.
+      await expect(guest.getByRole('button', { name: 'Next: Snacks.txt', exact: true })).toBeHidden();
+      await chooseFileAction(guest, 'viewer-menu-next');
       await expect(guest.getByText('Bring strawberries.', { exact: true })).toBeVisible();
-      await guest.getByRole('button', { name: 'Previous: Plan.txt', exact: true }).click();
+      await chooseFileAction(guest, 'viewer-menu-previous');
       await expect(guest.getByText('Meet by the lake at noon.', { exact: true })).toBeVisible();
       await expect(guest.getByTestId('viewer-back')).toHaveAttribute('href', hash);
       await guest.getByTestId('viewer-back').click();

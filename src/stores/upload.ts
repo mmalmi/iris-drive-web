@@ -5,14 +5,14 @@
  * All uploads use encryption by default (CHK - Content Hash Key).
  */
 import { writable, get } from 'svelte/store';
-import { toHex, nhashEncode, cid, LinkType, videoChunker, streamUploadWithProgress } from '@hashtree/core';
+import { toHex, cid, LinkType, videoChunker, streamUploadWithProgress } from '@hashtree/core';
 import type { CID } from '@hashtree/core';
 import { getTree } from '../store';
 import { autosaveIfOwn, saveHashtree, nostrStore } from '../nostr';
 import { navigate } from '../utils/navigate';
 import { parseRoute } from '../utils/route';
 import { getCurrentPathFromUrl } from '../actions/route';
-import { markFilesChanged } from './recentlyChanged';
+import { markFilesChanged, revealFile } from './recentlyChanged';
 import { open as openExtractModal } from '../components/Modals/ExtractModal.svelte';
 import { open as openGitignoreModal } from '../components/Modals/GitignoreModal.svelte';
 import { isArchiveFile, getArchiveFileList } from '../utils/compression';
@@ -96,6 +96,8 @@ function beginUpload() {
 /** Where an upload goes: the open folder unless `dirPath` names another one, such as a folder dropped onto. */
 export interface UploadTarget {
   dirPath?: string[];
+  /** The caller says what was added, as pasting does. */
+  quiet?: boolean;
 }
 
 /**
@@ -315,27 +317,12 @@ export async function uploadFiles(files: FileList | File[], target: UploadTarget
 
   if (!upload.isCurrent()) return;
 
-  // If single file uploaded to the open folder, navigate to it
+  // The folder stays open, as it does for many files: the new row is
+  // highlighted there and the toast names it.
   if (uploadedFileNames.length === 1 && !target.dirPath) {
-    const currentRoute = parseRoute();
-    const fileName = uploadedFileNames[0];
-
-    if (currentRoute.npub && currentRoute.treeName) {
-      // Tree route: /npub/treeName/path/filename
-      const parts = [currentRoute.npub, currentRoute.treeName, ...dirPath, fileName];
-      let url = '/' + parts.map(encodeURIComponent).join('/');
-      // Preserve linkKey for link-visible trees
-      const linkKey = currentRoute.params.get('k');
-      if (linkKey) {
-        url += `?k=${linkKey}`;
-      }
-      navigate(url);
-    } else if (currentRoute.cid) {
-      // Hash route: /nhash1.../path/filename
-      const nhash = nhashEncode(currentRoute.cid);
-      const parts = [nhash, ...dirPath, fileName];
-      navigate('/' + parts.map(encodeURIComponent).join('/'));
-    }
+    const fileName = uploadedFileNames[0]!;
+    revealFile.set(fileName);
+    if (!target.quiet) toast.success(`Uploaded ${fileName}`);
   }
 }
 

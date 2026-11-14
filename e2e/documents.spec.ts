@@ -226,8 +226,7 @@ test.describe('documents in a Drive', () => {
     await page.getByTestId('upload-files-input').setInputFiles({
       name: 'neighbour.txt', mimeType: 'text/plain', buffer: Buffer.from('still here'),
     });
-    await expect(page.getByTestId('viewer-header')).toContainText('neighbour.txt', { timeout: 30_000 });
-    await page.getByRole('link', { name: 'Back to folder' }).click();
+    await expect(page.getByTestId('file-list').getByRole('link', { name: /^neighbour\.txt/ })).toBeVisible({ timeout: 30_000 });
     await createDocument(page, 'Log');
 
     for (let entry = 1; entry <= 8; entry += 1) {

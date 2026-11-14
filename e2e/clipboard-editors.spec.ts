@@ -2,6 +2,7 @@ import { expect, test, type Page } from './fixtures';
 import { createDocument, createDriveProfile, documentBody, expectSaved, prepareFreshSession, typeInDocument } from './documents.helpers';
 import { bandsSvg, clickSlide, createPresentation, elements, sheet } from './slides.helpers';
 import { createSpreadsheet, goTo } from './sheets.helpers';
+import { uploadAndOpen } from './test-utils';
 
 /** A 24 × 16 PNG of solid colour. */
 const PICTURE = Buffer.from(
@@ -91,7 +92,7 @@ test.describe('pictures copied out of the editors reach other apps as pictures',
   test('a picture file copied from the Drive pastes into a document; a file that is not a picture is turned away', async ({ page, relayUrl }) => {
     await prepareFreshSession(page, relayUrl);
     await createDriveProfile(page);
-    await page.getByTestId('upload-files-input').setInputFiles({ name: 'square.png', mimeType: 'image/png', buffer: PICTURE });
+    await uploadAndOpen(page, { name: 'square.png', mimeType: 'image/png', buffer: PICTURE });
     await expect(page.getByTestId('image-viewer')).toBeVisible({ timeout: 30_000 });
     await page.keyboard.press('ControlOrMeta+c');
     await expect(page.getByText('Copied the picture square.png')).toBeVisible({ timeout: 15_000 });

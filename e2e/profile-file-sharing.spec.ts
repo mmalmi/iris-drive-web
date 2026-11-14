@@ -5,6 +5,8 @@ import {
   ensureLoggedIn,
   presetLocalRelayInDB,
   setupPageErrorHandler,
+  openFileMenu,
+  openListedFile,
   useLocalRelay,
   waitForAppReady,
   waitForRelayConnected,
@@ -65,10 +67,11 @@ test.describe('profile file sharing', () => {
         mimeType: 'text/plain',
         buffer: Buffer.from(fileContent),
       });
-
-    await expect(page.getByTestId('viewer-header')).toContainText(fileName, { timeout: 30_000 });
+    // The folder stays open; the file is opened from its row.
+    await openListedFile(page, fileName);
     await expect(page.getByText(fileContent)).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByTestId('viewer-permalink')).toHaveAttribute('href', /^#\/nhash1/);
+    await expect((await openFileMenu(page)).getByTestId('viewer-permalink')).toHaveAttribute('href', /^#\/nhash1/);
+    await page.keyboard.press('Escape');
 
     const shareButton = page.getByTestId('viewer-share');
     await expect(shareButton).toBeEnabled();

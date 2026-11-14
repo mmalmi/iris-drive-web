@@ -196,7 +196,7 @@
       <div class="p-4 border-b border-surface-3 flex items-center justify-between">
         <h2 class="text-lg font-semibold flex items-center gap-2">
           <span class="i-lucide-upload-cloud"></span>
-          Push to File Servers
+          Save to file servers
         </h2>
         {#if phase !== 'pushing'}
           <button onclick={close} class="btn-ghost p-1" title="Close">
@@ -211,8 +211,8 @@
           <!-- Confirmation -->
           <div class="mb-4">
             <p class="text-sm text-text-3">
-              Push <span class="text-text-1 font-medium">{target.name}</span>
-              {target.isDirectory ? ' (directory)' : ''} to configured file servers?
+              Save a copy of <span class="text-text-1 font-medium">{target.name}</span>
+              {target.isDirectory ? ' and all that is in it' : ''} on your file servers?
             </p>
           </div>
 
@@ -226,7 +226,7 @@
               data-testid="start-push-btn"
             >
               <span class="i-lucide-upload"></span>
-              Push
+              Save
             </button>
           </div>
 
@@ -235,7 +235,7 @@
           <div class="space-y-4">
             <div class="flex items-center gap-2">
               <span class="i-lucide-loader-2 animate-spin text-accent"></span>
-              <span class="text-sm">Pushing chunks...</span>
+              <span class="text-sm">Saving…</span>
             </div>
 
             <div class="bg-surface-2 rounded p-3">
