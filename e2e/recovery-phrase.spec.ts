@@ -1,0 +1,134 @@
+// A recovery phrase, as a person meets it: Backup says there is none and
+// leads to Settings, where 12 words are shown once, two of them are typed back
+// and only then is the phrase added. A fresh browser then signs in with those
+// words through Sign in > Recovery phrase and finds the Drive's files.
+import { expect, test, type Page } from './fixtures';
+import { createDriveProfile, prepareFreshSession } from './documents.helpers';
+import { expectFolderEditable, fileRow } from './test-utils';
+
+const PHONE = { width: 390, height: 844 };
+const JARGON = [/npub/i, /nsec/i, /relay/i, /nostr/i, /facet/i, /epoch/i, /mnemonic/i, /bip-?39/i];
+
+async function uploadFile(page: Page, name: string): Promise<void> {
+  await expectFolderEditable(page);
+  await page.getByTestId('upload-files-input').setInputFiles([{
+    name,
+    mimeType: 'text/plain',
+    buffer: Buffer.from(`kept safe ${Date.now()}`),
+  }]);
+  await expect(fileRow(page, name)).toBeVisible({ timeout: 60_000 });
+}
+
+/** Makes a recovery phrase in Settings and returns its words. */
+async function createRecoveryPhrase(page: Page, screenshot?: (name: string) => Promise<void>): Promise<string[]> {
+  const section = page.getByTestId('recovery-phrase-settings');
+  await section.getByTestId('create-recovery-phrase').click();
+  const words = await section.getByTestId('recovery-phrase-word').allTextContents();
+  expect(words).toHaveLength(12);
+  await screenshot?.('words');
+  await section.getByTestId('recovery-phrase-written').click();
+
+  const add = section.getByTestId('add-recovery-phrase');
+  await screenshot?.('check');
+  const inputs = section.getByTestId('recovery-phrase-check');
+  await expect(inputs).toHaveCount(2);
+  const positions: number[] = [];
+  for (const label of await section.locator('label > span').allTextContents()) {
+    positions.push(Number(label.replace('Word ', '')) - 1);
+  }
+  // A wrong word keeps the phrase from being added.
+  await inputs.nth(0).fill(words[positions[0]] === 'zoo' ? 'abandon' : 'zoo');
+  await inputs.nth(1).fill(words[positions[1]]);
+  await expect(add).toBeDisabled();
+  await inputs.nth(0).fill(` ${words[positions[0]].toUpperCase()} `);
+  await expect(add).toBeEnabled();
+  await add.click();
+  await expect(section.getByTestId('recovery-phrase-status')).toContainText('Recovery phrase added on', { timeout: 30_000 });
+  await expect(section.getByTestId('recovery-phrase-word')).toHaveCount(0);
+  return words;
+}
+
+test.describe('recovery phrase', () => {
+  test('made in Settings, it signs a fresh browser in to the same Drive', async ({ page, browser, relayUrl }, testInfo) => {
+    test.setTimeout(300_000);
+    await prepareFreshSession(page, relayUrl);
+    const { profileId } = await createDriveProfile(page, 'Recovery Test');
+    await uploadFile(page, 'kept.txt');
+
+    // Backup says there is no phrase yet and leads to making one.
+    await page.goto(`${new URL(page.url()).origin}/#/settings/backup`);
+    const restore = page.getByTestId('backup-restore');
+    await expect(restore.getByTestId('backup-recovery-phrase')).toContainText('no recovery phrase', { timeout: 30_000 });
+    await restore.getByRole('link', { name: 'Create recovery phrase' }).click();
+    await expect(page).toHaveURL(/#\/settings\/account\/recovery$/);
+    const section = page.getByTestId('recovery-phrase-settings');
+    await expect(section).toContainText('If you lose all your devices');
+    await expect(section.getByTestId('recovery-phrase-status')).toHaveText('You have no recovery phrase yet.');
+    await expect(page.getByText('Uploaded kept.txt')).toHaveCount(0, { timeout: 10_000 });
+    await section.screenshot({ path: testInfo.outputPath('desktop-light-section-before.png') });
+
+    const words = await createRecoveryPhrase(page, (name) => section.screenshot({ path: testInfo.outputPath(`desktop-light-${name}.png`) }));
+    await section.screenshot({ path: testInfo.outputPath('desktop-light-section-after.png') });
+    for (const word of JARGON) await expect(section).not.toContainText(word);
+
+    // A phrase is not a device, and the words are not kept anywhere.
+    await expect(page.getByTestId('user-key-row')).toHaveCount(1);
+    const phrase = words.join(' ');
+    expect(await page.evaluate((secret) => Object.values(localStorage).some((value) => value.includes(secret)), phrase)).toBe(false);
+
+    await page.goto(`${new URL(page.url()).origin}/#/settings/backup`);
+    await expect(restore.getByTestId('backup-recovery-phrase')).toHaveText('Your recovery phrase is set up.');
+
+    const fresh = await browser.newContext();
+    try {
+      const other = await fresh.newPage();
+      await prepareFreshSession(other, relayUrl);
+      await other.goto(`${new URL(other.url()).origin}/#/users/existing`);
+      await expect(other.getByTestId('identity-recovery-section')).toBeVisible({ timeout: 30_000 });
+      await other.getByRole('button', { name: 'Recovery phrase' }).click();
+      await other.getByLabel('Recovery phrase').fill(phrase);
+      await other.getByRole('button', { name: 'Continue' }).click();
+      await expect(other).toHaveURL(new RegExp(`#/${profileId}/main`), { timeout: 60_000 });
+      await expect(fileRow(other, 'kept.txt')).toBeVisible({ timeout: 90_000 });
+
+      // The device let in by the phrase can manage the account, as in native.
+      await other.goto(`${new URL(other.url()).origin}/#/settings/account`);
+      const otherSection = other.getByTestId('recovery-phrase-settings');
+      await expect(otherSection.getByTestId('recovery-phrase-status')).toContainText('Recovery phrase added on', { timeout: 30_000 });
+      await expect(otherSection.getByTestId('create-recovery-phrase')).toHaveText('Create a new recovery phrase');
+      await expect(other.getByTestId('user-key-row')).toHaveCount(2, { timeout: 30_000 });
+    } finally {
+      await fresh.close();
+    }
+  });
+
+  test('fits a phone in dark mode', async ({ page, relayUrl }, testInfo) => {
+    test.setTimeout(180_000);
+    await page.setViewportSize(PHONE);
+    await page.emulateMedia({ colorScheme: 'dark' });
+    await prepareFreshSession(page, relayUrl);
+    await createDriveProfile(page, 'Phone Recovery');
+
+    await page.goto(`${new URL(page.url()).origin}/#/settings/backup`);
+    const restore = page.getByTestId('backup-restore');
+    await expect(restore.getByTestId('backup-recovery-phrase')).toContainText('no recovery phrase', { timeout: 30_000 });
+    await restore.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: testInfo.outputPath('phone-dark-backup.png') });
+
+    await page.goto(`${new URL(page.url()).origin}/#/settings/account/recovery`);
+    const section = page.getByTestId('recovery-phrase-settings');
+    await expect(section).toBeVisible({ timeout: 30_000 });
+    const fits = () => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
+    await section.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: testInfo.outputPath('phone-dark-section-before.png') });
+
+    await createRecoveryPhrase(page, async (name) => {
+      expect(await fits()).toBe(true);
+      await section.scrollIntoViewIfNeeded();
+      await page.screenshot({ path: testInfo.outputPath(`phone-dark-${name}.png`) });
+    });
+    expect(await fits()).toBe(true);
+    await section.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: testInfo.outputPath('phone-dark-section-after.png') });
+  });
+});

@@ -99,23 +99,36 @@ const rewrapTimers = new Map<string, ReturnType<typeof setTimeout>>();
  * read what it wrote without waiting for its next edit.
  */
 export function scheduleShareRootRewrap(shareId: string): void {
-  const pending = rewrapTimers.get(shareId);
+  scheduleRootRewrap(shareId);
+}
+
+/**
+ * The same for the account's own Drive, when it gains a device this one did
+ * not let in itself, such as one signed in with the recovery phrase.
+ */
+export function scheduleDriveRootRewrap(profileId: string): void {
+  scheduleRootRewrap(profileId);
+}
+
+function scheduleRootRewrap(rootScopeId: string): void {
+  const pending = rewrapTimers.get(rootScopeId);
   if (pending) clearTimeout(pending);
-  rewrapTimers.set(shareId, setTimeout(() => {
-    rewrapTimers.delete(shareId);
-    void rewrapShareRoot(shareId).catch((error) => {
-      console.warn('[driveRoot] Could not publish a shared folder again for its new members:', error);
+  rewrapTimers.set(rootScopeId, setTimeout(() => {
+    rewrapTimers.delete(rootScopeId);
+    void rewrapRoot(rootScopeId).catch((error) => {
+      console.warn('[driveRoot] Could not publish a Drive again for its new devices:', error);
     });
   }, 500));
 }
 
-async function rewrapShareRoot(shareId: string): Promise<void> {
+async function rewrapRoot(rootScopeId: string): Promise<void> {
   const session = getCurrentNostrIdentitySession();
-  if (!session || session.status !== 'active' || !activeShareScope(shareId)?.canWrite) return;
-  if (!profileDriveProjection.contributionRoot(shareId, 'main', session.appKeyPubkey)) return;
+  if (!session || session.status !== 'active') return;
+  if (rootScopeId !== session.profileId && !activeShareScope(rootScopeId)?.canWrite) return;
+  if (!profileDriveProjection.contributionRoot(rootScopeId, 'main', session.appKeyPubkey)) return;
   const { getTreeRootSync } = await import('../stores/treeRoot');
-  const root = getTreeRootSync(shareId, 'main');
-  if (root?.key) await publishNostrIdentityDriveRootIfAvailable('main', root, { rootScopeId: shareId });
+  const root = getTreeRootSync(rootScopeId, 'main');
+  if (root?.key) await publishNostrIdentityDriveRootIfAvailable('main', root, { rootScopeId });
 }
 
 interface DriveRootPublishOptions {
