@@ -1,0 +1,392 @@
+{
+  "acceptanceEvent": {
+    "content": "",
+    "created_at": 1794687042,
+    "id": "d5f30239eae47383eb70421b11db4060bec9aaa21124bb21377484d75662ba8f",
+    "kind": 7368,
+    "pubkey": "17162c921dc4d2518f9a101db33695df1afb56ab82f5ff3e5da6eec3ca5cd917",
+    "sig": "a5db76d0c2089123e618f1fbfe31b88276c2bb665bf451c98fae9774c4aba98f74449f840caa97625ac57f8604df321e7a10ffbad153858c75930a3f5f47ea7c",
+    "tags": [
+      [
+        "i",
+        "5bf84c24-81b6-4c54-999d-3067d244ceeb",
+        "subject"
+      ],
+      [
+        "p",
+        "17162c921dc4d2518f9a101db33695df1afb56ab82f5ff3e5da6eec3ca5cd917"
+      ],
+      [
+        "p",
+        "7228fde5325093e67136e3aff23ed67808bd2788aa471d0ab94d801c24f467b5"
+      ],
+      [
+        "accepted_at",
+        "1794687042"
+      ],
+      [
+        "client_nonce",
+        "e67b4649-1704-4547-96ee-71bc6b4c7787:accept"
+      ],
+      [
+        "key_pubkey",
+        "17162c921dc4d2518f9a101db33695df1afb56ab82f5ff3e5da6eec3ca5cd917"
+      ],
+      [
+        "purpose",
+        "recovery"
+      ],
+      [
+        "roster_op_id",
+        "7228fde5325093e67136e3aff23ed67808bd2788aa471d0ab94d801c24f467b5"
+      ],
+      [
+        "schema",
+        "1"
+      ],
+      [
+        "type",
+        "nostr_identity_key_acceptance"
+      ]
+    ]
+  },
+  "deviceAppKeyPubkey": "891194ef2197e6c4219b64fa70a3b49926480c1c1a86fc452d170fc7dc737fb4",
+  "phrase": "leader monkey parrot ring guide accident before fence cannon height naive bean",
+  "profileId": "5bf84c24-81b6-4c54-999d-3067d244ceeb",
+  "recoveryPubkey": "17162c921dc4d2518f9a101db33695df1afb56ab82f5ff3e5da6eec3ca5cd917",
+  "rootCid": "bcfb9616bb6a09868e54dc18ee2269672cecb2f3ac66c8221aabd7f75607d04b:0119f63646ef9659fbb206e4dfaef5461c3637c1769d06f15d8384a07813eccbad",
+  "rootCiphertextHex": "567cdc1d832249c1197d84a2897d83cbe079af7d35ecb1bfbb5932151709c6b19b944c258f3302076ba7091dca0441def74125a1",
+  "rootDTag": "iris-drive/5bf84c24-81b6-4c54-999d-3067d244ceeb/main/root",
+  "rootEvent": {
+    "content": "{\"root_hash\":\"bcfb9616bb6a09868e54dc18ee2269672cecb2f3ac66c8221aabd7f75607d04b\",\"root_key_wraps\":{\"17162c921dc4d2518f9a101db33695df1afb56ab82f5ff3e5da6eec3ca5cd917\":\"AtRznNf5KkZhsz7MBAb6mYK1DyqY6/D0l4gX18mwF5P3+ejJQpUInd6PxwBLC1/asy7qOWtQyWGwHoVFYEo7/cLru7T4WwFlTzUvlCODNlV5xenKHTWA2weUtiDNKDfIoE0hn1LB4K2a8xI4b5BJ5/DHUHHx9WepQltEL9ZDap0JjMFfonVQLaZrdp9JsPYh3wP/QGMamm7Gm6xu94e2q5c5ow==\",\"891194ef2197e6c4219b64fa70a3b49926480c1c1a86fc452d170fc7dc737fb4\":\"Arj+rUzOomi0EEf48YSHO8l2/o20fL3UPP2y5pJRf1fXD+S8Oi4Vra/jtvYlZbwU+vuom+rPurBRZRCUjhYG73Pd8IkVfenW4Mm1JqlMy9kNztQtCtVzeDwQYiG0Ut7Y9hzInAQw0nNwkTaZ4M5XeEqL6AOp/G6Gtu+drW/O/2lXwDi4YZSuJc9z6RGnw655bS1lak7jypcR7zKTMk/WYtU7XQ==\"},\"dck_generation\":2}",
+    "created_at": 1794682800,
+    "id": "07c6d0ddb6c67e44ce61c5f16c1efb4c743de929748475552a35aaf1749ba39a",
+    "kind": 30078,
+    "pubkey": "891194ef2197e6c4219b64fa70a3b49926480c1c1a86fc452d170fc7dc737fb4",
+    "sig": "4ac9972748205c10e0fb659155b9418f3172ab19665511a82c15c41493d279778fd63ac8ea250e9f7fb669bdd9d9b0b3cd3ff9c49919e934bcb631b8d7950c5c",
+    "tags": [
+      [
+        "d",
+        "iris-drive/5bf84c24-81b6-4c54-999d-3067d244ceeb/main/root"
+      ],
+      [
+        "ms",
+        "1794682800000"
+      ]
+    ]
+  },
+  "rootEventKind": 30078,
+  "rootHashHex": "bcfb9616bb6a09868e54dc18ee2269672cecb2f3ac66c8221aabd7f75607d04b",
+  "rootKeyHex": "0119f63646ef9659fbb206e4dfaef5461c3637c1769d06f15d8384a07813eccbad",
+  "rootPlaintextHex": "46696c65732061207265636f7665727920706872617365206272696e6773206261636b2e",
+  "rosterEvents": [
+    {
+      "content": "",
+      "created_at": 1794687039,
+      "id": "53f9badc4eef1f241aad6c2418b0ac69b29ca09b2c35752b471f85d976a3776a",
+      "kind": 7368,
+      "pubkey": "891194ef2197e6c4219b64fa70a3b49926480c1c1a86fc452d170fc7dc737fb4",
+      "sig": "99f5afcb290434f536b807d48607d1681207150c97129128e1f6e0d32297b1c7c89c86a828b05e13a89095effb3a95755dd9bd243e7127191f41cda9619daad9",
+      "tags": [
+        [
+          "i",
+          "5bf84c24-81b6-4c54-999d-3067d244ceeb",
+          "subject"
+        ],
+        [
+          "i",
+          "6744b0c0-b9e2-4958-abc8-626b1e9e9e65"
+        ],
+        [
+          "actor_pubkey",
+          "891194ef2197e6c4219b64fa70a3b49926480c1c1a86fc452d170fc7dc737fb4"
+        ],
+        [
+          "client_nonce",
+          "6744b0c0-b9e2-4958-abc8-626b1e9e9e65"
+        ],
+        [
+          "created_at",
+          "1794687039"
+        ],
+        [
+          "encrypted_device_labels",
+          "v1.1AP_K80AF0zx5931.1BxAqv2awgy4wGcjZW4pEI2o06tRhlMWYbbtWyuPtI29p2KfWlWCkJ7JYnCKzdfaFnL0TbKMDiMyO534LNJy5LSBlC5NbARSL3liisKipN6xVcsTYjLvQgsGZITOo6Jw-cWABSU2jLfTy5tzJLVr86ohV9s5W8vGUc9u-8L-NLwGCM3zstL0x74HeyT6r5Xg-dGxea2NKaCFicKGsVCBWAjVI4fMyHwNUECiftfKpxqCh-XwnFGGmSfUTSdCntkF3HrG_rUvgrC3Obt6Qw"
+        ],
+        [
+          "key_added_at",
+          "1794687039"
+        ],
+        [
+          "key_capability",
+          "admin"
+        ],
+        [
+          "key_capability",
+          "decrypt_secret_epochs"
+        ],
+        [
+          "key_capability",
+          "receive_secret_wraps"
+        ],
+        [
+          "key_capability",
+          "write"
+        ],
+        [
+          "key_pubkey",
+          "891194ef2197e6c4219b64fa70a3b49926480c1c1a86fc452d170fc7dc737fb4"
+        ],
+        [
+          "key_purpose",
+          "app"
+        ],
+        [
+          "op",
+          "add_key"
+        ],
+        [
+          "schema",
+          "1"
+        ],
+        [
+          "type",
+          "nostr_identity_roster_op"
+        ]
+      ]
+    },
+    {
+      "content": "",
+      "created_at": 1794687040,
+      "id": "0aa710ad3753f93b87d4436a4214800c98020693c7c1fa123bab87a9ac82df5d",
+      "kind": 7368,
+      "pubkey": "891194ef2197e6c4219b64fa70a3b49926480c1c1a86fc452d170fc7dc737fb4",
+      "sig": "5f9849d6557b902d5c582a44740a62169c50290862406042282c85907f0884eb73be80b41b3b81c8b8b5127c3ecb412d4ebddda3b8d5daba7303a75c6eba149e",
+      "tags": [
+        [
+          "i",
+          "5bf84c24-81b6-4c54-999d-3067d244ceeb",
+          "subject"
+        ],
+        [
+          "e",
+          "53f9badc4eef1f241aad6c2418b0ac69b29ca09b2c35752b471f85d976a3776a",
+          "",
+          "prev"
+        ],
+        [
+          "i",
+          "fe106a58-1e0f-4d84-b081-9480a44d52ed"
+        ],
+        [
+          "actor_pubkey",
+          "891194ef2197e6c4219b64fa70a3b49926480c1c1a86fc452d170fc7dc737fb4"
+        ],
+        [
+          "client_nonce",
+          "fe106a58-1e0f-4d84-b081-9480a44d52ed"
+        ],
+        [
+          "created_at",
+          "1794687040"
+        ],
+        [
+          "op",
+          "rotate_secret_epoch"
+        ],
+        [
+          "schema",
+          "1"
+        ],
+        [
+          "secret_epoch",
+          "1"
+        ],
+        [
+          "type",
+          "nostr_identity_roster_op"
+        ],
+        [
+          "wrapped_secret",
+          "891194ef2197e6c4219b64fa70a3b49926480c1c1a86fc452d170fc7dc737fb4",
+          "AjkETcVlLFpZGU3GqBHj9jlXFeYDpFAapU4VWXwNvjy3gygQmodNg4X1wKFl6To5nAnrmQfUPmBe/UE235jd6cVeY8jrn9xt67ERHQ0tJBogMZBG/KMMt2u/VOoJKyz5w7AURx6hlyBDfsL+Gdr27a4t5P4Svg8e3zqy8rOgznhi/Kw="
+        ]
+      ]
+    },
+    {
+      "content": "",
+      "created_at": 1794687041,
+      "id": "7228fde5325093e67136e3aff23ed67808bd2788aa471d0ab94d801c24f467b5",
+      "kind": 7368,
+      "pubkey": "891194ef2197e6c4219b64fa70a3b49926480c1c1a86fc452d170fc7dc737fb4",
+      "sig": "7a20b5ab8956afc68b17f39502e4367c64fc9f091a2b2ce7aa1645a14fa5fc0b34f9d03b87996c02df5f7e30479a7296e4e690104be4962698d4a508b7b5aa18",
+      "tags": [
+        [
+          "i",
+          "5bf84c24-81b6-4c54-999d-3067d244ceeb",
+          "subject"
+        ],
+        [
+          "e",
+          "0aa710ad3753f93b87d4436a4214800c98020693c7c1fa123bab87a9ac82df5d",
+          "",
+          "prev"
+        ],
+        [
+          "e",
+          "53f9badc4eef1f241aad6c2418b0ac69b29ca09b2c35752b471f85d976a3776a",
+          "",
+          "prev"
+        ],
+        [
+          "i",
+          "a6fa75a1-e01e-4091-b457-1b5474fa400d"
+        ],
+        [
+          "p",
+          "17162c921dc4d2518f9a101db33695df1afb56ab82f5ff3e5da6eec3ca5cd917"
+        ],
+        [
+          "actor_pubkey",
+          "891194ef2197e6c4219b64fa70a3b49926480c1c1a86fc452d170fc7dc737fb4"
+        ],
+        [
+          "client_nonce",
+          "a6fa75a1-e01e-4091-b457-1b5474fa400d"
+        ],
+        [
+          "created_at",
+          "1794687041"
+        ],
+        [
+          "encrypted_device_labels",
+          "v1.IRi2LRpYEkODgir3.n0Do0UVmIVNhftdZ-ocfgVdmJWWOwkShQ_y0kJXrlOcAf_BaGOfq6XkxUpzWvt0mzvZLlbWvaRgIyf3EQaDuzgAKWsuUzjQDdHb7aMdPTZ7YY7i4udDa86gznS179RbAaN0bbuH13IwdCqIjghoRUmiDBBKWRZGzbqg8jj7rYHLZB8bW6jQOMOmoScKk-s-mzmtm-tU_jrW2cgrUfMGIm_T-92sWC4l8BTuie7hfiyBxNKVOWIROR1RcFCR0dib5304nLkc1OaUIHoN93Q"
+        ],
+        [
+          "key_added_at",
+          "1794687041"
+        ],
+        [
+          "key_capability",
+          "decrypt_secret_epochs"
+        ],
+        [
+          "key_capability",
+          "receive_secret_wraps"
+        ],
+        [
+          "key_capability",
+          "recover"
+        ],
+        [
+          "key_label",
+          "Recovery key"
+        ],
+        [
+          "key_pubkey",
+          "17162c921dc4d2518f9a101db33695df1afb56ab82f5ff3e5da6eec3ca5cd917"
+        ],
+        [
+          "key_purpose",
+          "recovery"
+        ],
+        [
+          "op",
+          "add_key"
+        ],
+        [
+          "schema",
+          "1"
+        ],
+        [
+          "type",
+          "nostr_identity_roster_op"
+        ]
+      ]
+    },
+    {
+      "content": "",
+      "created_at": 1794687042,
+      "id": "d0f706fd51955dbec0155a0eb199425a1065b3e69b51af42fbd3f01aabeef40d",
+      "kind": 7368,
+      "pubkey": "891194ef2197e6c4219b64fa70a3b49926480c1c1a86fc452d170fc7dc737fb4",
+      "sig": "6646e4a36d9b8d248343045521f16088f10d56c7d5285158bb243fbcc183ea89c7617f727e360716f21ae6d618c6067a36b942aedf87c1c41c83d6d62bcbe690",
+      "tags": [
+        [
+          "i",
+          "5bf84c24-81b6-4c54-999d-3067d244ceeb",
+          "subject"
+        ],
+        [
+          "e",
+          "0aa710ad3753f93b87d4436a4214800c98020693c7c1fa123bab87a9ac82df5d",
+          "",
+          "prev"
+        ],
+        [
+          "e",
+          "53f9badc4eef1f241aad6c2418b0ac69b29ca09b2c35752b471f85d976a3776a",
+          "",
+          "prev"
+        ],
+        [
+          "e",
+          "7228fde5325093e67136e3aff23ed67808bd2788aa471d0ab94d801c24f467b5",
+          "",
+          "prev"
+        ],
+        [
+          "i",
+          "751d98fc-3245-4712-95ae-1d6b08679dfb"
+        ],
+        [
+          "p",
+          "17162c921dc4d2518f9a101db33695df1afb56ab82f5ff3e5da6eec3ca5cd917"
+        ],
+        [
+          "actor_pubkey",
+          "891194ef2197e6c4219b64fa70a3b49926480c1c1a86fc452d170fc7dc737fb4"
+        ],
+        [
+          "client_nonce",
+          "751d98fc-3245-4712-95ae-1d6b08679dfb"
+        ],
+        [
+          "created_at",
+          "1794687042"
+        ],
+        [
+          "encrypted_device_labels",
+          "v1.zVeyyFMSG3TRPnKU.VmyXwLkgZioBHQyMTZjgIzmwqF3_oA_bWLmRtsPTI2YAsUZ0p9A27YnA4K1vaIaUp751P5NQ0r3_YqnGRk8g6stmunVG8SKjJnfcBtazVnoc3cNwTn_aZl4wxE_Dr0Bmxaurl1FDk9YsOHlHBpQeg5ua4zbjobF6XbKPQ1m5ZgZZtSIFTCuZiYGhbHujWJptB6hLP6i_vV8ef5IVFveP1vZwdE3kabT88quwRZKQjN_75rhIzRjxx6x6rfOfc8Mr78GCKEW1X9ngpCHuCw"
+        ],
+        [
+          "op",
+          "rotate_secret_epoch"
+        ],
+        [
+          "schema",
+          "1"
+        ],
+        [
+          "secret_epoch",
+          "2"
+        ],
+        [
+          "type",
+          "nostr_identity_roster_op"
+        ],
+        [
+          "wrapped_secret",
+          "17162c921dc4d2518f9a101db33695df1afb56ab82f5ff3e5da6eec3ca5cd917",
+          "AoMFmFSBHthtQRBdtE07v/3oFtjbpabVDvY11ODhT0vXggwsUs1p4USGmVcP1un8eFOkU7PuOLsjb/sgJ6zZl41tXO6OYgLA9Pl2nss5BtyRiDvUv6Kqk+lCWw4bSJq9Fa9oYZyFaA+EI5736h2byuqA1o8HafqgEJruY94lGfJhCIA="
+        ],
+        [
+          "wrapped_secret",
+          "891194ef2197e6c4219b64fa70a3b49926480c1c1a86fc452d170fc7dc737fb4",
+          "AkeAFWGvuhN7lL+lB53Oo3yc8W6XBP80SbxLnhOczr2cxF25eymBmZQ/d8Pt9mx1p96m6kZkQwHQrKxr4Ro7Ffv68fygZPxw8g7ZRO6bhDHj+hfKFTZd3+xmm4lzfmQzB9NOP4MPJa1Gh/KY4Tfi55CLqoSv6ETRxBwCatGC4Pdw7Yk="
+        ]
+      ]
+    }
+  ],
+  "source": "Emitted by `cargo run -p iris-drive-core --example recovery_root_fixture`. A native device adds the recovery phrase, publishes a My Drive root wrapped for itself and the phrase, and the phrase signs its facet acceptance. Disposable keys; the phrase is the public NIP-06 test vector."
+}
