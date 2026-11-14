@@ -220,6 +220,7 @@ test.describe('sharing from the browser', () => {
       await prepareFreshSession(guest, relayUrl);
       await guest.goto(onThisOrigin(guest, link));
       await expect(guest.getByTestId('share-join-signin')).toContainText('Trip', { timeout: 30_000 });
+      await expect(guest.getByRole('link', { name: 'Get the Iris Drive app' })).toHaveCount(0);
       await createDriveProfile(guest, 'Reader');
 
       await expect(guest.getByTestId('document-entry').filter({ hasText: 'Packing' }).first()).toBeVisible({ timeout: 90_000 });

@@ -35,7 +35,7 @@ async function expectAdvancedClosed(page: Page): Promise<void> {
 test.describe('plain settings', () => {
   test.setTimeout(120_000);
 
-  test('on a computer, everyday settings read plainly and Advanced starts closed', async ({ page, relayUrl }) => {
+  test('on a computer, everyday settings read plainly and Advanced starts closed', async ({ page, relayUrl }, testInfo) => {
     const { npub } = await startSignedIn(page, relayUrl);
 
     await page.getByTestId('header-user-avatar').click();
@@ -70,8 +70,12 @@ test.describe('plain settings', () => {
     await nav.getByTestId('settings-nav-about').click();
     const about = page.getByTestId('about-settings');
     await expect(about).toContainText('Iris Drive');
+    const appLink = about.getByRole('link', { name: 'Get the Iris Drive app' });
+    await expect(appLink).toBeVisible();
+    await expect(appLink).toHaveAttribute('href', 'https://getdrive.iris.to/');
     await expect(about).toContainText('Updated');
     await expect(about.getByRole('button', { name: 'Refresh app' })).toBeVisible();
+    await about.screenshot({ path: testInfo.outputPath('about.png') });
     await expectNoJargon(page);
     await expectAdvancedClosed(page);
 

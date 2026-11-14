@@ -92,14 +92,15 @@ async function expectNoJargon(page: Page): Promise<void> {
 test.describe('backup', () => {
   test.setTimeout(180_000);
 
-  test('a file server added under Backup gets the Drive, passes a check, and can be removed', async ({ page, relayUrl }) => {
+  test('a file server added under Backup gets the Drive, passes a check, and can be removed', async ({ page, relayUrl }, testInfo) => {
     await startWithDrive(page, relayUrl);
     const panel = await openBackup(page);
 
     await expect(page.getByTestId('backup-this-device')).toContainText('This device');
     await expect(page.getByTestId('backup-this-device')).toHaveAttribute('href', '#/settings/storage');
     await expect(page.getByTestId('backup-restore')).toContainText('recovery phrase');
-    await expect(panel).toContainText('available in the Iris Drive app');
+    await expect(panel.getByRole('link', { name: 'Iris Drive app' })).toHaveAttribute('href', 'https://getdrive.iris.to/');
+    await panel.screenshot({ path: testInfo.outputPath('backup.png') });
     const everyday = panel.getByRole('listitem', { name: 'everyday-files.test' });
     await expect(everyday).toContainText('File server');
     // The only server the Drive saves to stays: other devices get files through it.

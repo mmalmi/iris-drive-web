@@ -42,7 +42,7 @@ test.describe('Drive setup', () => {
   test('creates a profile from the setup flow', async ({ page }) => {
     await openFreshSetup(page);
 
-    await expect(page.getByRole('link', { name: 'Get native app' })).toHaveAttribute(
+    await expect(page.getByRole('link', { name: 'Get the Iris Drive app' })).toHaveAttribute(
       'href',
       'https://getdrive.iris.to/',
     );
