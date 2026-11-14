@@ -9,7 +9,7 @@
  * that tree changes.
  */
 import { LinkType, toHex, type CID } from '@hashtree/core';
-import { getFileIcon } from '@iris/hashtree-app/fileIcon';
+import { fileIcon } from './fileIcon';
 import { getTree } from '../store';
 import { documentKindInfo, documentTitle } from './documentNames';
 
@@ -72,7 +72,7 @@ function itemFor(root: DriveSearchRoot, path: string[], type: LinkType): DriveSe
   const kind = documentKindInfo(name);
   if (kind) return { name: documentTitle(name), icon: kind.icon, href: hrefFor(root.scope, path), where, folder: false };
   if (type === LinkType.Dir) return { name, icon: 'i-lucide-folder text-warning', href: hrefFor(root.scope, path), where, folder: true };
-  return { name, icon: `${getFileIcon(name)} text-text-2`, href: hrefFor(root.scope, path), where, folder: false };
+  return { name, icon: `${fileIcon(name)} text-text-2`, href: hrefFor(root.scope, path), where, folder: false };
 }
 
 async function listing(cid: CID) {

@@ -73,7 +73,7 @@
       profileId: activeNostrIdentityRootScope($nostrStore),
       records: $acceptedShares,
     }) : null;
-    if (primary) openShareModal(primary.url, secondary?.url ?? null, people, Boolean(people && documentInfo));
+    if (primary) openShareModal(primary.url, secondary?.url ?? null, people);
   }
 
   async function download() {

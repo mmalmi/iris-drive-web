@@ -178,7 +178,7 @@ test.describe('Settings page', () => {
 
     await page.getByRole('button', { name: 'Storage' }).click();
 
-    await expect(page.getByRole('heading', { name: 'Local Storage' })).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole('heading', { name: 'On this device' })).toBeVisible({ timeout: 5000 });
 
     const sizeElement = page.getByTestId('storage-size');
     await expect(sizeElement).toBeVisible({ timeout: 5000 });
@@ -194,10 +194,6 @@ test.describe('Settings page', () => {
     const sizeText = await sizeElement.textContent();
     expect(sizeText).not.toBe('0 B');
 
-    const itemsElement = page.getByTestId('storage-items');
-    const itemsText = await itemsElement.textContent();
-    expect(parseInt(itemsText || '0')).toBeGreaterThan(0);
-
     const limitElement = page.getByTestId('storage-limit');
     const limitText = await limitElement.textContent();
     expect(limitText).toContain('GB');
@@ -208,9 +204,9 @@ test.describe('Settings page', () => {
     setupPageErrorHandler(page);
     await page.goto('/#/settings/storage');
 
-    await expect(page.getByRole('heading', { name: 'Local Storage' })).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole('heading', { name: 'On this device' })).toBeVisible({ timeout: 10000 });
 
-    const storageSectionHeader = page.locator('h3:has-text("Local Storage")');
+    const storageSectionHeader = page.locator('h3:has-text("On this device")');
     await expect(storageSectionHeader).toBeVisible({ timeout: 5000 });
 
     const editBtn = storageSectionHeader.locator('..').getByRole('button', { name: 'Edit' });

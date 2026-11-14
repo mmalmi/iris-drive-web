@@ -5,7 +5,7 @@
    */
   import { unzipSync } from 'fflate';
   import { open as openExtractModal, type ArchiveFileInfo } from '../Modals/ExtractModal.svelte';
-  import { getFileIcon } from '@iris/hashtree-app/fileIcon';
+  import { fileIcon } from '../../lib/fileIcon';
 
   interface Props {
     data: Uint8Array;
@@ -143,7 +143,7 @@
         <div class="divide-y divide-surface-3">
           {#each entries as entry (entry.name)}
             <div class="flex items-center gap-3 px-3 py-2 hover:bg-surface-3/50">
-              <span class="{getFileIcon(entry.name)} text-text-2 shrink-0"></span>
+              <span class="{fileIcon(entry.name)} text-text-2 shrink-0"></span>
               <span class="flex-1 truncate text-sm">{entry.name}</span>
               <span class="text-text-3 text-sm shrink-0">{formatSize(entry.size)}</span>
             </div>

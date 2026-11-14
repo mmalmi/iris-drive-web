@@ -32,12 +32,14 @@
 {#if hasContent}
   <div
     class="pointer-events-none flex flex-col items-center gap-2"
-    style="position: fixed; bottom: 1rem; left: 1rem; right: 1rem; z-index: 9999;"
+    style="position: fixed; bottom: calc(1rem + var(--drive-tabs-height, 0px) + env(safe-area-inset-bottom)); left: 1rem; right: 1rem; z-index: 9999;"
   >
     <!-- Regular toasts -->
     {#each $toasts as toast (toast.id)}
+      <!-- Said aloud as it appears: errors at once, the rest when the reader is free. -->
       <div
         class="pointer-events-auto bg-surface-1 border border-surface-3 rounded-lg shadow-lg p-3 max-w-sm w-full flex items-start gap-2"
+        role={toast.type === 'error' ? 'alert' : 'status'}
       >
         <span class="{iconMap[toast.type]} {colorMap[toast.type]} shrink-0 mt-0.5"></span>
         <span class="text-sm text-text-1 flex-1">{toast.message}</span>
