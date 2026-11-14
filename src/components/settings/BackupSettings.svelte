@@ -22,6 +22,7 @@
   import { getCurrentNostrIdentitySession, nostrStore } from '../../nostr';
   import { projectNostrIdentityRoster } from '../../drive/protocol';
   import { activeRecoveryPhraseFacets } from '../../drive/recoveryPhrase';
+  import { DRIVE_APP_DOWNLOAD_URL } from '../../lib/appBrand';
 
   const runsHere = backupsRunHere();
   const folders = canBackUpToFolder();
@@ -141,7 +142,14 @@
 
   <section>
     <h3 class="text-xs font-medium text-muted uppercase tracking-wide mb-1">Friends</h3>
-    <p class="text-sm text-text-2">Keeping backups for each other with friends is available in the Iris Drive app.</p>
+    <p class="text-sm text-text-2">
+      {#if runsHere}
+        You and a friend can keep backups for each other with the
+        <a class="text-accent underline" href={DRIVE_APP_DOWNLOAD_URL} target="_blank" rel="noreferrer">Iris Drive app</a>.
+      {:else}
+        Open the Backups tab to set up backups with a friend.
+      {/if}
+    </p>
   </section>
 
   <section>
