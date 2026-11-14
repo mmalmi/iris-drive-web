@@ -1,175 +1,38 @@
-/**
- * E2E test for gitignore filtering in directory uploads
- */
-import { test, expect } from './fixtures';
-import * as path from 'path';
-import * as fs from 'fs';
-import * as os from 'os';
-import { setupPageErrorHandler, disableOthersPool, waitForAppReady } from './test-utils.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import { expect, test } from './fixtures';
+import { createDriveProfile, prepareFreshSession } from './documents.helpers';
+import { chooseNew } from './test-utils';
 
-test.describe('Gitignore Directory Upload', () => {
-  let testDir: string;
+/** A folder with a .gitignore asks whether to leave out what it ignores. */
+test('uploading a folder with a .gitignore can skip the ignored files', async ({ page, relayUrl }) => {
+  test.setTimeout(120_000);
+  const project = test.info().outputPath('project');
+  const write = (name: string, text: string) => {
+    fs.mkdirSync(path.dirname(path.join(project, name)), { recursive: true });
+    fs.writeFileSync(path.join(project, name), text);
+  };
+  write('.gitignore', 'node_modules/\n*.log\n');
+  write('README.md', 'kept');
+  write('src/main.js', 'kept');
+  write('error.log', 'ignored');
+  write('node_modules/pkg/index.js', 'ignored');
 
-  test.beforeEach(async ({ page }) => {
-    setupPageErrorHandler(page);
-    await page.goto('/');
-    await disableOthersPool(page);
-  });
+  await prepareFreshSession(page, relayUrl);
+  await createDriveProfile(page, 'Gitignore Test');
+  const chooser = page.waitForEvent('filechooser');
+  await chooseNew(page, 'Upload folder');
+  await (await chooser).setFiles(project);
 
-  test.beforeAll(async () => {
-    // Create a test directory with .gitignore
-    testDir = path.join(os.tmpdir(), 'gitignore-test-' + Date.now());
-    fs.mkdirSync(testDir, { recursive: true });
+  await expect(page.getByRole('heading', { name: '.gitignore Detected' })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText('error.log')).toBeVisible();
+  await page.getByRole('button', { name: 'Skip Ignored' }).click();
 
-    // Create .gitignore
-    fs.writeFileSync(path.join(testDir, '.gitignore'), `
-node_modules/
-*.log
-dist/
-.env
-`);
-
-    // Create files that should be ignored
-    fs.mkdirSync(path.join(testDir, 'node_modules', 'pkg'), { recursive: true });
-    fs.writeFileSync(path.join(testDir, 'node_modules', 'pkg', 'index.js'), 'ignored');
-    fs.writeFileSync(path.join(testDir, 'error.log'), 'ignored');
-    fs.mkdirSync(path.join(testDir, 'dist'), { recursive: true });
-    fs.writeFileSync(path.join(testDir, 'dist', 'bundle.js'), 'ignored');
-    fs.writeFileSync(path.join(testDir, '.env'), 'SECRET=ignored');
-
-    // Create files that should be uploaded
-    fs.writeFileSync(path.join(testDir, 'README.md'), 'should be uploaded');
-    fs.writeFileSync(path.join(testDir, 'index.js'), 'should be uploaded');
-    fs.mkdirSync(path.join(testDir, 'src'), { recursive: true });
-    fs.writeFileSync(path.join(testDir, 'src', 'main.js'), 'should be uploaded');
-  });
-
-  test.afterAll(async () => {
-    // Clean up test directory
-    if (testDir && fs.existsSync(testDir)) {
-      fs.rmSync(testDir, { recursive: true, force: true });
-    }
-  });
-
-  test('shows gitignore modal when uploading directory with .gitignore', async ({ page }) => {
-    await waitForAppReady(page);
-
-    // We can't easily simulate a directory upload in Playwright without complex workarounds
-    // Instead, let's test the gitignore parsing logic directly in the browser
-
-    const result = await page.evaluate(async () => {
-      // Import the gitignore utilities
-      const { parseGitignore, filterByGitignore } = await import('/node_modules/@iris/hashtree-app/src/gitignore.ts');
-
-      const gitignoreContent = `
-node_modules/
-*.log
-dist/
-.env
-`;
-
-      const patterns = parseGitignore(gitignoreContent);
-
-      // Simulate file list
-      const files = [
-        { relativePath: 'test-dir/.gitignore', file: { size: 100 } },
-        { relativePath: 'test-dir/README.md', file: { size: 100 } },
-        { relativePath: 'test-dir/index.js', file: { size: 100 } },
-        { relativePath: 'test-dir/src/main.js', file: { size: 100 } },
-        { relativePath: 'test-dir/node_modules/pkg/index.js', file: { size: 100 } },
-        { relativePath: 'test-dir/error.log', file: { size: 100 } },
-        { relativePath: 'test-dir/dist/bundle.js', file: { size: 100 } },
-        { relativePath: 'test-dir/.env', file: { size: 100 } },
-      ];
-
-      const { included, excluded } = filterByGitignore(files as any, patterns);
-
-      return {
-        patternsCount: patterns.length,
-        includedPaths: included.map(f => f.relativePath),
-        excludedPaths: excluded.map(f => f.relativePath),
-      };
-    });
-
-    console.log('Gitignore parsing result:', result);
-
-    // Should have parsed 4 patterns
-    expect(result.patternsCount).toBe(4);
-
-    // Should include these files
-    expect(result.includedPaths).toContain('test-dir/.gitignore');
-    expect(result.includedPaths).toContain('test-dir/README.md');
-    expect(result.includedPaths).toContain('test-dir/index.js');
-    expect(result.includedPaths).toContain('test-dir/src/main.js');
-
-    // Should exclude these files
-    expect(result.excludedPaths).toContain('test-dir/node_modules/pkg/index.js');
-    expect(result.excludedPaths).toContain('test-dir/error.log');
-    expect(result.excludedPaths).toContain('test-dir/dist/bundle.js');
-    expect(result.excludedPaths).toContain('test-dir/.env');
-  });
-
-  test('gitignore patterns work correctly with filterByGitignore', async ({ page }) => {
-    await waitForAppReady(page);
-
-    const result = await page.evaluate(async () => {
-      const { parseGitignore, filterByGitignore } = await import('/node_modules/@iris/hashtree-app/src/gitignore.ts');
-
-      const patterns = parseGitignore(`
-# Comment line
-node_modules/
-*.log
-build/
-.env*
-!.env.example
-`);
-
-      // Create mock files - filterByGitignore checks parent directories automatically
-      const files = [
-        { relativePath: 'node_modules/foo/bar.js' },
-        { relativePath: 'src/node_modules/foo.js' },
-        { relativePath: 'error.log' },
-        { relativePath: 'logs/debug.log' },
-        { relativePath: 'build/output.js' },
-        { relativePath: '.env' },
-        { relativePath: '.env.local' },
-        { relativePath: '.env.example' },
-        { relativePath: 'src/index.js' },
-        { relativePath: 'README.md' },
-      ];
-
-      const { included, excluded } = filterByGitignore(files as any, patterns);
-
-      return {
-        includedPaths: included.map((f: any) => f.relativePath),
-        excludedPaths: excluded.map((f: any) => f.relativePath),
-      };
-    });
-
-    console.log('filterByGitignore results:');
-    console.log('  Included:', result.includedPaths);
-    console.log('  Excluded:', result.excludedPaths);
-
-    // Files in node_modules/ should be excluded
-    expect(result.excludedPaths).toContain('node_modules/foo/bar.js');
-    expect(result.excludedPaths).toContain('src/node_modules/foo.js');
-
-    // *.log files should be excluded
-    expect(result.excludedPaths).toContain('error.log');
-    expect(result.excludedPaths).toContain('logs/debug.log');
-
-    // Files in build/ should be excluded
-    expect(result.excludedPaths).toContain('build/output.js');
-
-    // .env* files should be excluded (except .env.example which is negated)
-    expect(result.excludedPaths).toContain('.env');
-    expect(result.excludedPaths).toContain('.env.local');
-
-    // .env.example is negated, should be included
-    expect(result.includedPaths).toContain('.env.example');
-
-    // Regular source files should be included
-    expect(result.includedPaths).toContain('src/index.js');
-    expect(result.includedPaths).toContain('README.md');
-  });
+  const list = page.getByTestId('file-list');
+  await list.getByRole('link', { name: 'project', exact: true }).click();
+  await expect(list.getByRole('link', { name: /README\.md/ })).toBeVisible({ timeout: 30_000 });
+  await expect(list.getByRole('link', { name: 'src', exact: true })).toBeVisible();
+  await expect(list.getByRole('link', { name: /\.gitignore/ })).toBeVisible();
+  await expect(list.getByRole('link', { name: /error\.log/ })).toHaveCount(0);
+  await expect(list.getByRole('link', { name: 'node_modules' })).toHaveCount(0);
 });

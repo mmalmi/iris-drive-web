@@ -11,7 +11,7 @@
    * No MSE needed - the browser handles everything!
    */
   import type { CID } from '@hashtree/core';
-  import { getCidFileUrl, getNpubFileUrlAsync } from '../../lib/mediaUrl';
+  import { getCidFileUrl, getNpubFileUrlAsync, isNpubTreeScope } from '../../lib/mediaUrl';
   import { ensureMediaStreamingReady } from '../../lib/mediaStreamingSetup';
 
   interface Props {
@@ -67,9 +67,9 @@
       return;
     }
 
-    // Use the tree path when known, so the newest version plays; otherwise the CID
+    // Use the tree path when it can be served, so the newest version plays; otherwise the CID
     let url: string;
-    if (npub && treeName && filePath) {
+    if (isNpubTreeScope(npub) && treeName && filePath) {
       // Use async version to ensure Tauri htree server URL is available
       url = await getNpubFileUrlAsync(npub, treeName, filePath);
     } else {

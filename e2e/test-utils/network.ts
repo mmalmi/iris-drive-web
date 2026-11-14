@@ -1,12 +1,4 @@
-import { expect } from '../fixtures';
 import { evaluateWithRetry, waitForAppShell, waitForOptionalWorkerAdapter, waitForTestHelpers, waitForWorkerAdapter } from './core';
-
-const DEFAULT_E2E_PRODUCTION_RELAYS = [
-  'wss://relay.damus.io',
-  'wss://relay.primal.net',
-  'wss://relay.snort.social',
-  'wss://temp.iris.to',
-];
 
 /**
  * Wait for at least one relay connection.
@@ -138,59 +130,6 @@ export async function enableOthersPool(page: any, _max: number = 10) {
 }
 
 /**
- * Pair two browser FIPS runtimes with explicit remote Hashtree routes.
- * Production never derives blob providers from connected WebRTC peers; tests
- * name both device identities here so cross-context reads exercise that rule.
- */
-export async function configureExplicitFipsPair(
-  firstPage: any,
-  secondPage: any,
-  timeoutMs = 60_000,
-): Promise<void> {
-  const readPeerId = (page: any): Promise<string> => page.evaluate(async () => {
-    const { getDriveFipsRuntime } = await import('/src/lib/driveFipsRuntime.ts');
-    return getDriveFipsRuntime()?.getStats().localPeerId ?? '';
-  });
-  await Promise.all([firstPage, secondPage].map((page) => page.waitForFunction(async () => {
-    const { getDriveFipsRuntime } = await import('/src/lib/driveFipsRuntime.ts');
-    return !!getDriveFipsRuntime()?.getStats().localPeerId;
-  }, undefined, { timeout: timeoutMs })));
-  const [firstPeerId, secondPeerId] = await Promise.all([
-    readPeerId(firstPage),
-    readPeerId(secondPage),
-  ]);
-
-  await Promise.all([
-    [firstPage, secondPeerId],
-    [secondPage, firstPeerId],
-  ].map(async ([page, remotePeerId]) => {
-    await (page as any).waitForFunction(async (peerId: string) => {
-      const { getDriveFipsRuntime } = await import('/src/lib/driveFipsRuntime.ts');
-      const runtime = getDriveFipsRuntime();
-      const adapter = (window as any).__getWorkerAdapter?.() ?? (window as any).__workerAdapter;
-      if (!runtime || !adapter || !runtime.getStats().connectedPeerIds.includes(peerId)) {
-        return false;
-      }
-      // Relay/session changes can restart the runtime after navigation. Bind the
-      // provider in the same readiness sample, before another browser call can
-      // observe a different runtime. This never starts or replaces app state.
-      const provider = runtime.getP2PProvider();
-      adapter.setP2PProvider({
-        listPeerIds: () => [peerId],
-        fetch: (hashHex: string, selectedPeerId?: string, htl = 10) => {
-          if (selectedPeerId && selectedPeerId !== peerId) {
-            throw new Error(`Unexpected explicit FIPS peer ${selectedPeerId}`);
-          }
-          return provider.fetch(hashHex, peerId, htl);
-        },
-      });
-      window.dispatchEvent(new HashChangeEvent('hashchange'));
-      return true;
-    }, remotePeerId, { timeout: timeoutMs, polling: 500 });
-  }));
-}
-
-/**
  * Pre-set network relay settings in IndexedDB before page load.
  * This ensures the worker initializes with the local relay in test runs.
  *
@@ -202,13 +141,6 @@ export function getTestRelayUrl(): string {
 
 export function getTestBlossomUrl(): string {
   return process.env.PW_TEST_BLOSSOM_URL || process.env.VITE_TEST_BLOSSOM_URL || 'http://127.0.0.1:18780';
-}
-
-export function getCrosslangPort(workerIndex: number): number {
-  const baseEnv = Number(process.env.CROSSLANG_BASE_PORT);
-  const basePort = Number.isFinite(baseEnv) && baseEnv > 0 ? baseEnv : 19090;
-  const offset = Number.isFinite(workerIndex) && workerIndex >= 0 ? workerIndex : 0;
-  return basePort + offset;
 }
 
 export async function presetLocalRelayInDB(page: any, relayUrl: string = getTestRelayUrl()) {
@@ -270,75 +202,6 @@ export async function presetLocalRelayInDB(page: any, relayUrl: string = getTest
 }
 
 /**
- * Pre-set production relay settings in IndexedDB before page load.
- * This ensures the worker initializes with public relays even on localhost.
- *
- * IMPORTANT: Call this BEFORE reload or initial navigation that should use production relays.
- */
-export async function presetProductionRelaysInDB(page: any) {
-  await page.evaluate(async (relays: string[]) => {
-    const blossomServers = [
-      { url: 'https://upload.iris.to', read: false, write: true },
-      { url: 'https://cdn.iris.to', read: true, write: false },
-    ];
-
-    const request = indexedDB.open('hashtree-settings');
-    await new Promise<void>((resolve, reject) => {
-      request.onerror = () => reject(request.error);
-      request.onsuccess = () => {
-        const db = request.result;
-        if (!db.objectStoreNames.contains('settings')) {
-          db.close();
-          const upgradeRequest = indexedDB.open('hashtree-settings', db.version + 1);
-          upgradeRequest.onupgradeneeded = () => {
-            const upgradeDb = upgradeRequest.result;
-            if (!upgradeDb.objectStoreNames.contains('settings')) {
-              upgradeDb.createObjectStore('settings', { keyPath: 'key' });
-            }
-          };
-          upgradeRequest.onsuccess = () => {
-            const newDb = upgradeRequest.result;
-            const tx = newDb.transaction('settings', 'readwrite');
-            const store = tx.objectStore('settings');
-            store.put({
-              key: 'network',
-              value: {
-                relays,
-                blossomServers,
-                negentropyEnabled: false,
-              },
-            });
-            tx.oncomplete = () => {
-              newDb.close();
-              resolve();
-            };
-            tx.onerror = () => reject(tx.error);
-          };
-          upgradeRequest.onerror = () => reject(upgradeRequest.error);
-          return;
-        }
-
-        const tx = db.transaction('settings', 'readwrite');
-        const store = tx.objectStore('settings');
-        store.put({
-          key: 'network',
-          value: {
-            relays,
-            blossomServers,
-            negentropyEnabled: false,
-          },
-        });
-        tx.oncomplete = () => {
-          db.close();
-          resolve();
-        };
-        tx.onerror = () => reject(tx.error);
-      };
-    });
-  }, [...DEFAULT_E2E_PRODUCTION_RELAYS]);
-}
-
-/**
  * Configure the app to use the local test relay instead of public relays.
  * This eliminates network flakiness and rate limiting issues during tests.
  *
@@ -394,45 +257,6 @@ export async function configureBlossomServers(page: any, blossomUrl: string = ge
 }
 
 /**
- * Helper to follow a user by their npub.
- * Navigates to target's profile and clicks Follow, waiting for completion.
- * Use this when the sharing behavior under test requires a follow relationship.
- */
-export async function followUser(page: any, targetNpub: string) {
-  // Navigate to the user's profile page
-  const currentUrl = new URL(page.url());
-  await page.goto(`${currentUrl.origin}/#/${targetNpub}`);
-
-  // Dismiss any modal that might intercept the follow button
-  const modalBackdrop = page.locator('.fixed.inset-0').first();
-  if (await modalBackdrop.isVisible().catch(() => false)) {
-    await page.keyboard.press('Escape').catch(() => {});
-    await modalBackdrop.waitFor({ state: 'hidden', timeout: 1000 }).catch(() => {});
-    if (await modalBackdrop.isVisible().catch(() => false)) {
-      const closeBtn = modalBackdrop.getByRole('button', { name: /close|cancel|back/i }).first();
-      if (await closeBtn.isVisible().catch(() => false)) {
-        await closeBtn.click().catch(() => {});
-      } else {
-        await modalBackdrop.click({ position: { x: 5, y: 5 } }).catch(() => {});
-      }
-    }
-    await modalBackdrop.waitFor({ state: 'hidden', timeout: 5000 }).catch(() => {});
-  }
-
-  // Click the Follow button
-  const followButton = page.getByRole('button', { name: 'Follow', exact: true });
-  await expect(followButton).toBeVisible({ timeout: 5000 });
-  await followButton.click();
-
-  // Wait for follow to complete - button becomes disabled or changes to "Following" or "Unfollow"
-  await expect(
-    page.getByRole('button', { name: 'Following' })
-      .or(page.getByRole('button', { name: 'Unfollow' }))
-      .or(followButton.and(page.locator('[disabled]')))
-  ).toBeVisible({ timeout: 10000 });
-}
-
-/**
  * Wait for the Nostr-discovered FIPS WebRTC transport to have a connected
  * device peer. The legacy target argument is intentionally ignored: a Nostr
  * user pubkey is not a FIPS device identity.
@@ -450,25 +274,4 @@ export async function waitForFipsConnection(page: any, timeoutMs: number = 15000
     undefined,
     { timeout: timeoutMs, polling: 500 }
   ).then(() => true).catch(() => false);
-}
-
-/**
- * Login as a test user with a given nsec.
- * Sets the nsec in localStorage and reloads the page.
- *
- * @param page - Playwright page
- * @param nsec - Nostr secret key in bech32 format (nsec1...)
- */
-export async function loginAsTestUser(page: any, nsec: string) {
-  await page.evaluate((secret: string) => {
-    localStorage.setItem('hashtree:loginType', 'nsec');
-    localStorage.setItem('hashtree:nsec', secret);
-  }, nsec);
-  await page.reload();
-  // Wait for app to be ready after login
-  await expect(page.locator('header').first()).toBeVisible({ timeout: 30000 });
-  await page.waitForFunction(() => {
-    const store = (window as any).__nostrStore;
-    return store?.getState?.().pubkey?.length === 64;
-  }, { timeout: 30000 });
 }

@@ -137,9 +137,11 @@
     return `${route.npub}/${route.treeName}/${pathKey}?k=${linkKey}`;
   });
 
-  // Track file visits in recents
+  // Track file visits in recents. While a new path resolves, "viewing a file"
+  // still describes the previous one, so a folder opened from a file would be
+  // taken for a file.
   $effect(() => {
-    if (!urlFileName || !route.npub || !route.treeName) return;
+    if (!urlFileName || resolvingPath || !route.npub || !route.treeName) return;
 
     // Build full path for the file
     const pathParts = route.path.join('/');

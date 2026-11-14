@@ -61,6 +61,14 @@ test.describe('Offline Upload', () => {
     await setupFreshUser(page);
     console.log('User setup complete');
 
+    // The file viewer is loaded on first use. A built app has it in its
+    // service worker's cache; the dev server cannot send it once offline, so
+    // open a file while online first.
+    await page.getByTestId('upload-files-input').setInputFiles({ name: 'online.txt', mimeType: 'text/plain', buffer: Buffer.from('online') });
+    await page.locator('[data-testid="file-list"] a').filter({ hasText: 'online.txt' }).first().click();
+    await expect(page.getByTestId('viewer-header')).toContainText('online.txt', { timeout: 30000 });
+    await page.getByTestId('viewer-back').click();
+
     // Go offline BEFORE uploading
     console.log('Going offline...');
     await context.setOffline(true);
@@ -169,19 +177,10 @@ test.describe('Offline Upload', () => {
       settingsStore.setPoolSettings({ showConnectivity: true });
     });
 
-    // Get initial connection count
+    // Online, the relay connects and is counted.
     const indicator = page.locator('[data-testid="peer-count"]');
-    const initialCount = await indicator.textContent();
-    console.log(`Initial connection count: ${initialCount}`);
-
-    // Should have some connections when online
-    expect(parseInt(initialCount || '0')).toBeGreaterThan(0);
-
-    // Verify title attribute shows relay info
-    const indicatorLink = page.getByTestId('connectivity-indicator');
-    const title = await indicatorLink.getAttribute('title');
-    console.log(`Indicator title: ${title}`);
-    expect(title).toContain('relay');
+    await expect.poll(async () => parseInt((await indicator.textContent()) || '0'), { timeout: 15000 }).toBeGreaterThan(0);
+    await expect(page.getByTestId('connectivity-indicator')).toHaveAttribute('title', /relay/);
 
     // "offline" text should NOT be visible when online
     const offlineText = page.locator('text=offline');

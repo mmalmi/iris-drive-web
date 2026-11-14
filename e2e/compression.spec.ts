@@ -1,261 +1,71 @@
-import { saveTextFile, chooseNew } from './test-utils.js';
-import { test, expect } from './fixtures';
-import { setupPageErrorHandler, navigateToPublicFolder, disableOthersPool, goToTreeList, openFolderMenu } from './test-utils.js';
-import * as fs from 'fs';
-import * as path from 'path';
+import fs from 'node:fs';
+import path from 'node:path';
+import { expect, test } from './fixtures';
+import { createDriveProfile, prepareFreshSession } from './documents.helpers';
+import { createAndEnterFolder, goToTreeList, navigateToPublicFolder, openFolderMenu, setupPageErrorHandler, uploadFilesInput } from './test-utils';
 
-async function createFolderAndOpen(page: any, folderName: string): Promise<void> {
-  await goToTreeList(page);
+// Downloading a folder as a ZIP is covered by file-sharing-journey.
+test.describe('forking and extracting', () => {
+  test.setTimeout(120_000);
 
-  await chooseNew(page, 'Folder', { timeoutMs: 5000 });
+  test('a folder is forked as a new top-level folder, and again under a free name', async ({ page, relayUrl }) => {
+    await prepareFreshSession(page, relayUrl);
+    await createDriveProfile(page, 'Fork Test');
+    await createAndEnterFolder(page, 'Plans');
+    const folderUrl = page.url();
+    const dialog = page.locator('.fixed.inset-0').filter({ hasText: 'Fork as New Folder' });
+    const fork = async () => {
+      await openFolderMenu(page);
+      await page.getByRole('button', { name: 'Fork' }).click();
+      await expect(dialog).toBeVisible();
+    };
 
-  const input = page.locator('input[placeholder="Folder name..."]');
-  await input.waitFor({ timeout: 5000 });
-  await input.fill(folderName);
-  await page.click('button:has-text("Create")');
+    await fork();
+    await expect(dialog.locator('input#fork-name')).toHaveValue('Plans');
+    await expect(dialog.getByRole('button', { name: 'public' })).toHaveClass(/ring-accent/);
+    await dialog.getByRole('button', { name: 'Fork' }).click();
+    await expect(dialog).toBeHidden();
+    await expect(page).toHaveURL(/\/Plans$/);
+    await page.reload();
+    await expect(page.getByRole('heading', { name: 'Plans' })).toBeVisible({ timeout: 30_000 });
 
-  await expect(page.locator('.fixed.inset-0.bg-black')).not.toBeVisible({ timeout: 10000 });
+    // The name is taken now, so the next fork offers another rather than replacing it.
+    await page.goto(folderUrl);
+    await fork();
+    await expect(dialog.locator('input#fork-name')).toHaveValue('Plans-2');
+    await dialog.getByRole('button', { name: 'Fork' }).click();
+    await expect(dialog).toBeHidden();
+    await expect(page).toHaveURL(/\/Plans-2$/);
+  });
 
-  const folderLink = page.locator('[data-testid="file-list"] a').filter({ hasText: folderName }).first();
-  const deadline = Date.now() + 15000;
-  while (Date.now() < deadline) {
-    const url = page.url();
-    if (url.includes(folderName) || url.includes(encodeURIComponent(folderName))) {
-      break;
-    }
-    if (await folderLink.isVisible().catch(() => false)) {
-      await folderLink.click().catch(() => {});
-    }
-    await page.waitForTimeout(500);
-  }
-
-  await expect(page).toHaveURL(new RegExp(encodeURIComponent(folderName)), { timeout: 10000 });
-  await expect(page.getByText(/Drop or click to add|Empty directory/).first()).toBeVisible({ timeout: 10000 });
-}
-
-test.describe('Compression features', () => {
-  test.describe.configure({ timeout: 90000 });
-  test.beforeEach(async ({ page }) => {
+  // Visibility applies to the trees of a plain key; a Drive profile keeps its folders private.
+  test('a plain key\'s folder is forked link-visible, with its link key in the address', async ({ page }) => {
     setupPageErrorHandler(page);
     await page.goto('/');
-    await disableOthersPool(page);
-  });
-
-  test('should show ZIP button when viewing a folder', async ({ page }) => {
-    await navigateToPublicFolder(page, { timeoutMs: 60000, requireRelay: false });
-
-    await createFolderAndOpen(page, 'zip-test-folder');
-
-    // The ZIP button is in the folder's menu
-    await openFolderMenu(page);
-    const zipButton = page.getByRole('button', { name: 'ZIP' });
-    await expect(zipButton).toBeVisible({ timeout: 5000 });
-
-    // The button should say "ZIP"
-    await expect(zipButton).toHaveText(/ZIP/);
-  });
-
-  test('should show ZIP button with proper icon', async ({ page }) => {
-    await navigateToPublicFolder(page, { timeoutMs: 60000, requireRelay: false });
-
-    await createFolderAndOpen(page, 'zip-icon-test');
-
-    // Check that the ZIP button exists and contains the download icon
-    await openFolderMenu(page);
-    const zipButton = page.getByRole('button', { name: 'ZIP' });
-    await expect(zipButton).toBeVisible({ timeout: 5000 });
-
-    const icon = zipButton.locator('span.i-lucide-download');
-    await expect(icon).toBeAttached();
-  });
-
-  test('should show Snapshot, Fork, and ZIP buttons for folder', async ({ page }) => {
-    await navigateToPublicFolder(page, { timeoutMs: 60000, requireRelay: false });
-
-    await createFolderAndOpen(page, 'actions-test-folder');
-
-    // All three folder actions are in the folder's menu
-    await openFolderMenu(page);
-    await expect(page.getByRole('link', { name: 'Snapshot' })).toBeVisible({ timeout: 5000 });
-    await expect(page.getByRole('button', { name: 'Fork' })).toBeVisible({ timeout: 5000 });
-    await expect(page.getByRole('button', { name: 'ZIP' })).toBeVisible({ timeout: 5000 });
-  });
-
-  test('should fork a folder as a new top-level tree', async ({ page }) => {
-    await navigateToPublicFolder(page, { timeoutMs: 60000, requireRelay: false });
-
-    await createFolderAndOpen(page, 'fork-source');
-
-    // Click the Fork button (the one in the folder's menu)
+    await navigateToPublicFolder(page, { requireRelay: false });
+    await goToTreeList(page);
+    await createAndEnterFolder(page, 'Shared plans');
     await openFolderMenu(page);
     await page.getByRole('button', { name: 'Fork' }).click();
-
-    // Fork modal should appear
-    await expect(page.locator('text="Fork as New Folder"')).toBeVisible({ timeout: 5000 });
-    const forkInput = page.locator('input#fork-name');
-    await expect(forkInput).toBeVisible();
-
-    // Change the name and fork using the modal's Fork button
-    await forkInput.fill('my-forked-folder');
-    // Click the Fork button in the modal (use locator inside modal)
-    await page.locator('.fixed.inset-0').getByRole('button', { name: 'Fork' }).click();
-
-    // Wait for modal to close and navigation to the new folder
-    await expect(page.locator('text="Fork as New Folder"')).not.toBeVisible({ timeout: 10000 });
-
-    // Should be navigated to the new forked folder
-    await expect(page).toHaveURL(/my-forked-folder/, { timeout: 10000 });
-
-    // A fork is a separate tree, not an entry inside the main tree. Reload its
-    // route to prove that the new top-level root was persisted.
-    await page.reload();
-    await expect(page).toHaveURL(/my-forked-folder/, { timeout: 10000 });
-    await expect(page.getByRole('heading', { name: 'my-forked-folder' })).toBeVisible({ timeout: 10000 });
+    const dialog = page.locator('.fixed.inset-0').filter({ hasText: 'Fork as New Folder' });
+    await dialog.getByRole('button', { name: 'link-visible' }).click();
+    await dialog.getByRole('button', { name: 'Fork' }).click();
+    await expect(dialog).toBeHidden();
+    await expect(page).toHaveURL(/\/Shared%20plans\?k=[0-9a-f]+$/);
   });
 
-  test('should fork a folder with visibility selection', async ({ page }) => {
-    await navigateToPublicFolder(page, { timeoutMs: 60000, requireRelay: false });
-
-    await createFolderAndOpen(page, 'fork-visibility-source');
-
-    // Click the Fork button
-    await openFolderMenu(page);
-    await page.getByRole('button', { name: 'Fork' }).click();
-
-    // Fork modal should appear with visibility picker
-    await expect(page.locator('text="Fork as New Folder"')).toBeVisible({ timeout: 5000 });
-    const forkInput = page.locator('input#fork-name');
-    await expect(forkInput).toBeVisible();
-
-    // Visibility picker should be visible with all three options
-    await expect(page.locator('button:has-text("public")')).toBeVisible();
-    await expect(page.locator('button:has-text("link-visible")')).toBeVisible();
-    await expect(page.locator('button:has-text("private")')).toBeVisible();
-
-    // Public should be selected by default (uses ring-accent for selected state)
-    const publicButton = page.locator('.fixed.inset-0').locator('button:has-text("public")');
-    await expect(publicButton).toHaveClass(/ring-accent/);
-
-    // Change the name and select linkvis visibility
-    await forkInput.fill('my-linkvis-fork');
-    await page.locator('.fixed.inset-0').locator('button:has-text("link-visible")').click();
-
-    // Click Fork button
-    await page.locator('.fixed.inset-0').getByRole('button', { name: 'Fork' }).click();
-
-    // Wait for modal to close and navigation
-    await expect(page.locator('text="Fork as New Folder"')).not.toBeVisible({ timeout: 10000 });
-
-    // Should be navigated to the new forked folder (with link key for linkvis)
-    await expect(page).toHaveURL(/my-linkvis-fork/, { timeout: 10000 });
-
-    // The URL should contain a link key parameter for link-visible tree
-    await expect(page).toHaveURL(/\?k=/, { timeout: 5000 });
-  });
-
-  test('should suggest unique name when forking folder with existing name', async ({ page }) => {
-    await navigateToPublicFolder(page, { timeoutMs: 60000, requireRelay: false });
-
-    // Create a separate top-level tree named existing-tree. A folder inside
-    // main may have the same name, but forking it must avoid the tree-name
-    // collision.
-    await page.evaluate(async () => {
-      const { createTree } = await import('/src/actions/tree.ts');
-      const result = await createTree('existing-tree', 'public', true);
-      if (!result.success) throw new Error('failed to create collision tree');
-    });
-    await createFolderAndOpen(page, 'existing-tree');
-
-    // Fork the directory whose base name collides with the existing tree.
-    await openFolderMenu(page);
-    await page.getByRole('button', { name: 'Fork' }).click();
-
-    // The suggested name should be "existing-tree-2" since "existing-tree" already exists as top-level
-    const forkInput = page.locator('input#fork-name');
-    await expect(forkInput).toHaveValue('existing-tree-2', { timeout: 5000 });
-
-    // Fork with the suggested unique name
-    await page.locator('.fixed.inset-0').getByRole('button', { name: 'Fork' }).click();
-
-    // Should navigate to the new tree
-    await expect(page.locator('text="Fork as New Folder"')).not.toBeVisible({ timeout: 10000 });
-    await expect(page).toHaveURL(/existing-tree-2/, { timeout: 10000 });
-  });
-
-  test('should show progress when creating ZIP', async ({ page }) => {
-    await navigateToPublicFolder(page, { timeoutMs: 60000, requireRelay: false });
-
-    await createFolderAndOpen(page, 'zip-progress-test');
-    const folderUrl = page.url();
-
-    // Create a file in the folder
-    await chooseNew(page, 'Text file');
-    const fileInput = page.locator('input[placeholder="File name..."]');
-    await fileInput.waitFor({ timeout: 5000 });
-    await fileInput.fill('test-file.txt');
-    await page.click('button:has-text("Create")');
-
-    // Wait for editor and add content
-    await expect(page.locator('textarea')).toBeVisible({ timeout: 5000 });
-    await page.locator('textarea').fill('Test content for ZIP progress indicator');
-    await saveTextFile(page);
-
-    // Exit edit mode
-    await expect(page.getByRole('button', { name: 'Done' })).toBeVisible({ timeout: 3000 });
-    await page.getByRole('button', { name: 'Done' }).click();
-
-    // Wait for any modal backdrop to close
-    await expect(page.locator('[data-modal-backdrop]')).not.toBeVisible({ timeout: 5000 });
-
-    // Navigate back to folder root
-    await page.goto(folderUrl);
-    await expect(page).toHaveURL(/zip-progress-test/, { timeout: 10000 });
-
-    // Wait for folder view
-    await openFolderMenu(page);
-    await expect(page.getByRole('button', { name: 'ZIP' })).toBeVisible({ timeout: 5000 });
-
-    // Click ZIP - the menu closes and the download starts (too brief to watch for small files)
-    await page.getByRole('button', { name: 'ZIP' }).click();
-
-    // Once the download has completed the menu offers ZIP again
-    await openFolderMenu(page);
-    await expect(page.getByRole('button', { name: 'Download ZIP' })).toBeVisible({ timeout: 10000 });
-  });
-
-  test('should show progress when extracting ZIP', async ({ page }) => {
-    await navigateToPublicFolder(page, { timeoutMs: 60000, requireRelay: false });
-
-    // Stay in public folder where we can upload files
-    // Use existing test ZIP file (dosgame.zip is a valid ZIP)
-    const zipPath = path.join(process.cwd(), 'test-data', 'dosgame.zip');
-    const buffer = fs.readFileSync(zipPath);
-
-    // Upload the ZIP file
-    const fileInput = page.getByTestId('upload-files-input');
-    await fileInput.waitFor({ state: 'attached', timeout: 5000 });
-    await fileInput.setInputFiles({
+  test('a ZIP file added to a folder offers to extract, and its files land beside it', async ({ page, relayUrl }) => {
+    await prepareFreshSession(page, relayUrl);
+    await createDriveProfile(page, 'Extract Test');
+    await uploadFilesInput(page).setInputFiles({
       name: 'dosgame.zip',
       mimeType: 'application/zip',
-      buffer,
+      buffer: fs.readFileSync(path.join(process.cwd(), 'test-data', 'dosgame.zip')),
     });
-
-    // Extract modal should appear automatically after ZIP upload
-    await expect(page.locator('text="Extract Archive?"')).toBeVisible({ timeout: 10000 });
-    await expect(page.locator('text=dosgame.zip')).toBeVisible({ timeout: 5000 });
-
-    // Select "Extract to current directory" option
+    await expect(page.getByText('Extract Archive?')).toBeVisible({ timeout: 30_000 });
     await page.locator('input[name="extract-location"]').last().check();
-
-    // Click "Extract Files" button
     await page.getByRole('button', { name: 'Extract Files' }).click();
-
-    // Progress toast should appear during extraction showing "writing..." status
-    // The capitalize CSS class makes it display as "Writing..."
-    await expect(page.getByText('writing...', { exact: false })).toBeVisible({ timeout: 15000 });
-
-    // Eventually files should appear in the listing after extraction completes
-    // Wait for files from the ZIP (dosgame.zip contains game files)
-    await expect(page.getByTestId('file-list').locator('a').first()).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText('writing...', { exact: false })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('file-list').getByRole('link').filter({ hasNotText: 'dosgame.zip' }).first()).toBeVisible({ timeout: 30_000 });
   });
 });

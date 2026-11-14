@@ -31,10 +31,11 @@ const integrationSpecs = [
   'e2e/anchor-links.spec.ts',
   'e2e/compression.spec.ts',
   'e2e/explorer.test.ts',
-  'e2e/link-visible-tree.spec.ts',
   'e2e/viewer-actions.spec.ts',
 ];
 const fastMode = process.env.E2E_FAST === '1';
+// Runs with its own server: e2e/peer-announcements.config.ts.
+const ownConfigSpecs = ['e2e/peer-announcements.spec.ts'];
 
 function hexToBytes(hex: string): Uint8Array {
   const normalized = hex.trim();
@@ -76,7 +77,7 @@ process.env.VITE_TEST_RELAY = relayBaseUrl;
  */
 export default defineConfig({
   testDir: './e2e',
-  testIgnore: fastMode ? integrationSpecs : undefined,
+  testIgnore: fastMode ? [...integrationSpecs, ...ownConfigSpecs] : ownConfigSpecs,
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0, // Retry once on CI to handle flaky tests
