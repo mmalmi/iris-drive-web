@@ -12,12 +12,21 @@ export interface KeyValueStore<Row extends { key: string }> {
   get(key: string): Promise<Row | undefined>;
   put(row: Row): Promise<void>;
   all(): Promise<Row[]>;
+  delete(key: string): Promise<void>;
 }
 
 function promised<T>(request: IDBRequest<T>): Promise<T> {
   return new Promise((resolve, reject) => {
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
+  });
+}
+
+function committed(transaction: IDBTransaction): Promise<void> {
+  return new Promise((resolve, reject) => {
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error);
   });
 }
 
@@ -75,14 +84,15 @@ export function keyValueStore<Row extends { key: string }>(name: string, storeNa
     async put(row) {
       const objectStore = await store('readwrite');
       await promised(objectStore.put(row));
-      await new Promise<void>((resolve, reject) => {
-        objectStore.transaction.oncomplete = () => resolve();
-        objectStore.transaction.onerror = () => reject(objectStore.transaction.error);
-        objectStore.transaction.onabort = () => reject(objectStore.transaction.error);
-      });
+      await committed(objectStore.transaction);
     },
     async all() {
       return promised((await store('readonly')).getAll() as IDBRequest<Row[]>);
+    },
+    async delete(key) {
+      const objectStore = await store('readwrite');
+      await promised(objectStore.delete(key));
+      await committed(objectStore.transaction);
     },
   };
 }

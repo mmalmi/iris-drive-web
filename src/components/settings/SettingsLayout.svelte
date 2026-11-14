@@ -1,12 +1,13 @@
 <script lang="ts">
   /**
    * Settings, in the order a person needs them: their account, what this
-   * device keeps, and what the app is. Everything about how Drive connects and
+   * device keeps, where else the Drive is kept, and what the app is. Everything about how Drive connects and
    * the keys behind the account waits under Advanced, closed until asked for.
    */
   import { currentPath, navigate } from '../../lib/router.svelte';
   import AccountSettings from './AccountSettings.svelte';
   import StorageSettings from './StorageSettings.svelte';
+  import BackupSettings from './BackupSettings.svelte';
   import AboutSettings from './AboutSettings.svelte';
   import KeysSettings from './KeysSettings.svelte';
   import DeveloperSettings from './DeveloperSettings.svelte';
@@ -36,6 +37,13 @@
       icon: 'i-lucide-hard-drive',
       activeRowClass: 'bg-amber-500/10',
       iconFrameClass: 'bg-amber-500/12 text-amber-500 ring-1 ring-amber-500/20',
+    },
+    {
+      id: 'backup',
+      label: 'Backup',
+      icon: 'i-lucide-database-backup',
+      activeRowClass: 'bg-indigo-500/10',
+      iconFrameClass: 'bg-indigo-500/12 text-indigo-500 ring-1 ring-indigo-500/20',
     },
     {
       id: 'about',
@@ -128,6 +136,7 @@
     if (path.startsWith('/settings/user') || path.startsWith('/settings/identity')) return 'account';
     if (path.startsWith('/settings/app')) return 'account';
     if (path.startsWith('/settings/storage')) return 'storage';
+    if (path.startsWith('/settings/backup')) return 'backup';
     if (path.startsWith('/settings/about')) return 'about';
     if (path.startsWith('/settings/network')) return 'network';
     if (path.startsWith('/settings/servers')) return 'network';
@@ -269,6 +278,8 @@
         <AccountSettings />
       {:else if activeTab === 'storage'}
         <StorageSettings />
+      {:else if activeTab === 'backup'}
+        <BackupSettings />
       {:else if activeTab === 'about'}
         <AboutSettings />
       {:else if activeTab === 'keys'}
