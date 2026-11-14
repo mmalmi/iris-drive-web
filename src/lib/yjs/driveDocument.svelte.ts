@@ -28,7 +28,7 @@ import { buildRouteUrl, deleteCurrentFolder, renameCurrentFolder } from '../../a
 import { navigate } from '../../utils/navigate';
 import { moveRecents } from '../../stores/recents';
 import { profileDriveProjection } from '../../drive/profileDriveProjection';
-import { removeOwnDirectoryForDriveRoute, setEntryForDriveRoute } from '../../drive/profileDriveRouteEntry';
+import { markFolderChanged, removeOwnDirectoryForDriveRoute, setEntryForDriveRoute } from '../../drive/profileDriveRouteEntry';
 import { DOCUMENT_KINDS, documentFolderName, documentKind, documentTitle, snapshotLinkQuery, type DocumentKindInfo } from '../documentNames';
 import { freeName } from '../driveClipboard';
 import { getCidFileUrl } from '../mediaUrl';
@@ -392,7 +392,8 @@ export class DriveDocument {
       }
       leftover = ownEdits ? this.#leftover : null;
       if (leftover) root = await this.#foldInLeftover(root, leftover, documentPath);
-      return root;
+      // The document itself changed, for the folder's Last modified.
+      return markFolderChanged(tree, root, documentPath);
     });
     if (leftover && this.#leftover === leftover) this.#leftover = null;
   }

@@ -1,8 +1,9 @@
 /**
- * A long press with a finger or a pen, for opening a menu: iOS sends no
- * contextmenu event for one. `onPress` gets where the finger is. A finger
- * that moves is scrolling, not pressing, and the click that ends a press
- * only lifts the finger.
+ * A long press with a finger or a pen: iOS sends no contextmenu event for
+ * one, and Android's contextmenu for it is the same press, so it opens no
+ * menu besides. `onPress` gets where the finger is. A finger that moves is
+ * scrolling, not pressing, and the click that ends a press only lifts the
+ * finger.
  *
  * There is one finger's press at a time, kept here rather than with the
  * element: a list that is drawn again while the finger is down (a change
@@ -22,13 +23,6 @@ function stop() {
 
 function move(event: PointerEvent) {
   if (start && Math.hypot(event.clientX - start.x, event.clientY - start.y) > MOVE_LIMIT_PX) stop();
-}
-
-// Android's own long press is the same press, told by a contextmenu event.
-function context() {
-  if (!start) return;
-  stop();
-  pressed = true;
 }
 
 function click(event: MouseEvent) {
@@ -51,6 +45,16 @@ export function longPress(node: HTMLElement, onPress: (at: { x: number; y: numbe
       pressed = true;
       handler(at);
     }, LONG_PRESS_MS);
+  };
+
+  // Android's own long press, told by a contextmenu event, perhaps before the timer.
+  const context = (event: MouseEvent) => {
+    if (!start) return;
+    event.preventDefault();
+    event.stopPropagation();
+    stop();
+    if (!pressed) handler(start);
+    pressed = true;
   };
 
   node.addEventListener('pointerdown', down);

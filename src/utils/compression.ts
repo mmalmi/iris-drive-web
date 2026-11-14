@@ -2,7 +2,7 @@
  * Compression utilities using fflate for ZIP creation and extraction
  */
 import { zip, unzipSync, type AsyncZippable, type Unzipped } from 'fflate';
-import type { HashTree, CID } from '@hashtree/core';
+import type { HashTree, CID, TreeEntry } from '@hashtree/core';
 import { LinkType } from '@hashtree/core';
 
 export interface ZipProgress {
@@ -54,7 +54,19 @@ async function collectFiles(
   throwIfAborted(signal);
   const entries = await tree.listDirectory(dirCid);
   throwIfAborted(signal);
+  return collectEntries(tree, entries, basePath, items, onProgress, signal, counter);
+}
 
+/** Collects the given entries and all below them; false when there are none. */
+async function collectEntries(
+  tree: HashTree,
+  entries: TreeEntry[],
+  basePath: string,
+  items: Map<string, CollectedItem>,
+  onProgress?: ProgressCallback,
+  signal?: AbortSignal,
+  counter = { value: 0 }
+): Promise<boolean> {
   // If directory is empty, return false to indicate it should be added as empty dir
   if (entries.length === 0) {
     return false;
@@ -100,10 +112,25 @@ export async function createZipFromDirectory(
   signal?: AbortSignal
 ): Promise<Uint8Array> {
   throwIfAborted(signal);
+  const entries = await tree.listDirectory(dirCid);
+  return createZipFromEntries(tree, entries, onProgress, signal);
+}
+
+/**
+ * Create a ZIP file of several entries side by side, each folder with all
+ * that is in it, as when several items are chosen and downloaded at once.
+ */
+export async function createZipFromEntries(
+  tree: HashTree,
+  entries: TreeEntry[],
+  onProgress?: ProgressCallback,
+  signal?: AbortSignal
+): Promise<Uint8Array> {
+  throwIfAborted(signal);
 
   // Collect all files and empty directories
   const items = new Map<string, CollectedItem>();
-  await collectFiles(tree, dirCid, '', items, onProgress, signal);
+  await collectEntries(tree, entries, '', items, onProgress, signal);
   throwIfAborted(signal);
 
   // Count only files for progress (not empty dirs)

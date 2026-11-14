@@ -1,6 +1,7 @@
 // Each file and folder in the list has a menu of what can be done with it:
-// from its ⋮ button, a right click, the menu key or Shift+F10, and on a phone
-// a long press, where it rises from the bottom as the New menu does.
+// from its ⋮ button, a right click, the menu key or Shift+F10. On a phone it
+// rises from the bottom as the New menu does; a long press there chooses the
+// row instead (e2e/file-list-selection.spec.ts).
 import fs from 'node:fs/promises';
 import { expect, test, type Page } from './fixtures';
 import { createDriveProfile, prepareFreshSession } from './documents.helpers';
@@ -102,7 +103,7 @@ test.describe('the menu of a row', () => {
     await expect(fileRow(page, 'packing.txt')).toBeVisible({ timeout: 30_000 });
   });
 
-  test('on a phone a long press opens it from the bottom, without opening the file', async ({ page, relayUrl }, testInfo) => {
+  test('on a phone ⋮ opens it from the bottom, and a long press chooses the row instead', async ({ page, relayUrl }, testInfo) => {
     await page.setViewportSize(PHONE);
     await startInMyDrive(page, relayUrl);
     await uploadIntoFolder(page, { name: 'photo-notes.txt', mimeType: 'text/plain', buffer: Buffer.from('Sunset') });
@@ -116,7 +117,13 @@ test.describe('the menu of a row', () => {
     await link.dispatchEvent('pointerup', at);
     // The click that ends the press only lifts the finger.
     await link.dispatchEvent('click');
+    await expect(page.getByTestId('selection-bar')).toBeVisible();
+    await expect(menu(page)).toBeHidden();
+    expect(page.url()).toBe(folderUrl);
+    await page.getByTestId('selection-bar').getByRole('button', { name: 'Clear selection' }).click();
+    await expect(page.getByTestId('selection-bar')).toBeHidden();
 
+    await fileRow(page, 'photo-notes.txt').getByTestId('row-menu-btn').click();
     await expect(menu(page)).toBeVisible();
     await expect(menu(page).getByRole('menuitem')).toHaveText(['Open', 'Share', 'Rename', 'Move', 'Download', 'Delete']);
     const sheet = (await menu(page).boundingBox())!;
@@ -138,6 +145,7 @@ test.describe('the menu of a row', () => {
     await link.dispatchEvent('pointermove', { ...at, clientY: at.clientY + 40 });
     await page.waitForTimeout(800);
     await expect(menu(page)).toBeHidden();
+    await expect(page.getByTestId('selection-bar')).toBeHidden();
     await link.dispatchEvent('pointercancel', at);
 
     // The ⋮ button is there on a phone too.

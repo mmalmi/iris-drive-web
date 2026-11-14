@@ -18,7 +18,7 @@ vi.mock('../src/nostr/auth', () => ({
   getCurrentNostrIdentitySession: () => mocks.session,
 }));
 
-import { setEntryForDriveRoute } from '../src/drive/profileDriveRouteEntry';
+import { markFolderChanged, setEntryForDriveRoute } from '../src/drive/profileDriveRouteEntry';
 
 const ACTIVE_STATE = { isLoggedIn: true, pubkey: APP_KEY };
 
@@ -156,6 +156,57 @@ describe('profile Drive route entry writes', () => {
 
     expect(unchanged).toEqual(root);
     expect(await tree.resolvePath(unchanged, ['upload', 'kept.txt'])).not.toBeNull();
+  });
+});
+
+describe('when an item last changed', () => {
+  const plainRoute = { npub: 'npub1someone', treeName: 'notes' };
+  const modified = async (tree: HashTree, root: CID, path: string[]) => {
+    const parent = path.length > 1 ? (await tree.resolvePath(root, path.slice(0, -1)))!.cid : root;
+    return (await tree.listDirectory(parent)).find((entry) => entry.name === path.at(-1))?.meta?.modified_at;
+  };
+
+  beforeEach(() => {
+    mocks.session = { status: 'active', profileId: PROFILE_ID, appKeyPubkey: APP_KEY };
+  });
+
+  it('is stamped on what is written, in a profile Drive and in a plain tree, keeping other details', async () => {
+    const tree = new HashTree({ store: new MemoryStore() });
+    const file = await tree.putFile(new TextEncoder().encode('hello'));
+    const before = Math.floor(Date.now() / 1000);
+    for (const route of [{ npub: PROFILE_ID, treeName: 'main' }, plainRoute]) {
+      const root = await setEntryForDriveRoute(
+        tree,
+        (await tree.putDirectory([])).cid,
+        ['Trip'],
+        'hello.txt',
+        { cid: file.cid, size: file.size, type: LinkType.Blob, meta: { whole_file_hash: 'ab' } },
+        route,
+        ACTIVE_STATE,
+      );
+      const parent = (await tree.resolvePath(root, ['Trip']))!;
+      const [entry] = await tree.listDirectory(parent.cid);
+      expect(entry.meta?.whole_file_hash).toBe('ab');
+      expect(entry.meta?.modified_at).toBeGreaterThanOrEqual(before);
+    }
+  });
+
+  it('is moved forward on a folder when something inside it is saved, as a document is', async () => {
+    const tree = new HashTree({ store: new MemoryStore() });
+    const inner = await tree.putFile(new TextEncoder().encode('first'));
+    const documentFolder = await tree.putDirectory([{ name: 'a', cid: inner.cid, size: inner.size, type: LinkType.Blob }]);
+    const folder = await tree.putDirectory([{ name: 'Plans.irisdoc', cid: documentFolder.cid, size: 0, type: LinkType.Dir, meta: { modified_at: 1_700_000_000, kept: true } }]);
+    const root = (await tree.putDirectory([{ name: 'Trip', cid: folder.cid, size: 0, type: LinkType.Dir }])).cid;
+
+    const touched = await markFolderChanged(tree, root, ['Trip', 'Plans.irisdoc']);
+
+    expect(await modified(tree, touched, ['Trip', 'Plans.irisdoc'])).toBeGreaterThan(1_700_000_000);
+    const [entry] = await tree.listDirectory((await tree.resolvePath(touched, ['Trip']))!.cid);
+    expect(entry.meta?.kept).toBe(true);
+    expect(await tree.resolvePath(touched, ['Trip', 'Plans.irisdoc', 'a'])).not.toBeNull();
+    // Nothing there, or a file there: nothing changes.
+    expect(await markFolderChanged(tree, root, ['Trip', 'Gone'])).toEqual(root);
+    expect(await markFolderChanged(tree, touched, ['Trip', 'Plans.irisdoc', 'a'])).toEqual(touched);
   });
 });
 
