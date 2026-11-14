@@ -349,7 +349,7 @@
     return !!document.querySelector('[aria-modal="true"], .fixed.inset-0');
   }
 
-  /** The entry a copy is about: the one picked with the keyboard, or the open file. */
+  /** The entry a copy or the menu key is about: the one picked with the keyboard, or the open file. */
   function chosenEntry(): FileEntry | null {
     const entryIndex = focusedIndex - specialItemCount;
     if (focusedIndex >= 0) return entryIndex >= 0 ? entries[entryIndex] ?? null : null;

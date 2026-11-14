@@ -2,9 +2,10 @@
   /**
    * The one place to make or add something: a folder, a document, a
    * spreadsheet, a presentation, a text file, or files and folders from the
-   * device. In the sidebar it is the big New button, a square + on its rail. In a folder's header it
-   * is a small New button where there is no sidebar, and on a phone a round
-   * button at the bottom whose menu rises from the bottom of the screen.
+   * device. In the sidebar it is the big New button, a square + on its rail.
+   * In a folder's header it is a small New button where there is no sidebar,
+   * and on a phone a round button at the bottom whose menu rises from the
+   * bottom of the screen.
    */
   import { tick } from 'svelte';
   import { DOCUMENT_KINDS } from '../lib/documentNames';

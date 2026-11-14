@@ -114,7 +114,6 @@ export function watchSharesAddedToMe(): () => void {
     const notice = readShareAddedNotice(event, context.secretKey);
     if (!notice || waiting.has(notice.share_id)) return;
     const shareId = notice.share_id;
-    if (get(acceptedShares).some((record) => record.share_id === shareId && record.local_profile_id === context.session.profileId)) return;
     const link: ShareJoinLink = {
       v: 1,
       share_id: shareId,
@@ -124,6 +123,7 @@ export function watchSharesAddedToMe(): () => void {
       role: notice.role,
       key: '',
     };
+    if (joinedShare(link, get(acceptedShares))) return;
     const stopWaiting = waitUntilJoined(link, () => done());
     const timer = setTimeout(() => done(), ADDED_WAIT_MS);
     function done() {
