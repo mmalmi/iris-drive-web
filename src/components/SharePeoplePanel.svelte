@@ -259,7 +259,11 @@
     </div>
 
     {@render addPeople()}
+  {:else}
+    <p class="text-sm text-text-2">Only the owner can invite people to this folder.</p>
+  {/if}
 
+  {#if record}
     <div class="divide-y divide-surface-2" data-testid="share-people-list">
       {#each adding as item (item.pubkey)}
         <div class="py-2 flex items-center gap-3" data-testid="share-people-adding">
@@ -296,7 +300,7 @@
           {:else}
             <a
               class="min-w-0 flex-1 text-sm text-text-1 truncate no-underline hover:underline"
-              href={record ? personHref(record.folder, member.profile_id) : undefined}
+              href={personHref(record.folder, member.profile_id)}
               onclick={closeShareDialog}
               data-testid="share-people-member-link"
             >{member.display_name}</a>
@@ -328,21 +332,6 @@
               <span class="i-lucide-user-minus text-base"></span>
             </button>
           {/if}
-        </div>
-      {/each}
-    </div>
-  {:else}
-    <p class="text-sm text-text-2">Only the owner can invite people to this folder.</p>
-    <div class="divide-y divide-surface-2">
-      {#each people as member (member.profile_id)}
-        <div class="py-2 flex items-center gap-3">
-          <span class="i-lucide-user-round text-text-3"></span>
-          <a
-            class="min-w-0 flex-1 text-sm text-text-1 truncate no-underline hover:underline"
-            href={record ? personHref(record.folder, member.profile_id) : undefined}
-            onclick={closeShareDialog}
-          >{member.display_name}</a>
-          <span class="text-xs text-text-3">{member.role_label}</span>
         </div>
       {/each}
     </div>

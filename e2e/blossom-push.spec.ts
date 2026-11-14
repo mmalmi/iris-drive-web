@@ -38,7 +38,7 @@ test.describe('Blossom Push', () => {
 
     // Wait for Push button to be visible
     await openFolderMenu(page);
-    const pushBtn = page.getByRole('button', { name: 'Save to file servers' }).first();
+    const pushBtn = page.getByRole('menuitem', { name: 'Save to file servers' }).first();
     await expect(pushBtn).toBeVisible({ timeout: 10000 });
 
     // Click push button
@@ -72,7 +72,7 @@ test.describe('Blossom Push', () => {
 
     // Click push button
     await openFolderMenu(page);
-    await page.getByRole('button', { name: 'Save to file servers' }).first().click();
+    await page.getByRole('menuitem', { name: 'Save to file servers' }).first().click();
 
     // Modal should appear
     const modal = page.locator('[data-testid="blossom-push-modal"]');
@@ -150,11 +150,11 @@ test.describe('Blossom Push', () => {
 
       // Wait for folder actions to be visible
       await openFolderMenu(page);
-      await expect(page.getByRole('button', { name: 'Save to file servers' }).first()).toBeVisible({ timeout: 10000 });
+      await expect(page.getByRole('menuitem', { name: 'Save to file servers' }).first()).toBeVisible({ timeout: 10000 });
 
       // Click push button
       await openFolderMenu(page);
-      await page.getByRole('button', { name: 'Save to file servers' }).first().click();
+      await page.getByRole('menuitem', { name: 'Save to file servers' }).first().click();
 
       // Modal should appear
       const modal = page.locator('[data-testid="blossom-push-modal"]');
@@ -237,11 +237,11 @@ test.describe('Blossom Push', () => {
 
       // Wait for folder actions to be visible
       await openFolderMenu(page);
-      await expect(page.getByRole('button', { name: 'Save to file servers' }).first()).toBeVisible({ timeout: 10000 });
+      await expect(page.getByRole('menuitem', { name: 'Save to file servers' }).first()).toBeVisible({ timeout: 10000 });
 
       // Click push button
       await openFolderMenu(page);
-      await page.getByRole('button', { name: 'Save to file servers' }).first().click();
+      await page.getByRole('menuitem', { name: 'Save to file servers' }).first().click();
 
       // Start push
       const modal = page.locator('[data-testid="blossom-push-modal"]');

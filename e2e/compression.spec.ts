@@ -17,7 +17,7 @@ test.describe('forking and extracting', () => {
     await expect(page).toHaveURL(new RegExp(`#/${profileId}/main/Plans$`));
     const makeCopy = async () => {
       await openFolderMenu(page);
-      await expect(page.getByRole('button', { name: 'Fork' })).toHaveCount(0);
+      await expect(page.getByRole('menuitem', { name: 'Fork' })).toHaveCount(0);
       await page.getByTestId('make-copy-btn').click();
     };
     const listed = (name: string) => page.getByTestId('file-list').getByRole('link', { name: new RegExp(`^${name}(\\s|$)`) });
@@ -50,7 +50,7 @@ test.describe('forking and extracting', () => {
     await goToTreeList(page);
     await createAndEnterFolder(page, 'Shared plans');
     await openFolderMenu(page);
-    await page.getByRole('button', { name: 'Fork' }).click();
+    await page.getByRole('menuitem', { name: 'Fork' }).click();
     const dialog = page.locator('.fixed.inset-0').filter({ hasText: 'Fork as New Folder' });
     await dialog.getByRole('button', { name: 'link-visible' }).click();
     await dialog.getByRole('button', { name: 'Fork' }).click();

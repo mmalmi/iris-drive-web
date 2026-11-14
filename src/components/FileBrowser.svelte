@@ -3,7 +3,8 @@
   import { toHex, LinkType, type TreeEntry as FileEntry } from '@hashtree/core';
   import { COPY_NAME_PARAM } from '../lib/shareUrls';
   import { formatBytes } from '../store';
-  import { addCopiedEntry, deleteEntry, moveEntry, moveToParent } from '../actions';
+  import { addCopiedEntry, deleteEntry } from '../actions';
+  import { moveAndTell } from './Modals/MoveModal.svelte';
   import { uploadFiles } from '../stores/upload';
   import { recentlyChangedFiles, revealFile } from '../stores/recentlyChanged';
   import { toast } from '../stores/toast';
@@ -238,7 +239,7 @@
 
     if (!canEdit || draggingEntry === dirName) return;
 
-    await moveEntry(draggingEntry, dirName);
+    await moveAndTell(currentPath, draggingEntry, [...currentPath, dirName]);
     draggingEntry = null;
   }
 
@@ -249,12 +250,13 @@
 
     if (!canEdit || !draggingEntry) return;
 
-    await moveToParent(draggingEntry);
+    await moveAndTell(currentPath, draggingEntry, currentPath.slice(0, -1));
     draggingEntry = null;
   }
 
+  // At the top of a shared folder, ".." leads out of it: nothing can be moved there.
   function handleParentDragOver(e: DragEvent) {
-    if (!canEdit || !draggingEntry) return;
+    if (!canEdit || !draggingEntry || currentPath.length === 0) return;
     e.preventDefault();
     e.dataTransfer!.dropEffect = 'move';
     dropTargetDir = '..';

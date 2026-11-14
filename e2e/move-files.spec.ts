@@ -81,4 +81,25 @@ test.describe('moving files and folders', () => {
     await expect(page).toHaveURL(/\/main\/Archive\/Inbox$/, { timeout: 30_000 });
     await expect(row(page, 'note.txt')).toBeVisible({ timeout: 30_000 });
   });
+
+  test('a file dragged onto a folder moves into it, unless something there has its name', async ({ page, relayUrl }) => {
+    await prepareFreshSession(page, relayUrl);
+    await createDriveProfile(page, 'Mover');
+    await makeFolder(page, 'Archive');
+    const upload = async () => {
+      await page.getByTestId('upload-files-input').setInputFiles({ name: 'plan.txt', mimeType: 'text/plain', buffer: Buffer.from('Plant the beans') });
+      await expect(row(page, 'plan.txt')).toBeVisible({ timeout: 30_000 });
+    };
+    const archive = page.locator('[data-testid="file-row"][data-entry-name="Archive"]');
+
+    await upload();
+    await row(page, 'plan.txt').dragTo(archive);
+    await expect(page.getByText('Moved plan.txt to Archive')).toBeVisible({ timeout: 30_000 });
+    await expect(row(page, 'plan.txt')).toHaveCount(0, { timeout: 30_000 });
+
+    await upload();
+    await row(page, 'plan.txt').dragTo(archive);
+    await expect(page.getByText('There is already something called “plan.txt” there')).toBeVisible({ timeout: 30_000 });
+    await expect(row(page, 'plan.txt')).toBeVisible();
+  });
 });

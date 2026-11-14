@@ -19,4 +19,4 @@ export {
 } from './tree';
 
 // Entry operations
-export { renameEntry, renameCurrentFolder, deleteEntry, deleteCurrentFolder, moveEntry, moveToParent, moveEntryTo } from './entry';
+export { renameEntry, renameCurrentFolder, deleteEntry, deleteCurrentFolder, moveEntryTo } from './entry';

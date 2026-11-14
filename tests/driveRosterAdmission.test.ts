@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { generateSecretKey, getPublicKey } from 'nostr-tools';
 import { signNostrIdentityRosterOp } from '../src/drive/protocol';
-import { decideRosterAdmission, type DriveRosterRelayAnswer } from '../src/nostr/driveRosterAdmission';
+import { decideRosterAdmission, type DriveRosterAdmission, type DriveRosterRelayAnswer } from '../src/nostr/driveRosterAdmission';
+import { authorizedDriveFipsAppKeyPubkeys } from '../src/lib/driveFipsIdentity';
 import { appFacet } from './driveProtocolInterop.helpers';
 
 const PROFILE_ID = '5c1f2a3b-4d5e-4f60-8a71-92b3c4d5e6f7';
@@ -37,6 +38,9 @@ function roster() {
 const answers = (...complete: boolean[]): DriveRosterRelayAnswer[] =>
   complete.map((done, index) => ({ relay: `wss://relay${index}.example`, complete: done }));
 
+/** The devices admitted once the merged roster is held, as the FIPS admission reads them. */
+const appKeys = (admission: DriveRosterAdmission) => authorizedDriveFipsAppKeyPubkeys(PROFILE_ID, admission.rosterOps);
+
 describe('admitting the account\'s own devices', () => {
   it('is confirmed by the first relay that answers completely, while the others are down', () => {
     const { adminPubkey, phonePubkey, bootstrap, addPhone } = roster();
@@ -52,7 +56,7 @@ describe('admitting the account\'s own devices', () => {
     });
     expect(admission.status).toBe('confirmed');
     expect(admission.confirmedAt).toBe(5_000);
-    expect(admission.appKeys).toEqual([adminPubkey, phonePubkey].sort());
+    expect(appKeys(admission)).toEqual([adminPubkey, phonePubkey].sort());
     expect(admission.unanswered).toEqual(['wss://relay0.example', 'wss://relay2.example', 'wss://relay3.example', 'wss://relay4.example']);
   });
 
@@ -69,19 +73,17 @@ describe('admitting the account\'s own devices', () => {
     };
     const recent = decideRosterAdmission({ ...input, now: 1_000 + MAX_AGE - 1 });
     expect(recent.status).toBe('provisional');
-    expect(recent.appKeys).toEqual([adminPubkey, phonePubkey].sort());
+    expect(appKeys(recent)).toEqual([adminPubkey, phonePubkey].sort());
 
     const expired = decideRosterAdmission({ ...input, now: 1_000 + MAX_AGE });
     expect(expired.status).toBe('unconfirmed');
-    expect(expired.appKeys).toEqual([]);
 
     const never = decideRosterAdmission({ ...input, confirmedAt: null, now: 1_000 });
     expect(never.status).toBe('unconfirmed');
-    expect(never.appKeys).toEqual([]);
   });
 
   it('applies a revocation from a relay that did not finish answering', () => {
-    const { adminPubkey, phonePubkey, bootstrap, addPhone, removePhone } = roster();
+    const { adminPubkey, bootstrap, addPhone, removePhone } = roster();
     const admission = decideRosterAdmission({
       profileId: PROFILE_ID,
       heldRosterOps: [bootstrap, addPhone],
@@ -94,8 +96,7 @@ describe('admitting the account\'s own devices', () => {
       maxAgeMs: MAX_AGE,
     });
     expect(admission.status).toBe('confirmed');
-    expect(admission.appKeys).toEqual([adminPubkey]);
-    expect(admission.appKeys).not.toContain(phonePubkey);
+    expect(appKeys(admission)).toEqual([adminPubkey]);
     expect(admission.rosterOps.map((op) => op.op_id)).toContain(removePhone.op_id);
   });
 
@@ -111,7 +112,7 @@ describe('admitting the account\'s own devices', () => {
       now: 5_000,
       maxAgeMs: MAX_AGE,
     });
-    expect(first.appKeys).toContain(phonePubkey);
+    expect(appKeys(first)).toContain(phonePubkey);
 
     // The slow relay answers later with the revocation.
     const fromRelay = decideRosterAdmission({
@@ -124,7 +125,7 @@ describe('admitting the account\'s own devices', () => {
       now: 6_000,
       maxAgeMs: MAX_AGE,
     });
-    expect(fromRelay.appKeys).toEqual([adminPubkey]);
+    expect(appKeys(fromRelay)).toEqual([adminPubkey]);
 
     // Or the live roster subscription brought it into the held roster, and no relay answers now.
     const fromLive = decideRosterAdmission({
@@ -138,7 +139,7 @@ describe('admitting the account\'s own devices', () => {
       maxAgeMs: MAX_AGE,
     });
     expect(fromLive.status).toBe('provisional');
-    expect(fromLive.appKeys).toEqual([adminPubkey]);
+    expect(appKeys(fromLive)).toEqual([adminPubkey]);
   });
 
   it('rejects operations that conflict with the held roster', () => {
@@ -170,7 +171,7 @@ describe('admitting the account\'s own devices', () => {
       now: 5_000,
       maxAgeMs: MAX_AGE,
     });
-    expect(admission.appKeys).toEqual([adminPubkey]);
+    expect(appKeys(admission)).toEqual([adminPubkey]);
     expect(admission.rosterOps.map((op) => op.op_id)).not.toContain(fork.op_id);
     expect(admission.rosterOps.map((op) => op.op_id)).not.toContain(selfAdded.op_id);
   });
@@ -188,6 +189,5 @@ describe('admitting the account\'s own devices', () => {
       maxAgeMs: MAX_AGE,
     });
     expect(admission.status).toBe('unconfirmed');
-    expect(admission.appKeys).toEqual([]);
   });
 });

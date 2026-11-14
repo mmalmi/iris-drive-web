@@ -62,7 +62,7 @@ test.describe('layout at different window sizes', () => {
       await page.setViewportSize(size);
       await page.getByTestId('folder-menu-btn').filter({ visible: true }).click();
       const menu = page.getByTestId('folder-menu');
-      await expect(menu.getByRole('button', { name: 'Download ZIP' })).toBeVisible();
+      await expect(menu.getByRole('menuitem', { name: 'Download ZIP' })).toBeVisible();
       const box = await menu.boundingBox();
       expect(box && box.x >= 0 && box.x + box.width <= size.width, 'the menu is inside the window').toBe(true);
       if (shots) await page.screenshot({ path: `${shots}/folder-menu-${size.width}.png` });

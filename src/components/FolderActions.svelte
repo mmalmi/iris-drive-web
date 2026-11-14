@@ -3,7 +3,8 @@
    * Folder actions, used in FileBrowser and Viewer: the share button and a
    * menu of the less common actions. Making and adding things is in NewMenu.
    */
-  import { toHex, type CID } from '@hashtree/core';
+  import type { CID } from '@hashtree/core';
+  import Menu, { type MenuItem } from './ui/Menu.svelte';
   import { COPY_NAME_PARAM, createDriveShareLinkVariants, folderCopyHref } from '../lib/shareUrls';
   import { open as openRenameModal } from './Modals/RenameModal.svelte';
   import { open as openMoveModal } from './Modals/MoveModal.svelte';
@@ -183,12 +184,6 @@
   let inDrive = $derived(isNostrIdentityId(route.npub ?? ''));
   let folderDepth = $derived(route.path.length - ($isViewingFileStore ? 1 : 0));
 
-  async function handleMakeCopy() {
-    const name = await makeCopyOfFolder().catch(() => null);
-    if (name) toast.success(`Made “${name}”`);
-    else toast.error('Could not make a copy.');
-  }
-
   // Handle fork button click
   function handleFork() {
     if (!dirCid) return;
@@ -239,25 +234,42 @@
   }));
 
   let btnClass = 'flex items-center gap-1 px-2.5 h-8 text-xs whitespace-nowrap lg:gap-1.5 lg:px-3 lg:text-sm';
-  let itemClass = 'flex w-full items-center gap-3 px-4 h-10 border-none bg-transparent text-left text-sm text-text-1 no-underline cursor-pointer hover:bg-surface-2';
 
   let menuOpen = $state(false);
-  let menuRef: HTMLDivElement | undefined = $state();
+  let menuButton: HTMLButtonElement | undefined = $state();
 
-  $effect(() => {
-    if (!menuOpen) return;
-    const onPointerDown = (event: PointerEvent) => {
-      if (!menuRef?.contains(event.target as Node)) menuOpen = false;
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') menuOpen = false;
-    };
-    document.addEventListener('pointerdown', onPointerDown, true);
-    document.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.removeEventListener('pointerdown', onPointerDown, true);
-      document.removeEventListener('keydown', onKeyDown);
-    };
+  let menuItems = $derived.by((): MenuItem[] => {
+    const items: MenuItem[] = [];
+    if (dirCid?.hash && permalinkHref) {
+      items.push({ label: 'Read-only copy', icon: dirCid.key ? 'i-lucide-lock' : 'i-lucide-link', testid: 'permalink-link', href: permalinkHref });
+    }
+    if (dirCid) {
+      const cid = dirCid;
+      if (canEdit) {
+        items.push(isDownloading
+          ? { label: 'Cancel ZIP', icon: 'i-lucide-x', testid: 'zip-folder-btn', run: handleCancelDownloadZip }
+          : { label: 'Download ZIP', icon: 'i-lucide-download', testid: 'zip-folder-btn', run: () => void handleDownloadZip() });
+      }
+      if (!inDrive) items.push({ label: 'Fork', icon: 'i-lucide-git-fork', testid: 'fork-folder-btn', run: handleFork });
+      else if (canEdit && folderDepth > 0) items.push({ label: 'Make a copy', icon: 'i-lucide-copy', testid: 'make-copy-btn', run: () => void makeCopyOfFolder() });
+      items.push({
+        label: 'Save to file servers',
+        icon: 'i-lucide-upload-cloud',
+        testid: 'blossom-push-btn',
+        run: () => openBlossomPushModal(cid, forkBaseName, true, route.npub ? (npubToPubkey(route.npub) ?? undefined) : undefined, route.treeName ?? undefined),
+      });
+    }
+    if (canEdit) {
+      const name = isSubdir ? currentDirName : null;
+      if (name) {
+        items.push(
+          { label: 'Rename', icon: 'i-lucide-pencil', testid: 'rename-folder-btn', run: () => openRenameModal(name) },
+          { label: 'Move', icon: 'i-lucide-folder-input', testid: 'move-folder-btn', run: () => openMoveModal(name, route.path.slice(0, -1)) },
+        );
+      }
+      items.push({ label: 'Delete', icon: 'i-lucide-trash-2', testid: 'delete-folder-btn', run: () => void handleDelete(), danger: true });
+    }
+    return items;
   });
 
   async function handleDelete() {
@@ -297,100 +309,27 @@
       <ShareButton url={shareLinks[0]?.url ?? null} latestUrl={shareLinks[1]?.url ?? null} people={peopleTarget} />
     {/if}
 
-    <div class="relative" bind:this={menuRef}>
+    <div class="relative">
       <button
+        bind:this={menuButton}
         onclick={() => { menuOpen = !menuOpen; }}
         class="btn-circle btn-ghost"
         title="More actions"
         aria-label="More actions"
-        aria-haspopup="true"
+        aria-haspopup="menu"
         aria-expanded={menuOpen}
         data-testid="folder-menu-btn"
       >
         <span class="i-lucide-ellipsis text-base"></span>
       </button>
-
       {#if menuOpen}
-        <!-- svelte-ignore a11y_click_events_have_key_events -->
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <div
-          class="absolute right-0 top-full z-30 mt-1 min-w-52 overflow-hidden rounded-xl bg-surface-1 py-1 shadow-lg ring-1 ring-surface-3"
-          data-testid="folder-menu"
-          onclick={() => { menuOpen = false; }}
-        >
-          {#if dirCid?.hash && permalinkHref}
-            <a
-              href={permalinkHref}
-              class={itemClass}
-              title={toHex(dirCid.hash)}
-              data-testid="permalink-link"
-            >
-              <span class="{dirCid.key ? 'i-lucide-lock' : 'i-lucide-link'} text-base text-text-2"></span>
-              Read-only copy
-            </a>
-          {/if}
-
-          {#if dirCid}
-            {#if canEdit}
-              <button
-                onclick={isDownloading ? handleCancelDownloadZip : handleDownloadZip}
-                class={itemClass}
-                title={isDownloading ? 'Cancel ZIP download' : 'Download directory as ZIP'}
-              >
-                <span class="{isDownloading ? 'i-lucide-x' : 'i-lucide-download'} text-base text-text-2"></span>
-                {isDownloading ? 'Cancel ZIP' : 'Download ZIP'}
-              </button>
-            {/if}
-            {#if !inDrive}
-              <button
-                onclick={handleFork}
-                class={itemClass}
-                title="Fork as new top-level folder"
-                data-testid="fork-folder-btn"
-              >
-                <span class="i-lucide-git-fork text-base text-text-2"></span>
-                Fork
-              </button>
-            {:else if canEdit && folderDepth > 0}
-              <button onclick={handleMakeCopy} class={itemClass} data-testid="make-copy-btn">
-                <span class="i-lucide-copy text-base text-text-2"></span>
-                Make a copy
-              </button>
-            {/if}
-            <button
-              onclick={() => openBlossomPushModal(dirCid!, forkBaseName, true, route.npub ? (npubToPubkey(route.npub) ?? undefined) : undefined, route.treeName ?? undefined)}
-              class={itemClass}
-              data-testid="blossom-push-btn"
-            >
-              <span class="i-lucide-upload-cloud text-base text-text-2"></span>
-              Save to file servers
-            </button>
-          {/if}
-
-          {#if canEdit}
-            {#if isSubdir && currentDirName}
-              <button onclick={() => openRenameModal(currentDirName!)} class={itemClass} title="Rename">
-                <span class="i-lucide-pencil text-base text-text-2"></span>
-                Rename
-              </button>
-              <button onclick={() => openMoveModal(currentDirName!, route.path.slice(0, -1))} class={itemClass} title="Move" data-testid="move-folder-btn">
-                <span class="i-lucide-folder-input text-base text-text-2"></span>
-                Move
-              </button>
-            {/if}
-
-            <div class="my-1 border-t border-surface-3"></div>
-            <button
-              onclick={handleDelete}
-              class="{itemClass} text-danger!"
-              title="Delete"
-              data-testid="delete-folder-btn"
-            >
-              <span class="i-lucide-trash-2 text-base"></span>
-              Delete
-            </button>
-          {/if}
-        </div>
+        <Menu
+          items={menuItems}
+          label="More actions"
+          inside={[menuButton]}
+          testid="folder-menu"
+          onClose={(returnFocus) => { menuOpen = false; if (returnFocus) menuButton?.focus(); }}
+        />
       {/if}
     </div>
   </div>

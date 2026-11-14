@@ -15,7 +15,8 @@ export async function applyMainActionMutations(
     const {
       createFolder,
       deleteEntry,
-      moveEntry,
+      getCurrentPathFromUrl,
+      moveEntryTo,
       renameEntry,
       saveFile,
     } = await import('/src/actions/index.ts');
@@ -24,7 +25,10 @@ export async function applyMainActionMutations(
       else if (mutation.type === 'mkdir') await createFolder(mutation.path);
       else if (mutation.type === 'delete') await deleteEntry(mutation.path);
       else if (mutation.type === 'rename') await renameEntry(mutation.from, mutation.to);
-      else await moveEntry(mutation.path, mutation.directory);
+      else {
+        const here = getCurrentPathFromUrl();
+        await moveEntryTo(here, mutation.path, [...here, mutation.directory]);
+      }
     }
   }, mutations);
 }

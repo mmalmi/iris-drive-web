@@ -64,7 +64,7 @@ test.describe('files and folders in My Drive', () => {
 
     // A folder's menu renames and deletes it.
     await openFolderMenu(page);
-    await page.getByRole('button', { name: 'Rename' }).click();
+    await page.getByRole('menuitem', { name: 'Rename' }).click();
     await expect(page.getByPlaceholder('New name...')).toHaveValue('old-folder');
     await page.getByPlaceholder('New name...').fill('new-folder');
     await page.getByPlaceholder('New name...').press('Enter');
@@ -95,6 +95,6 @@ test.describe('files and folders in My Drive', () => {
     // My Drive itself has no name to change.
     await page.getByTestId('home-link').click();
     await openFolderMenu(page);
-    await expect(page.getByTestId('folder-menu').getByRole('button', { name: 'Rename' })).toHaveCount(0);
+    await expect(page.getByTestId('folder-menu').getByRole('menuitem', { name: 'Rename' })).toHaveCount(0);
   });
 });

@@ -3,6 +3,14 @@
    * Moving a file or folder to another folder of the same Drive or shared
    * folder: go through its folders and choose where.
    */
+  import { get } from 'svelte/store';
+  import { moveEntryTo } from '../../actions';
+  import { nostrStore } from '../../nostr';
+  import { acceptedShares } from '../../drive/shareLibrary';
+  import { activeNostrIdentityRootScope } from '../../drive/profileRoute';
+  import { parseRoute } from '../../utils/route';
+  import { toast } from '../../stores/toast';
+
   let show = $state(false);
   let name = $state('');
   let from = $state<string[]>([]);
@@ -19,38 +27,48 @@
   export function close() {
     show = false;
   }
-</script>
 
-<script lang="ts">
-  import { get } from 'svelte/store';
-  import { LinkType } from '@hashtree/core';
-  import Modal from '../ui/Modal.svelte';
-  import { moveEntryTo } from '../../actions';
-  import { getCurrentRootCid } from '../../actions/route';
-  import { getTree } from '../../store';
-  import { nostrStore } from '../../nostr';
-  import { acceptedShares } from '../../drive/shareLibrary';
-  import { activeNostrIdentityRootScope } from '../../drive/profileRoute';
-  import { isDocumentFolderName } from '../../lib/documentNames';
-  import { filterVisibleDirectoryEntries } from '../../lib/directoryEntryVisibility';
-  import { parseRoute } from '../../utils/route';
-  import { toast } from '../../stores/toast';
-
-  let folders = $state<string[] | null>(null);
-  let moving = $state(false);
-
-  /** What the top of the open tree is called: My Drive, or the shared folder's name. */
-  function topName(): string {
+  /** What the folder at `path` of the open tree is called; its top is My Drive, or the shared folder's name. */
+  function folderName(path: string[]): string {
+    if (path.length) return path[path.length - 1]!;
     const scope = parseRoute().npub;
     if (scope && scope === activeNostrIdentityRootScope(get(nostrStore))) return 'My Drive';
     return get(acceptedShares).find((record) => record.share_id === scope)?.folder.display_name || 'Top';
   }
 
+  /**
+   * Moves an item from the folder at `parentPath` into the one at
+   * `targetPath`, and says how it went: for this dialog and for dragging.
+   * Resolves whether it moved.
+   */
+  export async function moveAndTell(parentPath: string[], itemName: string, targetPath: string[]): Promise<boolean> {
+    try {
+      await moveEntryTo(parentPath, itemName, targetPath);
+      toast.success(`Moved ${itemName} to ${folderName(targetPath)}`);
+      return true;
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : `Could not move ${itemName}`);
+      return false;
+    }
+  }
+</script>
+
+<script lang="ts">
+  import { LinkType } from '@hashtree/core';
+  import Modal from '../ui/Modal.svelte';
+  import { getCurrentRootCid } from '../../actions/route';
+  import { getTree } from '../../store';
+  import { isDocumentFolderName } from '../../lib/documentNames';
+  import { filterVisibleDirectoryEntries } from '../../lib/directoryEntryVisibility';
+
+  let folders = $state<string[] | null>(null);
+  let moving = $state(false);
+
   const same = (a: string[], b: string[]) => a.length === b.length && a.every((part, index) => part === b[index]);
   /** The item itself, and what is inside it, cannot hold it. */
   const isInsideItem = (path: string[]) => [...from, name].every((part, index) => path[index] === part);
 
-  let here = $derived(at.length ? at[at.length - 1]! : topName());
+  let here = $derived(folderName(at));
 
   $effect(() => {
     if (!show) return;
@@ -74,15 +92,8 @@
   async function moveHere() {
     if (moving) return;
     moving = true;
-    try {
-      await moveEntryTo(from, name, at);
-      toast.success(`Moved ${name} to ${here}`);
-      close();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : `Could not move ${name}`);
-    } finally {
-      moving = false;
-    }
+    if (await moveAndTell(from, name, at)) close();
+    moving = false;
   }
 </script>
 

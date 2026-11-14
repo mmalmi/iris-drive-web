@@ -9,6 +9,8 @@
     /** For a link that opens in a new tab. */
     external?: boolean;
     danger?: boolean;
+    /** Starts a group: a line above it. A dangerous item always has one. */
+    divider?: boolean;
     disabled?: boolean;
     /** Classes for the item, such as one shown only on a phone. */
     class?: string;
@@ -32,13 +34,21 @@
     sheet?: boolean;
     /** Shown at the top of the sheet: what the menu is for. */
     heading?: string | null;
+    /** Below its button, the edge of the button it lines up with. */
+    align?: 'left' | 'right';
+    /** Its width class, when it is not a sheet. */
+    width?: string;
+    /** The keyboard starts on the last item, as when ArrowUp opened it. */
+    focusLast?: boolean;
     /** Elements a press on does not close it, such as the button that opened it. */
     inside?: (HTMLElement | null | undefined)[];
     testid?: string;
     onClose: (returnFocus: boolean) => void;
   }
 
-  let { items, label, at = null, sheet = false, heading = null, inside = [], testid, onClose }: Props = $props();
+  let {
+    items, label, at = null, sheet = false, heading = null, align = 'right', width = 'w-56', focusLast = false, inside = [], testid, onClose,
+  }: Props = $props();
 
   let menuRef: HTMLDivElement | undefined = $state();
   let backdropRef: HTMLDivElement | undefined = $state();
@@ -51,10 +61,11 @@
       : [];
   }
 
-  // At a point, kept inside the window; then the first item takes the keyboard.
+  // At a point, kept inside the window; then the first or last item takes the keyboard.
   $effect(() => {
     const point = at;
     const asSheet = sheet;
+    const last = focusLast;
     void (async () => {
       await tick();
       if (!menuRef) return;
@@ -66,7 +77,8 @@
         // Hidden until placed, and what is hidden cannot take the keyboard.
         await tick();
       }
-      menuItems()[0]?.focus();
+      const list = menuItems();
+      list[last ? list.length - 1 : 0]?.focus();
     })();
   });
 
@@ -126,9 +138,7 @@
   let position = $derived(
     sheet
       ? 'fixed left-0 right-0 bottom-0 rounded-t-2xl pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]'
-      : at
-        ? 'fixed w-56 rounded-xl py-1'
-        : 'absolute right-0 top-full mt-1 w-56 rounded-xl py-1',
+      : `${at ? 'fixed' : `absolute top-full mt-1 ${align === 'left' ? 'left-0' : 'right-0'}`} ${width} rounded-xl py-1`,
   );
   let style = $derived(
     sheet || !at ? undefined : place ? `left: ${place.left}px; top: ${place.top}px;` : `left: ${at.x}px; top: ${at.y}px; visibility: hidden;`,
@@ -157,8 +167,8 @@
     <div class="px-5 pb-2 pt-1 mb-1.5 border-b border-surface-3/70 truncate text-sm font-medium text-text-2" title={heading}>{heading}</div>
   {/if}
   {#each items as item (item.testid)}
-    {@const classes = `flex w-full items-center border-none bg-transparent text-left no-underline outline-none cursor-pointer hover:bg-surface-2 focus-visible:bg-surface-2 aria-disabled:opacity-50 aria-disabled:cursor-default ${item.danger ? 'text-danger' : 'text-text-1'} ${itemClass} ${item.class ?? ''}`}
-    {#if item.danger}<div class="my-1.5 h-px bg-surface-3/70 {item.class ?? ''}" role="separator"></div>{/if}
+    {@const classes = `flex w-full items-center border-none bg-transparent text-left no-underline outline-none cursor-pointer hover:bg-surface-2 focus-visible:bg-surface-2 aria-disabled:opacity-50 aria-disabled:cursor-default ${item.danger ? 'text-danger' : 'text-text-2'} ${itemClass} ${item.class ?? ''}`}
+    {#if item.danger || item.divider}<div class="my-1.5 h-px bg-surface-3/70 {item.class ?? ''}" role="separator"></div>{/if}
     <svelte:element
       this={item.href ? 'a' : 'button'}
       type={item.href ? undefined : 'button'}
@@ -172,8 +182,9 @@
       data-testid={item.testid}
       onclick={(event: MouseEvent) => choose(event, item)}
     >
-      <span class="{item.icon} shrink-0 {sheet ? 'text-xl' : 'text-lg'} {item.danger ? '' : 'text-text-2'}"></span>
-      {item.label}
+      <!-- The icon has the item's colour unless it brings its own. -->
+      <span class="{item.icon} shrink-0 {sheet ? 'text-xl' : 'text-lg'}"></span>
+      <span class={item.danger ? undefined : 'text-text-1'}>{item.label}</span>
     </svelte:element>
   {/each}
 </div>

@@ -76,12 +76,6 @@
     if (primary) openShareModal(primary.url, secondary?.url ?? null, people, Boolean(people && documentInfo));
   }
 
-  async function makeCopy() {
-    const name = await makeCopyOfFolder([...path, entry.name]).catch(() => null);
-    if (name) toast.success(`Made “${name}”`);
-    else toast.error('Could not make a copy.');
-  }
-
   async function download() {
     try {
       if (isDir) await downloadFolderZip(entry.cid, entry.name);
@@ -109,7 +103,7 @@
         { label: 'Rename', icon: 'i-lucide-pencil', testid: 'row-menu-rename', run: () => openRenameModal(entry.name) },
         { label: 'Move', icon: 'i-lucide-folder-input', testid: 'row-menu-move', run: () => openMoveModal(entry.name, path) },
       );
-      if (isFolder && inDrive) list.push({ label: 'Make a copy', icon: 'i-lucide-copy', testid: 'row-menu-copy', run: () => void makeCopy() });
+      if (isFolder && inDrive) list.push({ label: 'Make a copy', icon: 'i-lucide-copy', testid: 'row-menu-copy', run: () => void makeCopyOfFolder([...path, entry.name]) });
     }
     if (!documentInfo) list.push({ label: 'Download', icon: 'i-lucide-download', testid: 'row-menu-download', run: () => void download() });
     if (canEdit) list.push({ label: 'Delete', icon: 'i-lucide-trash-2', testid: 'row-menu-delete', run: remove, danger: true });

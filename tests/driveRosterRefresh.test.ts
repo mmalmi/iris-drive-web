@@ -503,7 +503,6 @@ describe('authoritative Drive roster refresh', () => {
       fetchAuthors: async () => ({ relays: [{ relay: 'wss://one.example', complete: false }], rosterOps: [] }),
     });
     expect(admission.status).toBe('unconfirmed');
-    expect(admission.appKeys).toEqual([]);
     expect(admission.unanswered).toEqual(['wss://one.example']);
   });
 
@@ -526,7 +525,6 @@ describe('authoritative Drive roster refresh', () => {
       fetchAuthors: async () => ({ relays: [{ relay: 'wss://one.example', complete: true }], rosterOps: [] }),
     });
     expect(admission.status).toBe('unconfirmed');
-    expect(admission.appKeys).toEqual([]);
   });
 
   it('applies a fetched revocation and never asks relays for an event-count-limited profile query', async () => {

@@ -16,6 +16,7 @@ import { activeNostrIdentityRootScope, isEditableDriveRouteScope } from '../driv
 import { setEntryForDriveRoute } from '../drive/profileDriveRouteEntry';
 import { captureRouteWriteGuard } from '../lib/routeWriteGuard';
 import { freeName } from '../lib/driveClipboard';
+import { toast } from '../stores/toast';
 export { forkTree } from './treeFork';
 
 type DirectoryEntryInput = { name: string; cid: CID; size: number; type?: LinkType };
@@ -118,11 +119,17 @@ export async function createFolder(name: string) {
 
 /**
  * Make a copy: the folder at `path` (the open one unless given) again beside
- * it, as "Copy of <name>". Content is addressed by its hash, so the copy
- * stores nothing twice and the two change apart from then on. The copy's
- * name, or null when there is no folder to copy here.
+ * it, as "Copy of <name>", and say so. Content is addressed by its hash, so
+ * the copy stores nothing twice and the two change apart from then on.
  */
-export async function makeCopyOfFolder(path: string[] = getCurrentPathFromUrl()): Promise<string | null> {
+export async function makeCopyOfFolder(path: string[] = getCurrentPathFromUrl()): Promise<void> {
+  const name = await copyFolderBeside(path).catch(() => null);
+  if (name) toast.success(`Made “${name}”`);
+  else toast.error('Could not make a copy.');
+}
+
+/** The copy's name, or null when there is no folder to copy here. */
+async function copyFolderBeside(path: string[]): Promise<string | null> {
   const isCurrent = captureRouteWriteGuard();
   const rootCid = getCurrentRootCid();
   const name = path.at(-1);

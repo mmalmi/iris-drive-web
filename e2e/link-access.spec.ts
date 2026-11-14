@@ -83,7 +83,7 @@ test.describe('anyone with the link can view', () => {
       // Renamed, it keeps its link.
       await page.getByTestId('viewer-back').click().catch(() => {});
       await openFolderMenu(page);
-      await page.getByRole('button', { name: 'Rename' }).click();
+      await page.getByRole('menuitem', { name: 'Rename' }).click();
       await page.getByPlaceholder('New name...').fill('Holiday');
       await page.getByPlaceholder('New name...').press('Enter');
       await expect(page).toHaveURL(/\/main\/Holiday$/, { timeout: 30_000 });

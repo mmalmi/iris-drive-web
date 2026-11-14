@@ -11,11 +11,7 @@
  * encrypted only for still-authorized devices, so a revoked device admitted
  * until another relay's answer arrives sees nothing new.
  */
-import type {
-  NostrIdentityId,
-  NostrIdentityRosterProjection,
-  SignedNostrIdentityRosterOp,
-} from '../drive/protocol';
+import type { NostrIdentityId, SignedNostrIdentityRosterOp } from '../drive/protocol';
 import { projectAnchoredDriveRoster, type AnchoredDriveRoster } from './driveRosterRefresh';
 
 export interface DriveRosterRelayAnswer {
@@ -55,8 +51,6 @@ export interface DriveRosterAdmissionInput {
 
 export interface DriveRosterAdmission extends AnchoredDriveRoster {
   status: DriveRosterAdmissionStatus;
-  /** The active app-key devices of the merged roster; none when unconfirmed. */
-  appKeys: string[];
   confirmedAt: number | null;
   /** Relays without a complete answer, to be asked again. */
   unanswered: string[];
@@ -80,21 +74,7 @@ export function decideRosterAdmission(input: DriveRosterAdmissionInput): DriveRo
   } else {
     status = 'unconfirmed';
   }
-  return {
-    ...anchored,
-    status,
-    appKeys: status === 'unconfirmed' ? [] : activeAppKeys(anchored.projection),
-    confirmedAt,
-    unanswered,
-  };
-}
-
-function activeAppKeys(projection: NostrIdentityRosterProjection): string[] {
-  return Object.values(projection.active_facets)
-    .filter((facet) => facet.purposes?.includes('app_key'))
-    .map((facet) => facet.pubkey.trim().toLowerCase())
-    .filter((pubkey) => /^[0-9a-f]{64}$/.test(pubkey))
-    .sort();
+  return { ...anchored, status, confirmedAt, unanswered };
 }
 
 /** An answer without an operation this device already holds from those authors is cut short. */
