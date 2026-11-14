@@ -161,6 +161,79 @@ test.describe('giving and handing out a presentation', () => {
     }
   });
 
+  test('someone who may only view reads the speaker notes when asked, cannot change them, and the audience never sees them', async ({ page, browser, relayUrl }) => {
+    await prepareFreshSession(page, relayUrl);
+    await createDriveProfile(page);
+    await createPresentation(page, 'Field notes');
+    await page.keyboard.type('Harbour walk');
+    await page.keyboard.press('Escape');
+    await page.getByTestId('speaker-notes').fill('Point at the map.');
+    await page.keyboard.press('ControlOrMeta+m');
+    await page.keyboard.type('Bring');
+    await page.keyboard.press('Escape');
+    await expect(thumbs(page)).toHaveCount(2);
+    // The one who edits has the notes open, as before.
+    await expect(page.getByTestId('show-speaker-notes')).toHaveCount(0);
+    await expectSlidesSaved(page);
+
+    await flushPendingPublishes(page);
+    await page.getByTestId('document-share').click();
+    await expect(page.getByTestId('share-modal')).toBeVisible({ timeout: 30_000 });
+    await page.getByTestId('share-tab-link').click();
+    await page.getByTestId('share-copy-url').click();
+    const sharedUrl = await page.evaluate(() => navigator.clipboard.readText());
+    await page.keyboard.press('Escape');
+
+    const guestContext = await browser.newContext();
+    try {
+      const guest = await guestContext.newPage();
+      await prepareFreshSession(guest, relayUrl);
+      await guest.goto(`${new URL(guest.url()).origin}/#${sharedUrl.split('#')[1]}`);
+      await expect(thumbs(guest)).toHaveCount(2, { timeout: 60_000 });
+      await expect(guest.getByTestId('document-view-only')).toBeVisible();
+
+      // The notes start put away, behind a button.
+      const notes = guest.getByTestId('speaker-notes');
+      await expect(notes).toHaveCount(0);
+      await shot(guest, 'present-notes-00-viewer-closed');
+      await guest.getByTestId('show-speaker-notes').click();
+      await expect(notes).toHaveValue('Point at the map.');
+      await expect(notes).not.toBeEditable();
+      await notes.click();
+      await guest.keyboard.type('Changed');
+      await expect(notes).toHaveValue('Point at the map.');
+      await shot(guest, 'present-notes-01-viewer');
+      // A slide without notes says so.
+      await thumbs(guest).nth(1).click();
+      await expect(notes).toHaveValue('');
+      await expect(notes).toHaveAttribute('placeholder', 'No notes for this slide');
+      await thumbs(guest).first().click();
+      await expect(notes).toHaveValue('Point at the map.');
+
+      // The audience sees the slide, never the notes.
+      await guest.getByTestId('present').click();
+      const present = guest.getByTestId('present-view');
+      await expect(present).toHaveAttribute('data-slide-index', '0');
+      await expect(present).toContainText('Harbour walk');
+      await expect(present).not.toContainText('Point at the map.');
+      await expect(present.getByTestId('presenter-notes')).toHaveCount(0);
+      const covered = await notes.evaluate(field => {
+        const box = field.getBoundingClientRect();
+        return !!document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2)?.closest('[data-testid="present-view"]');
+      });
+      expect(covered).toBe(true);
+      await guest.getByTestId('present-exit').click();
+      await expect(present).toHaveCount(0);
+
+      // And the notes can be put away again.
+      await guest.getByTestId('hide-speaker-notes').click();
+      await expect(notes).toHaveCount(0);
+      await expect(guest.getByTestId('show-speaker-notes')).toBeVisible();
+    } finally {
+      await guestContext.close();
+    }
+  });
+
   test('the deck prints one slide to a page, and that is how it becomes a PDF', async ({ page, relayUrl }) => {
     await prepareFreshSession(page, relayUrl);
     await createDriveProfile(page);

@@ -50,6 +50,12 @@
   const { onCopy, onCut, onPaste, onBlur, menuCopy, menuPaste } = clipboard;
 
   let canEdit = $derived(!!shown?.canEdit);
+  /** Someone who may only view reads the speaker notes once they ask for them. */
+  let viewerNotesShown = $state(false);
+  let deckHasNotes = $derived.by(() => {
+    void shown?.revision;
+    return !!shown?.slides.some(slide => slide.notes?.length);
+  });
   /** The field for a link's address is open, for the words chosen in the box being typed in. */
   let linkEditing = $state(false);
   let workspace: HTMLElement | undefined = $state();
@@ -581,6 +587,14 @@
             <Canvas editorState={view} {urls} onImageFiles={addImages} onCopy={menuCopy} onPaste={() => void menuPaste()} others={versionState ? [] : drive.presence.others} />
             {#if canEdit}
               <NotesBox editorState={view} />
+            {:else if viewerNotesShown}
+              <NotesBox editorState={view} readonly onhide={() => (viewerNotesShown = false)} />
+            {:else if deckHasNotes}
+              <div class="flex-none flex px-2 py-1 border-t border-surface-2 bg-surface-1">
+                <button class="btn-ghost flex items-center gap-1.5 text-sm" onclick={() => (viewerNotesShown = true)} data-testid="show-speaker-notes">
+                  <span class="i-lucide-notebook-text"></span>Show speaker notes
+                </button>
+              </div>
             {/if}
           </div>
         {/key}
