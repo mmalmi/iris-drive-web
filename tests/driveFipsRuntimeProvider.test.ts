@@ -37,7 +37,8 @@ function installBrowserProviderFake(
   const connect = vi.fn(async () => undefined);
   const close = vi.fn(async () => undefined);
   const refreshNostrPeers = vi.fn();
-  const transport = { connect, close };
+  const setPreferredAutoConnectPeers = vi.fn();
+  const transport = { connect, close, setPreferredAutoConnectPeers };
   let providerOptions: ProviderOptions | undefined;
 
   browserProviderFactory.mockImplementation(async (options: ProviderOptions) => {
@@ -72,6 +73,7 @@ function installBrowserProviderFake(
     connect,
     close,
     refreshNostrPeers,
+    setPreferredAutoConnectPeers,
     transport,
     emit(event: string, value: unknown) {
       return listeners.get(event)?.(value);
@@ -123,6 +125,30 @@ describe('Drive FIPS provider authorization', () => {
         htl: BLOB_DEFAULT_HTL,
       },
     ]);
+    await runtime.stop();
+  });
+
+  test("dials the account's other devices first, following the roster", async () => {
+    vi.useFakeTimers();
+    const fake = installBrowserProviderFake();
+    const localSecret = secretKey(31);
+    const localPubkey = getPublicKey(localSecret);
+    const otherDevice = getPublicKey(secretKey(32));
+    let roster = [localPubkey, otherDevice];
+    const runtime = new DriveFipsRuntime({
+      relays: ['wss://relay.example'],
+      deviceSecretKey: localSecret,
+      profileId: '89f3d04f-41fb-437b-9339-75df537bf291',
+      authorizedAppKeyPubkeys: () => roster,
+    });
+    await runtime.start();
+    await vi.waitFor(() => expect(fake.setPreferredAutoConnectPeers).toHaveBeenLastCalledWith([`02${otherDevice}`, `03${otherDevice}`]));
+
+    // A removed device is no longer preferred.
+    roster = [localPubkey];
+    runtime.refreshAuthorization();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fake.setPreferredAutoConnectPeers).toHaveBeenLastCalledWith([]);
     await runtime.stop();
   });
 

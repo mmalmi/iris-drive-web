@@ -363,9 +363,15 @@ export class DriveFipsRuntime {
     const provider = this.provider;
     if (!policy || !provider) return;
     const generation = ++this.authorizationRefreshGeneration;
-    const peers = await policy.nostrPeers(this.getStats().connectedPeerIds).catch(() => []);
+    const [peers, ownDevices] = await Promise.all([
+      policy.nostrPeers(this.getStats().connectedPeerIds).catch(() => []),
+      policy.providerRoutes().catch(() => []),
+    ]);
     if (generation !== this.authorizationRefreshGeneration || provider !== this.provider) return;
     this.nostrPeerIds = peers;
+    // This account's other devices are dialed before strangers and redialed
+    // soon after a failure, so they find each other directly.
+    provider.webRtcTransport.setPreferredAutoConnectPeers(ownDevices.map((route) => route.peerId));
     provider.refreshNostrPeers();
   }
 
