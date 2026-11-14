@@ -1,5 +1,5 @@
 import { expect, test, type Page } from './fixtures';
-import { chooseNew } from './test-utils';
+import { chooseNew, openFolderMenu } from './test-utils';
 import { createDriveProfile, prepareFreshSession } from './documents.helpers';
 
 /** General access by link: anyone with the link views the latest version, signed out, until it is turned off. */
@@ -78,7 +78,14 @@ test.describe('anyone with the link can view', () => {
       await expect(visitor.getByTestId('upload-files-input')).toHaveCount(0);
       await expect(visitor.getByTestId('viewer-delete')).toHaveCount(0);
 
+      // Renamed, it keeps its link.
       await page.getByTestId('viewer-back').click().catch(() => {});
+      await openFolderMenu(page);
+      await page.getByRole('button', { name: 'Rename' }).click();
+      await page.getByPlaceholder('New name...').fill('Holiday');
+      await page.getByPlaceholder('New name...').press('Enter');
+      await expect(page).toHaveURL(/\/main\/Holiday$/, { timeout: 30_000 });
+      await expect(page.getByTestId('access-badge')).toHaveAttribute('data-access', 'link');
       await openGeneralAccess(page);
       expect(await copiedLink(page)).toBe(link);
 

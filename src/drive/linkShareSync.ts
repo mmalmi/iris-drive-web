@@ -145,6 +145,29 @@ export async function setLinkAccess(path: string[], access: LinkAccess | 'off'):
 }
 
 /**
+ * Keeps links with their items: one renamed or moved in My Drive on this
+ * device takes its link along, and one deleted has its link turned off.
+ */
+export function followLinkShares(from: string[], to: string[] | null): void {
+  const me = account();
+  if (!me) return;
+  const at = from.join('/');
+  const now = Date.now();
+  const moved = get(linkShares)
+    .filter((record) => record.profile === me.profile && record.access !== 'off'
+      && (record.path === at || record.path.startsWith(`${at}/`)))
+    .map((record): LinkShare => (to
+      ? { ...record, path: to.join('/') + record.path.slice(at.length), at: now }
+      : { ...record, access: 'off', at: now }));
+  if (moved.length === 0) return;
+  linkShares.update((items) => mergeLinkShares(items, moved));
+  for (const record of moved) {
+    if (record.access === 'off' && record.npub === me.npub) void unpublish(record).catch(() => undefined);
+    tell(record);
+  }
+}
+
+/**
  * While Drive is open: publish each new version of the items this device
  * shares by link, unpublish the ones turned off on another device, and take
  * in what the account's other devices say.

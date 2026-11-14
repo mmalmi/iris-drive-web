@@ -7,7 +7,8 @@ import { autosaveIfOwn, nostrStore } from '../nostr';
 import { getTree } from '../store';
 import { LinkType } from '@hashtree/core';
 import { getCurrentRootCid, getCurrentPathFromUrl, buildRouteUrl, updateRoute } from './route';
-import { isEditableDriveRouteScope } from '../drive/profileRoute';
+import { activeNostrIdentityRootScope, isEditableDriveRouteScope } from '../drive/profileRoute';
+import { followLinkShares } from '../drive/linkShareSync';
 import { mutateProfileDriveRoot } from '../drive/profileDriveMutation';
 import { moveRecents } from '../stores/recents';
 
@@ -20,12 +21,13 @@ function pathString(parts: string[]): string {
   return parts.filter(Boolean).join('/');
 }
 
-/** Moves Recent along with an entry of the open tree, or drops it when `to` is null. */
+/** Moves Recent and links along with an entry of the open tree, or drops them when `to` is null. */
 function followInRecents(from: string[], to: string[] | null) {
   const route = parseRoute();
   if (!route.npub || !route.treeName) return;
   const at = (parts: string[]) => `/${route.npub}/${route.treeName}/${pathString(parts)}`;
   moveRecents(at(from), to ? at(to) : null);
+  if (route.treeName === 'main' && route.npub === activeNostrIdentityRootScope(nostrStore.getState())) followLinkShares(from, to);
 }
 
 // Rename entry
