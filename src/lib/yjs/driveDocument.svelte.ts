@@ -22,9 +22,9 @@ import { itemAccess, type ItemAccess } from '../../drive/itemAccess';
 import { nostrStore, saveOwnTreeRoot } from '../../nostr';
 import type { NostrState } from '../../nostr/store';
 import { flushPendingPublishes } from '../../treeRootCache';
-import { deleteCurrentFolder } from '../../actions';
+import { deleteCurrentFolder, renameCurrentFolder } from '../../actions';
 import { removeOwnDirectoryForDriveRoute, setEntryForDriveRoute } from '../../drive/profileDriveRouteEntry';
-import { DOCUMENT_KINDS, documentKind, documentTitle, snapshotLinkQuery, type DocumentKindInfo } from '../documentNames';
+import { DOCUMENT_KINDS, documentFolderName, documentKind, documentTitle, snapshotLinkQuery, type DocumentKindInfo } from '../documentNames';
 import { getCidFileUrl } from '../mediaUrl';
 import { DocumentSession, STORED_ORIGIN, type DocumentChange } from './documentStore';
 import { withDriveRootLock } from '../driveRootTabs';
@@ -330,6 +330,32 @@ export class DriveDocument {
       records: this.#shares.current,
     }) : null;
     openShareModal(link, null, people, Boolean(people));
+  }
+
+  /**
+   * Gives the document another title; the page then opens it under the new
+   * one. Resolves false when something beside it already has that name.
+   */
+  async rename(title: string): Promise<boolean> {
+    const name = documentFolderName(title, this.kind.kind);
+    if (!title.trim() || name === this.dirName) return true;
+    await this.saveNow();
+    // Nothing more may be saved to the old name once it is gone.
+    if (this.#saveTimer) clearTimeout(this.#saveTimer);
+    const wasSaver = this.#isSaver;
+    this.#isSaver = false;
+    this.#session?.setSaver(false);
+    let renamed = false;
+    try {
+      renamed = await renameCurrentFolder(name);
+      return renamed;
+    } finally {
+      // Still here under the old name: go on saving to it.
+      if (!renamed && wasSaver && !this.#destroyed) {
+        this.#isSaver = true;
+        this.#session?.setSaver(true);
+      }
+    }
   }
 
   /** Asks, then removes the document from the Drive and returns to its folder. */

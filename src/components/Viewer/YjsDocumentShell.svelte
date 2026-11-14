@@ -5,6 +5,7 @@
   import { AddCommentModal, CommentsPanel } from '../Comments';
   import EditorToolbar from './EditorToolbar.svelte';
   import DocumentHeader from './DocumentHeader.svelte';
+  import DocumentLinkMenu from './DocumentLinkMenu.svelte';
   import type { DriveDocument } from '../../lib/yjs';
 
   interface Props {
@@ -18,6 +19,8 @@
     showAddCommentModal: boolean;
     pendingCommentText: string;
     editorElement?: HTMLElement;
+    /** True while the field for a link's address is open. */
+    linkEditing: boolean;
     onAddComment: () => void;
     onToggleCommentsPanel: () => void;
     onEditorClick: (event: MouseEvent) => void;
@@ -39,6 +42,7 @@
     showAddCommentModal,
     pendingCommentText,
     editorElement = $bindable(),
+    linkEditing = $bindable(),
     onAddComment,
     onToggleCommentsPanel,
     onEditorClick,
@@ -54,6 +58,35 @@
   let missing = $derived(drive.missing);
 
   let imageFileInput: HTMLInputElement | undefined = $state();
+  let pageElement: HTMLElement | undefined = $state();
+
+  // Printing, from the toolbar or the browser's own menu, prints the page alone:
+  // a copy of it goes directly under the body, where everything else can be left out.
+  $effect(() => {
+    let copy: HTMLElement | undefined;
+    const after = () => {
+      copy?.remove();
+      copy = undefined;
+    };
+    const before = () => {
+      after();
+      if (!editorElement) return;
+      const page = editorElement.cloneNode(true) as HTMLElement;
+      page.removeAttribute('data-testid');
+      for (const node of page.querySelectorAll('[contenteditable]')) node.removeAttribute('contenteditable');
+      copy = document.createElement('div');
+      copy.className = 'document-print';
+      copy.appendChild(page);
+      document.body.appendChild(copy);
+    };
+    window.addEventListener('beforeprint', before);
+    window.addEventListener('afterprint', after);
+    return () => {
+      after();
+      window.removeEventListener('beforeprint', before);
+      window.removeEventListener('afterprint', after);
+    };
+  });
 
   function handleFileInputChange(event: Event): void {
     const input = event.target as HTMLInputElement;
@@ -84,6 +117,7 @@
       onAddComment={onAddComment}
       onToggleCommentsPanel={onToggleCommentsPanel}
       onImageUpload={() => imageFileInput?.click()}
+      onLink={() => { linkEditing = true; }}
     />
   {/if}
 
@@ -95,7 +129,7 @@
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div class="flex-1 overflow-auto" onclick={onEditorClick} data-scrollable>
-      <div class="document-page">
+      <div class="document-page" bind:this={pageElement}>
         {#if loading && missing}
           <div class="flex items-center justify-center min-h-[40vh] text-text-3 text-sm" data-testid="document-missing">
             Document not found
@@ -106,6 +140,9 @@
           </div>
         {:else}
           <div bind:this={editorElement} class="document-container" data-testid="document-content"></div>
+          {#if canEdit && editor && pageElement}
+            <DocumentLinkMenu {editor} page={pageElement} bind:editing={linkEditing} />
+          {/if}
         {/if}
       </div>
     </div>
@@ -140,6 +177,7 @@
 
 <style>
   .document-page {
+    position: relative;
     min-height: 100%;
     background: rgb(var(--surface-0));
   }
@@ -272,6 +310,58 @@
     pointer-events: none;
   }
 
+  .document-container :global(.ProseMirror .tableWrapper) {
+    overflow-x: auto;
+  }
+
+  .document-container :global(.ProseMirror table) {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+  }
+
+  .document-container :global(.ProseMirror td),
+  .document-container :global(.ProseMirror th) {
+    position: relative;
+    min-width: 2em;
+    padding: 0.3em 0.6em;
+    border: 1px solid rgb(var(--surface-3));
+    vertical-align: top;
+    text-align: left;
+  }
+
+  .document-container :global(.ProseMirror th) {
+    font-weight: 600;
+    background: rgb(var(--surface-2) / 0.6);
+  }
+
+  .document-container :global(.ProseMirror td > p),
+  .document-container :global(.ProseMirror th > p) {
+    margin: 0;
+  }
+
+  .document-container :global(.ProseMirror .selectedCell::after) {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: rgb(145 109 254 / 0.15);
+    pointer-events: none;
+  }
+
+  .document-container :global(.ProseMirror .column-resize-handle) {
+    position: absolute;
+    top: 0;
+    right: -2px;
+    bottom: -2px;
+    width: 4px;
+    background: #916dfe;
+    pointer-events: none;
+  }
+
+  .document-container :global(.ProseMirror.resize-cursor) {
+    cursor: col-resize;
+  }
+
   .document-container :global(.ProseMirror img) {
     max-width: 100%;
     height: auto;
@@ -292,5 +382,43 @@
 
   .document-container :global(.comment-highlight:hover) {
     background-color: rgb(255 204 0 / 0.45);
+  }
+
+  /* The copy that is printed: on paper, in the colours of the light theme. */
+  @media screen {
+    :global(.document-print) {
+      display: none;
+    }
+  }
+
+  @media print {
+    :global(body:has(> .document-print) > :not(.document-print)) {
+      display: none !important;
+    }
+
+    :global(html:has(> body > .document-print)),
+    :global(body:has(> .document-print)) {
+      height: auto !important;
+      overflow: visible !important;
+      background: #fff !important;
+    }
+
+    :global(.document-print) {
+      --surface-2: 221 221 221;
+      --surface-3: 187 187 187;
+      --text-1: 26 26 26;
+      --text-2: 85 85 85;
+      --text-3: 153 153 153;
+    }
+
+    :global(.document-print .ProseMirror) {
+      min-height: 0 !important;
+      padding: 0 !important;
+    }
+
+    :global(.document-print .comment-highlight) {
+      background: none !important;
+      border: none !important;
+    }
   }
 </style>

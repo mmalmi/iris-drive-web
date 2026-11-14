@@ -10,7 +10,7 @@
     DriveDocument,
     attachmentFilename,
   } from '../../lib/yjs';
-  import { createYjsTiptapEditor } from '../../lib/yjs/tiptapEditor';
+  import { createYjsTiptapEditor, insertPicture } from '../../lib/yjs/tiptapEditor';
 
   const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 
@@ -29,6 +29,7 @@
   let showAddCommentModal = $state(false);
   let pendingCommentSelection = $state<{ from: number; to: number; text: string } | null>(null);
   let notice = $state('');
+  let linkEditing = $state(false);
 
   // svelte-ignore state_referenced_locally
   const drive = new DriveDocument(dirName, {
@@ -51,7 +52,7 @@
     if (url && img.getAttribute('src') !== url) img.src = url;
   }
 
-  async function handleImageUpload(file: File): Promise<void> {
+  async function handleImageUpload(file: File, at?: number): Promise<void> {
     if (!canEdit || !editor || !file.type.startsWith('image/')) return;
     if (file.size > MAX_IMAGE_BYTES) {
       notice = 'Images can be up to 20 MB.';
@@ -60,7 +61,7 @@
     notice = '';
     try {
       const filename = await drive.addAttachment(file);
-      editor.chain().focus().setImage({ src: `${ATTACHMENT_SCHEME}${filename}`, alt: file.name }).run();
+      insertPicture(editor, { src: `${ATTACHMENT_SCHEME}${filename}`, alt: file.name }, at);
     } catch (error) {
       console.error('[Document] Could not add image:', error);
       notice = 'Could not add the image.';
@@ -88,6 +89,9 @@
         },
         onCommentsState: (state) => {
           commentsState = state;
+        },
+        onLinkShortcut: () => {
+          linkEditing = true;
         },
       });
       editor = setup.editor;
@@ -171,6 +175,7 @@
 
 <YjsDocumentShell
   bind:editorElement
+  bind:linkEditing
   {drive}
   {notice}
   {editor}

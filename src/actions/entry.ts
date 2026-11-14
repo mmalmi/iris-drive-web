@@ -117,6 +117,33 @@ export async function deleteCurrentFolder() {
   navigate(url);
 }
 
+/**
+ * Gives the folder the page shows another name and goes on showing it under
+ * that name. Resolves false, changing nothing, when something in the same
+ * place already has the name.
+ */
+export async function renameCurrentFolder(newName: string): Promise<boolean> {
+  const rootCid = getCurrentRootCid();
+  const route = parseRoute();
+  if (!rootCid || route.path.length === 0) return false;
+
+  const oldName = route.path[route.path.length - 1];
+  const parentPath = route.path.slice(0, -1);
+  const tree = getTree();
+  if (await tree.resolvePath(rootCid, pathString([...parentPath, newName]))) return false;
+
+  const newRootCid = isProfileDriveMutation()
+    ? await mutateProfileDriveRoot(tree, rootCid, {
+        type: 'rename',
+        from: pathString([...parentPath, oldName]),
+        to: pathString([...parentPath, newName]),
+      })
+    : await tree.renameEntry(rootCid, parentPath, oldName, newName);
+  autosaveIfOwn(newRootCid);
+  navigate(buildRouteUrl(route.npub, route.treeName, [...parentPath, newName], undefined, route.params.get('k')));
+  return true;
+}
+
 // Move entry into a directory
 export async function moveEntry(sourceName: string, targetDirName: string) {
   const rootCid = getCurrentRootCid();
