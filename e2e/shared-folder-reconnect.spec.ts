@@ -77,10 +77,11 @@ test('trip collaborators add, rename and delete files while a reader reconnects 
     await page.getByRole('button', { name: 'Rename', exact: true }).last().click();
     await expect(page.getByTestId('viewer-header')).toContainText('Packing final.txt');
     await waitForSharedFolderPublished(page, share.share_id, { has: ['Packing final.txt'], lacks: ['Packing café.txt'] });
-    // A one-shot native sync can apply Bob's previous version first and the
-    // newest on the next pass (seen 2026-11-13, with the newest already on the
-    // relay). Sync until the rename shows, a few passes at most.
-    for (let pass = 0; pass < 3; pass += 1) {
+    // Bob's page counts the rename published once its worker holds it, without
+    // waiting for the relay, and a one-shot native sync can apply Bob's
+    // previous version first (seen 2026-11-13). Sync until the rename shows;
+    // one that never reaches the relay still fails below.
+    for (const deadline = Date.now() + 30_000; Date.now() < deadline;) {
       runIdriveJson(profiles.alice!, ['sync', '--relay', relayUrl, '--timeout', '2']);
       const paths = runIdriveJson(profiles.alice!, ['provider', 'list']).entries.map((entry: { path: string }) => entry.path);
       if (paths.includes('Trip/Packing final.txt')) break;
