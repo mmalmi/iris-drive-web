@@ -14,7 +14,7 @@ export {
   createFolder,
   createDocument,
   forkTree,
-  makeCopyOfFolder,
+  makeCopy,
   createTree,
 } from './tree';
 

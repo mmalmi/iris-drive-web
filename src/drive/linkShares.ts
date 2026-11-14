@@ -184,6 +184,24 @@ export function linkShareCovering(path: string[], profile: string | null | undef
 }
 
 /**
+ * The address that opens the item at `target` by link, signed in or not:
+ * its own link, or that of the folder it is in. Null when none is on.
+ */
+export function linkOpening(
+  target: LinkTarget,
+  profile: string | null | undefined,
+  shares: AcceptedShareRecord[],
+  records: LinkShare[],
+): string | null {
+  const subject = linkSubjectAt(target, profile, shares);
+  if (!subject) return null;
+  const record = linkShareCovering(subject.path, profile, records, subject.share);
+  if (!record || (record.access !== 'public' && !record.key)) return null;
+  const inside = subject.path.slice(record.path ? record.path.split('/').length : 0);
+  return linkShareUrl(record, undefined, inside);
+}
+
+/**
  * The address people open, signed in or not. A document or a file opens as
  * itself; `inside` opens something inside a linked folder.
  */

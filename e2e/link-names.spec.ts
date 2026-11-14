@@ -41,7 +41,7 @@ test.describe('names and places of pages', () => {
 
       // Read-only: a row's menu offers only what does not change anything.
       const menu = await openRowMenu(visitor, 'Plan.txt');
-      await expect(menu.getByRole('menuitem')).toHaveText(['Open', 'Share', 'Download']);
+      await expect(menu.getByRole('menuitem')).toHaveText(['Open', 'Share', 'Copy link', 'Download']);
       await visitor.keyboard.press('Escape');
 
       // Going into a file and back keeps the name.
