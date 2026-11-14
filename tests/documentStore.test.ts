@@ -3,12 +3,14 @@ import { HashTree, LinkType, MemoryStore, toHex, type CID, type TreeEntry } from
 import { generateSecretKey, getPublicKey } from 'nostr-tools';
 import * as Y from 'yjs';
 import { buildDriveRootEvent, parseDriveRootEventForDevice } from '../src/drive/protocol';
-import { mutateProfileDriveRoot, prepareProfileDriveRootForPublish } from '../src/drive/profileDriveMutation';
+import { mutateProfileDriveRoot, prepareProfileDriveRootForPublish, type ProfileDriveMutation } from '../src/drive/profileDriveMutation';
 import { ProfileDriveProjection } from '../src/drive/profileDriveProjection';
 import { DocumentSession, type DocumentChange } from '../src/lib/yjs/documentStore';
+import { findMovedDocument } from '../src/lib/yjs/movedDocument';
 
 const PROFILE_ID = '89f3d04f-41fb-437b-9339-75df537bf291';
 const DOCUMENT = 'Notes/Plan.irisdoc';
+const RENAMED = 'Notes/Final plan.irisdoc';
 
 /** A Drive shared by simulated devices, merged by the real projection. */
 class SimulatedDrive {
@@ -31,8 +33,8 @@ class SimulatedDrive {
   }
 
   /** Every file below the document folder in the merged Drive. */
-  async documentFiles(): Promise<string[]> {
-    const folder = await this.tree.resolvePath(await this.merged(), DOCUMENT);
+  async documentFiles(path = DOCUMENT): Promise<string[]> {
+    const folder = await this.tree.resolvePath(await this.merged(), path);
     if (!folder) return [];
     const paths: string[] = [];
     const walk = async (cid: CID, prefix: string): Promise<void> => {
@@ -54,6 +56,8 @@ class SimulatedDevice {
   readonly text = this.ydoc.getText('body');
   readonly session: DocumentSession;
   commits = 0;
+  /** Where this device has the document open. */
+  path = DOCUMENT;
   private sequence = 0;
   private local: CID;
   private contribution: CID | null = null;
@@ -83,9 +87,19 @@ class SimulatedDevice {
     return this.session.load(await this.documentEntries());
   }
 
-  async documentEntries(): Promise<TreeEntry[]> {
-    const folder = await this.drive.tree.resolvePath(this.local, DOCUMENT);
+  async documentEntries(path = this.path): Promise<TreeEntry[]> {
+    const folder = await this.drive.tree.resolvePath(this.local, path);
     return folder ? this.drive.tree.listDirectory(folder.cid) : [];
+  }
+
+  /** The Drive as this device last saw it, with its own changes. */
+  get view(): CID {
+    return this.local;
+  }
+
+  /** Changes the Drive as the file list does, and publishes it. */
+  async mutate(mutation: ProfileDriveMutation): Promise<void> {
+    await this.publish(await mutateProfileDriveRoot(this.drive.tree, this.local, mutation, { tombstonedAt: this.drive.clock }));
   }
 
   type(value: string): void {
@@ -100,17 +114,30 @@ class SimulatedDevice {
       const file = await tree.putFile(write.data);
       root = await mutateProfileDriveRoot(tree, root, {
         type: 'set-entry',
-        path: `${DOCUMENT}/${write.path.join('/')}`,
+        path: `${this.path}/${write.path.join('/')}`,
         entry: { cid: file.cid, size: file.size, type: LinkType.Blob },
       });
     }
     for (const directory of change.removeDirectories) {
       root = await mutateProfileDriveRoot(tree, root, {
         type: 'delete',
-        path: `${DOCUMENT}/${directory.join('/')}`,
+        path: `${this.path}/${directory.join('/')}`,
         markContents: false,
       }, { tombstonedAt: this.drive.clock });
     }
+    // What following a renamed document leaves behind goes with the next save.
+    if (this.leftover) {
+      root = await mutateProfileDriveRoot(tree, root, { type: 'delete', path: this.leftover, markContents: false }, { tombstonedAt: this.drive.clock });
+      this.leftover = null;
+    }
+    await this.publish(root);
+  }
+
+  /** The folder to remove with the next save, as DriveDocument does after following a rename. */
+  leftover: string | null = null;
+
+  private async publish(root: CID): Promise<void> {
+    const { tree } = this.drive;
     this.local = root;
     const published = await prepareProfileDriveRootForPublish(tree, root, this.contribution);
     this.sequence += 1;
@@ -334,5 +361,77 @@ describe('document storage in a Drive folder', { timeout: 30_000 }, () => {
     const reader = await drive.addDevice();
     await reader.sync();
     expect(reader.text.toString()).toBe('typed while another tab was saving');
+  });
+  it('a device that saved into the old name while it was renamed elsewhere moves everything into the renamed folder', async () => {
+    const drive = new SimulatedDrive();
+    const [renamer, typist] = [await drive.addDevice(), await drive.addDevice()];
+    renamer.type('first ');
+    await renamer.session.save();
+    await typist.sync();
+    expect(drive.projection.deletedAt(PROFILE_ID, 'main', DOCUMENT.split('/'))).toBe(0);
+
+    await renamer.sync();
+    await renamer.mutate({ type: 'rename', from: DOCUMENT, to: RENAMED });
+    renamer.path = RENAMED;
+    // Saved before the typist heard of the rename: it brings the old name back.
+    typist.type('late ');
+    await typist.session.save();
+    await typist.sync();
+    expect(await drive.tree.resolvePath(typist.view, DOCUMENT)).not.toBeNull();
+    expect(await drive.tree.resolvePath(typist.view, RENAMED)).not.toBeNull();
+
+    // The merge says the old place was deleted after the typist opened it; the renamed folder holds what it read.
+    const merged = await drive.merged();
+    expect(drive.projection.deletedAt(PROFILE_ID, 'main', DOCUMENT.split('/'), merged)).toBeGreaterThan(0);
+    expect(drive.projection.deletedAt(PROFILE_ID, 'main', RENAMED.split('/'), merged)).toBe(0);
+    const to = await findMovedDocument({
+      tree: drive.tree,
+      root: typist.view,
+      from: DOCUMENT.split('/'),
+      kind: 'document',
+      known: entries => typist.session.filesKnown(entries),
+    });
+    expect(to).toEqual(RENAMED.split('/'));
+
+    // Following it: what that folder lacks is stored there, and the old folder goes with the same save.
+    typist.path = RENAMED;
+    typist.leftover = DOCUMENT;
+    expect(await typist.session.moveTo(await typist.documentEntries())).toBe(true);
+    expect(await typist.session.save()).toBe(true);
+    renamer.type('after ');
+    await renamer.sync();
+    await renamer.session.save();
+
+    const final = await drive.merged();
+    expect(await drive.tree.resolvePath(final, DOCUMENT)).toBeNull();
+    expect((await drive.documentFiles(RENAMED)).filter(path => path.includes('conflict'))).toEqual([]);
+    const reader = await drive.addDevice();
+    reader.path = RENAMED;
+    await reader.sync();
+    for (const word of ['first ', 'late ', 'after ']) expect(reader.text.toString()).toContain(word);
+    await typist.sync();
+    expect(typist.text.toString()).toBe(reader.text.toString());
+  });
+
+  it('following a rename stores nothing when the new folder already holds all this copy has', async () => {
+    const drive = new SimulatedDrive();
+    const [renamer, viewer] = [await drive.addDevice(), await drive.addDevice()];
+    renamer.type('only words ');
+    await renamer.session.save();
+    await viewer.sync();
+    await renamer.sync();
+    await renamer.mutate({ type: 'rename', from: DOCUMENT, to: RENAMED });
+    await viewer.sync();
+    expect(await drive.tree.resolvePath(viewer.view, DOCUMENT)).toBeNull();
+    viewer.path = RENAMED;
+    expect(await viewer.session.moveTo(await viewer.documentEntries())).toBe(false);
+    expect(viewer.session.dirty).toBe(false);
+    // Typed after following: saved in the new folder.
+    viewer.type('more');
+    await viewer.session.save();
+    const reader = await drive.addDevice();
+    reader.path = RENAMED;
+    await reader.sync();
+    expect(reader.text.toString()).toBe('only words more');
   });
 });

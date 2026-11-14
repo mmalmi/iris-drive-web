@@ -100,6 +100,8 @@ export function sourceRootKey(source: ProfileDriveRootCandidate): string {
  */
 export class ProfileDriveProjection {
   private readonly roots = new Map<string, Map<string, ProfileDriveRootCandidate>>();
+  /** The deletions the view merged last took in, by Drive: path → when. */
+  private readonly deletions = new Map<string, { root: string; at: Map<string, number> }>();
 
   add(event: Event, parsed: ParsedDriveRootEvent): boolean {
     if (event.pubkey !== parsed.app_key_pubkey_hex) return false;
@@ -124,9 +126,28 @@ export class ProfileDriveProjection {
   clear(rootScopeId?: string, driveId?: string): void {
     if (rootScopeId && driveId) {
       this.roots.delete(projectionKey(rootScopeId, driveId));
+      this.deletions.delete(projectionKey(rootScopeId, driveId));
     } else {
       this.roots.clear();
+      this.deletions.clear();
     }
+  }
+
+  /**
+   * When `path`, or a folder above it, was last deleted or renamed away from
+   * in the view merged last: 0 when never. A path can be shown again after
+   * that, by a write made without knowing of the delete. With `root`, the
+   * answer is null unless that view is `root`; it is null too before any view
+   * has been merged.
+   */
+  deletedAt(rootScopeId: string, driveId: string, path: readonly string[], root?: CID): number | null {
+    const merged = this.deletions.get(projectionKey(rootScopeId, driveId));
+    if (!merged || (root && merged.root !== toHex(root.hash))) return null;
+    let latest = 0;
+    for (let depth = 1; depth <= path.length; depth += 1) {
+      latest = Math.max(latest, merged.at.get(path.slice(0, depth).join('/')) ?? 0);
+    }
+    return latest;
   }
 
   /**
@@ -252,6 +273,10 @@ export class ProfileDriveProjection {
     }
     signal?.throwIfAborted();
     const root = await builder.put(tree);
+    this.deletions.set(projectionKey(rootScopeId, driveId), {
+      root: toHex(root.hash),
+      at: new Map([...tombstones].map(([path, tombstone]) => [path, tombstone.tombstonedAt])),
+    });
 
     return {
       root,

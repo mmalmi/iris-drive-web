@@ -123,7 +123,7 @@
   {:else}
     <h1 class="text-sm font-semibold text-text-1 truncate min-w-0" data-testid="document-title">{drive.title}</h1>
   {/if}
-  {#if !drive.canEdit && !drive.loading}
+  {#if !drive.canEdit && !drive.loading && !drive.gone}
     <span class="shrink-0 text-xs px-2 py-0.5 rounded-full bg-surface-2 text-text-2" data-testid="document-view-only">View only</span>
   {/if}
   <AccessBadge access={drive.access} label onclick={drive.canEdit ? () => void drive.share() : undefined} />
@@ -132,7 +132,10 @@
     <PresenceAvatars peers={drive.presence.peers} />
     <!-- Saving happens on its own; only its outcome is worth a glance. -->
     <span class="text-xs text-text-3 flex items-center gap-1 mr-1" role="status" data-testid="document-save-status" data-state={saveStatus}>
-      {#if !online && saveStatus !== 'error' && saveStatus !== 'other-tab'}
+      {#if saveStatus === 'deleted'}
+        <!-- Deleted elsewhere while open here: nothing more is saved. -->
+        <span class="text-danger flex items-center gap-1"><span class="i-lucide-trash-2"></span>Deleted</span>
+      {:else if !online && saveStatus !== 'error' && saveStatus !== 'other-tab'}
         <!-- Edits are still stored here; only sending them waits for the network. -->
         <span class="flex items-center gap-1" title="Changes are kept on this device until the network is back"><span class="i-lucide-cloud-off text-base"></span><span class="hidden sm:inline">Offline</span></span>
       {:else if saveStatus === 'saving' || saveStatus === 'unsaved' || saveStatus === 'saved'}

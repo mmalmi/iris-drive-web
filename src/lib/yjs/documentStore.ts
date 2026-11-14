@@ -243,9 +243,53 @@ export class DocumentSession {
     return updatesToApply.length;
   }
 
+  /**
+   * How many of the saved batches in another document folder this copy has
+   * read: a folder this document was renamed or moved to holds the same
+   * files, while an unrelated document shares none.
+   */
+  async filesKnown(documentEntries: readonly TreeEntry[]): Promise<number> {
+    const updates = documentEntries.find(entry => entry.name === UPDATES_DIRECTORY && !isFile(entry));
+    if (!updates) return 0;
+    let known = 0;
+    for (const folder of await this.tree.listDirectory(updates.cid)) {
+      const entries = isFile(folder) ? [folder] : await this.tree.listDirectory(folder.cid);
+      for (const entry of entries) {
+        if (isFile(entry) && this.seen.has(cidKey(entry.cid))) known += 1;
+      }
+    }
+    return known;
+  }
+
+  /**
+   * Goes on in another folder that holds this document, as after a rename
+   * elsewhere: its files are read as on a first load, and when this copy has
+   * something they lack (edits saved to the old place, or not yet saved), all
+   * of that is stored with the next save. Resolves true when there is.
+   */
+  async moveTo(documentEntries: readonly TreeEntry[]): Promise<boolean> {
+    const known = [...this.seen];
+    this.seen.clear();
+    this.walked.clear();
+    this.storedClocks.clear();
+    this.storedTo.clear();
+    this.own = { generation: 0, changeCount: 0, stale: new Set() };
+    await this.load(documentEntries);
+    const lacking = known.some(key => !this.seen.has(key));
+    if (!this.saver || (!lacking && this.pending.length === 0)) return false;
+    // Against what the new place holds; deletions are always sent whole.
+    this.pending = [Y.encodeStateAsUpdate(this.ydoc, Y.encodeStateVector(this.storedClocks))];
+    return true;
+  }
+
   /** Names the next stored batch of edits with a mark (see changeFileName), when there are edits waiting. */
   markNext(mark: string): void {
     if (this.saver && this.pending.length > 0) this.mark = mark;
+  }
+
+  /** Resolves once no save is under way. */
+  async settled(): Promise<void> {
+    while (this.saving) await this.saving.catch(() => {});
   }
 
   /** Stores waiting edits. Resolves false when there was nothing to store. */
