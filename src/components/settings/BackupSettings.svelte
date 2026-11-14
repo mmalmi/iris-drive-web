@@ -18,6 +18,9 @@
     startBackups,
   } from '../../lib/backup/backups';
   import { backupStatus, type BackupTone } from '../../lib/backup/backupStatus';
+  import { getCurrentNostrIdentitySession, nostrStore } from '../../nostr';
+  import { projectNostrIdentityRoster } from '../../drive/protocol';
+  import { activeRecoveryPhraseFacets } from '../../drive/recoveryPhrase';
 
   const runsHere = backupsRunHere();
   const folders = canBackUpToFolder();
@@ -36,6 +39,14 @@
   let now = $state(Date.now());
   let draft = $state('');
   let draftError = $state('');
+  // True with a recovery phrase, null without one, undefined when signed out.
+  let recoveryPhrase = $derived.by((): true | null | undefined => {
+    void $nostrStore;
+    const session = getCurrentNostrIdentitySession();
+    if (!session || session.status !== 'active') return undefined;
+    const projection = projectNostrIdentityRoster(session.profileId, session.rosterOps);
+    return activeRecoveryPhraseFacets(projection).length > 0 ? true : null;
+  });
 
   $effect(() => {
     startBackups();
@@ -154,7 +165,19 @@
   <section>
     <h3 class="text-xs font-medium text-muted uppercase tracking-wide mb-1">If you lose this device</h3>
     <div class="space-y-2 rounded bg-surface-2 p-3 text-sm text-text-2" data-testid="backup-restore">
-      <p>Sign in on another device with your recovery phrase. Your folders and files come back from the file servers above.</p>
+      {#if recoveryPhrase}
+        <p class="flex items-start gap-2 text-text-1" data-testid="backup-recovery-phrase">
+          <span class="i-lucide-circle-check mt-0.5 shrink-0 text-success"></span>
+          <span>Your recovery phrase is set up.</span>
+        </p>
+      {:else if recoveryPhrase === null}
+        <p class="flex items-start gap-2 text-text-1" data-testid="backup-recovery-phrase">
+          <span class="i-lucide-circle-alert mt-0.5 shrink-0 text-danger"></span>
+          <span>You have no recovery phrase yet. <a href="#/settings/account/recovery" class="text-accent">Create recovery phrase</a></span>
+        </p>
+      {/if}
+      <p>Sign in on another device with your recovery phrase. Your folders and files reach it from one of your other devices the next time Drive is open there.</p>
+      <p class="text-text-1" data-testid="backup-keep-two">If every device is lost, the recovery phrase brings back your account but not your files yet. Keep Drive on two devices.</p>
       <p>A file server you added yourself: add it there too, here under Backup.</p>
       {#if hasFolder}
         <p>A copy in a folder is kept locked as well; Drive cannot read one back yet.</p>

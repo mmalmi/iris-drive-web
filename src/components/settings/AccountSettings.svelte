@@ -3,13 +3,20 @@
    * The account in plain terms: the name and picture others see, the devices
    * signed in to it, and switching or leaving. Keys live under Advanced.
    */
-  import { navigate } from '../../lib/router.svelte';
+  import { currentPath, navigate } from '../../lib/router.svelte';
   import { logout, nostrStore } from '../../nostr';
   import { getCurrentNostrIdentitySession } from '../../nostr/auth';
   import { accountsStore } from '../../accounts';
   import { ownDisplayName, saveOwnName } from '../../drive/ownDisplayName';
   import { Avatar } from '../User';
   import UserSettings from './UserSettings.svelte';
+  import RecoveryPhraseSettings from './RecoveryPhraseSettings.svelte';
+
+  let recoverySection = $state<HTMLElement | null>(null);
+  // Backup links straight to the recovery phrase.
+  $effect(() => {
+    if ($currentPath === '/settings/account/recovery') recoverySection?.scrollIntoView({ block: 'start' });
+  });
 
   let isLoggedIn = $derived($nostrStore.isLoggedIn);
   let pubkey = $derived($nostrStore.pubkey ?? '');
@@ -87,6 +94,11 @@
   </section>
 
   {#if isLoggedIn}
+    <section id="recovery-phrase" bind:this={recoverySection} class="scroll-mt-4">
+      <h3 class="text-xs font-medium text-muted uppercase tracking-wide mb-3">Recovery phrase</h3>
+      <RecoveryPhraseSettings />
+    </section>
+
     <section>
       <h3 class="text-xs font-medium text-muted uppercase tracking-wide mb-3">Accounts</h3>
       <div class="bg-surface-2 rounded p-3 space-y-1">

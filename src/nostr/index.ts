@@ -38,6 +38,7 @@ export {
   watchDriveDeviceApproval,
   setDriveProfileAppKeyAdmin,
   removeDriveProfileAppKeyWithAdmin,
+  addDriveRecoveryPhrase,
   recoverDriveProfileWithAppKey,
   removeDriveProfileAppKeyWithRecovery,
   getCurrentNostrIdentitySession,

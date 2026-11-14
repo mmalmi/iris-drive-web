@@ -46,8 +46,11 @@
   ));
 
   // Two devices of one kind are told apart: "Chrome on macOS" and "Chrome on macOS (2)".
+  // A recovery phrase is not a device: it has its own section.
   let keys = $derived<UserSettingsKey[]>(projection
-    ? distinctDeviceLabels(Object.values(projection.active_facets).map((facet) => ({
+    ? distinctDeviceLabels(Object.values(projection.active_facets)
+      .filter((facet) => !facet.purposes?.includes('recovery_phrase'))
+      .map((facet) => ({
         pubkey: facet.pubkey,
         label: deviceLabelForKey(facet.pubkey),
         purposes: facet.purposes,
