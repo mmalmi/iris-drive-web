@@ -3,7 +3,6 @@
    * UsersPage - manage saved accounts
    * Shows list of app accounts, allows Drive user recovery, switching, and removing accounts.
    */
-  import { requestBrowserSigner } from '@iris/identity/browserSigner';
   import { onMount } from 'svelte';
   import { qrCodeDataUrl } from '../lib/qrCode';
   import { parseDeviceApprovalBootstrap } from '@iris/identity';
@@ -241,6 +240,7 @@
       }
       let signerSession;
       if (request.method === 'nip46' && !linkInput) {
+        const { requestBrowserSigner } = await import('@iris/identity/browserSigner');
         signerSession = await requestBrowserSigner({ name: 'Iris Drive', permissions: 'sign_event,nip44_encrypt,nip44_decrypt' });
         if (!signerSession) return;
       }

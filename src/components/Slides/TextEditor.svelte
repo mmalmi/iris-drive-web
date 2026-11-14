@@ -1,8 +1,30 @@
+<script lang="ts" module>
+  type TextEditorCode = typeof import('../../lib/slides/richTextEditor');
+  let loaded: TextEditorCode | null = null;
+  let loading: Promise<TextEditorCode> | null = null;
+
+  /**
+   * The editor's code (tiptap) comes apart from the presentation, which loads
+   * it for someone who may edit. Once it is here a box starts its editor at
+   * once, as soon as it is clicked.
+   */
+  export function loadTextEditor(): Promise<TextEditorCode> {
+    loading ??= import('../../lib/slides/richTextEditor').then(
+      (code) => (loaded = code),
+      (error: unknown) => {
+        // Asked for again the next time, as when the network is back.
+        loading = null;
+        throw error;
+      },
+    );
+    return loading;
+  }
+</script>
+
 <script lang="ts">
   /** The text of the box being typed in: an editor in the place where the text is otherwise drawn. */
   import { onMount } from 'svelte';
   import type * as Y from 'yjs';
-  import { createTextEditor } from '../../lib/slides/richText';
   import type { SlidesEditorState } from '../../lib/slides/editorState.svelte';
 
   interface Props {
@@ -15,9 +37,7 @@
 
   let container: HTMLElement | undefined = $state();
 
-  onMount(() => {
-    if (!container) return;
-    const host = container;
+  function start(host: HTMLElement, { createTextEditor, TYPING_ORIGIN }: TextEditorCode): () => void {
     const editor = createTextEditor({
       element: host,
       fragment,
@@ -40,7 +60,7 @@
     editor.on('update', changed);
     const watcher = new ResizeObserver(changed);
     if (host.parentElement) watcher.observe(host.parentElement);
-    editorState.attachEditor(editor);
+    editorState.attachEditor(editor, TYPING_ORIGIN);
     changed();
     return () => {
       watcher.disconnect();
@@ -51,6 +71,22 @@
       }
       editorState.detachEditor(editor);
       editor.destroy();
+    };
+  }
+
+  onMount(() => {
+    if (!container) return;
+    const host = container;
+    if (loaded) return start(host, loaded);
+    // Editing allowed only after the deck opened (access given meanwhile): the code comes now.
+    let stop: (() => void) | undefined;
+    let gone = false;
+    loadTextEditor().then((code) => {
+      if (!gone) stop = start(host, code);
+    }, (error: unknown) => console.error('[Slides] The text editor could not be loaded:', error));
+    return () => {
+      gone = true;
+      stop?.();
     };
   });
 </script>

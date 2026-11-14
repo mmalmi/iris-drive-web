@@ -1,7 +1,9 @@
 // @vitest-environment happy-dom
 import { afterEach, expect, test } from 'vitest';
 import * as Y from 'yjs';
-import { createTextEditor, cssColour, renderRichText, validFontSize } from '../src/lib/slides/richText';
+import { cssColour, renderRichText, validFontSize } from '../src/lib/slides/richText';
+import { createTextEditor, TYPING_ORIGIN } from '../src/lib/slides/richTextEditor';
+import { SlidesEditorState } from '../src/lib/slides/editorState.svelte';
 import { Deck, richTextToJson, richTextToPlain } from '../src/lib/slides/model';
 
 const cleanups: Array<() => void> = [];
@@ -165,4 +167,24 @@ test('links are drawn as they are edited, and only web and mail addresses open',
   expect(links.map(link => link.getAttribute('href'))).toEqual(['https://example.com/plan', 'mailto:ada@example.com']);
   expect(links.every(link => link.getAttribute('target') === '_blank' && link.getAttribute('rel')?.includes('noopener'))).toBe(true);
   expect(container.textContent).toBe('See the plan, mail and this');
+});
+
+test('what is typed in a box is undone with the rest of the deck', () => {
+  const state = new SlidesEditorState(new Y.Doc(), { addAttachment: async () => 'image.png', canEdit: () => true });
+  cleanups.push(() => state.deck.ydoc.destroy());
+  state.startDeck();
+  const title = state.current!.elements[0]!;
+  state.startEditing(title.id, { insert: 'Hi!' });
+  const element = document.createElement('div');
+  document.body.append(element);
+  const editor = createTextEditor({ element, fragment: title.content! });
+  cleanups.push(() => {
+    editor.destroy();
+    element.remove();
+  });
+  state.attachEditor(editor, TYPING_ORIGIN);
+  expect(richTextToPlain(title.content!)).toBe('Hi!');
+  state.stopEditing();
+  state.undo();
+  expect(richTextToPlain(title.content!)).toBe('');
 });

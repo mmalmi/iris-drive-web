@@ -21,6 +21,7 @@ import { createSwFileBridge } from './lib/swFileBridge';
 import { getCachedHtreeMedia, serveHtreeMedia } from './lib/swHtreeMediaCache';
 import { guessMimeType } from './lib/swMime';
 import { addCORPHeader, addCORSHeaders, addCrossOriginHeaders } from './lib/swResponseHeaders';
+import { APP_FILES_CACHE, appFileUrls, dropOldAppFiles, isAppFile, keepAppFiles } from './lib/swAppFiles';
 
 declare let self: ServiceWorkerGlobalScope;
 
@@ -131,7 +132,12 @@ async function fetchSameOriginWithCache(request: Request): Promise<Response> {
   if (cached) {
     return cached;
   }
-  return fetch(request);
+  const response = await fetch(request);
+  if (response.ok && appFiles.has(request.url)) {
+    const copy = response.clone();
+    void caches.open(APP_FILES_CACHE).then(cache => cache.put(request.url, copy)).catch(() => undefined);
+  }
+  return response;
 }
 
 async function fetchDocumentWithOfflineFallback(request: Request): Promise<Response> {
@@ -144,6 +150,24 @@ async function fetchDocumentWithOfflineFallback(request: Request): Promise<Respo
     throw error;
   }
 }
+
+// Installing keeps only the page itself; the app's files are kept as they
+// are fetched and, when the page asks, all the rest (see swAppFiles.ts).
+const precacheEnabled = !isTestMode && !isLocalDevServer;
+const manifest = precacheEnabled ? self.__WB_MANIFEST : [];
+const appFiles = appFileUrls(manifest, self.registration.scope);
+let keepingAppFiles: Promise<void> | null = null;
+
+self.addEventListener('message', (event: ExtendableMessageEvent) => {
+  if ((event.data as { type?: unknown } | null)?.type !== 'keep-app-files' || !precacheEnabled) return;
+  keepingAppFiles ??= caches.open(APP_FILES_CACHE)
+    .then(cache => keepAppFiles(cache, appFiles))
+    .catch(() => undefined)
+    .finally(() => {
+      keepingAppFiles = null;
+    });
+  event.waitUntil(keepingAppFiles);
+});
 
 self.addEventListener('fetch', (event: FetchEvent) => {
   const url = new URL(event.request.url);
@@ -237,10 +261,13 @@ if (!isLocalDevServer) {
 
   self.addEventListener('activate', (event: ExtendableEvent) => {
     console.log('[SW] Activating...');
-    event.waitUntil(self.clients.claim());
+    event.waitUntil(Promise.all([
+      self.clients.claim(),
+      precacheEnabled && caches.open(APP_FILES_CACHE).then(cache => dropOldAppFiles(cache, appFiles)),
+    ]));
   });
 }
 
-if (!isTestMode && !isLocalDevServer) {
-  precache(self.__WB_MANIFEST);
+if (precacheEnabled) {
+  precache(manifest.filter(entry => !isAppFile(entry)));
 }

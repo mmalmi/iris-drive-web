@@ -31,6 +31,8 @@ import { setupTreeRootRegistryBridge } from './workerTreeRootBridge';
 import { initializePublishFn } from '../treeRootCache';
 import { setupMediaStreaming } from './mediaStreamingSetup';
 import type { WorkerNostrFilter } from '@hashtree/core';
+// Only a few lines that start the worker; its own file is fetched when it starts.
+import HashtreeWorker from '../workers/hashtree.worker?worker';
 // The peer network is a large download. It is loaded when it first starts,
 // so the first screen does not wait for it.
 let fipsRuntimeModule: Promise<typeof import('./driveFipsRuntime')> | null = null;
@@ -329,6 +331,11 @@ async function waitForServiceWorker(maxWaitMs?: number): Promise<boolean> {
     if (navigator.serviceWorker.controller) {
       return true;
     }
+    // On a first visit it is still installing: the backend starts without it.
+    const registration = await navigator.serviceWorker.getRegistration();
+    if (!registration?.active) {
+      return false;
+    }
 
     const readyPromise = navigator.serviceWorker.ready.then(() => true);
     if (maxWaitMs === undefined) {
@@ -407,7 +414,6 @@ export async function initHashtreeBackend(identity: WorkerInitIdentity): Promise
         setWorkerAdapterInstance(adapter);
         logT('Native backend ready');
       } else {
-        const { default: HashtreeWorker } = await import('../workers/hashtree.worker?worker');
         logT('Starting web worker');
         adapter = await initWorkerAdapter(HashtreeWorker, config);
         logT('Web worker ready');

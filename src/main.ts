@@ -1,7 +1,7 @@
 import 'virtual:uno.css';
 import App from './App.svelte';
 import { mount } from 'svelte';
-import { initServiceWorker } from './lib/swInit';
+import { initServiceWorker, keepAppForOffline } from './lib/swInit';
 import { restoreSession, initReadonlyBackend } from './nostr/auth';
 import { setAppType } from './appType';
 import { initHtreeApi } from './lib/htreeApi';
@@ -23,8 +23,10 @@ async function init() {
   mount(App, {
     target: document.getElementById('app')!,
   });
+  // The account and the backend do not wait for the service worker: on a
+  // first visit it is still installing. Only files served from /htree/ need
+  // it, and their connection to it waits for it by itself.
   const swPromise = initServiceWorker();
-  await swPromise;
   const htreePromise = initHtreeApi();
   // Restore the stored account before the backend starts, so the backend and
   // its peer network start once with that account's key. Started first, they
@@ -32,8 +34,9 @@ async function init() {
   const sessionPromise = restoreSession({ autoCreate: shouldAutoCreateTestSession() })
     .finally(() => sessionRestored.set(true));
   const backendPromise = initReadonlyBackend();
-  await Promise.all([backendPromise, sessionPromise]);
+  await Promise.all([backendPromise, sessionPromise, swPromise]);
   await htreePromise;
+  keepAppForOffline();
   await waitForRelayConnection();
 }
 

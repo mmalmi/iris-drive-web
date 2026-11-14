@@ -6,7 +6,6 @@
  */
 import { tick } from 'svelte';
 import * as Y from 'yjs';
-import { PluginKey, Selection } from '@tiptap/pm/state';
 import type { Editor } from '@tiptap/core';
 import {
   Deck,
@@ -138,9 +137,10 @@ export class SlidesEditorState {
     this.#options = options;
     this.#deviceId = options.deviceId ?? browserId();
     this.#undo = new Y.UndoManager([this.deck.slides, this.deck.meta], {
-      // This editor's own changes and what is typed into its text boxes, never
-      // what was loaded from storage or arrived from another tab.
-      trackedOrigins: new Set<unknown>([LOCAL_ORIGIN, PluginKey]),
+      // This editor's own changes and, once a box is typed in, what is typed
+      // into its text boxes (see `attachEditor`); never what was loaded from
+      // storage or arrived from another tab.
+      trackedOrigins: new Set<unknown>([LOCAL_ORIGIN]),
       captureTimeout: 600,
     });
     const stacks = () => {
@@ -664,8 +664,12 @@ export class SlidesEditorState {
     this.editingId = id;
   }
 
-  /** Called by the text box once its editor exists. */
-  attachEditor(editor: Editor): void {
+  /**
+   * Called by the text box once its editor exists, with the origin of what
+   * the editor writes, so that typing is undone with the rest of the deck.
+   */
+  attachEditor(editor: Editor, typingOrigin: unknown): void {
+    this.#undo.addTrackedOrigin(typingOrigin);
     this.textEditor = editor;
     const bump = () => {
       // The editor reports changes while the page is being redrawn; count them afterwards.
@@ -696,8 +700,9 @@ export class SlidesEditorState {
       : null;
     if (options.selectAll) selectAllText(editor);
     else if (position) editor.commands.setTextSelection(position.pos);
-    // The end of the last line of text, also when the text ends in a list.
-    else editor.commands.setTextSelection(Selection.atEnd(editor.state.doc).from);
+    // The end of the last line of text, also when the text ends in a list: the
+    // end of the document, which the editor moves to the last place text goes.
+    else editor.commands.setTextSelection(editor.state.doc.content.size);
     if (options.insert) editor.commands.insertContent(options.insert);
     options.then?.(editor);
   }

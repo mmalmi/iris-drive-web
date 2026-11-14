@@ -3,12 +3,11 @@ import { resolve } from 'node:path';
 
 export type PortableFileOps = Pick<typeof import('node:fs/promises'), 'readFile' | 'writeFile' | 'unlink'>;
 
+// What these import (the @noble and @scure libraries) goes with them, so that
+// the copies only the peer network uses stay in its own chunk.
 const portableVendorLibs = [
   'svelte',
   'nostr-tools',
-  '@noble/hashes',
-  '@noble/curves',
-  '@scure/base',
   'idb-keyval',
 ];
 
@@ -58,6 +57,8 @@ export function portableAssetFileNames(assetInfo: { name?: string | undefined })
 }
 
 function resolveSharedVendorChunk(id: string): string | undefined {
+  // Signing in with a remote signer brings its own relay pool; it loads then.
+  if (/node_modules\/nostr-tools\/lib\/esm\/(nip46|pool|abstract-pool)\.js$/.test(id)) return undefined;
   return portableVendorLibs.some((lib) => id.includes(`node_modules/${lib}`)) ? 'vendor' : undefined;
 }
 

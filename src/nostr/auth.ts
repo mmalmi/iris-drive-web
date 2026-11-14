@@ -25,7 +25,6 @@ import {
 } from 'nostr-social-graph';
 import type { Filter } from 'nostr-tools';
 import { nostr, createNsecSigner, createExtensionSigner, getNostrRelayUrls } from './client';
-import { createRemoteRecoverySigner } from './remoteRecovery';
 import { nostrStore } from './store';
 import { initHashtreeBackend, getWorkerAdapter, waitForWorkerAdapter, backendStartedWith } from '../lib/workerInit';
 import {
@@ -1768,6 +1767,8 @@ async function createRecoverySigner(recovery: DriveRecoveryRequest): Promise<Nos
     return createNostrIdentitySignerFromNip07(nostr);
   }
 
+  // A remote signer is rare: its code loads when one is used.
+  const { createRemoteRecoverySigner } = await import('./remoteRecovery');
   if (recovery.signerSession) {
     return createRemoteRecoverySigner(recovery.signerSession);
   }

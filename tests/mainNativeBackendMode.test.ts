@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mount = vi.fn();
 const initServiceWorker = vi.fn();
+const keepAppForOffline = vi.fn();
 const initReadonlyBackend = vi.fn();
 const restoreSession = vi.fn();
 const initHtreeApi = vi.fn();
@@ -13,6 +14,7 @@ describe('main native backend bootstrap', () => {
     vi.resetModules();
     mount.mockReset();
     initServiceWorker.mockReset();
+    keepAppForOffline.mockReset();
     initReadonlyBackend.mockReset();
     restoreSession.mockReset();
     initHtreeApi.mockReset();
@@ -36,7 +38,7 @@ describe('main native backend bootstrap', () => {
     waitForRelayConnection.mockResolvedValue(true);
 
     vi.doMock('svelte', () => ({ mount }));
-    vi.doMock('../src/lib/swInit', () => ({ initServiceWorker }));
+    vi.doMock('../src/lib/swInit', () => ({ initServiceWorker, keepAppForOffline }));
     vi.doMock('../src/nostr/auth', () => ({ initReadonlyBackend, restoreSession }));
     vi.doMock('../src/appType', () => ({ setAppType }));
     vi.doMock('../src/lib/htreeApi', () => ({ initHtreeApi }));
@@ -59,7 +61,7 @@ describe('main native backend bootstrap', () => {
     waitForRelayConnection.mockResolvedValue(true);
 
     vi.doMock('svelte', () => ({ mount }));
-    vi.doMock('../src/lib/swInit', () => ({ initServiceWorker }));
+    vi.doMock('../src/lib/swInit', () => ({ initServiceWorker, keepAppForOffline }));
     vi.doMock('../src/nostr/auth', () => ({ initReadonlyBackend, restoreSession }));
     vi.doMock('../src/appType', () => ({ setAppType }));
     vi.doMock('../src/lib/htreeApi', () => ({ initHtreeApi }));
@@ -75,5 +77,30 @@ describe('main native backend bootstrap', () => {
       release();
     }
     await vi.waitFor(() => expect(waitForRelayConnection).toHaveBeenCalledOnce());
+  });
+
+  it('starts the account and backend while the service worker is still installing', async () => {
+    let installed!: () => void;
+    initServiceWorker.mockImplementation(() => new Promise<void>(resolve => { installed = resolve; }));
+    initReadonlyBackend.mockResolvedValue(undefined);
+    restoreSession.mockResolvedValue(undefined);
+    initHtreeApi.mockResolvedValue(undefined);
+    waitForRelayConnection.mockResolvedValue(true);
+
+    vi.doMock('svelte', () => ({ mount }));
+    vi.doMock('../src/lib/swInit', () => ({ initServiceWorker, keepAppForOffline }));
+    vi.doMock('../src/nostr/auth', () => ({ initReadonlyBackend, restoreSession }));
+    vi.doMock('../src/appType', () => ({ setAppType }));
+    vi.doMock('../src/lib/htreeApi', () => ({ initHtreeApi }));
+    vi.doMock('../src/lib/workerInit', () => ({ waitForRelayConnection }));
+    vi.doMock('../src/App.svelte', () => ({ default: {} }));
+
+    await import('../src/main');
+    expect(restoreSession).toHaveBeenCalledOnce();
+    expect(initReadonlyBackend).toHaveBeenCalledOnce();
+    expect(keepAppForOffline).not.toHaveBeenCalled();
+    installed();
+    // The rest of the app is kept for offline use only once the service worker is there.
+    await vi.waitFor(() => expect(keepAppForOffline).toHaveBeenCalledOnce());
   });
 });

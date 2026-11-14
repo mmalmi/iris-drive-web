@@ -69,7 +69,10 @@ export default defineConfig({
       strategies: 'injectManifest',
       srcDir: 'src',
       filename: 'sw.ts',
+      // Kept for offline use: the page, its icons and the app's own files, not
+      // every picture in public/ (see sw.ts for when each is fetched).
       includeAssets: [brand.iconSvg, brand.appleTouchPng],
+      includeManifestIcons: false,
       devOptions: {
         enabled: true,
         type: 'module',
@@ -84,7 +87,7 @@ export default defineConfig({
         icons: getAppPwaIcons('files'),
       },
       injectManifest: {
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,wasm}'],
+        globPatterns: ['index.html', 'assets/**/*.{js,css,wasm}'],
         globIgnores: [],
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024, // 5MB for wasm files
       },
@@ -103,7 +106,8 @@ export default defineConfig({
   ],
   root: resolve(__dirname),
   resolve: {
-    dedupe: ['nostr-social-graph'],
+    // One copy of each in the bundle: @iris/identity pins an older nostr-tools.
+    dedupe: ['nostr-social-graph', 'nostr-tools'],
     alias: {
       '$lib': resolve(__dirname, 'src/lib'),
       '@noble/hashes/hkdf.js': require.resolve('@noble/hashes/hkdf.js'),
