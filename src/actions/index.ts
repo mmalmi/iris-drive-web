@@ -6,7 +6,7 @@
 export { getCurrentRootCid, buildRouteUrl, getCurrentPathFromUrl, updateRoute } from './route';
 
 // File operations
-export { saveFile, createFile, uploadSingleFile, uploadExtractedFiles } from './file';
+export { saveFile, createFile, uploadSingleFile, uploadExtractedFiles, addCopiedEntry } from './file';
 
 // Tree operations
 export {

@@ -2,12 +2,12 @@
   import { acceptedShares } from '../drive/shareLibrary';
   import { toHex, nhashEncode, LinkType, type TreeEntry as FileEntry } from '@hashtree/core';
   import { formatBytes } from '../store';
-  import { deleteEntry, moveEntry, moveToParent } from '../actions';
+  import { addCopiedEntry, deleteEntry, moveEntry, moveToParent } from '../actions';
   import { uploadFiles } from '../stores/upload';
   import { recentlyChangedFiles } from '../stores/recentlyChanged';
   import { toast } from '../stores/toast';
   import { getNhashFileUrl } from '../lib/mediaUrl';
-  import { copiedMessage, copyEntry, copyKind, downloadDragData, entryLink, isOutsideDrag, pastedIntoFolder } from '../lib/driveClipboard';
+  import { copiedEntryIn, copiedMessage, copyEntry, copyKind, downloadDragData, entryLink, freeName, isOutsideDrag, noteCopied, pastedIntoFolder } from '../lib/driveClipboard';
   import { addDropped } from '../lib/folderDrop';
   import { nostrStore, npubToPubkey } from '../nostr';
   import { UserRow, Avatar } from './User';
@@ -383,7 +383,19 @@
   $effect(() => {
     if (!inTreeView || !canEdit) return;
     const onPaste = (event: ClipboardEvent) => {
-      if (belongsElsewhere(event)) return;
+      // Right after moving to another folder, which folder is open is still being worked out.
+      if (belongsElsewhere(event) || resolvingPath || loadingEntries) return;
+      // A file copied here comes back as itself, not as its picture, text or link.
+      const copied = copiedEntryIn(event.clipboardData);
+      if (copied) {
+        event.preventDefault();
+        const name = freeName(copied.name, new Set(entries.map(entry => entry.name)));
+        void addCopiedEntry(name, copied).then(
+          () => toast.success(`Pasted ${name}`),
+          () => toast.error(`Could not paste ${copied.name}`),
+        );
+        return;
+      }
       const pasted = pastedIntoFolder(event.clipboardData, new Set(entries.map(entry => entry.name)));
       if (!pasted) return;
       event.preventDefault();
@@ -405,7 +417,9 @@
       if (!entry) return;
       event.preventDefault();
       if (copyKind(entry) === 'link' && event.clipboardData) {
-        event.clipboardData.setData('text/plain', entryLink(entry));
+        const link = entryLink(entry);
+        event.clipboardData.setData('text/plain', link);
+        noteCopied(entry, { text: link });
         toast.success(copiedMessage('link', entry.name), 2500);
         return;
       }
