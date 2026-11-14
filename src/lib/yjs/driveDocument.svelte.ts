@@ -25,7 +25,7 @@ import { accountsStore } from '../../accounts';
 import type { NostrState } from '../../nostr/store';
 import { flushPendingPublishes } from '../../treeRootCache';
 import { deleteCurrentFolder, renameCurrentFolder } from '../../actions';
-import { removeOwnDirectoryForDriveRoute, setEntryForDriveRoute } from '../../drive/profileDriveRouteEntry';
+import { markFolderChanged, removeOwnDirectoryForDriveRoute, setEntryForDriveRoute } from '../../drive/profileDriveRouteEntry';
 import { DOCUMENT_KINDS, documentFolderName, documentKind, documentTitle, snapshotLinkQuery, type DocumentKindInfo } from '../documentNames';
 import { freeName } from '../driveClipboard';
 import { getCidFileUrl } from '../mediaUrl';
@@ -342,7 +342,8 @@ export class DriveDocument {
           tree, root, [...documentPath, ...directory], target, nostrStore.getState(),
         );
       }
-      return root;
+      // The document itself changed, for the folder's Last modified.
+      return markFolderChanged(tree, root, documentPath);
     });
   }
 

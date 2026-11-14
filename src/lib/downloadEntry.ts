@@ -2,7 +2,8 @@
  * Saving a file or a folder from Drive to the device, from wherever it is
  * offered: a file's page, a folder's menu, or a row's menu in the list.
  */
-import type { CID } from '@hashtree/core';
+import type { CID, TreeEntry } from '@hashtree/core';
+import type { ProgressCallback } from '../utils/compression';
 import { getTree } from '../store';
 import { getNhashFileUrl } from './mediaUrl';
 import { setUploadProgress } from '../stores/upload';
@@ -67,13 +68,28 @@ export async function downloadFile(entry: { cid: CID; name: string }): Promise<v
  * Saves a folder and all that is in it as `<name>.zip`, showing its progress
  * with a way to cancel. Being cancelled, there or by `signal`, is no error.
  */
-export async function downloadFolderZip(cid: CID, name: string, signal?: AbortSignal): Promise<void> {
-  const { createZipFromDirectory, downloadBlob, ZipCancelledError } = await import('../utils/compression');
+export function downloadFolderZip(cid: CID, name: string, signal?: AbortSignal): Promise<void> {
+  return downloadZip(`${name}.zip`, signal, (zip, onProgress, cancelled) => zip.createZipFromDirectory(getTree(), cid, name, onProgress, cancelled));
+}
+
+/** Saves several files and folders side by side in one ZIP called `fileName`, as `downloadFolderZip` does. */
+export function downloadEntriesZip(entries: TreeEntry[], fileName: string, signal?: AbortSignal): Promise<void> {
+  return downloadZip(fileName, signal, (zip, onProgress, cancelled) => zip.createZipFromEntries(getTree(), entries, onProgress, cancelled));
+}
+
+type Compression = typeof import('../utils/compression');
+
+async function downloadZip(
+  fileName: string,
+  signal: AbortSignal | undefined,
+  make: (zip: Compression, onProgress: ProgressCallback, signal: AbortSignal) => Promise<Uint8Array>,
+): Promise<void> {
+  const zip = await import('../utils/compression');
   const controller = new AbortController();
   const cancel = () => controller.abort();
   signal?.addEventListener('abort', cancel, { once: true });
   try {
-    const zipData = await createZipFromDirectory(getTree(), cid, name, (progress) => {
+    const zipData = await make(zip, (progress) => {
       setUploadProgress({
         current: progress.current,
         total: progress.total,
@@ -83,9 +99,9 @@ export async function downloadFolderZip(cid: CID, name: string, signal?: AbortSi
       });
     }, controller.signal);
     setUploadProgress(null);
-    downloadBlob(zipData, `${name}.zip`, 'application/zip');
+    zip.downloadBlob(zipData, fileName, 'application/zip');
   } catch (err) {
-    if (!(err instanceof ZipCancelledError)) throw err;
+    if (!(err instanceof zip.ZipCancelledError)) throw err;
   } finally {
     signal?.removeEventListener('abort', cancel);
     setUploadProgress(null);

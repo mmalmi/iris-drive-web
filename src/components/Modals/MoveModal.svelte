@@ -1,6 +1,6 @@
 <script lang="ts" module>
   /**
-   * Moving a file or folder to another folder of the same Drive or shared
+   * Moving files and folders to another folder of the same Drive or shared
    * folder: go through its folders and choose where.
    */
   import { get } from 'svelte/store';
@@ -13,20 +13,25 @@
   import { inTurn } from '../../lib/driveWrites';
 
   let show = $state(false);
-  let name = $state('');
+  let names = $state<string[]>([]);
   let from = $state<string[]>([]);
   let at = $state<string[]>([]);
+  let afterClose: (() => void) | null = null;
 
-  /** `parentPath` is the folder the item is in now. */
-  export function open(itemName: string, parentPath: string[]) {
-    name = itemName;
+  /** `parentPath` is the folder the items are in now; `onClose` runs once the dialog has gone. */
+  export function open(itemNames: string | string[], parentPath: string[], onClose?: () => void) {
+    names = typeof itemNames === 'string' ? [itemNames] : itemNames;
     from = parentPath;
     at = parentPath;
+    afterClose = onClose ?? null;
     show = true;
   }
 
   export function close() {
     show = false;
+    const then = afterClose;
+    afterClose = null;
+    if (then) setTimeout(then);
   }
 
   /** What the folder at `path` of the open tree is called; its top is My Drive, or the shared folder's name. */
@@ -38,19 +43,25 @@
   }
 
   /**
-   * Moves an item from the folder at `parentPath` into the one at
-   * `targetPath`, and says how it went: for this dialog and for dragging.
-   * Resolves whether it moved.
+   * Moves items from the folder at `parentPath` into the one at
+   * `targetPath`, one at a time from the latest Drive, and says how it went:
+   * for this dialog and for dragging. Resolves whether all of them moved.
    */
-  export async function moveAndTell(parentPath: string[], itemName: string, targetPath: string[]): Promise<boolean> {
-    try {
-      await inTurn(() => moveEntryTo(parentPath, itemName, targetPath));
-      toast.success(`Moved ${itemName} to ${folderName(targetPath)}`);
-      return true;
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : `Could not move ${itemName}`);
-      return false;
+  export async function moveAndTell(parentPath: string[], itemNames: string | string[], targetPath: string[]): Promise<boolean> {
+    const all = typeof itemNames === 'string' ? [itemNames] : itemNames;
+    let moved = 0;
+    let failure: string | null = null;
+    for (const itemName of all) {
+      try {
+        await inTurn(() => moveEntryTo(parentPath, itemName, targetPath));
+        moved += 1;
+      } catch (error) {
+        failure ??= error instanceof Error ? error.message : `Could not move ${itemName}`;
+      }
     }
+    if (moved > 0) toast.success(`Moved ${all.length === 1 ? all[0] : `${moved} items`} to ${folderName(targetPath)}`);
+    if (failure) toast.error(failure);
+    return moved === all.length;
   }
 </script>
 
@@ -66,8 +77,8 @@
   let moving = $state(false);
 
   const same = (a: string[], b: string[]) => a.length === b.length && a.every((part, index) => part === b[index]);
-  /** The item itself, and what is inside it, cannot hold it. */
-  const isInsideItem = (path: string[]) => [...from, name].every((part, index) => path[index] === part);
+  /** An item itself, and what is inside it, cannot hold it. */
+  const isInsideItem = (path: string[]) => names.some((name) => [...from, name].every((part, index) => path[index] === part));
 
   let here = $derived(folderName(at));
 
@@ -93,14 +104,14 @@
   async function moveHere() {
     if (moving) return;
     moving = true;
-    if (await moveAndTell(from, name, at)) close();
+    if (await moveAndTell(from, names, at)) close();
     moving = false;
   }
 </script>
 
 <Modal open={show} onClose={close} label="Move" panelClass="bg-surface-1 rounded-lg shadow-lg w-full max-w-md mx-4 overflow-hidden">
   <div data-testid="move-dialog">
-    <h2 class="px-5 pt-5 text-lg font-semibold truncate">Move “{name}”</h2>
+    <h2 class="px-5 pt-5 text-lg font-semibold truncate">{names.length === 1 ? `Move “${names[0]}”` : `Move ${names.length} items`}</h2>
     <div class="px-3 py-2 flex items-center gap-1 min-h-12">
       {#if at.length > 0}
         <button class="btn-circle btn-ghost h-8 w-8 min-h-8 min-w-8" title="Up" aria-label="Up" onclick={() => { at = at.slice(0, -1); }}>

@@ -19,8 +19,9 @@
 <script lang="ts">
   /**
    * The menu of a file or folder in the list, from its ⋮ button, a right
-   * click, a long press on a phone, or the menu key: what can be done with
-   * it, by the same actions and dialogs as everywhere else.
+   * click or the menu key (a long press on a phone chooses the row instead):
+   * what can be done with it, by the same actions and dialogs as everywhere
+   * else.
    */
   import { LinkType } from '@hashtree/core';
   import Menu, { type MenuItem } from './ui/Menu.svelte';

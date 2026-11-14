@@ -2,9 +2,16 @@
   import { acceptedShares } from '../drive/shareLibrary';
   import { toHex, LinkType, type TreeEntry as FileEntry } from '@hashtree/core';
   import { COPY_NAME_PARAM } from '../lib/shareUrls';
-  import { formatBytes } from '../store';
+  import { untrack } from 'svelte';
   import { addCopiedEntry, deleteEntry } from '../actions';
   import { moveAndTell } from './Modals/MoveModal.svelte';
+  import SelectionBar, { deleteChosen } from './SelectionBar.svelte';
+  import ListSortHeader from './ListSortHeader.svelte';
+  import RowDetails from './RowDetails.svelte';
+  import SelectionRectangle from './SelectionRectangle.svelte';
+  import { ListSelection } from '../lib/listSelection.svelte';
+  import { loadSort, sortEntries, type ListSort } from '../lib/fileListSort';
+  import { modifiedAt } from '../lib/modifiedAt';
   import { uploadFiles } from '../stores/upload';
   import { recentlyChangedFiles, revealFile } from '../stores/recentlyChanged';
   import { toast } from '../stores/toast';
@@ -12,9 +19,8 @@
   import { copiedEntryIn, copiedMessage, copyEntry, copyKind, downloadDragData, entryLink, freeName, isOutsideDrag, noteCopied, pastedIntoFolder } from '../lib/driveClipboard';
   import { addDropped } from '../lib/folderDrop';
   import { nostrStore, npubToPubkey } from '../nostr';
-  import { UserRow, Avatar } from './User';
-  import FolderActions from './FolderActions.svelte';
-  import NewMenu from './NewMenu.svelte';
+  import { UserRow } from './User';
+  import FolderHeader from './FolderHeader.svelte';
   import EntryMenu, { type EntryMenuRequest } from './EntryMenu.svelte';
   import { longPress } from '../lib/longPress';
   import VisibilityIcon from './VisibilityIcon.svelte';
@@ -38,6 +44,7 @@
   }
 
   let { compact = false }: Props = $props();
+  const uid = $props.id();
 
   let isLoggedIn = $derived($nostrStore.isLoggedIn);
   let userNpub = $derived($nostrStore.npub);
@@ -127,7 +134,9 @@
   });
 
   let dirEntries = $derived($directoryEntriesStore);
-  let entries = $derived(dirEntries.entries);
+  /** How the list is sorted, as last chosen on this device. */
+  let sort = $state<ListSort>(loadSort());
+  let entries = $derived(sortEntries(dirEntries.entries, sort));
   let resolvingPath = $derived($resolvingPathStore);
   // Treat the store as still loading until its loadedHashKey matches the
   // current directory CID — otherwise stale `entries: []` from a previous
@@ -155,14 +164,14 @@
     e.preventDefault();
     isDraggingOver = false;
     dropTargetDir = null;
-    if (!canEdit || draggingEntry) return;
+    if (!canEdit || dragging) return;
 
     if (!e.dataTransfer) return;
     await addDropped(e.dataTransfer, { currentPath, taken: new Set(entries.map(entry => entry.name)), dirName });
   }
 
   function handleFileDragOver(e: DragEvent) {
-    if (!canEdit || draggingEntry) return;
+    if (!canEdit || dragging) return;
     if (isOutsideDrag(e.dataTransfer)) {
       e.preventDefault();
       e.dataTransfer!.dropEffect = 'copy';
@@ -183,7 +192,8 @@
     }
   }
 
-  let draggingEntry = $state<string | null>(null);
+  /** The names of what is being dragged: all that is chosen when a chosen row is dragged. */
+  let dragging = $state<string[] | null>(null);
   let dropTargetDir = $state<string | null>(null);
 
   function handleEntryDragStart(e: DragEvent, entry: FileEntry) {
@@ -197,19 +207,26 @@
       else data.effectAllowed = 'copy';
       return;
     }
-    draggingEntry = entry.name;
+    dragging = selection.has(entry.name) ? selectionEntries.map((item) => item.name) : [entry.name];
     data.effectAllowed = 'copyMove';
-    data.setData('text/plain', entry.name);
+    data.setData('text/plain', dragging.join('\n'));
   }
 
   function handleEntryDragEnd() {
-    draggingEntry = null;
+    dragging = null;
     dropTargetDir = null;
+  }
+
+  /** Moves what was dragged; what has gone is no longer chosen. */
+  async function moveDragged(targetPath: string[]) {
+    const names = dragging ?? [];
+    dragging = null;
+    if (names.length) await moveAndTell(currentPath, names, targetPath);
   }
 
   function handleDirDragOver(e: DragEvent, dirName: string) {
     if (!canEdit) return;
-    if (!draggingEntry) {
+    if (!dragging) {
       // From the desktop or another page: into this folder.
       if (!isOutsideDrag(e.dataTransfer)) return;
       e.preventDefault();
@@ -218,7 +235,7 @@
       dropTargetDir = dirName;
       return;
     }
-    if (draggingEntry === dirName) return;
+    if (dragging.includes(dirName)) return;
     e.preventDefault();
     e.dataTransfer!.dropEffect = 'move';
     dropTargetDir = dirName;
@@ -232,15 +249,13 @@
     e.preventDefault();
     e.stopPropagation();
     dropTargetDir = null;
-    if (!draggingEntry) {
+    if (!dragging) {
       await handleFileDrop(e, dirName);
       return;
     }
 
-    if (!canEdit || draggingEntry === dirName) return;
-
-    await moveAndTell(currentPath, draggingEntry, [...currentPath, dirName]);
-    draggingEntry = null;
+    if (!canEdit || dragging.includes(dirName)) return;
+    await moveDragged([...currentPath, dirName]);
   }
 
   async function handleParentDrop(e: DragEvent) {
@@ -248,15 +263,13 @@
     e.stopPropagation();
     dropTargetDir = null;
 
-    if (!canEdit || !draggingEntry) return;
-
-    await moveAndTell(currentPath, draggingEntry, currentPath.slice(0, -1));
-    draggingEntry = null;
+    if (!canEdit || !dragging) return;
+    await moveDragged(currentPath.slice(0, -1));
   }
 
   // At the top of a shared folder, ".." leads out of it: nothing can be moved there.
   function handleParentDragOver(e: DragEvent) {
-    if (!canEdit || !draggingEntry || currentPath.length === 0) return;
+    if (!canEdit || !dragging || currentPath.length === 0) return;
     e.preventDefault();
     e.dataTransfer!.dropEffect = 'move';
     dropTargetDir = '..';
@@ -415,9 +428,9 @@
     return () => document.removeEventListener('copy', onCopy);
   });
 
-  /** The menu of one file or folder, from its ⋮ button, a right click, a long press or the menu key. */
+  /** The menu of one file or folder, from its ⋮ button, a right click or the menu key. */
   let entryMenu = $state<EntryMenuRequest | null>(null);
-  /** A mouse drags rows; a finger's long press is for the menu instead. */
+  /** A mouse drags rows; a finger's long press chooses them instead. */
   const finePointer = window.matchMedia('(pointer: fine)').matches;
 
   function rowElement(name: string): HTMLElement | null {
@@ -454,11 +467,58 @@
     openEntryMenu(entry, { x: box.right - 224, y: box.bottom + 4, opener: button });
   }
 
-  /** A right click, or Android's long press; iOS's long press comes through `longPress`. */
+  /** A right click; a long press with a finger, Android's too, chooses the row through `longPress`. */
   function handleRowContextMenu(e: MouseEvent, entry: FileEntry) {
     e.preventDefault();
     e.stopPropagation();
     openEntryMenu(entry, { x: e.clientX, y: e.clientY, opener: e.currentTarget as HTMLElement });
+  }
+
+  /*
+   * Several items chosen at once, as in Google Drive: Ctrl/⌘+click, Shift+click,
+   * a row's checkbox, a rectangle drawn with the mouse, the arrows with Shift,
+   * Ctrl/⌘+A and Space, or on a phone a long press, after which taps choose.
+   * A bar in place of the header acts on them all.
+   */
+  const selection = new ListSelection();
+  let selectionEntries = $derived(entries.filter((entry) => selection.has(entry.name)));
+  let selecting = $derived(selectionEntries.length > 0);
+
+  // Another folder starts with nothing chosen; opening a file beside the list keeps what is.
+  let folderKey = $derived([viewedNpub, currentTreeName, ...currentPath].join('/'));
+  $effect(() => {
+    void folderKey;
+    untrack(() => selection.clear());
+  });
+
+  // What is no longer here is no longer chosen.
+  $effect(() => {
+    if (loadingEntries) return;
+    const here = new Set(entries.map((entry) => entry.name));
+    untrack(() => selection.keepOnly(here));
+  });
+
+  function clearSelection(focusList = true) {
+    selection.clear();
+    if (focusList) fileListRef?.focus();
+  }
+
+  /** Whether the last press on the list was a finger's: then, while choosing, a tap chooses. */
+  let lastPointer = '';
+
+  /**
+   * Ctrl/⌘+click chooses a row and Shift+click the rows from the anchor,
+   * neither opening a new tab or window; so does a click on a row's checkbox,
+   * which only shows what the list keeps. A plain click opens the row and
+   * lets go of the rest, except a tap while choosing on a phone.
+   */
+  function handleRowClick(e: MouseEvent, entry: FileEntry, onCheckbox = false) {
+    // The click that ends a long press only lifts the finger.
+    if (e.defaultPrevented && !onCheckbox) return;
+    if (!(e.shiftKey || e.ctrlKey || e.metaKey || onCheckbox || (selecting && lastPointer !== 'mouse'))) return selection.clear();
+    e.preventDefault();
+    if (e.shiftKey) selection.extendTo(entries.map((item) => item.name), entry.name);
+    else selection.toggle(entry.name);
   }
 
   // A file just uploaded here scrolls into view once the list shows it.
@@ -471,6 +531,24 @@
 
   function handleKeyDown(e: KeyboardEvent) {
     const key = e.key.toLowerCase();
+    // A row's checkbox takes its own keys.
+    if (e.target instanceof HTMLInputElement) return;
+
+    if ((e.ctrlKey || e.metaKey) && key === 'a') {
+      e.preventDefault();
+      selection.selectAll(entries.map((entry) => entry.name));
+      return;
+    }
+
+    if (key === ' ') {
+      // The row the keyboard is on, the one picked with the arrows, or the open file.
+      const name = e.target instanceof Element ? e.target.closest('[data-entry-name]')?.getAttribute('data-entry-name') : null;
+      const target = (name ? entries.find((entry) => entry.name === name) : null) ?? chosenEntry();
+      if (!target) return;
+      e.preventDefault();
+      selection.toggle(target.name);
+      return;
+    }
 
     if (key === 'contextmenu' || (key === 'f10' && e.shiftKey)) {
       const targetEntry = chosenEntry();
@@ -487,6 +565,11 @@
     }
 
     if ((key === 'delete' || key === 'backspace') && canEdit) {
+      if (selecting) {
+        e.preventDefault();
+        void deleteChosen(selectionEntries, () => clearSelection());
+        return;
+      }
       // The focused row, or the open file when no row is focused; never the open file from "..".
       const targetEntry = chosenEntry();
       if (targetEntry) {
@@ -514,7 +597,8 @@
 
     if (key !== 'arrowup' && key !== 'arrowdown' && key !== 'arrowleft' && key !== 'arrowright' && key !== 'j' && key !== 'k' && key !== 'h' && key !== 'l') return;
 
-    if (e.ctrlKey || e.metaKey) return;
+    // Ctrl/⌘ with a letter belongs to the browser.
+    if ((e.ctrlKey || e.metaKey) && !key.startsWith('arrow')) return;
 
     e.preventDefault();
 
@@ -531,21 +615,17 @@
       newIndex = currentIndex > 0 ? currentIndex - 1 : navItemCount - 1;
     }
 
-    if (newIndex === parentRowIndex) {
-      focusedIndex = newIndex;
-    } else if (newIndex === currentDirectoryRowIndex) {
-      focusedIndex = newIndex;
+    // As in Google Drive: Shift chooses from the anchor to here, Ctrl/⌘ only moves (Space then
+    // chooses), and a plain arrow chooses just this row.
+    const newEntry: FileEntry | undefined = entries[newIndex - specialItemCount];
+    if (e.shiftKey && newEntry) selection.extendTo(entries.map((entry) => entry.name), newEntry.name, entries[currentIndex - specialItemCount]?.name);
+    else if (!e.ctrlKey && !e.metaKey) selection.only(newEntry?.name);
+    // Beside the list there is room to show a file the keyboard moves onto, unless it is choosing.
+    if (newEntry && newEntry.type !== LinkType.Dir && !isFileBrowserOnly && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+      focusedIndex = -1;
+      window.location.hash = entryHref(newEntry).slice(1);
     } else {
-      const entryIndex = newIndex - specialItemCount;
-      const newEntry = entries[entryIndex];
-      if (newEntry) {
-        if (newEntry.type === LinkType.Dir || isFileBrowserOnly) {
-          focusedIndex = newIndex;
-        } else {
-          focusedIndex = -1;
-          window.location.hash = entryHref(newEntry).slice(1);
-        }
-      }
+      focusedIndex = newIndex;
     }
   }
 </script>
@@ -559,8 +639,20 @@
       Loading...
     </div>
   {:else}
+    {#if selecting}
+      <!-- In place of the header while items are chosen. -->
+      <SelectionBar
+        entries={selectionEntries}
+        path={currentPath}
+        {canEdit}
+        {compact}
+        zipName="{currentDirName || 'Drive'}.zip"
+        list={fileListRef}
+        onClear={() => clearSelection()}
+      />
+    {/if}
     {#if compact}
-      {#if viewedNpub && !isMyDrive}
+      {#if viewedNpub && !isMyDrive && !selecting}
         <div class="hidden lg:flex h-10 shrink-0 px-3 border-b border-surface-2 items-center gap-2 bg-surface-0">
           {#if viewedNostrIdentityId}
             <div class="min-w-0 flex items-center gap-2 text-sm text-text-2" data-testid="drive-profile-root-scope">
@@ -575,58 +667,22 @@
         </div>
       {/if}
     {:else}
-      <!-- Where you are, with sharing beside it. New is in the sidebar, or here where there is none. -->
-      <div
-        class="shrink-0 flex items-center gap-2 sm:gap-3 px-3 py-2 lg:px-5 lg:py-3 border-b border-surface-2 bg-surface-0"
-        data-testid="folder-header"
-      >
-        <div class="min-w-0 flex-1 flex items-center gap-1.5 min-h-9">
-          {#if parentHref}
-            <a
-              href={parentHref}
-              class="lg:hidden btn-circle btn-ghost shrink-0 no-underline"
-              title="Back"
-              aria-label="Back"
-            >
-              <span class="i-lucide-chevron-left text-lg"></span>
-            </a>
-          {/if}
-          {#if viewedNpub && !viewedNostrIdentityId}
-            <a href="#/{viewedNpub}/profile" class="lg:hidden shrink-0">
-              <Avatar pubkey={npubToPubkey(viewedNpub) || ''} size={20} />
-            </a>
-          {/if}
-          <span class="i-lucide-folder-open text-lg lg:text-xl text-warning shrink-0 mr-0.5"></span>
-          <nav class="hidden lg:contents" aria-label="Folder path">
-            {#if viewedNpub && !viewedNostrIdentityId}
-              <a href="#/{viewedNpub}/profile" class="min-w-8 shrink-100 no-underline">
-                <UserRow pubkey={npubToPubkey(viewedNpub) || viewedNpub} avatarSize={24} class="min-w-0" />
-              </a>
-              <span class="i-lucide-chevron-right shrink-0 text-text-3"></span>
-            {/if}
-            {#each parentCrumbs as crumb (crumb.href)}
-              <a href={crumb.href} class="min-w-8 shrink-100 truncate text-xl text-text-3 no-underline hover:text-text-1">{crumb.name}</a>
-              <span class="i-lucide-chevron-right shrink-0 text-text-3"></span>
-            {/each}
-          </nav>
-          <h1 class="min-w-0 truncate text-base lg:text-xl font-medium text-text-1">{currentDirName}</h1>
-          {#if currentAccess}
-            <AccessBadge access={currentAccess} label class="ml-1" />
-          {:else}
-            <VisibilityIcon visibility={currentTreeVisibility} class="text-text-3 shrink-0 ml-1" />
-          {/if}
-        </div>
-        {#if canEdit}
-          <NewMenu variant="folder" class="shrink-0" />
-        {/if}
-        {#if (currentDirCid || canEdit) && !isProtectedTreeWithoutAccess}
-          <FolderActions
-            dirCid={currentDirCid}
-            dirName={currentDirName}
-            {canEdit}
-          />
-        {/if}
-      </div>
+      <FolderHeader
+        {parentHref}
+        ownerNpub={viewedNpub && !viewedNostrIdentityId ? viewedNpub : null}
+        crumbs={parentCrumbs}
+        name={currentDirName}
+        access={currentAccess}
+        visibility={currentTreeVisibility}
+        {canEdit}
+        dirCid={currentDirCid}
+        showActions={(!!currentDirCid || canEdit) && !isProtectedTreeWithoutAccess}
+        hidden={selecting}
+      />
+    {/if}
+
+    {#if !compact && entries.length > 0 && !isProtectedTreeWithoutAccess}
+      <ListSortHeader bind:sort />
     {/if}
 
     <div
@@ -637,14 +693,16 @@
       role="listbox"
       aria-label="File list"
       onkeydown={handleKeyDown}
+      onpointerdowncapture={(e) => { lastPointer = e.pointerType; }}
       oncontextmenu={(e) => { if (entryMenu) e.preventDefault(); }}
       ondragover={handleFileDragOver}
       ondragleave={handleFileDragLeave}
       ondrop={handleFileDrop}
     >
+      <SelectionRectangle list={fileListRef} {selection} />
       {#if isDraggingOver}
         <div class="absolute inset-0 flex items-center justify-center pointer-events-none z-10 border-2 border-dashed border-accent rounded m-2">
-          <span class="text-accent font-medium">{dropTargetDir && !draggingEntry ? `Drop to add to ${dropTargetDir}` : 'Drop files to add'}</span>
+          <span class="text-accent font-medium">{dropTargetDir && !dragging ? `Drop to add to ${dropTargetDir}` : 'Drop files to add'}</span>
         </div>
       {/if}
 
@@ -707,9 +765,11 @@
             {@const isFolder = entry.type === LinkType.Dir && !isDocument}
             {@const entryAccess = accessAt([...currentPath, entry.name])}
             {@const menuOpen = entryMenu?.entry.name === entry.name}
+            {@const checked = selection.has(entry.name)}
+            {@const detailsId = modifiedAt(entry) !== null || entry.type !== LinkType.Dir ? `${uid}-details-${idx}` : undefined}
             <!-- svelte-ignore a11y_no_static_element_interactions -->
             <div
-              class="group flex items-center border-b border-surface-2 hover:bg-surface-2/50 {selectedEntry?.name === entry.name && focusedIndex < 0 ? 'bg-surface-2' : ''} {menuOpen ? 'bg-surface-2/70' : ''} {focusedIndex === idx + specialItemCount ? 'ring-2 ring-inset ring-accent' : ''} {recentlyChanged.has(entry.name) && selectedEntry?.name !== entry.name ? 'animate-pulse-live' : ''} {draggingEntry === entry.name ? 'opacity-50' : ''} {dropTargetDir === entry.name ? 'bg-accent/20 ring-2 ring-inset ring-accent' : ''}"
+              class="group relative flex items-center border-b border-surface-2 hover:bg-surface-2/50 {selectedEntry?.name === entry.name && focusedIndex < 0 ? 'bg-surface-2' : ''} {checked ? 'bg-accent/20 hover:bg-accent/25' : ''} {menuOpen ? 'bg-surface-2/70' : ''} {focusedIndex === idx + specialItemCount ? 'ring-2 ring-inset ring-accent' : ''} {recentlyChanged.has(entry.name) && selectedEntry?.name !== entry.name ? 'animate-pulse-live' : ''} {dragging?.includes(entry.name) ? 'opacity-50' : ''} {dropTargetDir === entry.name ? 'bg-accent/20 ring-2 ring-inset ring-accent' : ''}"
               data-testid="file-row"
               data-entry-name={entry.name}
               data-changed={recentlyChanged.has(entry.name) ? '' : undefined}
@@ -717,26 +777,39 @@
               ondragleave={isFolder ? handleDirDragLeave : undefined}
               ondrop={isFolder ? (e) => handleDirDrop(e, entry.name) : undefined}
             >
+              <!-- Where the icon is: shown on hover, and on every row while choosing. -->
+              <input
+                type="checkbox"
+                class="absolute top-1/2 -translate-y-1/2 z-1 m-0 w-4 h-4 accent-accent cursor-pointer {showDirectoryNavigationRows ? 'left-9.5' : 'left-3.5 lg:left-5.5'} {selecting ? '' : 'opacity-0 pointer-events-none sm:group-hover:opacity-100 sm:group-hover:pointer-events-auto'}"
+                {checked}
+                tabindex="-1"
+                aria-label="Select {isDocument ? documentTitle(entry.name) : entry.name}"
+                onclick={(e) => handleRowClick(e, entry, true)}
+              />
               <a
                 href={entryHref(entry)}
                 class="min-w-0 flex-1 p-3 {showDirectoryNavigationRows ? 'pl-9' : 'lg:pl-5'} pr-1 flex items-center gap-3 no-underline text-text-1 select-none [-webkit-touch-callout:none]"
+                aria-describedby={detailsId}
                 draggable={finePointer && (canEdit || entry.type !== LinkType.Dir)}
                 ondragstart={(e) => handleEntryDragStart(e, entry)}
                 ondragend={handleEntryDragEnd}
+                onclick={(e) => handleRowClick(e, entry)}
                 oncontextmenu={(e) => handleRowContextMenu(e, entry)}
-                use:longPress={(at) => openEntryMenu(entry, { ...at, opener: null })}
+                use:longPress={() => selection.add(entry.name)}
                 data-testid={isDocument ? 'document-entry' : undefined}
               >
-                <span class="shrink-0 {documentInfo ? documentInfo.icon : isFolder ? 'i-lucide-folder text-warning' : `${fileIcon(entry.name)} text-text-2`}"></span>
-                <span class="truncate min-w-0" title={entry.name}>{isDocument ? documentTitle(entry.name) : entry.name}</span>
-                <!-- Marked where sharing starts; inside a shared folder the heading says it once. -->
-                {#if entryAccess && entryAccess.kind !== 'private' && entryAccess.kind !== currentAccess?.kind}
-                  <AccessBadge access={entryAccess} class="text-text-3 text-sm" />
-                {/if}
-                <span class="flex-1"></span>
-                <span class="shrink-0 text-muted text-sm min-w-12 text-right">
-                  {entry.type !== LinkType.Dir && entry.size !== undefined ? formatBytes(entry.size) : ''}
+                <span class="shrink-0 {documentInfo ? documentInfo.icon : isFolder ? 'i-lucide-folder text-warning' : `${fileIcon(entry.name)} text-text-2`} {selecting ? 'invisible' : 'sm:group-hover:invisible'}"></span>
+                <span class="min-w-0 flex-1 flex flex-col">
+                  <span class="min-w-0 flex items-center gap-3">
+                    <span class="truncate min-w-0" title={entry.name}>{isDocument ? documentTitle(entry.name) : entry.name}</span>
+                    <!-- Marked where sharing starts; inside a shared folder the heading says it once. -->
+                    {#if entryAccess && entryAccess.kind !== 'private' && entryAccess.kind !== currentAccess?.kind}
+                      <AccessBadge access={entryAccess} class="text-text-3 text-sm" />
+                    {/if}
+                  </span>
+                  <RowDetails {entry} part="line" {compact} id={detailsId} />
                 </span>
+                <RowDetails {entry} part="columns" {compact} />
               </a>
               <button
                 type="button"
@@ -760,4 +833,5 @@
   {#if entryMenu}
     <EntryMenu request={entryMenu} path={currentPath} {canEdit} onClose={closeEntryMenu} />
   {/if}
+  <div class="sr-only" role="status">{selecting ? `${selectionEntries.length} selected` : ''}</div>
 </div>
