@@ -11,23 +11,16 @@
  *   .iris-forms/<inbox pubkey>/key.json
  *   .iris-forms/<inbox pubkey>/responses/<response id>.json
  */
-import { LinkType, toHex, type CID, type TreeEntry } from '@hashtree/core';
+import { LinkType, type TreeEntry } from '@hashtree/core';
 import { getTree } from '../../store';
-import { nostrStore, saveOwnTreeRoot } from '../../nostr';
+import { nostrStore } from '../../nostr';
 import { getTreeRootSync, subscribeToTreeRoot } from '../../stores';
 import { activeNostrIdentityRootScope } from '../../drive/profileRoute';
 import { setEntryForDriveRoute } from '../../drive/profileDriveRouteEntry';
-import { flushPendingPublishes } from '../../treeRootCache';
-import { withDriveRootLock } from '../driveRootTabs';
-import { inTurn } from '../driveWrites';
+import { changeDriveRoot } from '../../drive/driveRootChange';
 
 export const FORMS_FOLDER = '.iris-forms';
 const TREE = 'main';
-
-function sameCid(left: CID | null, right: CID | null): boolean {
-  if (!left || !right) return left === right;
-  return toHex(left.hash) === toHex(right.hash) && (left.key ? toHex(left.key) : '') === (right.key ? toHex(right.key) : '');
-}
 
 /** The signed-in account's My Drive, or null. */
 function ownScope(): string | null {
@@ -79,28 +72,19 @@ export async function writeFormFiles(files: Array<{ path: string[]; data: Uint8A
   if (!scope) throw new Error('Sign in to keep responses');
   const tree = getTree();
   const stored = await Promise.all(files.map(async (file) => ({ path: [FORMS_FOLDER, ...file.path], ...(await tree.putFile(file.data)) })));
-  await inTurn(() => withDriveRootLock(scope, TREE, async () => {
-    for (let attempt = 0; attempt < 4; attempt += 1) {
-      const base = getTreeRootSync(scope, TREE);
-      if (!base) throw new Error('My Drive has not loaded yet');
-      let root = base;
-      for (const file of stored) {
-        root = await setEntryForDriveRoute(
-          tree,
-          root,
-          file.path.slice(0, -1),
-          file.path[file.path.length - 1]!,
-          { cid: file.cid, size: file.size, type: LinkType.Blob },
-          { npub: scope, treeName: TREE },
-          nostrStore.getState(),
-        );
-      }
-      // Another write landed while this one was prepared: redo it on the newer Drive.
-      if (!sameCid(getTreeRootSync(scope, TREE), base)) continue;
-      if (!saveOwnTreeRoot(scope, TREE, root)) throw new Error('My Drive cannot be changed here');
-      void flushPendingPublishes().catch(() => {});
-      return;
+  await changeDriveRoot(scope, TREE, async (base) => {
+    let root = base;
+    for (const file of stored) {
+      root = await setEntryForDriveRoute(
+        tree,
+        root,
+        file.path.slice(0, -1),
+        file.path[file.path.length - 1]!,
+        { cid: file.cid, size: file.size, type: LinkType.Blob },
+        { npub: scope, treeName: TREE },
+        nostrStore.getState(),
+      );
     }
-    throw new Error('My Drive kept changing while saving');
-  }));
+    return root;
+  });
 }
