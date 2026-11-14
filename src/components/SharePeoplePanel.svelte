@@ -16,6 +16,7 @@
   import { close as closeShareDialog } from './Modals/ShareModal.svelte';
   import { Avatar } from './User';
   import PersonName from './User/PersonName.svelte';
+  import { linkShareOf, linkShares, linkShareUrl, type LinkAccess } from '../drive/linkShares';
   import {
     addPersonToShare,
     changeShareMemberRole,
@@ -55,6 +56,33 @@
     }
   });
   let people = $derived((view?.members ?? []).filter((member) => member.status !== 'revoked'));
+
+  // General access: who can open it by its link, without being added.
+  let general = $derived(target.kind === 'drive' ? linkShareOf(target.path, profileId, $linkShares) : null);
+  let generalAccess = $derived<LinkAccess | 'off'>(general?.access ?? 'off');
+  let generalBusy = $state(false);
+  let generalError = $state('');
+  const GENERAL_HINT: Record<LinkAccess | 'off', string> = {
+    off: 'Only people added can open it',
+    link: 'Anyone with the link can view it, without an account',
+    public: 'Anyone can find it and view it',
+  };
+  const GENERAL_ICON: Record<LinkAccess | 'off', string> = { off: 'i-lucide-lock', link: 'i-lucide-link', public: 'i-lucide-globe' };
+
+  async function changeGeneral(event: Event) {
+    if (target.kind !== 'drive' || generalBusy) return;
+    const access = (event.currentTarget as HTMLSelectElement).value as LinkAccess | 'off';
+    generalBusy = true;
+    generalError = '';
+    try {
+      const { setLinkAccess } = await import('../drive/linkShareSync');
+      await setLinkAccess(target.path, access);
+    } catch (cause) {
+      generalError = cause instanceof Error ? cause.message : 'Could not change who can open it';
+    } finally {
+      generalBusy = false;
+    }
+  }
 
   async function run(action: () => Promise<void>) {
     if (busy) return;
@@ -317,6 +345,36 @@
           <span class="text-xs text-text-3">{member.role_label}</span>
         </div>
       {/each}
+    </div>
+  {/if}
+
+  {#if target.kind === 'drive' && !record}
+    <div class="space-y-2 border-t border-surface-2 pt-4" data-testid="general-access">
+      <h3 class="text-sm font-medium text-text-1">General access</h3>
+      <div class="flex items-center gap-3">
+        <span class="{GENERAL_ICON[generalAccess]} text-lg text-text-2 shrink-0"></span>
+        <select
+          class="pick flex-1"
+          value={generalAccess}
+          disabled={generalBusy}
+          aria-label="General access"
+          data-testid="general-access-select"
+          onchange={changeGeneral}
+        >
+          <option value="off">Restricted</option>
+          <option value="link">Anyone with the link can view</option>
+          <option value="public">Public</option>
+        </select>
+      </div>
+      <p class="text-xs text-text-3">{GENERAL_HINT[generalAccess]}</p>
+      {#if general && general.access !== 'off'}
+        <div class="bg-surface-2 p-3 rounded">
+          <CopyText text={linkShareUrl(general)} truncate={40} class="text-sm" testId="general-access-link" />
+        </div>
+      {/if}
+      {#if generalError}
+        <p class="text-xs text-danger" data-testid="general-access-error">{generalError}</p>
+      {/if}
     </div>
   {/if}
 

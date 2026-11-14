@@ -293,6 +293,14 @@ export function createTreeRootStore(): Readable<CID | null> {
       const linkKeyFromUrl = currentRoute.params.get('k');
       const decryptedKey = await decryptEncryptionKey(visibilityInfo, encryptionKey, linkKeyFromUrl);
       const cachedState = subscriptionState.get(resolverKey);
+      // The link does not open this version (it was turned off or changed): show
+      // that, rather than pair this version with an earlier version's key.
+      if (linkKeyFromUrl && !encryptionKey && !decryptedKey
+        && visibilityInfo?.visibility === 'link-visible' && visibilityInfo.encryptedKey) {
+        if (cachedState) cachedState.decryptedKey = undefined;
+        treeRootStore.set(cid(hash));
+        return;
+      }
       const effectiveKey = decryptedKey ?? cachedState?.decryptedKey;
 
       // Cache the decrypted key

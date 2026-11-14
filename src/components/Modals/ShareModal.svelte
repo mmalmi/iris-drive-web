@@ -170,7 +170,7 @@
     >
       {#if people}
         <div class="grid grid-cols-2 gap-2 px-4 pt-4">
-          {#each [[false, linkVariants.length > 1 ? 'View link' : 'Read-only copy'], [true, 'Invite people']] as [value, label] (label)}
+          {#each [[false, linkVariants.length > 1 ? 'View link' : 'Read-only copy'], [true, 'Share']] as [value, label] (label)}
             <button
               class={`rounded-md border px-3 py-2 text-sm font-medium transition-colors ${
                 value === showPeople ? 'border-accent bg-accent/10 text-text-1' : 'border-surface-3 text-text-3'

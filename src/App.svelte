@@ -108,6 +108,15 @@
       stopAddedWatch = watchSharesAddedToMe();
     });
   });
+  // Items shared by link stay current while Drive is open on the device that shares them.
+  let stopLinkWatch: (() => void) | null = null;
+  $effect(() => {
+    if (stopLinkWatch || !$nostrStore.isLoggedIn) return;
+    stopLinkWatch = () => {};
+    void import('./drive/linkShareSync').then(({ watchLinkShares }) => {
+      stopLinkWatch = watchLinkShares();
+    });
+  });
   // This device says once that it belongs to its account, so people can add it to folders.
   $effect(() => {
     if (!$nostrStore.isLoggedIn || !$nostrStore.pubkey) return;
