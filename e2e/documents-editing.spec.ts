@@ -241,10 +241,17 @@ test.describe('writing a document', () => {
     const words = 'Red and marked';
     await page.keyboard.type(words);
     await expect(lines.nth(1)).toHaveCSS('text-align', 'justify');
+    // A person's pause: the editor checks the cursor a moment after it gets the focus back from the menu,
+    // and keys pressed faster than that are undone by the check.
+    await settle(page);
     await page.keyboard.down('Shift');
     for (let index = 0; index < words.length; index += 1) await page.keyboard.press('ArrowLeft');
     await page.keyboard.up('Shift');
-    await settle(page);
+    // The editor learns where the selection went a little after the keys; a person sees it before reaching for the toolbar.
+    await expect.poll(() => documentBody(page).evaluate((root) => {
+      const { state } = (root as HTMLElement & { editor: { state: { selection: { from: number; to: number }; doc: { textBetween: (from: number, to: number) => string } } } }).editor;
+      return state.doc.textBetween(state.selection.from, state.selection.to);
+    })).toBe(words);
     await page.getByRole('button', { name: 'Text colour', exact: true }).click();
     await page.getByRole('button', { name: 'Red', exact: true }).click();
     await page.getByRole('button', { name: 'Highlight', exact: true }).click();
