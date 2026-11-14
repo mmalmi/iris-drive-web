@@ -1,10 +1,6 @@
 <script lang="ts">
   import { acceptedShares } from '../drive/shareLibrary';
-  import { isEditableDriveRouteScope } from '../drive/profileRoute';
-  import { nostrStore } from '../nostr';
-  import { routeStore } from '../stores';
-  import { buildRouteUrl } from '../actions';
-  import { isDocumentFolderName } from '../lib/documentNames';
+  import { newDestination } from '../stores/newDestination';
   import { DRIVE_FOOTER_PLACES, drivePlaces } from '../lib/drivePlaces';
   import NewMenu from './NewMenu.svelte';
 
@@ -23,24 +19,7 @@
 
   let { currentPath, homeHref, rail = false, auto = false }: Props = $props();
 
-  let route = $derived($routeStore);
   let places = $derived(drivePlaces(currentPath, homeHref, $acceptedShares));
-
-  /**
-   * Where New puts things: undefined in a folder only to read, where it is not
-   * offered; null for the open folder; or the folder to open first: the one
-   * around an open document, or My Drive from Recent and Shared with me.
-   */
-  let newTarget = $derived.by((): string | null | undefined => {
-    if (route.isPermalink) return undefined;
-    if (!route.treeName) return homeHref;
-    const canEdit = !route.npub || route.npub === $nostrStore.npub
-      || isEditableDriveRouteScope(route.npub, $nostrStore, $acceptedShares);
-    if (!canEdit) return undefined;
-    const documentAt = route.path.findIndex(isDocumentFolderName);
-    if (documentAt < 0) return null;
-    return `#${buildRouteUrl(route.npub, route.treeName, route.path.slice(0, documentAt), undefined, route.params.get('k'))}`;
-  });
 </script>
 
 {#snippet railLink(href: string, label: string, short: string, icon: string, active: boolean)}
@@ -75,11 +54,8 @@
   data-testid="drive-sidebar"
   data-rail={rail ? '' : undefined}
 >
-  {#if newTarget !== undefined}
-    <NewMenu variant={rail ? 'rail' : 'sidebar'} goTo={newTarget} class="mt-2 mb-4 {rail ? '' : 'ml-1 self-start'}" />
-  {:else}
-    <!-- Keeps the places below where they were. -->
-    <div class="mt-2 mb-4 h-14 shrink-0"></div>
+  {#if $newDestination}
+    <NewMenu variant={rail ? 'rail' : 'sidebar'} goTo={$newDestination.href} inMyDrive={$newDestination.inMyDrive} class="mt-2 mb-4 {rail ? '' : 'ml-1 self-start'}" />
   {/if}
 
   <nav class="flex flex-col {rail ? 'gap-3' : 'gap-1'}">

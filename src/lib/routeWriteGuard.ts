@@ -1,3 +1,4 @@
+import { isEditableDriveRouteScope } from '../drive/profileRoute';
 import { nostrStore } from '../nostr';
 import { getCurrentNostrIdentitySession } from '../nostr/auth';
 import { parseRoute } from '../utils/route';
@@ -29,9 +30,13 @@ function currentIdentity(): string {
 function currentWriteScope(): string {
   const route = parseRoute();
   const state = nostrStore.getState();
+  // A profile Drive is identified by its route. Its sidebar selection can finish
+  // loading while a write to that same Drive is already underway.
+  const writableDrive = Boolean(route.treeName && isEditableDriveRouteScope(route.npub, state));
+  const selected = writableDrive ? null : state.selectedTree;
   return JSON.stringify([
     route.npub, route.treeName, route.path,
-    currentIdentity(),
-    state.selectedTree?.pubkey, state.selectedTree?.name, state.selectedTree?.visibility,
+    currentIdentity(), writableDrive,
+    selected?.pubkey, selected?.name, selected?.visibility,
   ]);
 }

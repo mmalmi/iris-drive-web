@@ -9,6 +9,7 @@
   import { UserRow, Avatar } from './User';
   import FolderActions from './FolderActions.svelte';
   import NewMenu from './NewMenu.svelte';
+  import { newDestination } from '../stores/newDestination';
   import VisibilityIcon from './VisibilityIcon.svelte';
   import AccessBadge from './AccessBadge.svelte';
   import type { ItemAccess } from '../drive/itemAccess';
@@ -77,8 +78,8 @@
       <VisibilityIcon {visibility} class="text-text-3 shrink-0 ml-1" />
     {/if}
   </div>
-  {#if canEdit}
-    <NewMenu variant="folder" class="shrink-0" />
+  {#if canEdit || $newDestination?.inMyDrive}
+    <NewMenu variant="folder" goTo={canEdit ? null : $newDestination?.href} inMyDrive={!canEdit} class="shrink-0" />
   {/if}
   {#if showActions}
     <FolderActions

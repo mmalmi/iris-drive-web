@@ -18,7 +18,7 @@
   /**
    * The one place to make or add something: a folder, a document, a
    * spreadsheet, a presentation, a form, a text file, or files and folders from the
-   * device. In the sidebar it is the big New button, a square + on its rail.
+   * device. In the sidebar it is the big New button, a labeled + on its rail.
    * In a folder's header it is a small New button where there is no sidebar,
    * and on a phone a round button at the bottom whose menu rises from the
    * bottom of the screen. The folder's name opens it too, and a right click
@@ -27,20 +27,23 @@
   import Menu, { type MenuItem } from './ui/Menu.svelte';
   import { DOCUMENT_KINDS } from '../lib/documentNames';
   import { open as openCreateModal, type ModalType } from './Modals/CreateModal.svelte';
-  import { uploadFiles, uploadDirectory } from '../stores/upload';
+  import { uploadFiles, uploadDirectory, type UploadTarget } from '../stores/upload';
+  import { parseRouteFromHash } from '../utils/route';
+  import { captureIdentityWriteGuard } from '../lib/routeWriteGuard';
   import { readFilesFromWebkitDirectory, supportsDirectoryUpload } from '@iris/hashtree-app/directory';
 
   interface Props {
     /** `empty`: the button inside an empty folder's message; `name`: the folder's name in its header. */
-    variant: 'sidebar' | 'rail' | 'folder' | 'empty' | 'name';
+    variant: 'sidebar' | 'rail' | 'folder' | 'empty' | 'name' | 'phone';
     /** The folder's name, for `name`. */
     name?: string;
     /** A folder to open first, for when the page shown is not one to add to. */
     goTo?: string | null;
+    inMyDrive?: boolean;
     class?: string;
   }
 
-  let { variant, name = '', goTo = null, class: className = '' }: Props = $props();
+  let { variant, name = '', goTo = null, inMyDrive = false, class: className = '' }: Props = $props();
 
   const hasDirectorySupport = supportsDirectoryUpload();
 
@@ -71,13 +74,25 @@
 
   function pick(input: () => HTMLInputElement | undefined) {
     return () => {
-      go();
+      pickedFor = goTo;
+      mayUpload = captureIdentityWriteGuard();
       input()?.click();
     };
   }
 
-  function go() {
-    if (goTo && window.location.hash !== goTo) window.location.hash = goTo;
+  function go(href = goTo) {
+    if (href && window.location.hash !== href) window.location.hash = href;
+  }
+
+  // Keep the chooser attached until it returns, then navigate and save to its intended folder.
+  let pickedFor: string | null = null;
+  let mayUpload = () => true;
+  function uploadTarget(): UploadTarget {
+    if (!pickedFor) return {};
+    const route = parseRouteFromHash(pickedFor);
+    go(pickedFor);
+    pickedFor = null;
+    return route.npub && route.treeName ? { drive: { scope: route.npub, treeName: route.treeName }, dirPath: route.path } : {};
   }
 
   // The kinds' icons come from DOCUMENT_KINDS, which UnoCSS does not read; named here so they are built:
@@ -131,13 +146,13 @@
 
   function handleFileUpload(event: Event) {
     const input = event.currentTarget as HTMLInputElement;
-    if (input.files?.length) void uploadFiles(Array.from(input.files));
+    if (input.files?.length && mayUpload()) void uploadFiles(Array.from(input.files), uploadTarget());
     input.value = '';
   }
 
   function handleDirUpload(event: Event) {
     const input = event.currentTarget as HTMLInputElement;
-    if (input.files?.length) void uploadDirectory(readFilesFromWebkitDirectory(input.files));
+    if (input.files?.length && mayUpload()) void uploadDirectory(readFilesFromWebkitDirectory(input.files), uploadTarget());
     input.value = '';
   }
 </script>
@@ -160,32 +175,33 @@
       <span class="i-lucide-plus text-lg"></span>
       New
     </button>
-  {:else if variant !== 'folder'}
+  {:else if variant === 'sidebar' || variant === 'rail'}
     <button
       type="button"
-      class="flex h-14 items-center rounded-2xl text-sm font-medium text-text-1 shadow-sm ring-1 ring-surface-2 transition hover:bg-surface-2 hover:shadow {variant === 'rail' ? 'w-14 justify-center' : 'w-28 gap-3 px-4'} {opener ? 'bg-surface-2' : 'bg-surface-0'}"
+      class="flex h-14 items-center rounded-2xl text-sm font-medium text-text-1 shadow-sm ring-1 ring-surface-2 transition hover:bg-surface-2 hover:shadow {variant === 'rail' ? 'w-14 flex-col justify-center gap-0.5 text-xs' : 'w-28 gap-3 px-4'} {opener ? 'bg-surface-2' : 'bg-surface-0'}"
       aria-label="New"
-      title={variant === 'rail' ? 'New' : undefined}
+      title={inMyDrive ? 'New in My Drive' : 'New'}
       {...trigger}
     >
       <span class="i-lucide-plus text-2xl"></span>
-      {#if variant === 'sidebar'}<span>New</span>{/if}
+      <span>New</span>
     </button>
-  {:else}
+  {:else if variant === 'folder'}
     <button type="button" class="btn-ghost hidden sm:flex items-center gap-1.5" {...trigger}>
       <span class="i-lucide-plus text-lg"></span>
       New
     </button>
+  {:else}
     <button
       bind:this={fabButton}
       type="button"
-      class="sm:hidden fixed z-30 flex h-14 w-14 items-center justify-center rounded-2xl bg-accent text-white shadow-lg shadow-black/25 transition-transform active:scale-95"
+      class="sm:hidden fixed z-30 flex h-14 items-center justify-center gap-2 px-4 rounded-2xl bg-accent text-white shadow-lg shadow-black/25 transition-transform active:scale-95"
       style="right: calc(1rem + env(safe-area-inset-right)); bottom: calc(1.25rem + var(--drive-tabs-height, 0px) + env(safe-area-inset-bottom));"
       title="New"
       aria-label="New"
       {...trigger}
     >
-      <span class="i-lucide-plus text-3xl"></span>
+      <span class="i-lucide-plus text-2xl"></span><span class="font-medium">New</span>
     </button>
   {/if}
 
@@ -193,6 +209,8 @@
     <Menu
       {items}
       label="New"
+      heading={inMyDrive ? 'Create in My Drive' : null}
+      headingOnDesktop
       {at}
       sheet={opener === fabButton}
       align={variant === 'folder' ? 'right' : 'left'}
@@ -209,7 +227,7 @@
     multiple
     class="hidden"
     tabindex="-1"
-    data-testid={variant === 'folder' ? 'upload-files-input' : undefined}
+    data-testid={variant === 'folder' && !inMyDrive ? 'upload-files-input' : undefined}
     onchange={handleFileUpload}
   />
   {#if hasDirectorySupport}
@@ -219,7 +237,7 @@
       webkitdirectory
       class="hidden"
       tabindex="-1"
-      data-testid={variant === 'folder' ? 'upload-folder-input' : undefined}
+      data-testid={variant === 'folder' && !inMyDrive ? 'upload-folder-input' : undefined}
       onchange={handleDirUpload}
     />
   {/if}

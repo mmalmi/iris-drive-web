@@ -283,18 +283,59 @@ test.describe('the New menu', () => {
     await page.keyboard.press('Escape');
   });
 
-  test('a folder only to read offers none of it', async ({ page, relayUrl }) => {
-    await page.setViewportSize(DESKTOP);
+  test('New stays visible on reload and from a shared copy writes to My Drive', async ({ page, browser, relayUrl }, testInfo) => {
+    await page.setViewportSize({ width: 1000, height: 800 });
     const owner = await startInMyDrive(page, relayUrl);
+    await page.reload();
+    const rail = page.getByTestId('drive-sidebar').getByRole('button', { name: 'New' });
+    await expect(rail.getByText('New', { exact: true })).toBeVisible();
+    await expectFolderEditable(page);
+    await chooseNew(page, 'Folder');
+    await nameIt(page, 'Folder name...', 'Shared example');
+    await listed(page, 'Shared example').click();
+    await expect(page).toHaveURL(/Shared%20example$/);
     await uploadFilesInput(page).setInputFiles({ name: 'shared.txt', mimeType: 'text/plain', buffer: Buffer.from('hi') });
     await expect(listed(page, /shared\.txt/)).toBeVisible({ timeout: 30_000 });
-    await page.goto(`/#/${owner.profileId}/main`);
     await openFolderMenu(page);
     const snapshot = await page.getByTestId('permalink-link').getAttribute('href');
-    await page.goto(`/${snapshot}`);
+    const shared = `/${snapshot}`;
+
+    const guest = await browser.newContext({ baseURL: new URL(page.url()).origin });
+    try {
+      const visitor = await guest.newPage();
+      await prepareFreshSession(visitor, relayUrl);
+      await visitor.goto(shared);
+      await expect(listed(visitor, /shared\.txt/)).toBeVisible({ timeout: 30_000 });
+      await expect(visitor.locator('[data-testid="new-menu"]:visible')).toHaveCount(0);
+      await visitor.setViewportSize(PHONE);
+      await expect(visitor.locator('[data-testid="new-menu"]:visible')).toHaveCount(0);
+    } finally { await guest.close(); }
+
+    await page.goto(shared);
     await expect(listed(page, /shared\.txt/)).toBeVisible({ timeout: 30_000 });
-    await expect(page.locator('[data-testid="new-menu"]:visible')).toHaveCount(0);
+    await expect(uploadFilesInput(page)).toHaveCount(0);
+    await rail.click();
+    await expect(menu(page).getByText('Create in My Drive')).toBeVisible();
+    await item(page, 'Folder').click();
+    await nameIt(page, 'Folder name...', 'My new folder');
+    await expect(listed(page, 'My new folder')).toBeVisible({ timeout: 30_000 });
+    await expect(page).toHaveURL(new RegExp(`#/${owner.profileId}/main$`));
+
     await page.setViewportSize(PHONE);
-    await expect(page.locator('[data-testid="new-menu"]:visible')).toHaveCount(0);
+    await page.goto(shared);
+    await page.reload();
+    const phone = newMenuButton(page);
+    await expect(phone.getByText('New', { exact: true })).toBeVisible();
+    await phone.click();
+    await expect(menu(page).getByText('Create in My Drive')).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath('shared-new-phone.png') });
+    const chooser = page.waitForEvent('filechooser');
+    await item(page, 'Upload files').click();
+    await (await chooser).setFiles({ name: 'mine.txt', mimeType: 'text/plain', buffer: Buffer.from('mine') });
+    await expect(listed(page, /mine\.txt/)).toBeVisible({ timeout: 30_000 });
+    await expect(page).toHaveURL(new RegExp(`#/${owner.profileId}/main$`));
+    await page.goto(shared);
+    await expect(listed(page, /shared\.txt/)).toBeVisible({ timeout: 30_000 });
+    await expect(listed(page, /mine\.txt|My new folder/)).toHaveCount(0);
   });
 });

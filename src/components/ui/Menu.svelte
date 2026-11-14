@@ -34,6 +34,7 @@
     sheet?: boolean;
     /** Shown at the top of the sheet: what the menu is for. */
     heading?: string | null;
+    headingOnDesktop?: boolean;
     /** Below its button, the edge of the button it lines up with. */
     align?: 'left' | 'right';
     /** Its width class, when it is not a sheet. */
@@ -47,7 +48,7 @@
   }
 
   let {
-    items, label, at = null, sheet = false, heading = null, align = 'right', width = 'w-56', focusLast = false, inside = [], testid, onClose,
+    items, label, at = null, sheet = false, heading = null, headingOnDesktop = false, align = 'right', width = 'w-56', focusLast = false, inside = [], testid, onClose,
   }: Props = $props();
 
   let menuRef: HTMLDivElement | undefined = $state();
@@ -163,7 +164,7 @@
   onkeydown={onMenuKeydown}
   oncontextmenu={(event) => event.preventDefault()}
 >
-  {#if sheet && heading}
+  {#if heading && (sheet || headingOnDesktop)}
     <div class="px-5 pb-2 pt-1 mb-1.5 border-b border-surface-3/70 truncate text-sm font-medium text-text-2" title={heading}>{heading}</div>
   {/if}
   {#each items as item (item.testid)}
