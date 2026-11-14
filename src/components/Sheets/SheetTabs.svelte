@@ -102,7 +102,7 @@
     const rect = ctl.selection;
     if (rectRows(rect) * rectCols(rect) < 2) return null;
     const sheet = ctl.sheet;
-    const used = sheet.usedRect();
+    const used = ctl.engine.usedRect(sheet);
     if (!used) return null;
     const r2 = Math.min(rect.r2, used.r2);
     const c2 = Math.min(rect.c2, used.c2);

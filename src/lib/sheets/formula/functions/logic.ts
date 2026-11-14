@@ -1,6 +1,6 @@
 /** Conditions, checks and choosing between values. */
 import { isError, isMatrix, toBoolean, valuesEqual, type Scalar, type Value } from '../../values';
-import { defineFunction as define, type FnContext } from '../evaluate';
+import { defineFunction as define, elementwise, type FnContext } from '../evaluate';
 import type { Node } from '../parser';
 import { bool, err, int, plain } from '../helpers';
 
@@ -37,7 +37,17 @@ define('IF', {
   min: 2,
   max: 3,
   lazy: ([condition, whenTrue, whenFalse]: Node[], ctx: FnContext) => {
-    if (bool(ctx.evaluate(condition), ctx)) return ctx.evaluate(whenTrue);
+    const test = ctx.evaluate(condition);
+    if (ctx.arrays && isMatrix(test) && (test.rows > 1 || test.cols > 1)) {
+      // Inside ARRAYFORMULA: decided cell by cell.
+      const yes = ctx.evaluate(whenTrue);
+      const no = whenFalse ? ctx.evaluate(whenFalse) : false;
+      return elementwise([test, yes, no], ([truth, a, b]) => {
+        const chosen = toBoolean(truth);
+        return isError(chosen) ? chosen : chosen ? a : b;
+      });
+    }
+    if (bool(test, ctx)) return ctx.evaluate(whenTrue);
     return whenFalse ? ctx.evaluate(whenFalse) : false;
   },
 });
@@ -57,6 +67,10 @@ define('IFERROR', {
   max: 2,
   lazy: ([value, fallback], ctx) => {
     const result = ctx.evaluate(value);
+    if (ctx.arrays && isMatrix(result) && (result.rows > 1 || result.cols > 1)) {
+      const other = fallback ? ctx.evaluate(fallback) : '';
+      return elementwise([result, other], ([cell, instead]) => (isError(cell) ? instead : cell));
+    }
     if (isError(ctx.scalar(result))) return fallback ? ctx.evaluate(fallback) : '';
     return result;
   },

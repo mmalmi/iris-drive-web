@@ -306,7 +306,7 @@ function drawBorders(ctx: CanvasRenderingContext2D, scene: GridScene, theme: Gri
 }
 
 function drawPaneCells(ctx: CanvasRenderingContext2D, scene: GridScene, theme: GridTheme, pane: Pane): void {
-  const { sheet, cols, rows, editing } = scene;
+  const { sheet, engine, cols, rows, editing } = scene;
   ctx.save();
   ctx.beginPath();
   ctx.rect(pane.x, pane.y, pane.width, pane.height);
@@ -356,25 +356,27 @@ function drawPaneCells(ctx: CanvasRenderingContext2D, scene: GridScene, theme: G
 
   for (let row = pane.rowFrom; row <= pane.rowTo; row += 1) {
     if (rows.size(row) === 0) continue;
-    const occupied = (col: number) => !sheet.isEmpty(row, col) || merged(row, col) || (editing !== null && editing.row === row && editing.col === col);
+    // A cell another formula's result fills shows that value.
+    const empty = (col: number) => sheet.isEmpty(row, col) && !engine.isSpilled(sheet, row, col);
+    const occupied = (col: number) => !empty(col) || merged(row, col) || (editing !== null && editing.row === row && editing.col === col);
     // Text from a cell left of the view may run into it.
     let first = pane.colFrom;
     for (let col = pane.colFrom - 1; col >= Math.max(0, pane.colFrom - OVERFLOW_REACH); col -= 1) {
-      if (!sheet.isEmpty(row, col)) {
+      if (!empty(col)) {
         first = col;
         break;
       }
     }
     let last = pane.colTo;
     for (let col = pane.colTo + 1; col <= Math.min(cols.count - 1, pane.colTo + OVERFLOW_REACH); col += 1) {
-      if (!sheet.isEmpty(row, col)) {
+      if (!empty(col)) {
         last = col;
         break;
       }
     }
     for (let col = first; col <= last; col += 1) {
       if (editing && editing.row === row && editing.col === col) continue;
-      if (sheet.isEmpty(row, col) || merged(row, col)) continue;
+      if (empty(col) || merged(row, col)) continue;
       drawCellText(ctx, scene, theme, pane, row, col, occupied);
     }
   }

@@ -32,7 +32,7 @@ const STYLES = `
 export function sheetPrintPage(ctl: SheetController): HTMLElement {
   const sheet = ctl.sheet;
   const engine = ctl.engine;
-  const used = sheet.usedRect();
+  const used = engine.usedRect(sheet);
   const { rows: hiddenRows, cols: hiddenCols } = ctl.visibility;
   const rows: number[] = [];
   const cols: number[] = [];

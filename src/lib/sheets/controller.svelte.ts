@@ -586,7 +586,17 @@ export class SheetController {
     void this.revision;
     if (this.edit) return this.edit.text;
     if (!this.hasSheet) return '';
+    // A cell another formula's result fills shows that formula, greyed.
+    const source = this.barSource;
+    if (source) return editTextAt(this.book, this.sheet, source.row, source.col);
     return editTextAt(this.book, this.sheet, this.active.row, this.active.col);
+  }
+
+  /** Where the formula is whose result fills the active cell, when the cell holds nothing of its own. */
+  get barSource(): { row: number; col: number } | null {
+    void this.revision;
+    if (this.edit || !this.hasSheet) return null;
+    return this.engine.spillSourceAt(this.sheet, this.active.row, this.active.col);
   }
 
   /** The selection as people write it: "B7", "A1:C9", "2:4" for rows, "B:D" for columns. */

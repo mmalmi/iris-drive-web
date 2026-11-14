@@ -271,6 +271,8 @@ export function readXlsx(data: Uint8Array): ImportedSheet[] {
       }
     }
     const shares = new Map<string, { formula: string; row: number; col: number }>();
+    // Cells that hold the result of an array formula, which fills them again here.
+    const arrayResults: Array<{ row: number; col: number; r2: number; c2: number }> = [];
     let nextRow = 0;
     for (const row of children(child(sheetXml, 'sheetData'), 'row')) {
       const rowIndex = row.attrs.r ? Number(row.attrs.r) - 1 : nextRow;
@@ -296,6 +298,13 @@ export function readXlsx(data: Uint8Array): ImportedSheet[] {
             else if (master) formula = shiftFormula(master.formula, place.row - master.row, place.col - master.col);
           }
           if (formula) out.formula = formula.replace(/_xlfn\.|_xlws\./g, '');
+          if (formula && f.attrs.t === 'array') {
+            // A dynamic array (marked by cell metadata) fills cells by itself; an older array formula needs ARRAYFORMULA.
+            if (cell.attrs.cm === undefined) out.formula = `ARRAYFORMULA(${out.formula})`;
+            const [, second] = (f.attrs.ref ?? '').split(':');
+            const end = second ? readRef(second) : null;
+            if (end) arrayResults.push({ row: place.row, col: place.col, r2: end.row, c2: end.col });
+          }
         }
         const raw = child(cell, 'v')?.text;
         const type = cell.attrs.t ?? 'n';
@@ -311,6 +320,14 @@ export function readXlsx(data: Uint8Array): ImportedSheet[] {
         sheet.cells.set(`${place.row}:${place.col}`, out);
         sheet.cols = Math.max(sheet.cols, place.col + 1);
         sheet.rows = Math.max(sheet.rows, place.row + 1);
+      }
+    }
+    for (const area of arrayResults) {
+      for (const [key, cell] of sheet.cells) {
+        const [row, col] = key.split(':').map(Number);
+        if ((row === area.row && col === area.col) || row < area.row || col < area.col || row > area.r2 || col > area.c2 || cell.formula) continue;
+        delete cell.value;
+        if (!cell.style) sheet.cells.delete(key);
       }
     }
     for (const merge of children(child(sheetXml, 'mergeCells'), 'mergeCell')) {
@@ -523,7 +540,7 @@ class StyleTable {
 }
 
 function sheetXml(book: Book, engine: Engine, sheet: Sheet, styles: StyleTable): string {
-  const used = sheet.usedRect();
+  const used = engine.usedRect(sheet);
   const merges = sheet.merges();
   let lastRow = used?.r2 ?? -1;
   let lastCol = used?.c2 ?? -1;
@@ -555,10 +572,19 @@ function sheetXml(book: Book, engine: Engine, sheet: Sheet, styles: StyleTable):
       const raw = sheet.rawAt(row, col);
       const style = sheet.styleAt(row, col);
       const s = Object.keys(style).length > 0 ? styles.of(style) : 0;
-      if (raw === undefined && s === 0) continue;
+      // A result of several cells is written as values, its formula's cell too: not every program calculates them.
+      const spilled = raw === undefined ? engine.isSpilled(sheet, row, col) : isFormula(raw) && engine.spillRectAt(sheet, row, col) !== null;
+      if (raw === undefined && !spilled && s === 0) continue;
       const ref = `${columnName(col)}${row + 1}`;
       const sAttr = s ? ` s="${s}"` : '';
-      if (raw === undefined) {
+      if (spilled) {
+        const value = engine.valueAt(sheet, row, col);
+        if (typeof value === 'number') cells.push(`<c r="${ref}"${sAttr}><v>${value}</v></c>`);
+        else if (typeof value === 'boolean') cells.push(`<c r="${ref}"${sAttr} t="b"><v>${value ? 1 : 0}</v></c>`);
+        else if (isError(value)) cells.push(`<c r="${ref}"${sAttr} t="e"><v>${escapeXml(value.code)}</v></c>`);
+        else if (value === null || value === '') cells.push(`<c r="${ref}"${sAttr}/>`);
+        else cells.push(`<c r="${ref}"${sAttr} t="inlineStr"><is><t xml:space="preserve">${escapeXml(value)}</t></is></c>`);
+      } else if (raw === undefined) {
         cells.push(`<c r="${ref}"${sAttr}/>`);
       } else if (isFormula(raw)) {
         const value = engine.valueAt(sheet, row, col);

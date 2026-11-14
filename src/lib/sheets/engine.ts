@@ -10,6 +10,10 @@
  *
  * Values that formulas and the screen read are kept by position, so adding
  * up a long column does not look every cell up by name each time.
+ *
+ * A formula whose result is several cells, such as =UNIQUE(A2:A9), fills
+ * the empty cells to the right and below its own. Those values are worked
+ * out here and never stored: each device calculates them from the formula.
  */
 import { rectContains, type Rect } from './address';
 import {
@@ -19,6 +23,7 @@ import {
   collectNames,
   collectRefs,
   evaluateFormula,
+  evaluateFormulaArray,
   parseFormula,
   type EvalHost,
   type Node,
@@ -29,13 +34,16 @@ import { linkTarget } from './links';
 import { cellKey, decodeRaw, isFormula, type Book, type BookChange, type Sheet } from './model';
 import { nameRef, resolveName } from './names';
 import { resolveRef } from './refs';
-import { SheetError, err, isError, type Scalar } from './values';
+import { MOST_SPILLED, Spills, materialize, pastEdge, spillProblem, type Spill } from './spill';
+import { SheetError, err, isError, isMatrix, type Scalar } from './values';
 
 const CLEAN = 0;
 const DIRTY = 1;
 const VISITING = 2;
 /** How many formulas may wait on each other before the walk without recursion takes over. */
 const MAX_NESTING = 120;
+/** How often results of several cells are laid out again in one recalculation before giving up. */
+const MAX_SPILL_ROUNDS = 20;
 
 /** Thrown to unwind a chain of formulas that is too deep to calculate by recursion. */
 class TooDeep extends Error {}
@@ -63,6 +71,12 @@ interface FormulaCell {
   inCycle: boolean;
   /** Where the walk through this formula's precedents has got to. */
   pending: FormulaCell[] | null;
+  /** The whole result when it is several cells, row by row. */
+  array: Scalar[][] | null;
+  /** The number format each column of `array` implies. */
+  arrayFormats: Array<string | undefined> | null;
+  /** Where `array` was last laid out, when it was. */
+  spill: Spill | null;
 }
 
 interface RangeWatch {
@@ -73,11 +87,13 @@ interface RangeWatch {
 }
 
 const DATE_RESULT = new Set(['DATE', 'TODAY', 'EDATE', 'EOMONTH', 'DATEVALUE', 'WORKDAY']);
+
 /** Functions whose answer looks like one of their arguments: which argument. */
 const SAME_AS_ARGUMENT: Record<string, number> = {
   SUM: 0, AVERAGE: 0, AVG: 0, MIN: 0, MAX: 0, MEDIAN: 0, MODE: 0, LARGE: 0, SMALL: 0,
   ROUND: 0, ROUNDUP: 0, ROUNDDOWN: 0, TRUNC: 0, INT: 0, ABS: 0, MROUND: 0, CEILING: 0, FLOOR: 0,
   IFERROR: 0, IFNA: 0, IF: 1, INDEX: 0, XLOOKUP: 2, LOOKUP: 2,
+  UNIQUE: 0, FILTER: 0, SORT: 0, ARRAYFORMULA: 0,
   SUMIFS: 0, AVERAGEIFS: 0, MAXIFS: 0, MINIFS: 0, SUMIF: 2, AVERAGEIF: 2,
   PMT: 2, FV: 2, PV: 2,
 };
@@ -95,6 +111,10 @@ export class Engine {
   private epoch = 0;
   /** Values by sheet, row and column position; a missing entry has not been read yet. */
   private readonly grids = new Map<string, Array<Array<Scalar | undefined> | undefined>>();
+  /** Formulas whose result is several cells, laid out or not. */
+  private readonly arrays = new Set<FormulaCell>();
+  /** Where results of several cells are laid out. */
+  private readonly spills = new Spills<FormulaCell>();
   /** The formulas being calculated right now, each one read by the next. */
   private nesting: FormulaCell[] = [];
   /** True while a deep chain is walked without recursion. */
@@ -149,13 +169,25 @@ export class Engine {
     const formula = this.formulas.get(sheet.id)?.get(key);
     let value: Scalar;
     if (!formula) {
-      value = decodeRaw(sheet.cells.get(key));
+      const raw = sheet.cells.get(key);
+      if (raw !== undefined) {
+        value = decodeRaw(raw);
+      } else {
+        const source = this.spills.sourceAt(sheet, row, col);
+        const spill = source?.spill;
+        if (!source || !spill) {
+          value = null;
+        } else if (source.state === VISITING) {
+          // The formula reads a cell its own result fills.
+          this.markCycle(source);
+          return cycleError();
+        } else {
+          value = spill.values[row - spill.row]?.[col - spill.col] ?? null;
+        }
+      }
     } else {
       if (formula.state === VISITING) {
-        // Being calculated further up: everything from there to here goes round in a circle.
-        for (let index = this.nesting.lastIndexOf(formula); index >= 0 && index < this.nesting.length; index += 1) {
-          this.nesting[index].inCycle = true;
-        }
+        this.markCycle(formula);
         return cycleError();
       }
       if (formula.state === DIRTY) this.ensure(formula);
@@ -165,10 +197,21 @@ export class Engine {
     return value;
   }
 
+  /** Being calculated further up: everything from there to here goes round in a circle. */
+  private markCycle(formula: FormulaCell): void {
+    for (let index = this.nesting.lastIndexOf(formula); index >= 0 && index < this.nesting.length; index += 1) {
+      this.nesting[index].inCycle = true;
+    }
+  }
+
   /** Forgets the value kept for one cell. */
   private forget(sheet: Sheet, rowId: string, colId: string): void {
-    const cells = this.grids.get(sheet.id)?.[sheet.rows.indexOf(rowId)];
-    if (cells) cells[sheet.cols.indexOf(colId)] = undefined;
+    this.forgetAt(sheet, sheet.rows.indexOf(rowId), sheet.cols.indexOf(colId));
+  }
+
+  private forgetAt(sheet: Sheet, row: number, col: number): void {
+    const cells = this.grids.get(sheet.id)?.[row];
+    if (cells) cells[col] = undefined;
   }
 
   /** The number format in effect: the cell's own, or the one its formula implies. */
@@ -178,7 +221,46 @@ export class Engine {
     const rowId = sheet.rows.ids[row];
     const colId = sheet.cols.ids[col];
     if (rowId === undefined || colId === undefined) return undefined;
-    return this.formulas.get(sheet.id)?.get(cellKey(rowId, colId))?.format;
+    const formula = this.formulas.get(sheet.id)?.get(cellKey(rowId, colId));
+    if (formula) return formula.format;
+    const spill = this.spills.sourceAt(sheet, row, col)?.spill;
+    return spill?.formats[col - spill.col];
+  }
+
+  // --- Results of several cells ---
+
+  /** For a cell that shows part of another formula's result: where that formula is. */
+  spillSourceAt(sheet: Sheet, row: number, col: number): { row: number; col: number } | null {
+    const spill = this.spills.sourceAt(sheet, row, col)?.spill;
+    return spill && sheet.isEmpty(row, col) ? { row: spill.row, col: spill.col } : null;
+  }
+
+  /** Whether the cell shows part of another formula's result. */
+  isSpilled(sheet: Sheet, row: number, col: number): boolean {
+    return this.spillSourceAt(sheet, row, col) !== null;
+  }
+
+  /** The cells a formula's result fills, its own included, when that is more than one. */
+  spillRectAt(sheet: Sheet, row: number, col: number): Rect | null {
+    const rowId = sheet.rows.ids[row];
+    const colId = sheet.cols.ids[col];
+    if (rowId === undefined || colId === undefined) return null;
+    const spill = this.formulas.get(sheet.id)?.get(cellKey(rowId, colId))?.spill;
+    if (!spill || spill.row !== row || spill.col !== col) return null;
+    return { r1: row, c1: col, r2: row + spill.values.length - 1, c2: col + spill.values[0].length - 1 };
+  }
+
+  /** The smallest rectangle from A1 holding every cell with content or with part of a formula's result. */
+  usedRect(sheet: Sheet): Rect | null {
+    let used = sheet.usedRect();
+    for (const formula of this.arrays) {
+      const spill = formula.spill;
+      if (formula.sheet !== sheet || !spill) continue;
+      const r2 = spill.row + spill.values.length - 1;
+      const c2 = spill.col + spill.values[0].length - 1;
+      used = { r1: 0, c1: 0, r2: Math.max(used?.r2 ?? 0, r2), c2: Math.max(used?.c2 ?? 0, c2) };
+    }
+    return used;
   }
 
   /** The text the cell shows. */
@@ -273,6 +355,7 @@ export class Engine {
       formulas.delete(key);
       this.volatile.delete(existing);
       this.named.delete(existing);
+      this.arrays.delete(existing);
     }
     if (!isFormula(raw)) return;
     const at = key.indexOf(':');
@@ -292,6 +375,9 @@ export class Engine {
       state: CLEAN,
       inCycle: false,
       pending: null,
+      array: null,
+      arrayFormats: null,
+      spill: null,
     };
     try {
       formula.node = parseFormula(raw, 'id');
@@ -490,6 +576,7 @@ export class Engine {
     const row = formula.sheet.rows.indexOf(formula.rowId);
     const col = formula.sheet.cols.indexOf(formula.colId);
     let value: Scalar;
+    let array: Scalar[][] | null = null;
     if (formula.inCycle) {
       value = cycleError();
     } else if (formula.syntaxError || !formula.node) {
@@ -498,7 +585,23 @@ export class Engine {
       value = null;
     } else {
       try {
-        value = evaluateFormula(formula.node, this.host, { sheetId: formula.sheet.id, row, col });
+        const result = evaluateFormulaArray(formula.node, this.host, { sheetId: formula.sheet.id, row, col });
+        if (!isMatrix(result)) {
+          value = result;
+        } else if (result.rows === 0 || result.cols === 0) {
+          value = err('#N/A', 'The result is empty');
+        } else if (result.rows * result.cols > MOST_SPILLED) {
+          value = err('#NUM!', `The result is more than ${MOST_SPILLED.toLocaleString('en')} cells`);
+        } else {
+          // Past the edge of the sheet there is nothing to lay out; rows or columns added later calculate it again.
+          const edge = pastEdge(formula.sheet, row, col, result.rows, result.cols);
+          if (edge) {
+            value = edge;
+          } else {
+            array = materialize(result);
+            value = spillProblem(this.book, formula, row, col, result.rows, result.cols) ?? array[0][0];
+          }
+        }
       } catch (error) {
         if (error instanceof TooDeep) throw error;
         // A fault in a function must not take the rest of the spreadsheet down with it.
@@ -506,10 +609,18 @@ export class Engine {
         value = err('#ERROR!', 'This formula could not be calculated');
       }
       // Reading its own cells again on the way marks the formula as part of a circle.
-      if (formula.inCycle) value = cycleError();
+      if (formula.inCycle) {
+        value = cycleError();
+        array = null;
+      }
     }
     formula.value = value;
-    formula.format = typeof formula.value === 'number' && formula.node ? this.impliedFormat(formula.node, formula.sheet) : undefined;
+    formula.array = array;
+    if (array) this.arrays.add(formula);
+    else this.arrays.delete(formula);
+    const node = formula.node;
+    formula.arrayFormats = array && node ? array[0].map((_, column) => this.impliedFormat(node, formula.sheet, column)) : null;
+    formula.format = typeof value === 'number' && node ? formula.arrayFormats?.[0] ?? this.impliedFormat(node, formula.sheet) : undefined;
     formula.state = CLEAN;
     this.computed += 1;
   }
@@ -517,10 +628,22 @@ export class Engine {
   /** Brings every waiting formula up to date. */
   recalculate(): void {
     for (const formula of this.volatile) this.markDirty(formula);
-    const waiting = this.dirty;
-    this.dirty = [];
-    for (const formula of waiting) {
-      if (formula.state === DIRTY) this.ensure(formula);
+    for (let round = 0; ; round += 1) {
+      const waiting = this.dirty;
+      this.dirty = [];
+      for (const formula of waiting) {
+        if (formula.state === DIRTY) this.ensure(formula);
+      }
+      // Laying out results of several cells can change what other formulas read.
+      // Results that keep moving each other are left where they are after a while.
+      if ((this.arrays.size === 0 && this.spills.empty) || round === MAX_SPILL_ROUNDS) break;
+      this.spills.place(this.book, this.arrays, (sheet, row, col) => {
+        this.forgetAt(sheet, row, col);
+        const rowId = sheet.rows.ids[row];
+        const colId = sheet.cols.ids[col];
+        if (rowId !== undefined && colId !== undefined) this.markDependentsDirty(sheet, cellKey(rowId, colId));
+      });
+      if (this.dirty.length === 0) break;
     }
   }
 
@@ -531,22 +654,24 @@ export class Engine {
 
   // --- Formats that follow from the formula ---
 
-  private impliedFormat(node: Node, home: Sheet): string | undefined {
+  /** The format a formula's result implies; for a result of several cells, that of one of its columns. */
+  private impliedFormat(node: Node, home: Sheet, column = 0): string | undefined {
     switch (node.t) {
       case 'ref': {
         const target = resolveRef(node.ref, this.book, home);
         if (target instanceof SheetError) return undefined;
         const { sheet, rect } = target;
-        const format = this.formatAt(sheet, rect.r1, rect.c1);
+        const col = Math.min(rect.c1 + column, rect.c2);
+        const format = this.formatAt(sheet, rect.r1, col);
         // A column of amounts under a text heading still means amounts.
-        if (!format && rect.r2 > rect.r1) return this.formatAt(sheet, rect.r1 + 1, rect.c1);
+        if (!format && rect.r2 > rect.r1) return this.formatAt(sheet, rect.r1 + 1, col);
         return format;
       }
       case 'un':
-        return this.impliedFormat(node.x, home);
+        return this.impliedFormat(node.x, home, column);
       case 'bin': {
-        const left = this.impliedFormat(node.l, home);
-        const right = this.impliedFormat(node.r, home);
+        const left = this.impliedFormat(node.l, home, column);
+        const right = this.impliedFormat(node.r, home, column);
         const kind = (format: string | undefined) => formatKind(format);
         const isDate = (format: string | undefined) => kind(format) === 'date' || kind(format) === 'dateTime';
         if (node.op === '+') return left ?? right;
@@ -562,8 +687,8 @@ export class Engine {
         const index = SAME_AS_ARGUMENT[node.name];
         if (index === undefined) return undefined;
         const arg = node.args[index] ?? (node.name === 'SUMIF' || node.name === 'AVERAGEIF' ? node.args[0] : undefined);
-        const format = arg ? this.impliedFormat(arg, home) : undefined;
-        if (!format && node.name === 'IF' && node.args[2]) return this.impliedFormat(node.args[2], home);
+        const format = arg ? this.impliedFormat(arg, home, column) : undefined;
+        if (!format && node.name === 'IF' && node.args[2]) return this.impliedFormat(node.args[2], home, column);
         return format;
       }
       default:

@@ -4,8 +4,9 @@ import './functions/logic';
 import './functions/text';
 import './functions/lookup';
 import './functions/date';
+import './functions/arrays';
 
-export { FUNCTIONS, evaluateFormula, type EvalHost, type EvalScope } from './evaluate';
+export { FUNCTIONS, evaluateFormula, evaluateFormulaArray, type EvalHost, type EvalScope } from './evaluate';
 export { FormulaSyntaxError, callsAny, collectNames, collectRefs, parseFormula, type Node } from './parser';
 export { rewriteRefs, tokenize, writeIdRef, type RefEnd, type RefMode, type RefSpec, type Token } from './tokens';
 

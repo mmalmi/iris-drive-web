@@ -138,7 +138,9 @@
     autocomplete="off"
     autocapitalize="off"
     readonly={!ctl.canEdit}
+    class:spilled={ctl.barSource !== null}
     data-testid="sheet-formula-input"
+    data-spilled={ctl.barSource !== null ? 'true' : undefined}
     {onfocus}
     {oninput}
     {onselect}
@@ -213,5 +215,10 @@
     white-space: pre;
     font-family: inherit;
     line-height: 18px;
+  }
+
+  /* The formula whose result fills this cell, which is typed elsewhere. */
+  .content.spilled {
+    color: rgb(var(--text-3));
   }
 </style>

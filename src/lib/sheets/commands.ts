@@ -1,6 +1,6 @@
 /** The actions that change a spreadsheet's content, each one undo step. */
 import { escapeHtml } from '../markup';
-import { rectCols, rectRows, type Rect } from './address';
+import { rectContains, rectCols, rectRows, type Rect } from './address';
 import { setBorders, type BorderPlace } from './borders';
 import type { CopiedCells, SheetController } from './controller.svelte';
 import { inputToStored } from './edit';
@@ -13,6 +13,21 @@ import { CELL_PAD_X, DEFAULT_POINTS, fontOf, textWidth } from './cellText';
 import { followMovedCells, moveKeepingRanges, requalify, widenRangesAtEdge } from './structure';
 import { parseClipboardTable, readCsv, writeClipboardTable, writeCsv } from './table';
 import { isError } from './values';
+
+/**
+ * What to copy from a cell: its content, or for a cell another formula's
+ * result fills, that value, unless the formula is copied along and fills it again.
+ */
+function copiedRaw(ctl: SheetController, sheet: Sheet, row: number, col: number, rect: Rect): CellRaw | undefined {
+  const raw = sheet.rawAt(row, col);
+  if (raw !== undefined) return raw;
+  const source = ctl.engine.spillSourceAt(sheet, row, col);
+  if (!source || rectContains(rect, source.row, source.col)) return undefined;
+  const value = ctl.engine.valueAt(sheet, row, col);
+  if (value === null || value === '') return undefined;
+  if (isError(value)) return encodeText(value.code);
+  return typeof value === 'string' ? encodeText(value) : value;
+}
 
 function ownStyle(sheet: Sheet, row: number, col: number): CellStyle | undefined {
   const style = sheet.styleAt(row, col);
@@ -55,7 +70,7 @@ export function clearContents(ctl: SheetController): void {
 /** Takes the selection for the clipboard and returns the text to put there. */
 export function copySelection(ctl: SheetController, cut = false): string {
   const sheet = ctl.sheet;
-  const used = sheet.usedRect();
+  const used = ctl.engine.usedRect(sheet);
   let rect = ctl.selection;
   // A whole column is copied as far as it is filled, not a thousand empty lines.
   if (ctl.scope !== 'cells') {
@@ -78,7 +93,7 @@ export function copySelection(ctl: SheetController, cut = false): string {
     const cellRow: CopiedCells['cells'][number] = [];
     for (let col = rect.c1; col <= rect.c2; col += 1) {
       line.push(ctl.engine.textAt(sheet, row, col));
-      cellRow.push({ raw: sheet.rawAt(row, col), style: ownStyle(sheet, row, col) });
+      cellRow.push({ raw: copiedRaw(ctl, sheet, row, col, rect), style: ownStyle(sheet, row, col) });
     }
     lines.push(line);
     cells.push(cellRow);
@@ -687,7 +702,7 @@ export function importCsv(ctl: SheetController, fileName: string, text: string):
 /** The sheet in view as CSV, with values as they are shown. */
 export function exportCsv(ctl: SheetController): string {
   const sheet = ctl.sheet;
-  const used = sheet.usedRect();
+  const used = ctl.engine.usedRect(sheet);
   const lines: string[][] = [];
   if (used) {
     for (let row = 0; row <= used.r2; row += 1) {

@@ -45,6 +45,8 @@ export interface FnContext {
   /** Calculates an argument that was handed over uncalculated. */
   evaluate(node: Node): Value;
   scalar(value: Value): Scalar;
+  /** True inside ARRAYFORMULA and other functions that work cell by cell over ranges. */
+  readonly arrays: boolean;
 }
 
 export interface FnSpec {
@@ -91,6 +93,33 @@ class CellRange implements RangeMatrix {
 export function sliceMatrix(source: Matrix, top: number, left: number, rows: number, cols: number): Matrix {
   const base = { rows, cols, get: (row: number, col: number) => source.get(top + row, left + col) };
   return isRange(source) ? { ...base, sheetId: source.sheetId, top: source.top + top, left: source.left + left } as RangeMatrix : base;
+}
+
+/**
+ * Combines values cell by cell. A single value, or a single row or column,
+ * stands for every row or column; cells one value lacks are #N/A.
+ */
+export function elementwise(values: Value[], combine: (cells: Scalar[]) => Scalar): Matrix {
+  let rows = 1;
+  let cols = 1;
+  for (const value of values) {
+    if (!isMatrix(value)) continue;
+    rows = Math.max(rows, value.rows);
+    cols = Math.max(cols, value.cols);
+  }
+  const at = (value: Value, r: number, c: number): Scalar => {
+    if (!isMatrix(value)) return value;
+    const row = value.rows === 1 ? 0 : r;
+    const col = value.cols === 1 ? 0 : c;
+    return row < value.rows && col < value.cols ? value.get(row, col) : err('#N/A');
+  };
+  const out: Scalar[][] = [];
+  for (let r = 0; r < rows; r += 1) {
+    const row: Scalar[] = [];
+    for (let c = 0; c < cols; c += 1) row.push(combine(values.map(value => at(value, r, c))));
+    out.push(row);
+  }
+  return new ArrayMatrix(out);
 }
 
 function arithmetic(op: string, left: Scalar, right: Scalar): Scalar {
@@ -150,6 +179,10 @@ class Evaluator implements FnContext {
     this.scope = scope;
   }
 
+  get arrays(): boolean {
+    return this.arrayDepth > 0;
+  }
+
   evaluate = (node: Node): Value => {
     switch (node.t) {
       case 'num':
@@ -187,7 +220,7 @@ class Evaluator implements FnContext {
         const left = this.evaluate(node.l);
         const right = this.evaluate(node.r);
         if (this.arrayDepth > 0 && (isMatrix(left) || isMatrix(right))) {
-          return this.map2(left, right, (a, b) => arithmetic(node.op, a, b));
+          return elementwise([left, right], ([a, b]) => arithmetic(node.op, a, b));
         }
         return arithmetic(node.op, this.scalar(left), this.scalar(right));
       }
@@ -224,24 +257,6 @@ class Evaluator implements FnContext {
     return change(this.scalar(value));
   }
 
-  private map2(left: Value, right: Value, combine: (a: Scalar, b: Scalar) => Scalar): Value {
-    const rows = Math.max(isMatrix(left) ? left.rows : 1, isMatrix(right) ? right.rows : 1);
-    const cols = Math.max(isMatrix(left) ? left.cols : 1, isMatrix(right) ? right.cols : 1);
-    const at = (value: Value, r: number, c: number): Scalar => {
-      if (!isMatrix(value)) return value;
-      const row = value.rows === 1 ? 0 : r;
-      const col = value.cols === 1 ? 0 : c;
-      return row < value.rows && col < value.cols ? value.get(row, col) : err('#N/A');
-    };
-    const out: Scalar[][] = [];
-    for (let r = 0; r < rows; r += 1) {
-      const row: Scalar[] = [];
-      for (let c = 0; c < cols; c += 1) row.push(combine(at(left, r, c), at(right, r, c)));
-      out.push(row);
-    }
-    return new ArrayMatrix(out);
-  }
-
   private call(name: string, args: Node[]): Value {
     const spec = FUNCTIONS.get(name);
     if (!spec) return err('#NAME?', `There is no function called ${name}`);
@@ -264,10 +279,25 @@ class Evaluator implements FnContext {
   }
 }
 
+function finite(result: Scalar): Scalar {
+  if (typeof result === 'number' && !Number.isFinite(result)) return err('#NUM!', 'The result is not a number that can be shown');
+  return result;
+}
+
 /** Calculates a formula for one cell. A range as the result gives its first value. */
 export function evaluateFormula(node: Node, host: EvalHost, scope: EvalScope): Scalar {
   const evaluator = new Evaluator(host, scope);
-  const result = evaluator.scalar(evaluator.evaluate(node));
-  if (typeof result === 'number' && !Number.isFinite(result)) return err('#NUM!', 'The result is not a number that can be shown');
-  return result;
+  return finite(evaluator.scalar(evaluator.evaluate(node)));
+}
+
+/**
+ * Calculates a formula for one cell, keeping a result of several cells
+ * whole, as UNIQUE or a range on its own gives, for it to fill the cells
+ * beside and below.
+ */
+export function evaluateFormulaArray(node: Node, host: EvalHost, scope: EvalScope): Scalar | Matrix {
+  const evaluator = new Evaluator(host, scope);
+  const result = evaluator.evaluate(node);
+  if (isMatrix(result) && (result.rows !== 1 || result.cols !== 1)) return result;
+  return finite(evaluator.scalar(result));
 }
