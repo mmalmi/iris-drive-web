@@ -2,8 +2,9 @@ import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
 import { describe, expect, it } from 'vitest';
 import * as Y from 'yjs';
 import { columnIndex, parseRectName } from '../src/lib/sheets/address';
-import { copySelection, exportCsv, pasteText } from '../src/lib/sheets/commands';
+import { copySelection, exportCsv, fillDownToNeighbours, fillInto, pasteText } from '../src/lib/sheets/commands';
 import { SheetController } from '../src/lib/sheets/controller.svelte';
+import { replaceAll, setColumnFilter, sortSelection, toggleFilter } from '../src/lib/sheets/dataCommands';
 import { evaluateFormulaArray, parseFormula, type EvalHost, type RefSpec } from '../src/lib/sheets/formula';
 import { importXlsx, readXlsx, writeXlsx } from '../src/lib/sheets/xlsx';
 import { SheetError, isError, isMatrix, type Scalar } from '../src/lib/sheets/values';
@@ -179,9 +180,29 @@ describe('ARRAYFORMULA', () => {
     expect(calc('=ARRAYFORMULA(IFERROR(1/A1:A3,"none"))', { A1: 1, A2: 0, A3: 4 })).toEqual([[1], ['none'], [0.25]]);
   });
 
+  it('works out functions of single values cell by cell', () => {
+    expect(calc('=ARRAYFORMULA(LEN(A1:A3))', FRUIT)).toEqual([[5], [4], [5]]);
+    expect(calc('=ARRAYFORMULA(UPPER(A1:A2)&"!")', FRUIT)).toEqual([['APPLE!'], ['PEAR!']]);
+    expect(calc('=ARRAYFORMULA(ROUND(B1:B2/3,1))', FRUIT)).toEqual([[1], [1.7]]);
+    expect(calc('=ARRAYFORMULA(LEFT(A1:A2,B1:B2))', FRUIT)).toEqual([['App'], ['Pear']]);
+    expect(calc('=ARRAYFORMULA(ISNUMBER(A1:B1))', FRUIT)).toEqual([[false, true]]);
+    expect(calc('=ARRAYFORMULA(ROW(A2:A4))', FRUIT)).toEqual([[2], [3], [4]]);
+    // Each cell has its own error.
+    expect(calc('=ARRAYFORMULA(SQRT(B1:B2-4))', FRUIT)).toEqual([['#NUM!'], [1]]);
+  });
+
+  it('looks up and counts each value of a range in a range kept whole', () => {
+    expect(calc('=ARRAYFORMULA(VLOOKUP(A4:A5,A1:B5,2,FALSE))', FRUIT)).toEqual([[3], [8]]);
+    expect(calc('=ARRAYFORMULA(COUNTIF(A1:A5,A1:A2))', FRUIT)).toEqual([[3], [1]]);
+    expect(calc('=ARRAYFORMULA(IFNA(MATCH(B1:B2*1.6,B1:B5,0),"none"))', FRUIT)).toEqual([['none'], [5]]);
+    expect(calc('=SUMPRODUCT(LEN(A1:A3))', FRUIT)).toBe(14);
+  });
+
   it('leaves formulas outside it as they were', () => {
     expect(calc('=IF(A1>0,"yes","no")', { A1: 1 })).toBe('yes');
     expect(calc('=SUM(UNIQUE(B1:B5))', FRUIT)).toBe(17);
+    expect(calc('=LEN(A1:A3)', FRUIT)).toBe(5);
+    expect(calc('=ROW(A2:A4)', FRUIT)).toBe(2);
   });
 });
 
@@ -341,15 +362,48 @@ describe('filling cells with a result', () => {
     expect([ctl.sheet.rawAt(0, 4), ctl.sheet.rawAt(1, 4)]).toEqual([2, 3]);
   });
 
-  it('exports the values to CSV and .xlsx', () => {
+  it('exports the values to CSV, and to .xlsx as a dynamic array that fills its cells again', () => {
     const { ctl, type } = open();
     type('A1', '=SEQUENCE(2,2)');
     expect(exportCsv(ctl).trim().split(/\r?\n/)).toEqual(['1,2', '3,4']);
     const data = writeXlsx(ctl.book, ctl.engine);
-    const xml = strFromU8(unzipSync(data)['xl/worksheets/sheet1.xml']);
-    expect(xml).not.toContain('<f>');
+    const files = unzipSync(data);
+    const xml = strFromU8(files['xl/worksheets/sheet1.xml']);
+    // As Excel writes it: the formula over the cells it fills, marked by metadata, and the values below it.
+    expect(xml).toContain('<c r="A1" cm="1"><f t="array" ref="A1:B2">_xlfn.SEQUENCE(2,2)</f><v>1</v></c>');
+    expect(xml).toContain('<c r="B2"><v>4</v></c>');
+    expect(strFromU8(files['xl/metadata.xml'])).toContain('<xda:dynamicArrayProperties fDynamic="1"');
+    expect(strFromU8(files['[Content_Types].xml'])).toContain('PartName="/xl/metadata.xml"');
+    expect(strFromU8(files['xl/_rels/workbook.xml.rels'])).toContain('Target="metadata.xml"');
     const [sheet] = readXlsx(data);
-    expect([...sheet.cells.values()].map(cell => cell.value)).toEqual([1, 2, 3, 4]);
+    expect([...sheet.cells.keys()]).toEqual(['0:0']);
+    const back = open();
+    importXlsx(back.ctl, 'Back.xlsx', data);
+    expect(back.ctl.sheet.rawAt(0, 0)).toBe('=SEQUENCE(2,2)');
+    expect(back.ctl.sheet.rawAt(1, 1)).toBeUndefined();
+    expect([back.get('A1'), back.get('B1'), back.get('A2'), back.get('B2')]).toEqual([1, 2, 3, 4]);
+  });
+
+  it('writes ARRAYFORMULA as an array formula and newer functions with their prefix', () => {
+    const { ctl, type } = open();
+    ['1', '22', '333'].forEach((text, index) => type(`A${index + 1}`, text));
+    type('B1', '=ARRAYFORMULA(A1:A3*2)');
+    type('C1', '=SORT(A1:A3,1,FALSE)');
+    type('D1', '=SUM(ARRAYFORMULA(LEN(A1:A3)))');
+    type('E1', '=IFS(A1>0,"yes")');
+    const data = writeXlsx(ctl.book, ctl.engine);
+    const xml = strFromU8(unzipSync(data)['xl/worksheets/sheet1.xml']);
+    expect(xml).toContain('<c r="B1"><f t="array" ref="B1:B3">A1:A3*2</f><v>2</v></c>');
+    expect(xml).toContain('<c r="C1" cm="1"><f t="array" ref="C1:C3">_xlfn._xlws.SORT(A1:A3,1,FALSE)</f><v>333</v></c>');
+    expect(xml).toContain('<c r="D1"><f t="array" ref="D1">SUM((LEN(A1:A3)))</f><v>6</v></c>');
+    expect(xml).toContain('<f>_xlfn.IFS(A1&gt;0,&quot;yes&quot;)</f>');
+    const back = open();
+    importXlsx(back.ctl, 'Back.xlsx', data);
+    back.select('B1');
+    expect(back.ctl.barText).toBe('=ARRAYFORMULA(A1:A3*2)');
+    expect(back.column('B1', 3)).toEqual([2, 44, 666]);
+    expect(back.column('C1', 3)).toEqual([333, 22, 1]);
+    expect([back.get('D1'), back.get('E1')]).toEqual([6, 'yes']);
   });
 
   it('opens array formulas from Excel and Google Sheets as formulas that fill cells', () => {
@@ -372,5 +426,134 @@ describe('filling cells with a result', () => {
     expect(ctl.sheet.rawAt(1, 1)).toBeUndefined();
     expect([get('B1'), get('B2')]).toEqual([2, 5]);
     expect(column('C1', 3)).toEqual([20, 20, 50]);
+  });
+});
+
+describe('working with the cells a result fills', () => {
+  it('moves with Ctrl+arrow and End over them as over data', () => {
+    const { ctl, type, select } = open();
+    type('A1', '=SEQUENCE(5)');
+    type('C1', '=SEQUENCE(1,4)');
+    select('A1');
+    ctl.move(1, 0, { far: true });
+    expect(ctl.active).toEqual({ row: 4, col: 0 });
+    ctl.move(-1, 0, { far: true });
+    expect(ctl.active).toEqual({ row: 0, col: 0 });
+    ctl.move(1, 0, { far: true, extend: true });
+    expect(ctl.selection).toEqual({ r1: 0, c1: 0, r2: 4, c2: 0 });
+    // From far below, up to the last value.
+    select('A20');
+    ctl.move(-1, 0, { far: true });
+    expect(ctl.active).toEqual({ row: 4, col: 0 });
+    select('C1');
+    ctl.move(0, 1, { far: true });
+    expect(ctl.active).toEqual({ row: 0, col: 5 });
+    select('A1');
+    ctl.goEnd(false, false);
+    expect(ctl.active).toEqual({ row: 0, col: 5 });
+  });
+
+  it('passes over empty places in a result as over empty cells', () => {
+    const { ctl, type, select } = open();
+    ['5', '', '7', '8'].forEach((text, index) => type(`A${index + 1}`, text));
+    type('B1', '=ARRAYFORMULA(IF(A1:A4="","",A1:A4*2))');
+    select('B1');
+    ctl.move(1, 0, { far: true });
+    expect(ctl.active).toEqual({ row: 2, col: 1 });
+    ctl.move(1, 0, { far: true });
+    expect(ctl.active).toEqual({ row: 3, col: 1 });
+  });
+
+  it('fills down as far as a result beside it goes', () => {
+    const { ctl, type, select, column } = open();
+    type('A1', '=SEQUENCE(6)');
+    type('B1', '=A1*2');
+    select('B1');
+    fillDownToNeighbours(ctl);
+    expect(column('B1', 7)).toEqual([2, 4, 6, 8, 10, 12, null]);
+  });
+
+  it('continues values a result put in cells, or fills its formula again', () => {
+    const { ctl, type, select, column } = open();
+    type('A1', '=SEQUENCE(3)');
+    select('A2:A3');
+    fillInto(ctl, { r1: 1, c1: 0, r2: 5, c2: 0 });
+    expect(column('A1', 6)).toEqual([1, 2, 3, 4, 5, 6]);
+    expect([ctl.sheet.rawAt(3, 0), ctl.sheet.rawAt(5, 0)]).toEqual([4, 6]);
+    // The formula's cell with the cells it fills repeats the formula, which fills them again.
+    type('C1', '=SEQUENCE(2)');
+    select('C1:C2');
+    fillInto(ctl, { r1: 0, c1: 2, r2: 5, c2: 2 });
+    expect(column('C1', 6)).toEqual([1, 2, 1, 2, 1, 2]);
+    expect(ctl.sheet.rawAt(2, 2)).toBe('=SEQUENCE(2)');
+    expect(ctl.sheet.rawAt(3, 2)).toBeUndefined();
+  });
+
+  it('copies values a result put in cells with the number format they show with', () => {
+    const { ctl, type, select } = open();
+    type('A1', '2026-03-05');
+    type('A2', '2026-01-09');
+    type('C1', '=SORT(A1:A2)');
+    const shown = ctl.engine.textAt(ctl.sheet, 1, 2);
+    select('C2');
+    copySelection(ctl);
+    select('E1');
+    pasteText(ctl, ctl.copied?.text ?? '');
+    expect(typeof ctl.sheet.rawAt(0, 4)).toBe('number');
+    expect(ctl.engine.textAt(ctl.sheet, 0, 4)).toBe(shown);
+  });
+
+  it('knows the whole result from its formula or any of its cells, for the grid to outline', () => {
+    const { ctl, type } = open();
+    type('B2', '=SEQUENCE(3,2)');
+    type('A9', '5');
+    const around = (row: number, col: number) => ctl.engine.spillAround(ctl.sheet, row, col);
+    expect(around(1, 1)).toEqual({ r1: 1, c1: 1, r2: 3, c2: 2 });
+    expect(around(3, 2)).toEqual({ r1: 1, c1: 1, r2: 3, c2: 2 });
+    expect(around(3, 3)).toBeNull();
+    expect(around(8, 0)).toBeNull();
+  });
+
+  it('is filtered, found and sorted with the rest of its table', () => {
+    const { ctl, type, select, column } = open();
+    [['Fruit', 'Kg', 'Double'], ['Pear', '5'], ['Apple', '3'], ['Fig', '8']].forEach((row, r) => row.forEach((text, c) => type(`${'ABC'[c]}${r + 1}`, text)));
+    type('C2', '=ARRAYFORMULA(B2:B4*2)');
+    // The filter reaches the rows the result fills, and filters by its values.
+    select('C1');
+    toggleFilter(ctl);
+    expect(ctl.filter?.lastColId).toBe(ctl.sheet.cols.ids[2]);
+    setColumnFilter(ctl, ctl.sheet.cols.ids[2], { excluded: new Set(), condition: { kind: 'greater', value: '8' } });
+    expect([...ctl.visibility.filtered]).toEqual([2]);
+    toggleFilter(ctl);
+    // Finding looks at the values too; replacing changes what they come from.
+    ctl.find = { query: '16', replace: '' };
+    expect(ctl.findMatches).toEqual([{ row: 3, col: 2 }]);
+    ctl.find = { query: 'pear', replace: 'Kiwi' };
+    replaceAll(ctl);
+    expect(column('A1', 2)).toEqual(['Fruit', 'Kiwi']);
+    // Sorting moves the rows; the result is worked out again from them.
+    select('A1:C4');
+    sortSelection(ctl, true);
+    expect(column('A2', 3)).toEqual(['Apple', 'Fig', 'Kiwi']);
+    expect(column('C2', 3)).toEqual([6, 16, 10]);
+    expect(ctl.sheet.rawAt(1, 2)).toMatch(/^=ARRAYFORMULA/);
+    // Content of its own in a column the result fills would land in it.
+    type('C5', 'note');
+    type('A5', 'Banana');
+    select('A1:C5');
+    sortSelection(ctl, true);
+    expect(ctl.notice).toBe('Sorting would move C5 into the result of the formula in C2. Sort a range without that column, or use SORT in a formula.');
+    expect(column('A2', 4)).toEqual(['Apple', 'Fig', 'Kiwi', 'Banana']);
+  });
+
+  it('sorts a result along one row with its row', () => {
+    const { ctl, type, select, get } = open();
+    type('A1', 'b,2');
+    type('A2', 'a,1');
+    type('B1', '=SPLIT(A1,",")');
+    type('B2', '=SPLIT(A2,",")');
+    select('A1:C2');
+    sortSelection(ctl, true, false);
+    expect([get('A1'), get('B1'), get('C1'), get('A2'), get('B2'), get('C2')]).toEqual(['a,1', 'a', 1, 'b,2', 'b', 2]);
   });
 });

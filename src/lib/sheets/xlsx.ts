@@ -539,7 +539,52 @@ class StyleTable {
   }
 }
 
-function sheetXml(book: Book, engine: Engine, sheet: Sheet, styles: StyleTable): string {
+/**
+ * Functions newer than the .xlsx format, which Excel reads only with the
+ * prefix it writes them with. Reading a file drops the prefixes again.
+ */
+const NEWER_FUNCTIONS: Record<string, string> = {
+  FILTER: '_xlfn._xlws.', SORT: '_xlfn._xlws.',
+  ...Object.fromEntries([
+    'UNIQUE', 'SEQUENCE', 'XLOOKUP', 'XMATCH', 'IFS', 'SWITCH', 'IFNA', 'XOR', 'CONCAT', 'TEXTJOIN', 'UNICODE', 'DAYS',
+    'ISOWEEKNUM', 'MAXIFS', 'MINIFS', 'STDEV.S', 'STDEV.P', 'VAR.S', 'VAR.P', 'PERCENTILE.INC', 'QUARTILE.INC', 'RANK.EQ',
+    'CEILING.MATH', 'FLOOR.MATH',
+  ].map(name => [name, '_xlfn.'])),
+};
+
+/**
+ * A formula as Excel writes it: newer functions with their prefix, and
+ * ARRAYFORMULA, which Excel does not have, left out. `array` then says the
+ * formula is to be written as an array formula, which works cell by cell
+ * in Excel and which Google Sheets opens as ARRAYFORMULA again.
+ */
+function excelFormula(text: string): { formula: string; array: boolean } {
+  const tokens = tokenize(text, 'a1');
+  const solid = tokens.map((token, index) => ({ token, index })).filter(({ token }) => token.type !== 'ws');
+  // The whole formula one ARRAYFORMULA(...): its parentheses go too.
+  const drop = new Set<number>();
+  if (solid[0]?.token.type === 'func' && solid[0].token.text.toUpperCase() === 'ARRAYFORMULA' && solid[1]?.token.type === 'open') {
+    let depth = 0;
+    let close = -1;
+    for (let at = 1; at < solid.length && close < 0; at += 1) {
+      const { type } = solid[at].token;
+      if (type === 'open') depth += 1;
+      else if (type === 'close' && (depth -= 1) === 0) close = at;
+    }
+    if (close === solid.length - 1) [solid[1].index, solid[close].index].forEach(index => drop.add(index));
+  }
+  let array = false;
+  let formula = '';
+  tokens.forEach((token, index) => {
+    if (drop.has(index)) return;
+    const upper = token.text.toUpperCase();
+    if (token.type === 'func' && upper === 'ARRAYFORMULA') array = true;
+    else formula += token.type === 'func' && NEWER_FUNCTIONS[upper] ? `${NEWER_FUNCTIONS[upper]}${upper}` : token.text;
+  });
+  return { formula: formula.trim(), array };
+}
+
+function sheetXml(book: Book, engine: Engine, sheet: Sheet, styles: StyleTable, usage: { dynamicArrays: boolean }): string {
   const used = engine.usedRect(sheet);
   const merges = sheet.merges();
   let lastRow = used?.r2 ?? -1;
@@ -570,10 +615,13 @@ function sheetXml(book: Book, engine: Engine, sheet: Sheet, styles: StyleTable):
     const cells: string[] = [];
     for (let col = 0; col <= lastCol; col += 1) {
       const raw = sheet.rawAt(row, col);
-      const style = sheet.styleAt(row, col);
+      // A cell another formula's result fills is written as its value, as Excel writes the cells a dynamic array fills.
+      const spilled = raw === undefined && engine.isSpilled(sheet, row, col);
+      let style = sheet.styleAt(row, col);
+      // Formulas' results keep the number format they show with, such as a date.
+      const implied = (spilled || isFormula(raw)) && !style.nf ? engine.formatAt(sheet, row, col) : undefined;
+      if (implied) style = { ...style, nf: implied };
       const s = Object.keys(style).length > 0 ? styles.of(style) : 0;
-      // A result of several cells is written as values, its formula's cell too: not every program calculates them.
-      const spilled = raw === undefined ? engine.isSpilled(sheet, row, col) : isFormula(raw) && engine.spillRectAt(sheet, row, col) !== null;
       if (raw === undefined && !spilled && s === 0) continue;
       const ref = `${columnName(col)}${row + 1}`;
       const sAttr = s ? ` s="${s}"` : '';
@@ -588,11 +636,20 @@ function sheetXml(book: Book, engine: Engine, sheet: Sheet, styles: StyleTable):
         cells.push(`<c r="${ref}"${sAttr}/>`);
       } else if (isFormula(raw)) {
         const value = engine.valueAt(sheet, row, col);
-        const formula = `<f>${escapeXml(toDisplay(raw, book, sheet).slice(1))}</f>`;
-        if (typeof value === 'number' && Number.isFinite(value)) cells.push(`<c r="${ref}"${sAttr}>${formula}<v>${value}</v></c>`);
-        else if (typeof value === 'boolean') cells.push(`<c r="${ref}"${sAttr} t="b">${formula}<v>${value ? 1 : 0}</v></c>`);
-        else if (isError(value)) cells.push(`<c r="${ref}"${sAttr} t="e">${formula}<v>${escapeXml(value.code)}</v></c>`);
-        else cells.push(`<c r="${ref}"${sAttr} t="str">${formula}<v>${escapeXml(String(value ?? ''))}</v></c>`);
+        const written = excelFormula(toDisplay(raw, book, sheet).slice(1));
+        // A result of several cells is a dynamic array, marked by the cell metadata that metadata.xml defines;
+        // ARRAYFORMULA, which Excel does not have, becomes an array formula over the cells it fills.
+        const area = engine.spillRectAt(sheet, row, col);
+        const cm = area && !written.array ? ' cm="1"' : '';
+        if (cm) usage.dynamicArrays = true;
+        const arrayAttrs = area || written.array
+          ? ` t="array" ref="${ref}${area ? `:${columnName(area.c2)}${area.r2 + 1}` : ''}"`
+          : '';
+        const formula = `<f${arrayAttrs}>${escapeXml(written.formula)}</f>`;
+        if (typeof value === 'number' && Number.isFinite(value)) cells.push(`<c r="${ref}"${sAttr}${cm}>${formula}<v>${value}</v></c>`);
+        else if (typeof value === 'boolean') cells.push(`<c r="${ref}"${sAttr} t="b"${cm}>${formula}<v>${value ? 1 : 0}</v></c>`);
+        else if (isError(value)) cells.push(`<c r="${ref}"${sAttr} t="e"${cm}>${formula}<v>${escapeXml(value.code)}</v></c>`);
+        else cells.push(`<c r="${ref}"${sAttr} t="str"${cm}>${formula}<v>${escapeXml(String(value ?? ''))}</v></c>`);
       } else {
         const value = decodeRaw(raw);
         if (typeof value === 'number') cells.push(`<c r="${ref}"${sAttr}><v>${value}</v></c>`);
@@ -626,19 +683,31 @@ function sheetXml(book: Book, engine: Engine, sheet: Sheet, styles: StyleTable):
     + `<sheetData>${rows.join('')}</sheetData>${mergeXml}</worksheet>`;
 }
 
+/**
+ * The cell metadata Excel writes for dynamic arrays: cells marked cm="1"
+ * hold a formula whose result fills the cells its ref names by itself.
+ */
+const DYNAMIC_ARRAY_METADATA = `${XML_HEAD}<metadata xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:xda="http://schemas.microsoft.com/office/spreadsheetml/2017/dynamicarray">`
+  + '<metadataTypes count="1"><metadataType name="XLDAPR" minSupportedVersion="120000" copy="1" pasteAll="1" pasteValues="1" merge="1" splitFirst="1" rowColShift="1" clearFormats="1" clearComments="1" assign="1" coerce="1" cellMeta="1"/></metadataTypes>'
+  + '<futureMetadata name="XLDAPR" count="1"><bk><extLst><ext uri="{bdbb8cdc-fa1e-496e-a857-3c3f30c029c3}"><xda:dynamicArrayProperties fDynamic="1" fCollapsed="0"/></ext></extLst></bk></futureMetadata>'
+  + '<cellMetadata count="1"><bk><rc t="1" v="0"/></bk></cellMetadata>'
+  + '</metadata>';
+
 /** The whole spreadsheet as an .xlsx file. */
 export function writeXlsx(book: Book, engine: Engine): Uint8Array {
   const styles = new StyleTable();
   const files: Record<string, Uint8Array> = {};
   const sheets = book.sheets;
+  const usage = { dynamicArrays: false };
   sheets.forEach((info, index) => {
-    files[`xl/worksheets/sheet${index + 1}.xml`] = strToU8(sheetXml(book, engine, book.sheet(info.id), styles));
+    files[`xl/worksheets/sheet${index + 1}.xml`] = strToU8(sheetXml(book, engine, book.sheet(info.id), styles, usage));
   });
   files['[Content_Types].xml'] = strToU8(`${XML_HEAD}<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">`
     + '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
     + '<Default Extension="xml" ContentType="application/xml"/>'
     + '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
     + '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'
+    + (usage.dynamicArrays ? '<Override PartName="/xl/metadata.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheetMetadata+xml"/>' : '')
     + sheets.map((_info, index) => `<Override PartName="/xl/worksheets/sheet${index + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')
     + '</Types>');
   files['_rels/.rels'] = strToU8(relationshipsXml([{ id: 'rId1', type: `${NS_R}/officeDocument`, target: 'xl/workbook.xml' }]));
@@ -657,7 +726,9 @@ export function writeXlsx(book: Book, engine: Engine): Uint8Array {
   files['xl/_rels/workbook.xml.rels'] = strToU8(relationshipsXml([
     ...sheets.map((_info, index) => ({ id: `rId${index + 1}`, type: `${NS_R}/worksheet`, target: `worksheets/sheet${index + 1}.xml` })),
     { id: `rId${sheets.length + 1}`, type: `${NS_R}/styles`, target: 'styles.xml' },
+    ...(usage.dynamicArrays ? [{ id: `rId${sheets.length + 2}`, type: `${NS_R}/sheetMetadata`, target: 'metadata.xml' }] : []),
   ]));
   files['xl/styles.xml'] = strToU8(styles.xml());
+  if (usage.dynamicArrays) files['xl/metadata.xml'] = strToU8(DYNAMIC_ARRAY_METADATA);
   return zipSync(files, { level: 6 });
 }

@@ -15,18 +15,22 @@ import { parseClipboardTable, readCsv, writeClipboardTable, writeCsv } from './t
 import { isError } from './values';
 
 /**
- * What to copy from a cell: its content, or for a cell another formula's
- * result fills, that value, unless the formula is copied along and fills it again.
+ * What to copy from a cell: its content and look, or for a cell another
+ * formula's result fills, that value with the number format the result
+ * gives it, unless the formula is copied along and fills it again.
  */
-function copiedRaw(ctl: SheetController, sheet: Sheet, row: number, col: number, rect: Rect): CellRaw | undefined {
+function copiedCell(ctl: SheetController, sheet: Sheet, row: number, col: number, rect: Rect): { raw: CellRaw | undefined; style: CellStyle | undefined } {
   const raw = sheet.rawAt(row, col);
-  if (raw !== undefined) return raw;
+  const style = ownStyle(sheet, row, col);
+  if (raw !== undefined) return { raw, style };
   const source = ctl.engine.spillSourceAt(sheet, row, col);
-  if (!source || rectContains(rect, source.row, source.col)) return undefined;
+  if (!source || rectContains(rect, source.row, source.col)) return { raw: undefined, style };
   const value = ctl.engine.valueAt(sheet, row, col);
-  if (value === null || value === '') return undefined;
-  if (isError(value)) return encodeText(value.code);
-  return typeof value === 'string' ? encodeText(value) : value;
+  if (value === null || value === '') return { raw: undefined, style };
+  const format = style?.nf ? undefined : ctl.engine.formatAt(sheet, row, col);
+  const looks = format ? { ...style, nf: format } : style;
+  if (isError(value)) return { raw: encodeText(value.code), style: looks };
+  return { raw: typeof value === 'string' ? encodeText(value) : value, style: looks };
 }
 
 function ownStyle(sheet: Sheet, row: number, col: number): CellStyle | undefined {
@@ -93,7 +97,7 @@ export function copySelection(ctl: SheetController, cut = false): string {
     const cellRow: CopiedCells['cells'][number] = [];
     for (let col = rect.c1; col <= rect.c2; col += 1) {
       line.push(ctl.engine.textAt(sheet, row, col));
-      cellRow.push({ raw: copiedRaw(ctl, sheet, row, col, rect), style: ownStyle(sheet, row, col) });
+      cellRow.push(copiedCell(ctl, sheet, row, col, rect));
     }
     lines.push(line);
     cells.push(cellRow);
@@ -302,9 +306,10 @@ export function fillInto(ctl: SheetController, target: Rect): void {
       const place = (index: number) => (vertical
         ? { row: source.r1 + index, col: source.c1 + lane }
         : { row: source.r1 + lane, col: source.c1 + index });
+      // Values a formula's result puts in cells continue as values, unless the formula is filled along.
       const cells = Array.from({ length }, (_unused, index) => {
         const { row, col } = place(index);
-        return { raw: sheet.rawAt(row, col), isDate: isDateFormat(ctl.engine.formatAt(sheet, row, col)) };
+        return { ...copiedCell(ctl, sheet, row, col, source), isDate: isDateFormat(ctl.engine.formatAt(sheet, row, col)) };
       });
       planFill(cells, count, backwards).forEach((step, k) => {
         const from = place(step.source);
@@ -312,7 +317,7 @@ export function fillInto(ctl: SheetController, target: Rect): void {
         let raw: CellRaw | null = step.value ?? cells[step.source].raw ?? null;
         if (step.value === undefined && isFormula(raw)) raw = transplant(raw, ctl.book, sheet, sheet, to.row - from.row, to.col - from.col);
         sheet.setRaw(to.row, to.col, raw);
-        setCellStyle(sheet, to.row, to.col, ownStyle(sheet, from.row, from.col));
+        setCellStyle(sheet, to.row, to.col, cells[step.source].style);
       });
     }
   });
@@ -334,7 +339,7 @@ export function fillWithin(ctl: SheetController, direction: 'down' | 'right'): v
 
 /**
  * Double-click on the selection's corner: fills down as far as the column
- * beside it is filled.
+ * beside it is filled, by its own content or by a formula's result.
  */
 export function fillDownToNeighbours(ctl: SheetController): void {
   const sheet = ctl.sheet;
@@ -343,7 +348,7 @@ export function fillDownToNeighbours(ctl: SheetController): void {
   for (const col of [rect.c1 - 1, rect.c2 + 1]) {
     if (col < 0 || col >= sheet.cols.length) continue;
     let row = rect.r2;
-    while (row + 1 < sheet.rows.length && !sheet.isEmpty(row + 1, col)) row += 1;
+    while (row + 1 < sheet.rows.length && ctl.engine.hasData(sheet, row + 1, col)) row += 1;
     end = Math.max(end, row);
   }
   if (end > rect.r2) fillInto(ctl, { ...rect, r2: end });
@@ -389,7 +394,7 @@ export function applyBorders(ctl: SheetController, where: BorderPlace, line: str
   if (!ctl.canEdit) return;
   const sheet = ctl.sheet;
   let rect = ctl.selection;
-  const used = sheet.usedRect();
+  const used = ctl.engine.usedRect(sheet);
   if (ctl.scope !== 'cells' && used) {
     rect = {
       ...rect,

@@ -40,12 +40,16 @@ export interface SheetFilter {
   columns: ReadonlyMap<string, ColumnFilter>;
 }
 
-/** The header row and the rows under it that the filter looks at, or null when its rows or columns are gone. */
-export function filterRect(sheet: Sheet, filter: SheetFilter): Rect | null {
+/**
+ * The header row and the rows under it that the filter looks at, down to
+ * the last filled row (by content or a formula's result), or null when its
+ * rows or columns are gone.
+ */
+export function filterRect(sheet: Sheet, engine: Engine, filter: SheetFilter): Rect | null {
   const header = sheet.rows.indexOf(filter.headerRowId);
   const span = sheet.cols.span(filter.firstColId, filter.lastColId);
   if (header < 0 || !span) return null;
-  return { r1: header, c1: span[0], r2: Math.max(header, sheet.usedRect()?.r2 ?? header), c2: span[1] };
+  return { r1: header, c1: span[0], r2: Math.max(header, engine.usedRect(sheet)?.r2 ?? header), c2: span[1] };
 }
 
 function conditionHolds(condition: NonNullable<ColumnFilter['condition']>, value: Scalar, text: string): boolean {
@@ -76,7 +80,7 @@ function columnPasses(filter: ColumnFilter, value: Scalar, text: string): boolea
 /** Positions of the rows a filter leaves out. `except` ignores one column's choices, to list what it could show. */
 export function filteredOutRows(sheet: Sheet, engine: Engine, filter: SheetFilter, except?: string): Set<number> {
   const out = new Set<number>();
-  const rect = filterRect(sheet, filter);
+  const rect = filterRect(sheet, engine, filter);
   if (!rect) return out;
   const columns: Array<{ col: number; filter: ColumnFilter }> = [];
   for (const [colId, column] of filter.columns) {
@@ -97,7 +101,7 @@ export function filteredOutRows(sheet: Sheet, engine: Engine, filter: SheetFilte
 
 /** The different texts a column shows in the rows the other columns' filters let through, in sorted order. */
 export function columnChoices(sheet: Sheet, engine: Engine, filter: SheetFilter, colId: string): Array<{ text: string; count: number }> {
-  const rect = filterRect(sheet, filter);
+  const rect = filterRect(sheet, engine, filter);
   const col = sheet.cols.indexOf(colId);
   if (!rect || col < 0) return [];
   const hidden = filteredOutRows(sheet, engine, filter, colId);
@@ -191,7 +195,11 @@ export function contentInOrder(sheet: Sheet, rect: Rect, order: number[]): Moved
 
 // --- Finding ---
 
-/** Cells of a sheet whose shown text (or formula, when asked) holds the query, in reading order. */
+/**
+ * Cells of a sheet whose shown text (or formula, when asked) holds the
+ * query, in reading order. Values a formula's result puts in cells are
+ * found too; replacing leaves them be, as they hold nothing of their own.
+ */
 export function findCells(sheet: Sheet, engine: Engine, query: string, formulaText?: (row: number, col: number) => string): CellPos[] {
   const wanted = query.toLowerCase();
   if (wanted === '') return [];
@@ -203,6 +211,13 @@ export function findCells(sheet: Sheet, engine: Engine, query: string, formulaTe
     if (row < 0 || col < 0) continue;
     const shown = engine.textAt(sheet, row, col).toLowerCase();
     if (shown.includes(wanted) || (formulaText && isFormula(raw) && formulaText(row, col).toLowerCase().includes(wanted))) found.push({ row, col });
+  }
+  for (const spill of engine.spillRects(sheet)) {
+    for (let row = spill.r1; row <= spill.r2; row += 1) {
+      for (let col = spill.c1; col <= spill.c2; col += 1) {
+        if (engine.isSpilled(sheet, row, col) && engine.textAt(sheet, row, col).toLowerCase().includes(wanted)) found.push({ row, col });
+      }
+    }
   }
   return found.sort((a, b) => a.row - b.row || a.col - b.col);
 }

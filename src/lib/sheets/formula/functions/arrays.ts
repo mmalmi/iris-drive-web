@@ -3,7 +3,7 @@
  * of and below the formula, as in Google Sheets.
  */
 import { ArrayMatrix, compareValues, isError, isMatrix, textToNumber, toBoolean, type Matrix, type Scalar, type Value } from '../../values';
-import { defineFunction as define, type FnContext } from '../evaluate';
+import { cellwise, defineFunction as define, type FnContext } from '../evaluate';
 import { bool, err, int, matrix, num, text } from '../helpers';
 
 const MANY = Infinity;
@@ -202,3 +202,23 @@ define('SPLIT', {
 
 /** Calculates the formula inside cell by cell over whole ranges. */
 define('ARRAYFORMULA', { min: 1, max: 1, arrays: true, fn: ([value]) => value });
+
+// Functions of single values, which inside ARRAYFORMULA give a result for each cell of a range.
+cellwise([
+  // Numbers
+  'ABS', 'SQRT', 'EXP', 'LN', 'LOG10', 'LOG', 'SIGN', 'INT', 'SIN', 'COS', 'TAN', 'ASIN', 'ACOS', 'ATAN', 'ATAN2',
+  'DEGREES', 'RADIANS', 'EVEN', 'ODD', 'FACT', 'POWER', 'MOD', 'QUOTIENT', 'ROUND', 'ROUNDUP', 'ROUNDDOWN', 'TRUNC',
+  'MROUND', 'CEILING', 'FLOOR', 'PMT', 'FV', 'PV',
+  // Text
+  'LEN', 'LOWER', 'UPPER', 'PROPER', 'TRIM', 'CLEAN', 'LEFT', 'RIGHT', 'MID', 'REPT', 'SUBSTITUTE', 'REPLACE', 'FIND',
+  'SEARCH', 'EXACT', 'CHAR', 'CODE', 'T', 'N', 'VALUE', 'TEXT', 'FIXED',
+  // Checks
+  'NOT', 'ISBLANK', 'ISNUMBER', 'ISTEXT', 'ISNONTEXT', 'ISLOGICAL', 'ISERROR', 'ISERR', 'ISNA', 'ISEVEN', 'ISODD', 'ERROR.TYPE',
+  // Dates
+  'DATE', 'TIME', 'DATEVALUE', 'TIMEVALUE', 'YEAR', 'MONTH', 'DAY', 'HOUR', 'MINUTE', 'SECOND', 'WEEKDAY', 'ISOWEEKNUM',
+  'WEEKNUM', 'EDATE', 'EOMONTH', 'DAYS', 'DATEDIF', 'YEARFRAC',
+]);
+// The value looked up or counted, with the range to look in as it is.
+cellwise(['VLOOKUP', 'HLOOKUP', 'LOOKUP', 'MATCH', 'XMATCH', 'XLOOKUP'], [0]);
+cellwise(['COUNTIF', 'SUMIF', 'AVERAGEIF'], [1]);
+cellwise(['NETWORKDAYS', 'WORKDAY'], [0, 1]);

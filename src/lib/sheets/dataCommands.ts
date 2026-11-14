@@ -1,5 +1,5 @@
 /** Sorting, filtering, finding and hiding: the actions on a sheet's data as a whole. */
-import { rectCols, rectRows, type Rect } from './address';
+import { cellName, rectCols, rectRows, type Rect } from './address';
 import type { SheetController } from './controller.svelte';
 import { editTextAt, inputToStored } from './edit';
 import {
@@ -13,16 +13,19 @@ import {
 import { cellKey, isFormula, type CellRaw } from './model';
 import { transplant } from './refs';
 
-/** The block of filled cells around the active cell, or the whole filled area when the cell is empty. */
+/**
+ * The block of filled cells around the active cell, or the whole filled
+ * area when the cell is empty. Values a formula's result puts in cells count.
+ */
 export function dataRegion(ctl: SheetController): Rect | null {
-  const sheet = ctl.sheet;
-  const used = sheet.usedRect();
+  const { sheet, engine } = ctl;
+  const used = engine.usedRect(sheet);
   if (!used) return null;
   const { row, col } = ctl.active;
-  if (sheet.isEmpty(row, col)) return used;
+  if (!engine.hasData(sheet, row, col)) return used;
   const rect = { r1: row, c1: col, r2: row, c2: col };
   const filled = (r1: number, c1: number, r2: number, c2: number) => {
-    for (let r = r1; r <= r2; r += 1) for (let c = c1; c <= c2; c += 1) if (!sheet.isEmpty(r, c)) return true;
+    for (let r = r1; r <= r2; r += 1) for (let c = c1; c <= c2; c += 1) if (engine.hasData(sheet, r, c)) return true;
     return false;
   };
   // Grow while a neighbouring row or column still holds something.
@@ -39,7 +42,7 @@ export function dataRegion(ctl: SheetController): Rect | null {
 /** What sorting would act on now: the selected range, or the table around the active cell. */
 export function sortTarget(ctl: SheetController): { rect: Rect; header: boolean; keyCol: number } | null {
   const sheet = ctl.sheet;
-  const used = sheet.usedRect();
+  const used = ctl.engine.usedRect(sheet);
   if (!used) return null;
   const selection = ctl.selection;
   let rect: Rect | null;
@@ -52,6 +55,34 @@ export function sortTarget(ctl: SheetController): { rect: Rect; header: boolean;
 }
 
 /**
+ * The columns of a range that sorting leaves where they are: those a
+ * formula's result fills over several of its rows. Their values follow from
+ * the formula, which works them out again from the sorted rows. A result
+ * along one row, inside the range, moves with its row instead. Gives the
+ * reason instead when such a column also holds content of its own, which
+ * could not move with its row without landing in the result.
+ */
+function columnsLeft(ctl: SheetController, rect: Rect): Set<number> | string {
+  const { sheet, engine } = ctl;
+  /** By column: the result that fills it. */
+  const left = new Map<number, Rect>();
+  for (const spill of engine.spillRects(sheet)) {
+    const c1 = Math.max(spill.c1, rect.c1);
+    const c2 = Math.min(spill.c2, rect.c2);
+    if (Math.max(spill.r1, rect.r1) > Math.min(spill.r2, rect.r2) || c1 > c2) continue;
+    if (spill.r1 === spill.r2 && spill.c1 >= rect.c1 && spill.c2 <= rect.c2) continue;
+    for (let col = c1; col <= c2; col += 1) left.set(col, spill);
+  }
+  for (const [col, spill] of left) {
+    for (let row = rect.r1; row <= rect.r2; row += 1) {
+      if (sheet.isEmpty(row, col) || engine.spillRectAt(sheet, row, col)) continue;
+      return `Sorting would move ${cellName(row, col)} into the result of the formula in ${cellName(spill.r1, spill.c1)}. Sort a range without that column, or use SORT in a formula.`;
+    }
+  }
+  return new Set(left.keys());
+}
+
+/**
  * Sorts the rows of a range by one of its columns. The cells' content moves;
  * formulas among them are adjusted as when they are copied to their new row.
  */
@@ -59,6 +90,11 @@ function sortRange(ctl: SheetController, rect: Rect, keyCol: number, ascending: 
   const sheet = ctl.sheet;
   if (sheet.merges().some(m => m.r2 > m.r1 && m.r1 <= rect.r2 && rect.r1 <= m.r2 && m.c1 <= rect.c2 && rect.c1 <= m.c2)) {
     ctl.say('Unmerge the cells that span several rows to sort them.');
+    return;
+  }
+  const left = columnsLeft(ctl, rect);
+  if (typeof left === 'string') {
+    ctl.say(left);
     return;
   }
   const order = sortedRows(sheet, ctl.engine, rect, keyCol, ascending);
@@ -69,7 +105,7 @@ function sortRange(ctl: SheetController, rect: Rect, keyCol: number, ascending: 
       const row = rect.r1 + index;
       const rowId = sheet.rows.ids[row];
       cells.forEach((cell, offset) => {
-        if (cell.from === row) return;
+        if (cell.from === row || left.has(rect.c1 + offset)) return;
         const key = cellKey(rowId, sheet.cols.ids[rect.c1 + offset]);
         let raw: CellRaw | undefined = cell.raw;
         if (isFormula(raw)) raw = transplant(raw, ctl.book, sheet, sheet, row - cell.from, 0);
@@ -109,7 +145,7 @@ export function toggleFilter(ctl: SheetController): void {
   const sheet = ctl.sheet;
   const selection = ctl.selection;
   const rect = rectRows(selection) > 1 || rectCols(selection) > 1 ? selection : dataRegion(ctl);
-  if (!rect || !sheet.usedRect()) {
+  if (!rect || !ctl.engine.usedRect(sheet)) {
     ctl.say('There is nothing to filter yet.');
     return;
   }
@@ -132,14 +168,14 @@ export function setColumnFilter(ctl: SheetController, colId: string, column: Col
   else columns.delete(colId);
   ctl.setFilter({ ...filter, columns });
   // The active cell may have dropped out of view.
-  const rect = filterRect(ctl.sheet, filter);
+  const rect = filterRect(ctl.sheet, ctl.engine, filter);
   if (rect && ctl.visibility.rows.has(ctl.active.row)) ctl.setSelection({ row: rect.r1, col: ctl.active.col });
 }
 
 /** Sorts the rows under the filter's header by one of its columns. */
 export function sortFiltered(ctl: SheetController, colId: string, ascending: boolean): void {
   const filter = ctl.filter;
-  const rect = filter && filterRect(ctl.sheet, filter);
+  const rect = filter && filterRect(ctl.sheet, ctl.engine, filter);
   const col = ctl.sheet.cols.indexOf(colId);
   if (!rect || col < 0 || rect.r2 <= rect.r1) return;
   sortRange(ctl, { ...rect, r1: rect.r1 + 1 }, col, ascending);
