@@ -9,6 +9,7 @@ import { LinkType } from '@hashtree/core';
 import { getCurrentRootCid, getCurrentPathFromUrl, buildRouteUrl, updateRoute } from './route';
 import { isEditableDriveRouteScope } from '../drive/profileRoute';
 import { mutateProfileDriveRoot } from '../drive/profileDriveMutation';
+import { moveRecents } from '../stores/recents';
 
 function isProfileDriveMutation(): boolean {
   const route = parseRoute();
@@ -17,6 +18,14 @@ function isProfileDriveMutation(): boolean {
 
 function pathString(parts: string[]): string {
   return parts.filter(Boolean).join('/');
+}
+
+/** Moves Recent along with an entry of the open tree, or drops it when `to` is null. */
+function followInRecents(from: string[], to: string[] | null) {
+  const route = parseRoute();
+  if (!route.npub || !route.treeName) return;
+  const at = (parts: string[]) => `/${route.npub}/${route.treeName}/${pathString(parts)}`;
+  moveRecents(at(from), to ? at(to) : null);
 }
 
 // Rename entry
@@ -52,6 +61,7 @@ export async function renameEntry(oldName: string, newName: string) {
     : await tree.renameEntry(rootCid, parentPath, oldName, newName);
   // Update local cache (publishes to nostr with throttle)
   autosaveIfOwn(newRootCid);
+  followInRecents([...parentPath, oldName], [...parentPath, newName]);
 
   // Update URL if renamed file/dir was selected or we're inside it
   if (isRenamingCurrentDir) {
@@ -80,6 +90,7 @@ export async function deleteEntry(name: string) {
     : await tree.removeEntry(rootCid, currentPath, name);
   // Update local cache (publishes to nostr with throttle)
   autosaveIfOwn(newRootCid);
+  followInRecents([...currentPath, name], null);
 
   // Navigate to directory if deleted file was active
   const route = parseRoute();
@@ -111,6 +122,7 @@ export async function deleteCurrentFolder() {
     : await tree.removeEntry(rootCid, parentPath, folderName);
   // Update local cache (publishes to nostr with throttle)
   autosaveIfOwn(newRootCid);
+  followInRecents([...parentPath, folderName], null);
 
   // Navigate to parent directory
   const url = buildRouteUrl(route.npub, route.treeName, parentPath, undefined, route.params.get('k'));
@@ -150,6 +162,7 @@ export async function moveEntry(sourceName: string, targetDirName: string) {
     : await tree.moveEntry(rootCid, currentPath, sourceName, [...currentPath, targetDirName]);
   // Update local cache (publishes to nostr with throttle)
   autosaveIfOwn(newRootCid);
+  followInRecents([...currentPath, sourceName], [...currentPath, targetDirName, sourceName]);
 
   // Clear selection if moved file was active
   const route = parseRoute();
@@ -192,6 +205,7 @@ export async function moveToParent(sourceName: string) {
     : await tree.moveEntry(rootCid, currentPath, sourceName, parentPath);
   // Update local cache (publishes to nostr with throttle)
   autosaveIfOwn(newRootCid);
+  followInRecents([...currentPath, sourceName], [...parentPath, sourceName]);
 
   // Clear selection if moved file was active
   const route = parseRoute();
