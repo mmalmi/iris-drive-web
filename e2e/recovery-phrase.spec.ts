@@ -59,10 +59,12 @@ test.describe('recovery phrase', () => {
     await page.goto(`${new URL(page.url()).origin}/#/settings/backup`);
     const restore = page.getByTestId('backup-restore');
     await expect(restore.getByTestId('backup-recovery-phrase')).toContainText('no recovery phrase', { timeout: 30_000 });
+    // It does not promise the files back without another device.
+    await expect(restore.getByTestId('backup-keep-two')).toContainText('not your files');
     await restore.getByRole('link', { name: 'Create recovery phrase' }).click();
     await expect(page).toHaveURL(/#\/settings\/account\/recovery$/);
     const section = page.getByTestId('recovery-phrase-settings');
-    await expect(section).toContainText('If you lose all your devices');
+    await expect(section).toContainText('keep Drive on two devices');
     await expect(section.getByTestId('recovery-phrase-status')).toHaveText('You have no recovery phrase yet.');
     await expect(page.getByText('Uploaded kept.txt')).toHaveCount(0, { timeout: 10_000 });
     await section.screenshot({ path: testInfo.outputPath('desktop-light-section-before.png') });
