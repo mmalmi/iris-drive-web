@@ -16,6 +16,7 @@
   import VisibilityIcon from './VisibilityIcon.svelte';
   import AccessBadge from './AccessBadge.svelte';
   import { itemAccess } from '../drive/itemAccess';
+  import { linkShares } from '../drive/linkShares';
   import ProtectedTreeNotice from './ProtectedTreeNotice.svelte';
   import { treeRootStore, routeStore, createTreesStore, type TreeEntry, currentDirCidStore, isViewingFileStore, resolvingPathStore, directoryEntriesStore, permalinkSnapshotStore } from '../stores';
   import {
@@ -126,6 +127,7 @@
       profileId: activeNostrIdentityRootScope($nostrStore),
       appKeyPubkey: $nostrStore.pubkey,
       records: $acceptedShares,
+      linkShares: $linkShares,
       treeVisibility: effectiveTree?.visibility,
     });
   }
@@ -579,7 +581,7 @@
         {#if canEdit}
           <NewMenu variant="folder" class="shrink-0" />
         {/if}
-        {#if currentDirCid || canEdit}
+        {#if (currentDirCid || canEdit) && !isProtectedTreeWithoutAccess}
           <FolderActions
             dirCid={currentDirCid}
             dirName={currentDirName}

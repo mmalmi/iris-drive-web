@@ -8,6 +8,7 @@
   import { acceptedShares } from '../../drive/shareLibrary';
   import { activeNostrIdentityRootScope } from '../../drive/profileRoute';
   import { itemAccess } from '../../drive/itemAccess';
+  import { linkShares } from '../../drive/linkShares';
   import AccessBadge from '../AccessBadge.svelte';
   import { getNhashFileUrl } from '../../lib/mediaUrl';
   import { getQueryParamsFromHash } from '../../lib/router.svelte';
@@ -101,6 +102,7 @@
     profileId: activeNostrIdentityRootScope($nostrStore),
     appKeyPubkey: $nostrStore.pubkey,
     records: $acceptedShares,
+    linkShares: $linkShares,
     treeVisibility: currentTreeVisibility,
   }));
   let fileData = $state<Uint8Array | null>(null);

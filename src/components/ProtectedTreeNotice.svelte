@@ -9,7 +9,7 @@
   let { visibility, linkKey }: Props = $props();
 </script>
 
-<div class="p-8 text-center">
+<div class="p-8 text-center" data-testid="protected-tree-notice">
   <div class="inline-flex items-center justify-center mb-4">
     {#if visibility === 'link-visible'}
       {#if linkKey}
@@ -26,18 +26,18 @@
   </div>
   <div class="text-text-2 font-medium mb-2">
     {#if visibility === 'link-visible'}
-      {linkKey ? 'Invalid Link Key' : 'Link Required'}
+      {linkKey ? 'This link no longer works' : 'You need the link'}
     {:else}
-      Private Folder
+      Private
     {/if}
   </div>
   <div class="text-text-3 text-sm max-w-xs mx-auto">
     {#if visibility === 'link-visible'}
       {linkKey
-        ? 'The link key provided is invalid or has expired. Ask the owner for a new link.'
-        : 'This folder requires a special link to access. Ask the owner for the link with the access key.'}
+        ? 'The owner turned it off or changed it. Ask them for a new link.'
+        : 'Open it with the whole link the owner sent you.'}
     {:else}
-      This folder is private and can only be accessed by its owner.
+      Only its owner can open it.
     {/if}
   </div>
 </div>

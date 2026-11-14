@@ -19,6 +19,7 @@ import { acceptedShares } from '../../drive/shareLibrary';
 import { sharePeopleTarget } from '../../drive/sharePeople';
 import { activeNostrIdentityRootScope } from '../../drive/profileRoute';
 import { itemAccess, type ItemAccess } from '../../drive/itemAccess';
+import { linkShares } from '../../drive/linkShares';
 import { nostrStore, saveOwnTreeRoot } from '../../nostr';
 import type { NostrState } from '../../nostr/store';
 import { flushPendingPublishes } from '../../treeRootCache';
@@ -69,6 +70,7 @@ export class DriveDocument {
   readonly #route = fromStore(routeStore);
   readonly #nostr = fromStore<NostrState>(nostrStore);
   readonly #shares = fromStore(acceptedShares);
+  readonly #links = fromStore(linkShares);
   readonly #options: DriveDocumentOptions;
 
   /** Whether the person looking may change the document. Follows access changes. */
@@ -91,6 +93,7 @@ export class DriveDocument {
       profileId: activeNostrIdentityRootScope(nostr),
       appKeyPubkey: nostr.pubkey,
       records: this.#shares.current,
+      linkShares: this.#links.current,
     });
   });
 

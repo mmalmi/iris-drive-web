@@ -7,6 +7,7 @@ import { projectSharedFolderView } from './protocol';
 import type { NostrIdentityId } from './protocolTypes';
 import type { AcceptedShareRecord } from './shareLibrary';
 import { ownedShareAtPath } from './sharePeople';
+import { linkShareCovering, type LinkShare } from './linkShares';
 
 export type ItemAccess =
   /** Only this person's own devices. */
@@ -31,6 +32,8 @@ export interface ItemAccessOptions {
   profileId: NostrIdentityId | null | undefined;
   appKeyPubkey?: string | null;
   records: AcceptedShareRecord[];
+  /** Items of My Drive that open by their link. */
+  linkShares?: LinkShare[];
   /** How the tree is published, for places that are not a Drive. */
   treeVisibility?: TreeVisibility;
 }
@@ -55,7 +58,10 @@ export function itemAccess(options: ItemAccessOptions): ItemAccess | null {
   if (profileId && treeName === 'main') {
     if (scope === profileId) {
       const owned = ownedShareAtPath(path, profileId, records);
-      return owned ? sharedAccess(owned.record, options.appKeyPubkey) : { kind: 'private' };
+      if (owned) return sharedAccess(owned.record, options.appKeyPubkey);
+      const link = linkShareCovering(path, profileId, options.linkShares ?? []);
+      if (link) return link.access === 'public' ? { kind: 'public' } : { kind: 'link', people: 0 };
+      return { kind: 'private' };
     }
     const joined = records.find((record) => record.share_id === scope && record.local_profile_id === profileId);
     if (joined) return sharedAccess(joined, options.appKeyPubkey);
@@ -87,7 +93,7 @@ export function describeItemAccess(access: ItemAccess): { label: string; detail:
     case 'link':
       return {
         label: 'Anyone with the link',
-        detail: access.people > 0 ? `Anyone with the link can open this. ${joined(access.people)}.` : 'Anyone with the link can open this',
+        detail: access.people > 0 ? `Anyone with the link can view this. ${joined(access.people)}.` : 'Anyone with the link can view this',
         icon: 'i-lucide-link',
       };
     case 'public':
