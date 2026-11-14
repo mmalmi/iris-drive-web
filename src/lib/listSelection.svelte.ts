@@ -11,6 +11,14 @@ export class ListSelection {
   #anchor: string | null = null;
   /** What was chosen before a rectangle started, that it adds to. */
   #bandBase: string[] = [];
+  #folder: string | null = null;
+
+  /** Lets go of everything when the list shows another folder than before. */
+  showFolder(folder: string): void {
+    if (folder === this.#folder) return;
+    this.#folder = folder;
+    this.clear();
+  }
 
   has(name: string): boolean {
     return this.names.has(name);

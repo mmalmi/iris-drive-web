@@ -484,11 +484,11 @@
   let selectionEntries = $derived(entries.filter((entry) => selection.has(entry.name)));
   let selecting = $derived(selectionEntries.length > 0);
 
-  // Another folder starts with nothing chosen; opening a file beside the list keeps what is.
-  let folderKey = $derived([viewedNpub, currentTreeName, ...currentPath].join('/'));
+  // Another folder starts with nothing chosen, once it is known which folder is open (until
+  // then the path still counts an opened or closed file in): a file opened beside it keeps what is.
   $effect(() => {
-    void folderKey;
-    untrack(() => selection.clear());
+    const folder = [viewedNpub, currentTreeName, ...currentPath].join('/');
+    if (!resolvingPath) untrack(() => selection.showFolder(folder));
   });
 
   // What is no longer here is no longer chosen.
