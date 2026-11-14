@@ -697,7 +697,10 @@
             {#if !isDraggingOver}
               <span class="i-lucide-folder-open text-4xl text-text-3/70"></span>
               <span class="text-text-2">This folder is empty</span>
-              {#if canEdit}<span>Drop files here, or use New</span>{/if}
+              {#if canEdit}
+                <NewMenu variant="empty" class="mt-2" />
+                <span>or drop files here</span>
+              {/if}
             {/if}
           </div>
         {:else}

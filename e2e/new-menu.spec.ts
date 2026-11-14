@@ -49,6 +49,37 @@ async function startInMyDrive(page: Page, relayUrl: string): Promise<{ profileId
 test.describe('the New menu', () => {
   test.setTimeout(240_000);
 
+  test('files uploaded from New land in the folder that is open, from every New button', async ({ page, relayUrl }) => {
+    await page.setViewportSize(DESKTOP);
+    const owner = await startInMyDrive(page, relayUrl);
+    const cases = [
+      { name: 'wide', size: DESKTOP, button: () => page.getByTestId('drive-sidebar').getByTestId('new-menu') },
+      { name: 'rail', size: { width: 1000, height: 800 }, button: () => page.getByTestId('drive-sidebar').getByTestId('new-menu') },
+      { name: 'narrow', size: { width: 700, height: 800 }, button: () => page.getByTestId('folder-header').getByRole('button', { name: 'New' }) },
+      { name: 'phone', size: PHONE, button: () => newMenuButton(page) },
+      { name: 'empty', size: DESKTOP, button: () => page.getByTestId('empty-folder-new') },
+    ];
+    for (const { name, size, button } of cases) {
+      await page.setViewportSize(size);
+      await page.goto(`/#/${owner.profileId}/main`);
+      await chooseNew(page, 'Folder');
+      await nameIt(page, 'Folder name...', `In ${name}`);
+      await listed(page, new RegExp(`^In ${name}`)).first().click();
+      await expect(page).toHaveURL(new RegExp(`/main/In(%20| )${name}$`), { timeout: 30_000 });
+      await expect(page.getByTestId('empty-folder')).toBeVisible({ timeout: 30_000 });
+      await button().click();
+      const chooser = page.waitForEvent('filechooser');
+      await item(page, 'Upload files').click();
+      await (await chooser).setFiles({ name: `${name}.txt`, mimeType: 'text/plain', buffer: Buffer.from(name) });
+      await expect(listed(page, new RegExp(`^${name}\\.txt`)).first()).toBeVisible({ timeout: 30_000 });
+    }
+    // None of them went to My Drive.
+    await page.setViewportSize(DESKTOP);
+    await page.goto(`/#/${owner.profileId}/main`);
+    await expect(listed(page, /^In wide/).first()).toBeVisible({ timeout: 30_000 });
+    for (const { name } of cases) await expect(listed(page, new RegExp(`^${name}\\.txt`))).toHaveCount(0);
+  });
+
   test('on a wide window it opens from the sidebar, by mouse and by keyboard, and makes each kind', async ({ page, relayUrl }) => {
     await page.setViewportSize(DESKTOP);
     const owner = await startInMyDrive(page, relayUrl);

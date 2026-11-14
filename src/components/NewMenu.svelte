@@ -14,7 +14,8 @@
   import { readFilesFromWebkitDirectory, supportsDirectoryUpload } from '@iris/hashtree-app/directory';
 
   interface Props {
-    variant: 'sidebar' | 'rail' | 'folder';
+    /** `empty`: the button inside an empty folder's message. */
+    variant: 'sidebar' | 'rail' | 'folder' | 'empty';
     /** A folder to open first, for when the page shown is not one to add to. */
     goTo?: string | null;
     class?: string;
@@ -110,7 +111,12 @@
 
 <!-- On a phone the folder's New floats, so it takes no room in the header. -->
 <div class="{variant === 'folder' ? 'contents sm:relative sm:block md:hidden' : 'relative'} {className}">
-  {#if variant !== 'folder'}
+  {#if variant === 'empty'}
+    <button type="button" class="btn-primary flex items-center gap-1.5" {...trigger} data-testid="empty-folder-new">
+      <span class="i-lucide-plus text-lg"></span>
+      New
+    </button>
+  {:else if variant !== 'folder'}
     <button
       type="button"
       class="flex h-14 items-center rounded-2xl text-sm font-medium text-text-1 shadow-sm ring-1 ring-surface-2 transition hover:bg-surface-2 hover:shadow {variant === 'rail' ? 'w-14 justify-center' : 'w-28 gap-3 px-4'} {opener ? 'bg-surface-2' : 'bg-surface-0'}"
