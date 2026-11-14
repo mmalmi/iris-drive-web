@@ -5,6 +5,7 @@
   import { getAppType } from '../../appType';
   import { createShareUrlOptions, type ShareUrlOption, type ShareUrlOptionId } from '../../lib/shareUrls';
   import type { SharePeopleTarget } from '../../drive/sharePeople';
+  import type { LinkTarget } from '../../drive/linkShares';
 
   interface ModalLinkVariant {
     id: 'snapshot' | 'latest';
@@ -19,18 +20,23 @@
   let selectedOptionId = $state<ShareUrlOptionId>('web');
   let people = $state<SharePeopleTarget | null>(null);
   let showPeople = $state(false);
+  let general = $state<LinkTarget | null>(null);
 
   /**
    * `peopleTarget` adds inviting people, which the dialog opens on unless
    * `startWithPeople` is false: sharing is about people first, as elsewhere.
+   * `generalTarget` adds General access for a single file, which cannot be
+   * shared with people.
    */
   export function open(
     shareUrl: string,
     latestShareUrl: string | null = null,
     peopleTarget: SharePeopleTarget | null = null,
     startWithPeople = true,
+    generalTarget: LinkTarget | null = null,
   ) {
     people = peopleTarget;
+    general = peopleTarget ? null : generalTarget;
     showPeople = Boolean(peopleTarget && startWithPeople);
     const snapshotOptions = createShareUrlOptions(getAppType(), shareUrl);
     const latestOptions = latestShareUrl
@@ -59,6 +65,7 @@
   export function close() {
     show = false;
     people = null;
+    general = null;
     showPeople = false;
     linkVariants = [];
     selectedLinkVariantId = 'snapshot';
@@ -226,6 +233,13 @@
           <SharePeoplePanel target={people} />
         {/await}
       {:else}
+      {#if general}
+        <div class="px-4 pt-1">
+          {#await import('../GeneralAccess.svelte') then { default: GeneralAccess }}
+            <GeneralAccess target={general} />
+          {/await}
+        </div>
+      {/if}
       {#if linkVariants.length > 1}
         <div class="grid grid-cols-2 gap-2 px-4 pt-4">
           {#each linkVariants as variant (variant.id)}
@@ -250,6 +264,9 @@
         </p>
       {:else}
         <!-- The only link is to what is here now: say so, next to the invite link that gives access. -->
+        {#if general}
+          <h3 class="px-4 pt-4 text-sm font-medium text-text-1">Read-only copy</h3>
+        {/if}
         <p class="px-4 pt-3 text-sm text-text-2" data-testid="share-link-note">
           Anyone with this link can view a copy as it is now, without an account. Later changes are not included.
         </p>

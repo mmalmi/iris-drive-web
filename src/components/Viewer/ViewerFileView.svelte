@@ -8,7 +8,7 @@
   import { acceptedShares } from '../../drive/shareLibrary';
   import { activeNostrIdentityRootScope } from '../../drive/profileRoute';
   import { itemAccess } from '../../drive/itemAccess';
-  import { linkShares } from '../../drive/linkShares';
+  import { linkShares, linkTargetAt } from '../../drive/linkShares';
   import AccessBadge from '../AccessBadge.svelte';
   import { getNhashFileUrl } from '../../lib/mediaUrl';
   import { getQueryParamsFromHash } from '../../lib/router.svelte';
@@ -331,7 +331,14 @@
 
   function handleShare() {
     const [primary, secondary] = shareLinks;
-    if (primary) openShareModal(primary.url, secondary?.url ?? null);
+    const general = routeIsPermalink ? null : linkTargetAt({
+      scope: routeNpub,
+      treeName: routeTreeName,
+      path: routePath,
+      profileId: activeNostrIdentityRootScope($nostrStore),
+      records: $acceptedShares,
+    });
+    if (primary) openShareModal(primary.url, secondary?.url ?? null, null, true, general);
   }
 
   function openImport() {

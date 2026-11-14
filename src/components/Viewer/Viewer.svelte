@@ -5,6 +5,7 @@
   import { nostrStore } from '../../nostr';
   import { getQueryParamsFromHash } from '../../lib/router.svelte';
   import DirectoryActions from './DirectoryActions.svelte';
+  import ProtectedTreeNotice from '../ProtectedTreeNotice.svelte';
   import { documentKind, documentTitle, routeDocumentFolderName } from '../../lib/documentNames';
   import { buildSitesHref, isHtmlFilename } from '../../lib/siteHref';
   import {
@@ -46,6 +47,13 @@
   let trees = $derived($treesStore);
   let currentTreeName = $derived(route.treeName ?? permalinkSnapshot.snapshot?.treeName ?? null);
   let currentTree = $derived(currentTreeName ? trees.find(t => t.name === currentTreeName) : null);
+  // Opened by a link that no longer opens it: a version read before the owner
+  // turned it off, from a relay that still had it, is not shown.
+  let isOwnTrees = $derived(!viewedNpub || viewedNpub === userNpub || isOwnDriveProfile);
+  let lockedOut = $derived(
+    !isOwnTrees && !route.isPermalink && !!rootCid && !rootCid.key
+      && (currentTree?.visibility === 'link-visible' || currentTree?.visibility === 'private'),
+  );
 
   // Get filename from URL path - uses actual isDirectory check from hashtree
   let urlPath = $derived(route.path);
@@ -304,6 +312,10 @@
       {/await}
     {/if}
   {/key}
+{:else if urlFileName && lockedOut}
+  <div class="flex-1 flex items-center justify-center bg-surface-0">
+    <ProtectedTreeNotice visibility={currentTree?.visibility} linkKey={route.params.get('k')} />
+  </div>
 {:else if urlFileName && (isEditing || entryFromStore)}
   <!-- File views and their viewers (code, media, archives) load when a file is opened. -->
   {#await import('./ViewerFileView.svelte') then { default: ViewerFileView }}
