@@ -14,7 +14,7 @@
   import ViewerHeader from './ViewerHeader.svelte';
   import { buildSitesHref, findDirectorySiteEntry } from '../../lib/siteHref';
   import { isEditableDriveRouteScope } from '../../drive/profileRoute';
-  import { buildDirHref } from '../fileBrowserHrefs';
+  import { buildPathHref } from '../fileBrowserHrefs';
 
   let route = $derived($routeStore);
   let permalinkSnapshot = $derived($permalinkSnapshotStore);
@@ -132,7 +132,7 @@
   // Build back URL (parent directory or tree list)
   let backUrl = $derived.by(() => {
     if (route.isPermalink && currentPath.length > 0) {
-      return buildDirHref({
+      return buildPathHref({
         path: currentPath.slice(0, -1),
         currentNpub: null,
         currentTreeName: null,
@@ -220,8 +220,7 @@
           dirCid={currentDirCid}
           dirName={currentDirName}
           {canEdit}
-          toolbarClass="order-1 min-w-0 flex-1"
-          menuClass="order-2 ml-auto"
+          menuClass="ml-auto"
         />
       </div>
     {/if}

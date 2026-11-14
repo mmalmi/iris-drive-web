@@ -7,8 +7,8 @@
  * (reading a file, redrawing a picture as PNG, fetching a picture from the
  * web) is in driveClipboardData.ts, loaded the first time it is needed.
  */
-import { LinkType, nhashEncode, type TreeEntry } from '@hashtree/core';
-import { isDocumentFolderName, snapshotLinkQuery } from './documentNames';
+import { LinkType, type TreeEntry } from '@hashtree/core';
+import { entryCopyHref } from './shareUrls';
 
 const loadData = () => import('./driveClipboardData');
 
@@ -142,9 +142,7 @@ export function isOutsideDrag(data: DataTransfer | null): boolean {
 
 /** A link that opens the entry for anyone who has it, like the share button's Snapshot. */
 export function entryLink(entry: Pick<TreeEntry, 'name' | 'cid' | 'type'>): string {
-  const base = window.location.origin + window.location.pathname + '#/' + nhashEncode(entry.cid);
-  if (entry.type !== LinkType.Dir) return `${base}/${encodeURIComponent(entry.name)}`;
-  return isDocumentFolderName(entry.name) ? `${base}?${snapshotLinkQuery(entry.name)}` : base;
+  return window.location.origin + window.location.pathname + entryCopyHref(entry);
 }
 
 export type CopiedKind = 'picture' | 'text' | 'link';

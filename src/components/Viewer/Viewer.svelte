@@ -17,7 +17,7 @@
   } from '../../lib/treeEventSnapshots';
   import { isEditableDriveRouteScope } from '../../drive/profileRoute';
   import { isNostrIdentityId } from '../../utils/route';
-  import { buildDirHref } from '../fileBrowserHrefs';
+  import { buildPathHref } from '../fileBrowserHrefs';
   import { COPY_NAME_PARAM } from '../../lib/shareUrls';
 
   let route = $derived($routeStore);
@@ -255,7 +255,7 @@
 
   let backUrl = $derived.by(() => {
     if (route.isPermalink && !entryFromStore?.meta?.synthetic) {
-      return buildDirHref({
+      return buildPathHref({
         path: route.path.slice(0, -1),
         currentNpub: null,
         currentTreeName: null,

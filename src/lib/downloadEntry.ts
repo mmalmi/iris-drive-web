@@ -66,14 +66,13 @@ export async function downloadFile(entry: { cid: CID; name: string }): Promise<v
 
 /**
  * Saves a folder and all that is in it as `<name>.zip`, showing its progress
- * with a way to cancel. Resolves false when cancelled.
+ * with a way to cancel. Being cancelled, there or by `signal`, is no error.
  */
-export async function downloadFolderZip(cid: CID, name: string, signal?: AbortSignal): Promise<boolean> {
+export async function downloadFolderZip(cid: CID, name: string, signal?: AbortSignal): Promise<void> {
   const controller = new AbortController();
-  const onAbort = () => controller.abort();
-  signal?.addEventListener('abort', onAbort, { once: true });
+  const cancel = () => controller.abort();
+  signal?.addEventListener('abort', cancel, { once: true });
   try {
-    const cancel = () => controller.abort();
     const zipData = await createZipFromDirectory(getTree(), cid, name, (progress) => {
       setUploadProgress({
         current: progress.current,
@@ -85,12 +84,10 @@ export async function downloadFolderZip(cid: CID, name: string, signal?: AbortSi
     }, controller.signal);
     setUploadProgress(null);
     downloadBlob(zipData, `${name}.zip`, 'application/zip');
-    return true;
   } catch (err) {
-    if (err instanceof ZipCancelledError) return false;
-    throw err;
+    if (!(err instanceof ZipCancelledError)) throw err;
   } finally {
-    signal?.removeEventListener('abort', onAbort);
+    signal?.removeEventListener('abort', cancel);
     setUploadProgress(null);
   }
 }

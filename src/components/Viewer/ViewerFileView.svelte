@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { LinkType, toHex, type CID, type TreeEntry, type TreeVisibility } from '@hashtree/core';
+  import { toHex, type CID, type TreeEntry, type TreeVisibility } from '@hashtree/core';
   import { SvelteURLSearchParams } from 'svelte/reactivity';
   import { currentHash, permalinkSnapshotStore } from '../../stores';
   import { decodeAsText, formatBytes, getTree } from '../../store';
@@ -24,7 +24,7 @@
   import FileEditor from './FileEditor.svelte';
   import MediaPlayer from './MediaPlayer.svelte';
   import ZipPreview from './ZipPreview.svelte';
-  import { buildEntryHref } from '../fileBrowserHrefs';
+  import { buildPathHref } from '../fileBrowserHrefs';
   import { fileImportFor, openAsDocument } from '../../lib/fileImports';
   import { copiedMessage, copyEntry, copyKind } from '../../lib/driveClipboard';
   import { toast } from '../../stores/toast';
@@ -259,14 +259,12 @@
   }
 
   function navigateToFile(fileName: string) {
-    window.location.hash = buildEntryHref({
-      entry: { name: fileName, type: LinkType.Blob },
+    window.location.hash = buildPathHref({
+      path: [...routePath.slice(0, -1), fileName],
       currentNpub: routeNpub,
       currentTreeName: routeTreeName,
-      currentPath: routePath.slice(0, -1),
       rootCid,
       linkKey,
-      gitRootPath: null,
       snapshot: routeIsPermalink && getQueryParamsFromHash(hash).get('snapshot') === '1'
         ? $permalinkSnapshotStore.snapshot : null,
       rootName: routeIsPermalink ? getQueryParamsFromHash(hash).get(COPY_NAME_PARAM) : null,

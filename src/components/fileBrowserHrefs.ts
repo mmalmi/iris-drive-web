@@ -1,80 +1,31 @@
-import { nhashEncode, toHex, type LinkType } from '@hashtree/core';
 import { buildTreeEventPermalink } from '../lib/treeEventSnapshots';
-import { COPY_NAME_PARAM } from '../lib/shareUrls';
+import { COPY_NAME_PARAM, contentHref } from '../lib/shareUrls';
 
-type RootCidForHref = { hash: Uint8Array; key?: Uint8Array } | null;
-type TreeSnapshot = Parameters<typeof buildTreeEventPermalink>[0] | null;
-
-function buildQueryString(params: { k?: string | null; g?: string | null; name?: string | null }): string {
-  const parts: string[] = [];
-  if (params.k) parts.push(`k=${params.k}`);
-  if (params.g !== null && params.g !== undefined) parts.push(`g=${encodeURIComponent(params.g)}`);
-  if (params.name) parts.push(`${COPY_NAME_PARAM}=${encodeURIComponent(params.name)}`);
-  return parts.length > 0 ? '?' + parts.join('&') : '';
-}
-
-export function buildEntryHref(options: {
-  entry: { name: string; type: LinkType };
-  currentNpub: string | null;
-  currentTreeName: string | null;
-  currentPath: string[];
-  rootCid: RootCidForHref;
-  linkKey: string | null;
-  gitRootPath: string | null;
-  snapshot: TreeSnapshot;
-  /** The name a read-only copy of a folder opens under, kept while going through it. */
-  rootName?: string | null;
-}): string {
-  const { entry, currentNpub, currentTreeName, currentPath, rootCid, linkKey, gitRootPath, snapshot, rootName } = options;
-  const parts: string[] = [];
-  const suffix = buildQueryString({ k: linkKey, g: gitRootPath });
-
-  if (snapshot) return buildTreeEventPermalink(snapshot, [...currentPath, entry.name], linkKey);
-  if (currentNpub && currentTreeName) {
-    parts.push(currentNpub, currentTreeName, ...currentPath, entry.name);
-    return '#/' + parts.map(encodeURIComponent).join('/') + suffix;
-  }
-  if (rootCid?.hash) {
-    const nhash = nhashEncode({
-      hash: toHex(rootCid.hash),
-      decryptKey: rootCid.key ? toHex(rootCid.key) : undefined,
-    });
-    parts.push(nhash, ...currentPath, entry.name);
-    return '#/' + parts.map(encodeURIComponent).join('/') + buildQueryString({ k: linkKey, g: gitRootPath, name: rootName });
-  }
-
-  parts.push(...currentPath, entry.name);
-  return '#/' + parts.map(encodeURIComponent).join('/') + suffix;
-}
-
-export function buildDirHref(options: {
+/**
+ * The address of the file or folder at `path` of the place being browsed:
+ * in a signed snapshot, in a tree by its owner and name, or in a read-only
+ * copy by its content.
+ */
+export function buildPathHref(options: {
   path: string[];
   currentNpub: string | null;
   currentTreeName: string | null;
-  rootCid: RootCidForHref;
+  rootCid: { hash: Uint8Array; key?: Uint8Array } | null;
   linkKey: string | null;
-  snapshot: TreeSnapshot;
+  snapshot: Parameters<typeof buildTreeEventPermalink>[0] | null;
   /** The name a read-only copy of a folder opens under, kept while going through it. */
   rootName?: string | null;
 }): string {
   const { path, currentNpub, currentTreeName, rootCid, linkKey, snapshot, rootName } = options;
-  const parts: string[] = [];
-  const suffix = linkKey ? `?k=${linkKey}` : '';
-
   if (snapshot) return buildTreeEventPermalink(snapshot, path, linkKey);
+  const parts = path.map(encodeURIComponent);
+  const key = linkKey ? `k=${linkKey}` : '';
   if (currentNpub && currentTreeName) {
-    parts.push(currentNpub, currentTreeName, ...path);
-    return '#/' + parts.map(encodeURIComponent).join('/') + suffix;
+    return `#/${[encodeURIComponent(currentNpub), encodeURIComponent(currentTreeName), ...parts].join('/')}${key && `?${key}`}`;
   }
   if (rootCid?.hash) {
-    const nhash = nhashEncode({
-      hash: toHex(rootCid.hash),
-      decryptKey: rootCid.key ? toHex(rootCid.key) : undefined,
-    });
-    parts.push(nhash, ...path);
-    return '#/' + parts.map(encodeURIComponent).join('/') + buildQueryString({ k: linkKey, name: rootName });
+    const query = [key, rootName ? `${COPY_NAME_PARAM}=${encodeURIComponent(rootName)}` : ''].filter(Boolean).join('&');
+    return [contentHref(rootCid), ...parts].join('/') + (query && `?${query}`);
   }
-
-  parts.push(...path);
-  return '#/' + parts.map(encodeURIComponent).join('/') + suffix;
+  return `#/${parts.join('/')}${key && `?${key}`}`;
 }

@@ -71,9 +71,9 @@ describe('items of My Drive shared by link', () => {
 
   it('is what the badge says, beside invite-only sharing', () => {
     const mine = { scope: ME, treeName: 'main', profileId: ME, records: [] };
-    expect(itemAccess({ ...mine, path: ['Trip', 'plan.txt'], linkShares: [link()] })).toEqual({ kind: 'link', people: 0 });
+    expect(itemAccess({ ...mine, path: ['Trip', 'plan.txt'], linkShares: [link()] })).toEqual({ kind: 'link' });
     expect(itemAccess({ ...mine, path: ['Trip'], linkShares: [link({ access: 'public' })] })).toEqual({ kind: 'public' });
     expect(itemAccess({ ...mine, path: ['Trip'], linkShares: [link({ access: 'off' })] })).toEqual({ kind: 'private' });
-    expect(describeItemAccess({ kind: 'link', people: 0 })).toMatchObject({ label: 'Anyone with the link', detail: 'Anyone with the link can view this' });
+    expect(describeItemAccess({ kind: 'link' })).toMatchObject({ label: 'Anyone with the link', detail: 'Anyone with the link can view this' });
   });
 });

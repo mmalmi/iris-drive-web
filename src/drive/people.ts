@@ -26,7 +26,8 @@ function pubkeyNpub(pubkey: string): string | null {
   }
 }
 
-function grantFor(folder: SharedFolder, profileId: NostrIdentityId) {
+/** What a folder's access list says about a member. */
+export function grantFor(folder: SharedFolder, profileId: NostrIdentityId) {
   return folder.access?.grants?.find((grant) => grant.target.type === 'id' && grant.target.id === profileId);
 }
 

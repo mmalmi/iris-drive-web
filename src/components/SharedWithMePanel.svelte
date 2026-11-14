@@ -19,7 +19,7 @@
   } from '../drive/shareLibrary';
   import { toast } from '../stores/toast';
   import { documentKindInfo, isDocumentFolderName } from '../lib/documentNames';
-  import { personHref } from '../drive/people';
+  import { grantFor, personHref, sharedItemHref } from '../drive/people';
 
   interface Props {
     standalone?: boolean;
@@ -70,8 +70,8 @@
     const record = $acceptedShares.find((item) => item.share_id === shareId);
     if (!record || isOwnShare(record)) return null;
     const ownerId = record.folder.owner_profile_id;
-    const grant = record.folder.access?.grants?.find((item) => item.target.type === 'id' && item.target.id === ownerId);
-    return grant?.display_name ? { name: grant.display_name, href: personHref(record.folder, ownerId) } : null;
+    const name = grantFor(record.folder, ownerId)?.display_name;
+    return name ? { name, href: personHref(record.folder, ownerId) } : null;
   }
 
   const ROLE_TEXT: Record<string, string> = { admin: 'Admin', editor: 'Can edit', reader: 'Can view' };
@@ -91,15 +91,10 @@
     return labelText(share.key_status);
   }
 
-  /** A shared document is a folder holding one document: open the document itself. */
+  /** A shared document is a folder holding one document: that document's name, for its icon. */
   function sharedDocumentName(share: SharedWithMeRow): string | null {
     const source = share.source_path?.split('/').at(-1);
     return source && isDocumentFolderName(source) ? source : null;
-  }
-
-  function shareHref(share: SharedWithMeRow): string {
-    const document = sharedDocumentName(share);
-    return `#/${share.share_id}/main${document ? `/${encodeURIComponent(document)}` : ''}`;
   }
 
   function detailText(share: SharedWithMeRow): string {
@@ -148,7 +143,7 @@
       {@const sharedBy = owner(share.share_id)}
       <div class="flex items-center border-b border-surface-2 hover:bg-surface-2/50" data-testid="shared-with-me-row">
         <a
-          href={shareHref(share)}
+          href={sharedItemHref(share.share_id, share.source_path)}
           class="min-w-0 flex-1 flex items-center gap-3 p-3 lg:px-5 no-underline text-text-1"
           data-testid="shared-with-me-open"
         >

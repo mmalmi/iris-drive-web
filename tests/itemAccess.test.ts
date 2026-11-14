@@ -66,7 +66,7 @@ describe('who can open an item', () => {
     expect(describeItemAccess({ kind: 'people', people: 2 }).label).toBe('Shared with 2');
     expect(describeItemAccess({ kind: 'people', people: 0 }).label).toBe('Shared');
     expect(describeItemAccess({ kind: 'people', people: 1, invite: true }).detail).toBe('Shared with 1 person. People with the invite link can join');
-    expect(describeItemAccess({ kind: 'link', people: 0 }).label).toBe('Anyone with the link');
+    expect(describeItemAccess({ kind: 'link' }).label).toBe('Anyone with the link');
     expect(describeItemAccess({ kind: 'public' }).label).toBe('Public');
   });
 });

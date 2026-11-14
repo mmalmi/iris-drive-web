@@ -18,7 +18,7 @@ export type ItemAccess =
    */
   | { kind: 'people'; people: number; invite?: boolean }
   /** Anyone who has the link can open it. */
-  | { kind: 'link'; people: number }
+  | { kind: 'link' }
   /** Anyone can find and open it. */
   | { kind: 'public' };
 
@@ -60,7 +60,7 @@ export function itemAccess(options: ItemAccessOptions): ItemAccess | null {
       const owned = ownedShareAtPath(path, profileId, records);
       if (owned) return sharedAccess(owned.record, options.appKeyPubkey);
       const link = linkShareCovering(path, profileId, options.linkShares ?? []);
-      if (link) return link.access === 'public' ? { kind: 'public' } : { kind: 'link', people: 0 };
+      if (link) return { kind: link.access === 'public' ? 'public' : 'link' };
       return { kind: 'private' };
     }
     const joined = records.find((record) => record.share_id === scope && record.local_profile_id === profileId);
@@ -68,7 +68,7 @@ export function itemAccess(options: ItemAccessOptions): ItemAccess | null {
   }
   switch (options.treeVisibility) {
     case 'public': return { kind: 'public' };
-    case 'link-visible': return { kind: 'link', people: 0 };
+    case 'link-visible': return { kind: 'link' };
     case 'private': return { kind: 'private' };
     default: return null;
   }
@@ -76,7 +76,6 @@ export function itemAccess(options: ItemAccessOptions): ItemAccess | null {
 
 /** A word or two for a badge, and a sentence for its tooltip. */
 export function describeItemAccess(access: ItemAccess): { label: string; detail: string; icon: string } {
-  const joined = (people: number) => (people === 1 ? '1 person has joined' : `${people} people have joined`);
   const people = (count: number) => (count === 1 ? '1 person' : `${count} people`);
   switch (access.kind) {
     case 'private':
@@ -91,11 +90,7 @@ export function describeItemAccess(access: ItemAccess): { label: string; detail:
         icon: 'i-lucide-users',
       };
     case 'link':
-      return {
-        label: 'Anyone with the link',
-        detail: access.people > 0 ? `Anyone with the link can view this. ${joined(access.people)}.` : 'Anyone with the link can view this',
-        icon: 'i-lucide-link',
-      };
+      return { label: 'Anyone with the link', detail: 'Anyone with the link can view this', icon: 'i-lucide-link' };
     case 'public':
       return { label: 'Public', detail: 'Anyone can find and open this', icon: 'i-lucide-globe' };
   }

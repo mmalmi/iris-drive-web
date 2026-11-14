@@ -3,18 +3,16 @@
    * Folder actions, used in FileBrowser and Viewer: the share button and a
    * menu of the less common actions. Making and adding things is in NewMenu.
    */
-  import { toHex } from '@hashtree/core';
-  import type { CID } from '@hashtree/core';
-  import { folderCopyHref } from '../lib/shareUrls';
+  import { toHex, type CID } from '@hashtree/core';
+  import { COPY_NAME_PARAM, createDriveShareLinkVariants, folderCopyHref } from '../lib/shareUrls';
   import { open as openRenameModal } from './Modals/RenameModal.svelte';
   import { open as openMoveModal } from './Modals/MoveModal.svelte';
   import { open as openForkModal } from './Modals/ForkModal.svelte';
   import ShareButton from './ShareButton.svelte';
   import { open as openBlossomPushModal } from './Modals/BlossomPushModal.svelte';
-  import { npubToPubkey } from '../nostr';
   import { deleteCurrentFolder, buildRouteUrl, getCurrentRootCid, makeCopyOfFolder } from '../actions';
   import { toast } from '../stores/toast';
-  import { nostrStore, deleteTree } from '../nostr';
+  import { nostrStore, deleteTree, npubToPubkey } from '../nostr';
   import { downloadFolderZip } from '../lib/downloadEntry';
   import { routeStore, createTreesStore, permalinkSnapshotStore, isViewingFileStore } from '../stores';
   import {
@@ -25,7 +23,6 @@
     isNewerTreeEventSnapshot,
     snapshotMatchesRootCid,
   } from '../lib/treeEventSnapshots';
-  import { createDriveShareLinkVariants } from '../lib/shareUrls';
   import { acceptedShares } from '../drive/shareLibrary';
   import { sharePeopleTarget } from '../drive/sharePeople';
   import { activeNostrIdentityRootScope } from '../drive/profileRoute';
@@ -35,8 +32,6 @@
     dirCid?: CID | null;
     dirName?: string | null;
     canEdit: boolean;
-    /** No longer used: making and adding things moved to NewMenu. */
-    toolbarClass?: string;
     /** Placement of the share button and the menu within the parent. */
     menuClass?: string;
   }
@@ -69,7 +64,7 @@
     route.path.length > 0
       ? route.path[route.path.length - 1]!
       : route.isPermalink
-        ? route.params.get('name')
+        ? route.params.get(COPY_NAME_PARAM)
         : dirName !== 'My Drive' ? dirName : null,
   );
   let permalinkHref = $state<string | null>(null);

@@ -33,8 +33,8 @@
   import { acceptedShares } from '../drive/shareLibrary';
   import { activeNostrIdentityRootScope } from '../drive/profileRoute';
   import { sharePeopleTarget } from '../drive/sharePeople';
-  import { contentHref, createDriveShareLinkVariants, fileCopyHref, folderCopyHref } from '../lib/shareUrls';
-  import { documentKindInfo, documentTitle, snapshotLinkQuery } from '../lib/documentNames';
+  import { createDriveShareLinkVariants, entryCopyHref } from '../lib/shareUrls';
+  import { documentKindInfo, documentTitle } from '../lib/documentNames';
   import { downloadFile, downloadFolderZip } from '../lib/downloadEntry';
   import { isNostrIdentityId } from '../utils/route';
   import { toast } from '../stores/toast';
@@ -59,12 +59,9 @@
   let inDrive = $derived(isNostrIdentityId(route.npub ?? ''));
 
   function share() {
-    const copy = documentInfo
-      ? `${contentHref(entry.cid)}?${snapshotLinkQuery(entry.name)}`
-      : isDir ? folderCopyHref(entry.cid, entry.name) : fileCopyHref(entry.cid, entry.name);
     const here = `${window.location.origin}${window.location.pathname}`;
     const [primary, secondary] = createDriveShareLinkVariants({
-      permalinkUrl: `${here}${copy}`,
+      permalinkUrl: `${here}${entryCopyHref(entry)}`,
       currentUrl: `${here}${request.href}`,
       routeScope: route.npub,
       isPermalink: route.isPermalink,

@@ -22,10 +22,7 @@
   import { linkShares } from '../drive/linkShares';
   import ProtectedTreeNotice from './ProtectedTreeNotice.svelte';
   import { treeRootStore, routeStore, createTreesStore, type TreeEntry, currentDirCidStore, isViewingFileStore, resolvingPathStore, directoryEntriesStore, permalinkSnapshotStore } from '../stores';
-  import {
-    buildDirHref as buildFileDirHref,
-    buildEntryHref as buildFileEntryHref,
-  } from './fileBrowserHrefs';
+  import { buildPathHref } from './fileBrowserHrefs';
   import { activeShareScope, shareLocation } from '../drive/shareScope';
   import { activeNostrIdentityRootScope, isEditableDriveRouteScope } from '../drive/profileRoute';
   import { isNostrIdentityId } from '../utils/route';
@@ -40,32 +37,6 @@
   }
 
   let { compact = false }: Props = $props();
-
-  function currentSnapshotForHref() {
-    return isSnapshotPermalink ? permalinkSnapshot.snapshot : null;
-  }
-
-  function buildEntryHref(
-    entry: { name: string; type: LinkType },
-    currentNpub: string | null,
-    currentTreeName: string | null,
-    currentPath: string[],
-    rootCidForHref: { hash: Uint8Array; key?: Uint8Array } | null,
-    linkKey: string | null,
-    gitRootPath: string | null
-  ): string {
-    return buildFileEntryHref({
-      entry,
-      currentNpub,
-      currentTreeName,
-      currentPath,
-      rootCid: rootCidForHref,
-      linkKey,
-      gitRootPath,
-      snapshot: currentSnapshotForHref(),
-      rootName: copyName,
-    });
-  }
 
   let isLoggedIn = $derived($nostrStore.isLoggedIn);
   let userNpub = $derived($nostrStore.npub);
@@ -289,38 +260,36 @@
     dropTargetDir = '..';
   }
 
-  function buildDirHref(path: string[]): string {
-    return buildFileDirHref({
+  /** The address of the file or folder at `path` of the place being browsed. */
+  function hrefAt(path: string[]): string {
+    return buildPathHref({
       path,
       currentNpub,
       currentTreeName,
       rootCid,
       linkKey,
-      snapshot: currentSnapshotForHref(),
+      snapshot: isSnapshotPermalink ? permalinkSnapshot.snapshot : null,
       rootName: copyName,
     });
   }
 
-  function buildRootHref(): string {
-    if (viewedNpub) return `#/${viewedNpub}`;
-    return '#/';
-  }
+  const entryHref = (entry: FileEntry) => hrefAt([...currentPath, entry.name]);
 
   /** Where "up" leads: the folder above, where a shared folder sits, or nowhere from My Drive. */
   let parentHref = $derived.by((): string | null => {
-    if (currentPath.length > 0) return buildDirHref(currentPath.slice(0, -1));
+    if (currentPath.length > 0) return hrefAt(currentPath.slice(0, -1));
     if (isMyDrive) return null;
     if (shareAbove.length > 0) return shareAbove.at(-1)!.href;
-    return currentNpub ? buildRootHref() : null;
+    return currentNpub ? `#/${currentNpub}` : null;
   });
   let hasParent = $derived(parentHref !== null);
   /** The folders above the open one, outermost first. */
   let parentCrumbs = $derived.by(() => {
     const crumbs: { name: string; href: string }[] = [...shareAbove];
     if (currentPath.length === 0 || !rootName) return crumbs;
-    crumbs.push({ name: rootName, href: buildDirHref([]) });
+    crumbs.push({ name: rootName, href: hrefAt([]) });
     for (let depth = 1; depth < currentPath.length; depth += 1) {
-      crumbs.push({ name: currentPath[depth - 1], href: buildDirHref(currentPath.slice(0, depth)) });
+      crumbs.push({ name: currentPath[depth - 1], href: hrefAt(currentPath.slice(0, depth)) });
     }
     return crumbs;
   });
@@ -456,7 +425,7 @@
   function openEntryMenu(entry: FileEntry, at: { x: number; y: number; opener: HTMLElement | null }) {
     entryMenu = {
       entry,
-      href: buildEntryHref(entry, currentNpub, currentTreeName, currentPath, rootCid, linkKey, null),
+      href: entryHref(entry),
       x: at.x,
       y: at.y,
       // On a phone, as the New menu does, it rises from the bottom.
@@ -502,8 +471,7 @@
     const key = e.key.toLowerCase();
 
     if (key === 'contextmenu' || (key === 'f10' && e.shiftKey)) {
-      const entryIndex = focusedIndex - specialItemCount;
-      const targetEntry = focusedIndex >= 0 ? entries[entryIndex] : selectedEntry;
+      const targetEntry = chosenEntry();
       if (!targetEntry) return;
       e.preventDefault();
       const row = rowElement(targetEntry.name);
@@ -531,20 +499,13 @@
 
     if (key === 'enter' && focusedIndex >= 0) {
       e.preventDefault();
-      if (focusedIndex === parentRowIndex) {
-        window.location.hash = currentPath.length > 0 ? buildDirHref(currentPath.slice(0, -1)).slice(1) : buildRootHref().slice(1);
+      const entry = entries[focusedIndex - specialItemCount];
+      const href = focusedIndex === parentRowIndex ? parentHref
+        : focusedIndex === currentDirectoryRowIndex ? hrefAt(currentPath)
+          : entry ? entryHref(entry) : null;
+      if (href) {
+        window.location.hash = href.slice(1);
         focusedIndex = -1;
-      } else if (focusedIndex === currentDirectoryRowIndex) {
-        window.location.hash = buildDirHref(currentPath).slice(1);
-        focusedIndex = -1;
-      } else {
-        const entryIndex = focusedIndex - specialItemCount;
-        const entry = entries[entryIndex];
-        if (entry) {
-          const href = buildEntryHref(entry, currentNpub, currentTreeName, currentPath, rootCid, linkKey, null);
-          window.location.hash = href.slice(1);
-          focusedIndex = -1;
-        }
       }
       return;
     }
@@ -580,8 +541,7 @@
           focusedIndex = newIndex;
         } else {
           focusedIndex = -1;
-          const href = buildEntryHref(newEntry, currentNpub, currentTreeName, currentPath, rootCid, linkKey, null);
-          window.location.hash = href.slice(1);
+          window.location.hash = entryHref(newEntry).slice(1);
         }
       }
     }
@@ -704,7 +664,7 @@
 
         {#if showDirectoryNavigationRows}
           <a
-            href={buildDirHref(currentPath)}
+            href={hrefAt(currentPath)}
             class="p-3 border-b border-surface-2 flex items-center gap-3 no-underline text-text-1 hover:bg-surface-2/50 {!selectedEntry && focusedIndex < 0 ? 'bg-surface-2' : ''} {focusedIndex === currentDirectoryRowIndex ? 'ring-2 ring-inset ring-accent' : ''}"
           >
             <span class="shrink-0 i-lucide-folder-open text-warning"></span>
@@ -756,7 +716,7 @@
               ondrop={isFolder ? (e) => handleDirDrop(e, entry.name) : undefined}
             >
               <a
-                href={buildEntryHref(entry, currentNpub, currentTreeName, currentPath, rootCid, linkKey, null)}
+                href={entryHref(entry)}
                 class="min-w-0 flex-1 p-3 {showDirectoryNavigationRows ? 'pl-9' : 'lg:pl-5'} pr-1 flex items-center gap-3 no-underline text-text-1 select-none [-webkit-touch-callout:none]"
                 draggable={finePointer && (canEdit || entry.type !== LinkType.Dir)}
                 ondragstart={(e) => handleEntryDragStart(e, entry)}

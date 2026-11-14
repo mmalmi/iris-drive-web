@@ -5,7 +5,7 @@ import { navigate } from '../utils/navigate';
 import { parseRoute } from '../utils/route';
 import { autosaveIfOwn, nostrStore } from '../nostr';
 import { getTree } from '../store';
-import { LinkType } from '@hashtree/core';
+import { LinkType, type CID } from '@hashtree/core';
 import { getCurrentRootCid, getCurrentPathFromUrl, buildRouteUrl, updateRoute } from './route';
 import { activeNostrIdentityRootScope, isEditableDriveRouteScope } from '../drive/profileRoute';
 import { followLinkShares } from '../drive/linkShareSync';
@@ -30,6 +30,41 @@ function followInRecents(from: string[], to: string[] | null) {
   if (route.treeName === 'main' && route.npub === activeNostrIdentityRootScope(nostrStore.getState())) followLinkShares(from, to);
 }
 
+/** Renames an entry of the open tree in the folder at `parentPath`. */
+async function renameIn(rootCid: CID, parentPath: string[], oldName: string, newName: string): Promise<void> {
+  const tree = getTree();
+  const from = [...parentPath, oldName];
+  const to = [...parentPath, newName];
+  const newRootCid = isProfileDriveMutation()
+    ? await mutateProfileDriveRoot(tree, rootCid, { type: 'rename', from: pathString(from), to: pathString(to) })
+    : await tree.renameEntry(rootCid, parentPath, oldName, newName);
+  // Update local cache (publishes to nostr with throttle)
+  autosaveIfOwn(newRootCid);
+  followInRecents(from, to);
+}
+
+/** Removes an entry of the open tree from the folder at `parentPath`. */
+async function removeIn(rootCid: CID, parentPath: string[], name: string): Promise<void> {
+  const tree = getTree();
+  const newRootCid = isProfileDriveMutation()
+    ? await mutateProfileDriveRoot(tree, rootCid, { type: 'delete', path: pathString([...parentPath, name]) })
+    : await tree.removeEntry(rootCid, parentPath, name);
+  autosaveIfOwn(newRootCid);
+  followInRecents([...parentPath, name], null);
+}
+
+/** Moves an entry of the open tree from the folder at `parentPath` into the folder at `targetPath`. */
+async function moveIn(rootCid: CID, parentPath: string[], name: string, targetPath: string[]): Promise<void> {
+  const tree = getTree();
+  const from = [...parentPath, name];
+  const to = [...targetPath, name];
+  const newRootCid = isProfileDriveMutation()
+    ? await mutateProfileDriveRoot(tree, rootCid, { type: 'rename', from: pathString(from), to: pathString(to) })
+    : await tree.moveEntry(rootCid, parentPath, name, targetPath);
+  autosaveIfOwn(newRootCid);
+  followInRecents(from, to);
+}
+
 // Rename entry
 export async function renameEntry(oldName: string, newName: string) {
   if (!newName || oldName === newName) return;
@@ -37,7 +72,6 @@ export async function renameEntry(oldName: string, newName: string) {
   const rootCid = getCurrentRootCid();
   if (!rootCid) return;
 
-  const tree = getTree();
   const route = parseRoute();
   const urlPath = route.path;
 
@@ -54,16 +88,7 @@ export async function renameEntry(oldName: string, newName: string) {
     parentPath = getCurrentPathFromUrl();
   }
 
-  const newRootCid = isProfileDriveMutation()
-    ? await mutateProfileDriveRoot(tree, rootCid, {
-        type: 'rename',
-        from: pathString([...parentPath, oldName]),
-        to: pathString([...parentPath, newName]),
-      })
-    : await tree.renameEntry(rootCid, parentPath, oldName, newName);
-  // Update local cache (publishes to nostr with throttle)
-  autosaveIfOwn(newRootCid);
-  followInRecents([...parentPath, oldName], [...parentPath, newName]);
+  await renameIn(rootCid, parentPath, oldName, newName);
 
   // Update URL if renamed file/dir was selected or we're inside it
   if (isRenamingCurrentDir) {
@@ -81,18 +106,8 @@ export async function deleteEntry(name: string) {
   const rootCid = getCurrentRootCid();
   if (!rootCid) return;
 
-  const tree = getTree();
   const currentPath = getCurrentPathFromUrl();
-
-  const newRootCid = isProfileDriveMutation()
-    ? await mutateProfileDriveRoot(tree, rootCid, {
-        type: 'delete',
-        path: pathString([...currentPath, name]),
-      })
-    : await tree.removeEntry(rootCid, currentPath, name);
-  // Update local cache (publishes to nostr with throttle)
-  autosaveIfOwn(newRootCid);
-  followInRecents([...currentPath, name], null);
+  await removeIn(rootCid, currentPath, name);
 
   // Navigate to directory if deleted file was active
   const route = parseRoute();
@@ -111,20 +126,8 @@ export async function deleteCurrentFolder() {
   const route = parseRoute();
   if (route.path.length === 0) return; // Can't delete root
 
-  const folderName = route.path[route.path.length - 1];
   const parentPath = route.path.slice(0, -1);
-
-  const tree = getTree();
-
-  const newRootCid = isProfileDriveMutation()
-    ? await mutateProfileDriveRoot(tree, rootCid, {
-        type: 'delete',
-        path: pathString([...parentPath, folderName]),
-      })
-    : await tree.removeEntry(rootCid, parentPath, folderName);
-  // Update local cache (publishes to nostr with throttle)
-  autosaveIfOwn(newRootCid);
-  followInRecents([...parentPath, folderName], null);
+  await removeIn(rootCid, parentPath, route.path[route.path.length - 1]);
 
   // Navigate to parent directory
   const url = buildRouteUrl(route.npub, route.treeName, parentPath, undefined, route.params.get('k'));
@@ -143,17 +146,9 @@ export async function renameCurrentFolder(newName: string): Promise<boolean> {
 
   const oldName = route.path[route.path.length - 1];
   const parentPath = route.path.slice(0, -1);
-  const tree = getTree();
-  if (await tree.resolvePath(rootCid, pathString([...parentPath, newName]))) return false;
+  if (await getTree().resolvePath(rootCid, pathString([...parentPath, newName]))) return false;
 
-  const newRootCid = isProfileDriveMutation()
-    ? await mutateProfileDriveRoot(tree, rootCid, {
-        type: 'rename',
-        from: pathString([...parentPath, oldName]),
-        to: pathString([...parentPath, newName]),
-      })
-    : await tree.renameEntry(rootCid, parentPath, oldName, newName);
-  autosaveIfOwn(newRootCid);
+  await renameIn(rootCid, parentPath, oldName, newName);
   navigate(buildRouteUrl(route.npub, route.treeName, [...parentPath, newName], undefined, route.params.get('k')));
   return true;
 }
@@ -182,16 +177,7 @@ export async function moveEntry(sourceName: string, targetDirName: string) {
     return;
   }
 
-  const newRootCid = isProfileDriveMutation()
-    ? await mutateProfileDriveRoot(tree, rootCid, {
-        type: 'rename',
-        from: pathString([...currentPath, sourceName]),
-        to: pathString([...currentPath, targetDirName, sourceName]),
-      })
-    : await tree.moveEntry(rootCid, currentPath, sourceName, [...currentPath, targetDirName]);
-  // Update local cache (publishes to nostr with throttle)
-  autosaveIfOwn(newRootCid);
-  followInRecents([...currentPath, sourceName], [...currentPath, targetDirName, sourceName]);
+  await moveIn(rootCid, currentPath, sourceName, [...currentPath, targetDirName]);
 
   // Clear selection if moved file was active
   const route = parseRoute();
@@ -225,16 +211,7 @@ export async function moveToParent(sourceName: string) {
     return;
   }
 
-  const newRootCid = isProfileDriveMutation()
-    ? await mutateProfileDriveRoot(tree, rootCid, {
-        type: 'rename',
-        from: pathString([...currentPath, sourceName]),
-        to: pathString([...parentPath, sourceName]),
-      })
-    : await tree.moveEntry(rootCid, currentPath, sourceName, parentPath);
-  // Update local cache (publishes to nostr with throttle)
-  autosaveIfOwn(newRootCid);
-  followInRecents([...currentPath, sourceName], [...parentPath, sourceName]);
+  await moveIn(rootCid, currentPath, sourceName, parentPath);
 
   // Clear selection if moved file was active
   const route = parseRoute();
@@ -261,16 +238,11 @@ export async function moveEntryTo(parentPath: string[], name: string, targetPath
     throw new Error(`There is already something called “${name}” there`);
   }
 
-  const from = [...parentPath, name];
-  const to = [...targetPath, name];
-  const newRootCid = isProfileDriveMutation()
-    ? await mutateProfileDriveRoot(tree, rootCid, { type: 'rename', from: pathString(from), to: pathString(to) })
-    : await tree.moveEntry(rootCid, parentPath, name, targetPath);
-  autosaveIfOwn(newRootCid);
-  followInRecents(from, to);
+  await moveIn(rootCid, parentPath, name, targetPath);
 
   const route = parseRoute();
+  const from = [...parentPath, name];
   if (from.every((part, index) => route.path[index] === part)) {
-    navigate(buildRouteUrl(route.npub, route.treeName, [...to, ...route.path.slice(from.length)], undefined, route.params.get('k')));
+    navigate(buildRouteUrl(route.npub, route.treeName, [...targetPath, name, ...route.path.slice(from.length)], undefined, route.params.get('k')));
   }
 }

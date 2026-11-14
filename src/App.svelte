@@ -89,33 +89,28 @@
     }
   });
 
-  // Join links this device handed out are answered for as long as Drive is open.
-  let stopJoinWatch: (() => void) | null = null;
+  /** Starts something that then runs for as long as Drive is open, the first time it is called. */
+  function once(start: () => Promise<unknown>): () => void {
+    let started = false;
+    return () => {
+      if (started) return;
+      started = true;
+      void start();
+    };
+  }
+  // Join links this device handed out are answered.
+  const watchJoins = once(() => import('./drive/shareOwner').then(({ watchJoinRequests }) => watchJoinRequests()));
+  // Folders people share with this account directly show up.
+  const watchAdded = once(() => import('./drive/shareJoin').then(({ watchSharesAddedToMe }) => watchSharesAddedToMe()));
+  // Items shared by link stay current on the device that shares them.
+  const watchLinks = once(() => import('./drive/linkShareSync').then(({ watchLinkShares }) => watchLinkShares()));
   $effect(() => {
-    if (stopJoinWatch || !$acceptedShares.some((record) => record.join_links?.length)) return;
-    stopJoinWatch = () => {};
-    void import('./drive/shareOwner').then(({ watchJoinRequests }) => {
-      stopJoinWatch = watchJoinRequests();
-    });
+    if ($acceptedShares.some((record) => record.join_links?.length)) watchJoins();
   });
-
-  // Folders people share with this account directly show up while Drive is open.
-  let stopAddedWatch: (() => void) | null = null;
   $effect(() => {
-    if (stopAddedWatch || !$nostrStore.isLoggedIn) return;
-    stopAddedWatch = () => {};
-    void import('./drive/shareJoin').then(({ watchSharesAddedToMe }) => {
-      stopAddedWatch = watchSharesAddedToMe();
-    });
-  });
-  // Items shared by link stay current while Drive is open on the device that shares them.
-  let stopLinkWatch: (() => void) | null = null;
-  $effect(() => {
-    if (stopLinkWatch || !$nostrStore.isLoggedIn) return;
-    stopLinkWatch = () => {};
-    void import('./drive/linkShareSync').then(({ watchLinkShares }) => {
-      stopLinkWatch = watchLinkShares();
-    });
+    if (!$nostrStore.isLoggedIn) return;
+    watchAdded();
+    watchLinks();
   });
   // This device says once that it belongs to its account, so people can add it to folders.
   $effect(() => {
