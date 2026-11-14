@@ -15,6 +15,7 @@ import { getLocalRootCache, updateLocalRootCache } from '../treeRootCache';
 import { activeNostrIdentityRootScope, isEditableDriveRouteScope } from '../drive/profileRoute';
 import { setEntryForDriveRoute } from '../drive/profileDriveRouteEntry';
 import { captureRouteWriteGuard } from '../lib/routeWriteGuard';
+import { freeName } from '../lib/driveClipboard';
 export { forkTree } from './treeFork';
 
 type DirectoryEntryInput = { name: string; cid: CID; size: number; type?: LinkType };
@@ -113,6 +114,41 @@ export async function createFolder(name: string) {
     if (!isCurrent()) return;
     await initVirtualTree([{ name, cid: emptyDirCid, size: 0, type: LinkType.Dir }]);
   }
+}
+
+/**
+ * Make a copy: the open folder again beside it, as "Copy of <name>". Content
+ * is addressed by its hash, so the copy stores nothing twice and the two
+ * change apart from then on. The copy's name, or null when there is no folder
+ * to copy here.
+ */
+export async function makeCopyOfFolder(): Promise<string | null> {
+  const isCurrent = captureRouteWriteGuard();
+  const rootCid = getCurrentRootCid();
+  const path = getCurrentPathFromUrl();
+  const name = path.at(-1);
+  if (!rootCid || !name) return null;
+  const tree = getTree();
+  const parentPath = path.slice(0, -1);
+  const parentCid = parentPath.length ? (await tree.resolvePath(rootCid, parentPath.join('/')))?.cid : rootCid;
+  if (!parentCid) return null;
+  const siblings = await tree.listDirectory(parentCid);
+  const original = siblings.find((entry) => entry.name === name);
+  if (!original || original.type !== LinkType.Dir) return null;
+  const copyName = freeName(`Copy of ${name}`, new Set(siblings.map((entry) => entry.name)));
+  if (!isCurrent()) return null;
+  const newRootCid = await setEntryForDriveRoute(
+    tree,
+    rootCid,
+    parentPath,
+    copyName,
+    { cid: original.cid, size: original.size, type: LinkType.Dir, meta: original.meta },
+    parseRoute(),
+    useNostrStore.getState(),
+  );
+  if (!isCurrent()) return null;
+  autosaveIfOwn(newRootCid);
+  return copyName;
 }
 
 /** A document is a folder named for it; the editor fills it on the first save. */

@@ -178,7 +178,7 @@ export async function createAndEnterFolder(page: any, name: string) {
   const folderHash = new URL((await folderLink.getAttribute('href'))!, page.url()).hash;
   await folderLink.click();
   await page.waitForURL((url: URL) => url.hash === folderHash, { timeout: 30000 });
-  await expect(page.getByText('Empty directory')).toBeVisible({ timeout: 30000 });
+  await expect(page.getByTestId('empty-folder')).toBeVisible({ timeout: 30000 });
 }
 
 /**

@@ -151,11 +151,16 @@ test.describe('a walk through the app', () => {
       await page.getByTestId('header-user-avatar').click();
       await expect(page.getByTestId('account-menu')).toBeVisible();
       await shot(page, '16-account-menu');
-      // A phone has no sidebar: its places are in this menu.
+      await page.keyboard.press('Escape');
+      // A phone has no sidebar: its places are tabs along the bottom.
       await page.setViewportSize(PHONE);
-      await page.getByTestId('account-menu').getByRole('menuitem', { name: 'Shared with me' }).click();
-      await expect(page.getByTestId('shared-with-me-view')).toBeVisible();
-      await page.setViewportSize(DESKTOP);
+      try {
+        await page.getByTestId('drive-tabs').getByRole('link', { name: 'Shared with me' }).click();
+        await expect(page.getByTestId('shared-with-me-view')).toBeVisible();
+        await shot(page, '16b-phone-tabs');
+      } finally {
+        await page.setViewportSize(DESKTOP);
+      }
     });
     for (const tab of ['', '/user', '/storage', '/network']) {
       await step(`settings${tab}`, async () => {
@@ -214,10 +219,12 @@ test.describe('a walk through the app', () => {
         await expect(guest.getByRole('navigation', { name: 'Folder path' }).getByRole('link', { name: 'Shared with me' })).toBeVisible();
         await shot(guest, '25-guest-shared-folder');
       });
-      await step('owner people list', async () => {
+      await step('owner shared document', async () => {
+        // What the owner shared stays in their My Drive, not in Shared with me.
         await page.goto(`${origin}/#/shared-with-me`);
-        await page.getByTestId('shared-with-me-row').first().click();
-        // What the owner shared was a document, so its row opens the document.
+        await expect(page.getByTestId('shared-with-me-row')).toHaveCount(0);
+        await page.goto(`${origin}/#/${owner.profileId}/main`);
+        await page.getByTestId('document-entry').filter({ visible: true }).first().click();
         await expect(page.getByTestId('document-title')).toHaveText('Trip plan', { timeout: 30_000 });
         await shot(page, '26-owner-shared-document');
       });

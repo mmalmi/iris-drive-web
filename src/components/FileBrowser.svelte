@@ -151,7 +151,7 @@
   let resolvingPath = $derived($resolvingPathStore);
   // Treat the store as still loading until its loadedHashKey matches the
   // current directory CID — otherwise stale `entries: []` from a previous
-  // navigation can briefly render as "Empty directory".
+  // navigation can briefly render as an empty folder.
   let currentDirHashKey = $derived(currentDirCid?.hash ? toHex(currentDirCid.hash) : null);
   let entriesAreStale = $derived(
     currentDirHashKey !== null && dirEntries.loadedHashKey !== currentDirHashKey
@@ -638,8 +638,12 @@
         {:else if loadingEntries}
           <div class="p-4 pl-6"></div>
         {:else if entries.length === 0}
-          <div class="p-4 pl-6 text-center text-muted text-sm">
-            {isDraggingOver ? '' : 'Empty directory'}
+          <div class="flex flex-col items-center gap-2 px-4 py-12 text-center text-sm text-text-3" data-testid="empty-folder">
+            {#if !isDraggingOver}
+              <span class="i-lucide-folder-open text-4xl text-text-3/70"></span>
+              <span class="text-text-2">This folder is empty</span>
+              {#if canEdit}<span>Drop files here, or use New</span>{/if}
+            {/if}
           </div>
         {:else}
           {#each entries as entry, idx (entry.name)}

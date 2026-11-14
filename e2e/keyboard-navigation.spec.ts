@@ -32,5 +32,5 @@ test('the arrow keys and j/k step through a folder, and Enter opens a folder', a
   await expect(inner).toHaveClass(/ring-accent/);
   await page.keyboard.press('Enter');
   await expect(page).toHaveURL(/\/main\/Keys\/Inner$/);
-  await expect(page.getByText('Empty directory')).toBeVisible();
+  await expect(page.getByTestId('empty-folder')).toBeVisible();
 });

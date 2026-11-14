@@ -144,7 +144,7 @@ test.describe('Offline Upload', () => {
 
     // Check for the folder in the list or an auto-navigated empty folder view
     const folderLink = page.locator('a:has-text("offline-test-folder")').first();
-    const emptyDirectory = page.getByText('Empty directory', { exact: true });
+    const emptyDirectory = page.getByTestId('empty-folder');
     await expect.poll(async () => {
       if (await folderLink.isVisible().catch(() => false)) return 'folder';
       if (await emptyDirectory.isVisible().catch(() => false)) {

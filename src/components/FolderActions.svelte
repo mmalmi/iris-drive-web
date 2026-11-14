@@ -10,12 +10,13 @@
   import ShareButton from './ShareButton.svelte';
   import { open as openBlossomPushModal } from './Modals/BlossomPushModal.svelte';
   import { npubToPubkey } from '../nostr';
-  import { deleteCurrentFolder, buildRouteUrl, getCurrentRootCid } from '../actions';
+  import { deleteCurrentFolder, buildRouteUrl, getCurrentRootCid, makeCopyOfFolder } from '../actions';
+  import { toast } from '../stores/toast';
   import { nostrStore, deleteTree } from '../nostr';
   import { getTree } from '../store';
   import { createZipFromDirectory, downloadBlob, ZipCancelledError } from '../utils/compression';
   import { setUploadProgress } from '../stores/upload';
-  import { routeStore, createTreesStore, permalinkSnapshotStore } from '../stores';
+  import { routeStore, createTreesStore, permalinkSnapshotStore, isViewingFileStore } from '../stores';
   import {
     buildTreeEventPermalink,
     ensureTreeEventSnapshotForRoot,
@@ -49,9 +50,9 @@
   let permalinkSnapshot = $derived($permalinkSnapshotStore);
   let userNpub = $derived($nostrStore.npub);
 
-  // Get user's own trees for fork name suggestions. A Drive profile keeps its
-  // top-level folders, My Drive's own among them, under the profile's id.
-  let ownTreesStore = $derived(createTreesStore(activeNostrIdentityRootScope($nostrStore) ?? userNpub));
+  // The user's own trees, for fork name suggestions: Fork is offered outside
+  // Drive and saves under the npub.
+  let ownTreesStore = $derived(createTreesStore(userNpub));
   let ownTrees = $state<Array<{ name: string }>>([]);
 
   $effect(() => {
@@ -176,6 +177,16 @@
       i++;
     }
     return `${dirName}-${i}`;
+  }
+
+  // In Drive a folder is copied where it is; Fork is for trees outside Drive.
+  let inDrive = $derived(isNostrIdentityId(route.npub ?? ''));
+  let folderDepth = $derived(route.path.length - ($isViewingFileStore ? 1 : 0));
+
+  async function handleMakeCopy() {
+    const name = await makeCopyOfFolder().catch(() => null);
+    if (name) toast.success(`Made “${name}”`);
+    else toast.error('Could not make a copy.');
   }
 
   // Handle fork button click
@@ -347,15 +358,22 @@
                 {isDownloading ? 'Cancel ZIP' : 'Download ZIP'}
               </button>
             {/if}
-            <button
-              onclick={handleFork}
-              class={itemClass}
-              title="Fork as new top-level folder"
-              data-testid="fork-folder-btn"
-            >
-              <span class="i-lucide-git-fork text-base text-text-2"></span>
-              Fork
-            </button>
+            {#if !inDrive}
+              <button
+                onclick={handleFork}
+                class={itemClass}
+                title="Fork as new top-level folder"
+                data-testid="fork-folder-btn"
+              >
+                <span class="i-lucide-git-fork text-base text-text-2"></span>
+                Fork
+              </button>
+            {:else if canEdit && folderDepth > 0}
+              <button onclick={handleMakeCopy} class={itemClass} data-testid="make-copy-btn">
+                <span class="i-lucide-copy text-base text-text-2"></span>
+                Make a copy
+              </button>
+            {/if}
             <button
               onclick={() => openBlossomPushModal(dirCid!, forkBaseName, true, route.npub ? (npubToPubkey(route.npub) ?? undefined) : undefined, route.treeName ?? undefined)}
               class={itemClass}

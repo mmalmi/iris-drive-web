@@ -110,7 +110,7 @@ test.describe('basic file-sharing journeys', () => {
     await page.getByPlaceholder('Folder name...').fill('Weekend picnic');
     await page.getByRole('button', { name: 'Create', exact: true }).click();
     await page.getByRole('link', { name: 'Weekend picnic', exact: true }).click();
-    await expect(page.getByText('Empty directory', { exact: true })).toBeVisible();
+    await expect(page.getByTestId('empty-folder')).toBeVisible();
     await upload(page, 'Plan.txt', Buffer.from('Meet by the lake at noon.'));
     await page.getByTestId('viewer-back').click();
     await upload(page, 'Snacks.txt', Buffer.from('Bring strawberries.'));
