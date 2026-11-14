@@ -182,10 +182,12 @@ function readPublishedAtMs(event: Event): number | undefined {
 export function parseDriveRootEventForDevice(
   event: Event,
   deviceSecretKey: Uint8Array,
+  /** Other keys the root's key may be wrapped for, such as a recovery key held while signing in with it. */
+  otherSecretKeys: Uint8Array[] = [],
 ): ParsedDriveRootEvent {
   const parts = parseDriveRootEventParts(event);
   const devicePubkey = getPublicKey(deviceSecretKey);
-  const root = resolveRootCid(parts.content, event.pubkey, devicePubkey, deviceSecretKey);
+  const root = resolveRootCid(parts.content, event.pubkey, devicePubkey, deviceSecretKey, otherSecretKeys);
   const appKeySeq = rootAppKeySeq(parts.content);
   const rootRef: DriveRootRef = {
     root,
@@ -411,16 +413,24 @@ export function resolveRootCid(
   authorPubkey: string,
   devicePubkey: string,
   deviceSecretKey: Uint8Array,
+  otherSecretKeys: Uint8Array[] = [],
 ): CID {
   if (!content.root_hash) {
     throw new Error('legacy root_cid-only drive roots need native CID parsing');
   }
-  const ciphertext = content.root_key_wraps[devicePubkey];
-  if (!ciphertext) {
+  let opener: { ciphertext: string; secretKey: Uint8Array } | null = content.root_key_wraps[devicePubkey]
+    ? { ciphertext: content.root_key_wraps[devicePubkey]!, secretKey: deviceSecretKey }
+    : null;
+  for (const secretKey of otherSecretKeys) {
+    if (opener) break;
+    const ciphertext = content.root_key_wraps[getPublicKey(secretKey)];
+    if (ciphertext) opener = { ciphertext, secretKey };
+  }
+  if (!opener) {
     throw new Error('drive root key is unavailable for this device');
   }
-  const conversationKey = nip44.v2.utils.getConversationKey(deviceSecretKey, authorPubkey);
-  const keyHex = nip44.v2.decrypt(ciphertext, conversationKey);
+  const conversationKey = nip44.v2.utils.getConversationKey(opener.secretKey, authorPubkey);
+  const keyHex = nip44.v2.decrypt(opener.ciphertext, conversationKey);
   return {
     hash: fromHex(content.root_hash),
     key: objectKeyFromHex(keyHex),

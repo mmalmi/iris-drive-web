@@ -3,6 +3,7 @@ import type { BrowserSignerSession } from '@iris/identity/browserSigner';
  * Nostr Authentication and Encryption
  */
 import { generateSecretKey, getPublicKey, nip19, nip44, verifyEvent, type Event as NostrToolsEvent } from 'nostr-tools';
+import { privateKeyFromSeedWords } from 'nostr-tools/nip06';
 import type { Hash } from '@hashtree/core';
 import {
   approveDeviceApprovalBootstrap,
@@ -74,7 +75,8 @@ import {
   saveStoredDeviceLabel,
   saveStoredDeviceLabels,
 } from '../drive/deviceLabels';
-import { createRecoveryPhraseRosterOps } from '../drive/recoveryPhrase';
+import { createRecoveryPhraseRosterOps, normalizeRecoveryPhrase } from '../drive/recoveryPhrase';
+import { holdRecoveryKey, RECOVERY_PHRASE_PURPOSE } from '../drive/recoveryRootKeys';
 import {
   IRIS_IDENTITY_SESSION_STORAGE_KEY,
   loadStoredNostrIdentitySessions,
@@ -1063,6 +1065,9 @@ export async function addDriveRecoveryPhrase(recoveryPhrase: string): Promise<No
     await publishDriveIdentityRosterOps(changed);
     await publishSignedIdentityEventJson(ops.acceptance.event_json);
   });
+  // The Drive's latest version is wrapped for the new phrase too, so it alone brings the files back.
+  void import('../drive/profileDriveRootPublish')
+    .then(({ scheduleDriveRootRewrap }) => scheduleDriveRootRewrap(session.profileId));
   return updated;
 }
 
@@ -1121,6 +1126,11 @@ export async function recoverDriveProfileWithAppKey(
     label: localLabel,
     rosterOps: dckRewrapOp ? [...session.rosterOps, dckRewrapOp] : session.rosterOps,
   };
+  // Signed in with the phrase: the devices' roots are wrapped for its key, so
+  // this device opens them itself, without another device online. The key is
+  // held in memory only.
+  const recoveryKey = recoveryPhraseSecretKey(options.recovery);
+  if (recoveryKey) holdRecoveryKey(recoveryKey);
 
   // Everything is signed, so the device is usable now; relays get it in order
   // in the background.
@@ -1533,9 +1543,11 @@ function handDriveToNewDevices(
   before: SignedNostrIdentityRosterOp[],
   after: SignedNostrIdentityRosterOp[],
 ): void {
+  // Roots are wrapped for the account's devices and its recovery phrase keys.
   const appKeys = (rosterOps: SignedNostrIdentityRosterOp[]) => Object.values(
     projectNostrIdentityRoster(profileId, rosterOps).active_facets,
-  ).filter((facet) => facet.purposes?.includes('app_key')).map((facet) => facet.pubkey);
+  ).filter((facet) => facet.purposes?.includes('app_key') || facet.purposes?.includes(RECOVERY_PHRASE_PURPOSE))
+    .map((facet) => facet.pubkey);
   const known = new Set(appKeys(before));
   if (appKeys(after).every((pubkey) => known.has(pubkey))) return;
   void import('../drive/profileDriveRootPublish')
@@ -1806,6 +1818,16 @@ function publishIdentityInBackground(publish: () => Promise<void>, attempt = 1):
 
 async function publishDriveIdentityRosterOps(rosterOps: SignedNostrIdentityRosterOp[]): Promise<void> {
   await publishDriveRosterHistory(rosterOps, publishSignedIdentityEventJson);
+}
+
+/** The secret key of a recovery phrase sign-in; null for other ways of signing in. */
+function recoveryPhraseSecretKey(recovery: DriveRecoveryRequest): Uint8Array | null {
+  if (recovery.method !== 'seed_phrase' || !recovery.seedWords?.trim()) return null;
+  try {
+    return privateKeyFromSeedWords(normalizeRecoveryPhrase(recovery.seedWords), recovery.seedPassphrase);
+  } catch {
+    return null;
+  }
 }
 
 async function createRecoverySigner(recovery: DriveRecoveryRequest): Promise<NostrIdentityEventSigner> {
