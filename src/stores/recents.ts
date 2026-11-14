@@ -5,6 +5,7 @@
 import { writable, get } from 'svelte/store';
 import type { TreeVisibility } from '@hashtree/core';
 import { routeStore } from './route';
+import { documentTitle, isDocumentFolderName } from '../lib/documentNames';
 
 const STORAGE_KEY = 'hashtree:recents';
 const MAX_RECENTS = 20;
@@ -123,6 +124,24 @@ export function removeRecentByTreeName(npub: string, treeName: string) {
     );
     saveRecents(filtered);
     return filtered;
+  });
+}
+
+/**
+ * Keeps recents true to a rename, move or delete in this Drive: what was at
+ * or below `path` follows it to `to`, or goes when `to` is null.
+ */
+export function moveRecents(path: string, to: string | null) {
+  recentsStore.update(current => {
+    const updated = current.flatMap((item) => {
+      if (item.path !== path && !item.path.startsWith(`${path}/`)) return [item];
+      if (to === null) return [];
+      if (item.path !== path) return [{ ...item, path: to + item.path.slice(path.length) }];
+      const name = to.slice(to.lastIndexOf('/') + 1);
+      return [{ ...item, path: to, label: isDocumentFolderName(name) ? documentTitle(name) : name }];
+    });
+    saveRecents(updated);
+    return updated;
   });
 }
 

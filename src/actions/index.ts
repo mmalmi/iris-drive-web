@@ -6,7 +6,7 @@
 export { getCurrentRootCid, buildRouteUrl, getCurrentPathFromUrl, updateRoute } from './route';
 
 // File operations
-export { saveFile, createFile, uploadSingleFile, uploadExtractedFiles } from './file';
+export { saveFile, createFile, uploadSingleFile, uploadExtractedFiles, addCopiedEntry } from './file';
 
 // Tree operations
 export {
@@ -19,4 +19,4 @@ export {
 } from './tree';
 
 // Entry operations
-export { renameEntry, renameCurrentFolder, deleteEntry, deleteCurrentFolder, moveEntry, moveToParent } from './entry';
+export { renameEntry, renameCurrentFolder, deleteEntry, deleteCurrentFolder, moveEntry, moveToParent, moveEntryTo } from './entry';

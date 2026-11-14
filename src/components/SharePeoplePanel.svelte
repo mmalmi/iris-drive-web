@@ -69,11 +69,22 @@
     }
   }
 
-  function create() {
-    if (target.kind !== 'drive') return;
+  let sharing: Promise<string> | null = null;
+  /** The shared folder's id, sharing the folder or document first if it is not shared yet. */
+  function shared(): Promise<string> {
+    if (shareId) return Promise.resolve(shareId);
+    if (target.kind !== 'drive') return Promise.reject(new Error('Could not share this'));
     const { path, name } = target;
+    sharing ??= shareFromDrive(path, name).then((record) => (createdShareId = record.share_id), (cause) => {
+      sharing = null;
+      throw cause;
+    });
+    return sharing;
+  }
+
+  function create() {
     void run(async () => {
-      createdShareId = (await shareFromDrive(path, name)).share_id;
+      await shared();
     });
   }
 
@@ -131,7 +142,7 @@
     const name = getProfileName(getProfileSync(contact.pubkey)) || contact.display_name;
     adding = [...adding.filter((item) => item.pubkey !== contact.pubkey), { pubkey: contact.pubkey, name, error: '' }];
     query = '';
-    void addPersonToShare(shareId, contact.pubkey, addRole, name).then(() => {
+    void shared().then((id) => addPersonToShare(id, contact.pubkey, addRole, name)).then(() => {
       adding = adding.filter((item) => item.pubkey !== contact.pubkey);
     }, (cause) => {
       const message = cause instanceof NoDevicesFoundError
@@ -142,18 +153,62 @@
   }
 </script>
 
+{#snippet addPeople()}
+  <div class="space-y-2">
+    <div class="flex gap-2">
+      <div class="relative min-w-0 flex-1">
+        <span class="i-lucide-search absolute left-3 top-1/2 -translate-y-1/2 text-sm text-text-3"></span>
+        <input
+          class="input w-full pl-9"
+          bind:value={query}
+          placeholder="Add people by name or npub"
+          aria-label="Add people"
+          autocomplete="off"
+          onfocus={() => refreshSocialGraph()}
+          data-testid="share-people-search"
+        />
+      </div>
+      <select class="pick h-auto!" bind:value={addRole} aria-label="Access for people you add" data-testid="share-people-add-role">
+        <option value="editor">Editor</option>
+        <option value="reader">Reader</option>
+      </select>
+    </div>
+    {#if choices.length > 0}
+      <div class="rounded border border-surface-2 divide-y divide-surface-2" data-testid="share-people-results">
+        {#each choices as contact (contact.pubkey)}
+          <button
+            class="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-surface-2"
+            onclick={() => add(contact)}
+            data-testid="share-people-result"
+          >
+            <Avatar pubkey={contact.pubkey} size={28} />
+            <span class="min-w-0 flex-1">
+              <span class="block text-sm text-text-1 truncate"><PersonName pubkey={contact.pubkey} known={contact.display_name} /></span>
+              <span class="block text-xs text-text-3 truncate">{contact.follow_distance === 1 ? 'You follow them' : contact.representative_npub.slice(0, 20) + '…'}</span>
+            </span>
+            <span class="i-lucide-user-plus text-text-3 shrink-0"></span>
+          </button>
+        {/each}
+      </div>
+    {:else if query.trim()}
+      <p class="text-xs text-text-3">{searching ? 'Searching…' : 'Nobody found. Paste their npub, or send the invite link.'}</p>
+    {/if}
+  </div>
+{/snippet}
+
 <div class="p-4 space-y-4" data-testid="share-people">
   {#if !record}
     <p class="text-sm text-text-2">
       Invite people to work on “{target.kind === 'drive' ? target.name : 'this folder'}” with you.
     </p>
-    <button class="btn-primary w-full" disabled={busy || target.kind !== 'drive'} onclick={create} data-testid="share-people-create">
+    {@render addPeople()}
+    <button class="btn-ghost w-full" disabled={busy || target.kind !== 'drive'} onclick={create} data-testid="share-people-create">
       <span class={busy ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-link'}></span>
       Create invite link
     </button>
   {:else if view?.can_admin}
     <label class="flex items-center gap-2 text-sm text-text-2">
-      Anyone with the link
+      People who join with the link
       <select class="pick" bind:value={linkRole} aria-label="Link access" data-testid="share-people-role">
         <option value="editor">can edit</option>
         <option value="reader">can view</option>
@@ -175,46 +230,7 @@
       </button>
     </div>
 
-    <div class="space-y-2">
-      <div class="flex gap-2">
-        <div class="relative min-w-0 flex-1">
-          <span class="i-lucide-search absolute left-3 top-1/2 -translate-y-1/2 text-sm text-text-3"></span>
-          <input
-            class="input w-full pl-9"
-            bind:value={query}
-            placeholder="Add people by name or npub"
-            aria-label="Add people"
-            autocomplete="off"
-            onfocus={() => refreshSocialGraph()}
-            data-testid="share-people-search"
-          />
-        </div>
-        <select class="pick h-auto!" bind:value={addRole} aria-label="Access for people you add" data-testid="share-people-add-role">
-          <option value="editor">Editor</option>
-          <option value="reader">Reader</option>
-        </select>
-      </div>
-      {#if choices.length > 0}
-        <div class="rounded border border-surface-2 divide-y divide-surface-2" data-testid="share-people-results">
-          {#each choices as contact (contact.pubkey)}
-            <button
-              class="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-surface-2"
-              onclick={() => add(contact)}
-              data-testid="share-people-result"
-            >
-              <Avatar pubkey={contact.pubkey} size={28} />
-              <span class="min-w-0 flex-1">
-                <span class="block text-sm text-text-1 truncate"><PersonName pubkey={contact.pubkey} known={contact.display_name} /></span>
-                <span class="block text-xs text-text-3 truncate">{contact.follow_distance === 1 ? 'You follow them' : contact.representative_npub.slice(0, 20) + '…'}</span>
-              </span>
-              <span class="i-lucide-user-plus text-text-3 shrink-0"></span>
-            </button>
-          {/each}
-        </div>
-      {:else if query.trim()}
-        <p class="text-xs text-text-3">{searching ? 'Searching…' : 'Nobody found. Paste their npub, or send the invite link.'}</p>
-      {/if}
-    </div>
+    {@render addPeople()}
 
     <div class="divide-y divide-surface-2" data-testid="share-people-list">
       {#each adding as item (item.pubkey)}

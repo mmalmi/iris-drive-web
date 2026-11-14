@@ -10,6 +10,7 @@ export type { TreeVisibility } from '@hashtree/core';
 export {
   nostrStore,
   useNostrStore,
+  sessionRestored,
   type NostrState,
   type HashTreeEvent,
   type RelayStatus,

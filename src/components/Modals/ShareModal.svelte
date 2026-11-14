@@ -170,7 +170,7 @@
     >
       {#if people}
         <div class="grid grid-cols-2 gap-2 px-4 pt-4">
-          {#each [[false, 'View link'], [true, 'Invite people']] as [value, label] (label)}
+          {#each [[false, linkVariants.length > 1 ? 'View link' : 'Read-only copy'], [true, 'Invite people']] as [value, label] (label)}
             <button
               class={`rounded-md border px-3 py-2 text-sm font-medium transition-colors ${
                 value === showPeople ? 'border-accent bg-accent/10 text-text-1' : 'border-surface-3 text-text-3'
@@ -210,6 +210,11 @@
           {selectedLinkVariantId === 'snapshot'
             ? 'Fixed to this revision.'
             : 'Follows future updates at this path.'}
+        </p>
+      {:else}
+        <!-- The only link is to what is here now: say so, next to the invite link that gives access. -->
+        <p class="px-4 pt-3 text-sm text-text-2" data-testid="share-link-note">
+          Anyone with this link can view a copy as it is now, without an account. Later changes are not included.
         </p>
       {/if}
 

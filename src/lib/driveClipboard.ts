@@ -165,27 +165,63 @@ export function copiedMessage(kind: CopiedKind, name: string): string {
   return `Copied a link to ${name}`;
 }
 
+export type CopiedEntry = Pick<TreeEntry, 'name' | 'cid' | 'type' | 'size'>;
+
+/**
+ * The entry this page last put on the clipboard, and what it put there.
+ * Other apps get a picture, text or link; pasting it back into a folder here
+ * adds the file itself, under its own name, without uploading it again.
+ */
+let lastCopy: { entry: CopiedEntry; text?: string; pictureBytes?: number } | null = null;
+
+/** Remembers what copying an entry put on the clipboard, once it is known. */
+export function noteCopied(entry: CopiedEntry, put: { text?: string; pictureBytes?: number } | Promise<{ text?: string; pictureBytes?: number }>): void {
+  const copy: NonNullable<typeof lastCopy> = { entry };
+  lastCopy = copy;
+  void Promise.resolve(put).then((known) => Object.assign(copy, known), () => {
+    if (lastCopy === copy) lastCopy = null;
+  });
+}
+
+const sameText = (a: string, b: string) => a.replace(/\r\n/g, '\n') === b.replace(/\r\n/g, '\n');
+
+/** The entry a paste brings back, when the clipboard still holds what copying it put there. */
+export function copiedEntryIn(data: DataTransfer | null): CopiedEntry | null {
+  if (!data || !lastCopy) return null;
+  const files = [...(data.files ?? [])];
+  if (lastCopy.pictureBytes !== undefined) {
+    return files.length === 1 && files[0]!.type.startsWith('image/') && files[0]!.size === lastCopy.pictureBytes ? lastCopy.entry : null;
+  }
+  if (lastCopy.text === undefined || files.length > 0) return null;
+  return sameText(data.getData('text/plain'), lastCopy.text) ? lastCopy.entry : null;
+}
+
 /**
  * Puts an entry on the system clipboard for other apps. The write is asked
  * for at once, while the copy is still the person's own act (Safari allows
  * it no later); what it holds is read and made as it is needed. Resolves to
  * what was copied, or rejects when the browser would not take it.
  */
-export async function copyEntry(entry: Pick<TreeEntry, 'name' | 'cid' | 'type' | 'size'>): Promise<CopiedKind> {
+export async function copyEntry(entry: CopiedEntry): Promise<CopiedKind> {
   const kind = copyKind(entry);
   const clipboard = navigator.clipboard;
   const canWrite = typeof ClipboardItem !== 'undefined' && typeof clipboard?.write === 'function';
   if (kind === 'picture' && canWrite) {
-    await clipboard.write([new ClipboardItem({ 'image/png': loadData().then(data => data.entryPng(entry)) })]);
+    const png = loadData().then(data => data.entryPng(entry));
+    noteCopied(entry, png.then(picture => ({ pictureBytes: picture.size })));
+    await clipboard.write([new ClipboardItem({ 'image/png': png })]);
     return kind;
   }
   if (kind === 'text') {
     const text = loadData().then(data => data.entryText(entry));
+    noteCopied(entry, text.then(words => ({ text: words })));
     if (canWrite) await clipboard.write([new ClipboardItem({ 'text/plain': text.then(words => new Blob([words], { type: 'text/plain' })) })]);
     else await clipboard.writeText(await text);
     return kind;
   }
-  await clipboard.writeText(entryLink(entry));
+  const link = entryLink(entry);
+  noteCopied(entry, { text: link });
+  await clipboard.writeText(link);
   return 'link';
 }
 

@@ -3,7 +3,9 @@
   import { onDestroy } from 'svelte';
   import FileBrowser from '../components/FileBrowser.svelte';
   import Viewer from '../components/Viewer/Viewer.svelte';
-  import { nostrStore } from '../nostr';
+  import NoAccessNotice from '../components/NoAccessNotice.svelte';
+  import { nostrStore, sessionRestored } from '../nostr';
+  import { isNostrIdentityId } from '../utils/route';
   import { routeStore, addRecent, isViewingFileStore, currentHash } from '../stores';
   import { updateRecentVisibility } from '../stores/recents';
   import { nip19 } from 'nostr-tools';
@@ -44,6 +46,17 @@
   let showViewerPane = $derived(
     hasFileSelected || isFullscreen
   );
+
+  // A Drive or shared folder is only reached through this account's own
+  // profile or a share record it holds. Without either, no relay answer could
+  // open it, so say so instead of loading.
+  let noAccess = $derived.by(() => {
+    if (!npub || !isNostrIdentityId(npub) || !$sessionRestored) return false;
+    const profileId = activeNostrIdentityRootScope($nostrStore);
+    if (!profileId) return true;
+    return profileId !== npub
+      && !$acceptedShares.some((record) => record.share_id === npub && record.local_profile_id === profileId);
+  });
 
   // A folder or document of this Drive that has been shared lives in the shared
   // folder from then on: open it there, so the owner edits what everyone sees.
@@ -195,6 +208,9 @@
   });
 </script>
 
+{#if noAccess}
+  <NoAccessNotice />
+{:else}
 <!-- Desktop file sidebar. A document takes the whole width; its header leads back to the folder. -->
 {#if !isFullscreen && !isYjsDocument}
   <div class={hasFileSelected
@@ -209,3 +225,4 @@
   : 'hidden'}>
   <Viewer />
 </div>
+{/if}

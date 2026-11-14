@@ -4,6 +4,8 @@ import type { AcceptedShareRecord } from './shareLibrary';
 
 /** Session storage key for a join link opened before signing in. */
 export const PENDING_JOIN_KEY = 'iris-drive.pending-join';
+/** Session storage key for the address of a shared folder opened before signing in. */
+export const PENDING_OPEN_KEY = 'iris-drive.pending-open';
 
 /** What the "invite people" part of the share dialog acts on. */
 export type SharePeopleTarget =

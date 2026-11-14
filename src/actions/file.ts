@@ -109,6 +109,17 @@ export async function createFile(name: string, content: string = '') {
   updateRoute(name, { edit: true });
 }
 
+/** Adds a file or folder that is already stored, such as one copied from another folder, to the open folder. */
+export async function addCopiedEntry(name: string, entry: { cid: CID; size: number; type: LinkType }): Promise<void> {
+  const isCurrent = captureRouteWriteGuard();
+  const rootCid = getCurrentRootCid();
+  if (!rootCid) throw new Error('No folder is open');
+  const newRootCid = await setCurrentRouteEntry(rootCid, getCurrentPathFromUrl(), name, entry.cid, entry.size, entry.type);
+  if (!isCurrent()) return;
+  autosaveIfOwn(newRootCid);
+  markFilesChanged(new Set([name]));
+}
+
 // Upload a single file (used for "Keep as ZIP" option)
 export async function uploadSingleFile(fileName: string, data: Uint8Array): Promise<void> {
   const isCurrent = captureRouteWriteGuard();
