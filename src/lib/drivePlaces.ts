@@ -18,7 +18,7 @@ export function drivePlaces(currentPath: string, homeHref: string, records: Acce
   // A folder shared with this profile; one it shared itself stays under My Drive.
   const inShared = records.some((record) => record.share_id === scope && !isOwnShare(record));
   const recent = currentPath === '/recent';
-  const photos = currentPath === '/photos';
+  const photos = currentPath === '/photos' || currentPath.startsWith('/photos/');
   const shared = inShared || currentPath === '/shared-with-me';
   // A Drive or shared folder this account holds no record of is no place of its own: "You need access".
   const homeScope = homeHref.replace(/^#?\//, '').split('/')[0];

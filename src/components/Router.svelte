@@ -42,7 +42,8 @@
     { pattern: '/share-invite/:payload', id: 'shareInvite' },
     { pattern: '/share-join/:payload', id: 'shareJoin' },
     { pattern: '/recent', id: 'recent' },
-    { pattern: '/photos', id: 'photos' },
+    // The timeline, the albums and each album.
+    { pattern: '/photos/*', id: 'photos' },
     { pattern: '/shared-with-me', id: 'sharedWithMe' },
     { pattern: '/settings', id: 'settings' },
     { pattern: '/settings/*', id: 'settings' },

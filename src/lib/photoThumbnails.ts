@@ -37,7 +37,7 @@ async function thumbnailOf(photo: Photo): Promise<string> {
   const whole = getNhashFileUrl(photo.cid, photo.name);
   const kept = await store.get(photo.hash).catch(() => undefined);
   if (kept) return kept.blob ? URL.createObjectURL(kept.blob) : whole;
-  const made = await inTurn(() => makeThumbnail(whole)).catch(() => undefined);
+  const made = await whenFree(() => makeThumbnail(whole)).catch(() => undefined);
   // Not made now (not here yet, or not a picture this browser reads): the picture itself, tried again another time.
   if (made === undefined) {
     shown.delete(photo.hash);
@@ -47,7 +47,7 @@ async function thumbnailOf(photo: Photo): Promise<string> {
   return made ? URL.createObjectURL(made) : whole;
 }
 
-async function inTurn<T>(work: () => Promise<T>): Promise<T> {
+async function whenFree<T>(work: () => Promise<T>): Promise<T> {
   if (active >= PARALLEL) await new Promise<void>((resolve) => waiting.push(resolve));
   active += 1;
   try {

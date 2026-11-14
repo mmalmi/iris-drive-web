@@ -1,45 +1,11 @@
 // Photos: every picture and video in the Drive, newest first under date
 // headings, and one at a time over the whole screen. With PHOTOS_SHOTS set
 // it saves screenshots there.
-import fs from 'node:fs';
-import path from 'node:path';
 import { expect, test, type Page } from './fixtures';
 import { createDriveProfile, prepareFreshSession } from './documents.helpers';
 import { fileRow, uploadIntoFolder } from './test-utils';
 import { jpegWithExif } from '../tests/fixtures/exif';
-
-const shots = process.env.PHOTOS_SHOTS;
-
-async function shot(page: Page, name: string): Promise<void> {
-  if (!shots) return;
-  fs.mkdirSync(shots, { recursive: true });
-  await page.mouse.move(1, 1);
-  // Colours ease into a new scheme.
-  await page.waitForTimeout(400);
-  await page.screenshot({ path: path.join(shots, `${name}.png`) });
-}
-
-/** A JPEG drawn by the browser: a sky over a hill, in the given colours. */
-async function picture(page: Page, sky: string, hill: string, width: number, height: number): Promise<Uint8Array> {
-  const bytes = await page.evaluate(async ({ sky, hill, width, height }) => {
-    const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-    const context = canvas.getContext('2d')!;
-    const gradient = context.createLinearGradient(0, 0, 0, height);
-    gradient.addColorStop(0, sky);
-    gradient.addColorStop(1, '#fff7ed');
-    context.fillStyle = gradient;
-    context.fillRect(0, 0, width, height);
-    context.fillStyle = hill;
-    context.beginPath();
-    context.ellipse(width * 0.6, height, width * 0.7, height * 0.35, 0, 0, Math.PI * 2);
-    context.fill();
-    const blob = await new Promise<Blob>((resolve) => canvas.toBlob((made) => resolve(made!), 'image/jpeg', 0.8));
-    return Array.from(new Uint8Array(await blob.arrayBuffer()));
-  }, { sky, hill, width, height });
-  return new Uint8Array(bytes);
-}
+import { expectShown, jpeg, picture, shot } from './photos.helpers';
 
 /** A second of WebM video recorded by the browser from a moving drawing. */
 async function video(page: Page): Promise<Uint8Array> {
@@ -75,15 +41,9 @@ async function video(page: Page): Promise<Uint8Array> {
   return new Uint8Array(bytes);
 }
 
-const jpeg = (name: string, bytes: Uint8Array) => ({ name, mimeType: 'image/jpeg', buffer: Buffer.from(bytes) });
 const tiles = (page: Page) => page.getByTestId('photo-tile');
 const viewer = (page: Page) => page.getByTestId('photo-viewer');
 const viewerName = (page: Page) => page.getByTestId('photo-viewer-name');
-
-async function expectShown(page: Page, name: string): Promise<void> {
-  const image = page.getByTestId('photos-view').getByRole('link', { name, exact: true }).locator('img');
-  await expect.poll(() => image.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth), { timeout: 30_000 }).toBeGreaterThan(0);
-}
 
 test.describe('Photos', () => {
   test.setTimeout(180_000);
