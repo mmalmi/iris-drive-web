@@ -149,7 +149,10 @@ test.describe('the New menu', () => {
     await expect(page.locator('[data-testid="new-menu"]:visible')).toHaveCount(1);
     const fabBox = (await fab.boundingBox())!;
     expect(fabBox.x + fabBox.width).toBeGreaterThan(PHONE.width - 40);
-    expect(fabBox.y + fabBox.height).toBeGreaterThan(PHONE.height - 60);
+    // Just above the phone's tabs.
+    const tabsTop = (await page.getByTestId('drive-tabs').boundingBox())!.y;
+    expect(fabBox.y + fabBox.height).toBeLessThanOrEqual(tabsTop);
+    expect(fabBox.y + fabBox.height).toBeGreaterThan(tabsTop - 40);
     await shot(page, 'phone-folder');
 
     await fab.click();

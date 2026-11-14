@@ -8,7 +8,12 @@
   import SearchInput from './components/SearchInput.svelte';
   import MobileSearch from './components/MobileSearch.svelte';
   import DriveSidebar from './components/DriveSidebar.svelte';
+  import DriveTabs from './components/DriveTabs.svelte';
   import Toast from './components/Toast.svelte';
+  import { MediaQuery } from 'svelte/reactivity';
+  import { chooseSidebar, sidebarChoice } from './stores/sidebar';
+  import { isViewingFileStore, routeStore } from './stores';
+  import { isDocumentFolderName } from './lib/documentNames';
   import Router from './components/Router.svelte';
   import { currentPath, initRouter } from './lib/router.svelte';
   import { settingsStore } from './stores/settings';
@@ -45,6 +50,12 @@
       '/users',
     ].some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
   });
+  // The full sidebar where the window has room for it, a rail of icons where
+  // it has not, until someone chooses one with the menu button.
+  const wide = new MediaQuery('min-width: 1280px');
+  let sidebarRail = $derived(($sidebarChoice ?? (wide.current ? 'full' : 'rail')) === 'rail');
+  // A phone's places, below lists of files; an open document or file has the screen to itself.
+  let showDriveTabs = $derived(showDriveSidebar && !$isViewingFileStore && !$routeStore.path.some(isDocumentFolderName));
 
   onMount(() => {
     initRouter();
@@ -112,9 +123,22 @@
   }
 </script>
 
-<div class="h-full flex flex-col bg-surface-1">
+<div class="h-full flex flex-col bg-surface-1" style:--drive-tabs-height={showDriveTabs ? '4rem' : undefined}>
   <Header>
     <div class="flex items-center shrink-0">
+      {#if showDriveSidebar}
+        <button
+          type="button"
+          class="hidden md:flex -ml-1 mr-2 h-10 w-10 items-center justify-center rounded-full text-text-2 hover:bg-surface-2"
+          aria-label="Main menu"
+          aria-expanded={!sidebarRail}
+          title={sidebarRail ? 'Show the full menu' : 'Show icons only'}
+          data-testid="sidebar-toggle"
+          onclick={() => chooseSidebar(sidebarRail ? 'full' : 'rail')}
+        >
+          <span class="i-lucide-menu text-xl"></span>
+        </button>
+      {/if}
       <a href={homeHref} onclick={handleLogoClick} class="no-underline" data-testid="home-link">
         <Logo />
       </a>
@@ -136,12 +160,15 @@
   <!-- Main area -->
   <div class="flex-1 flex min-h-0">
     {#if showDriveSidebar}
-      <DriveSidebar currentPath={$currentPath} {homeHref} />
+      <DriveSidebar currentPath={$currentPath} {homeHref} rail={sidebarRail} />
     {/if}
     <div class="flex-1 flex flex-col min-w-0 min-h-0 bg-surface-0 md:mr-2 md:mb-2 md:rounded-2xl md:overflow-hidden">
       <Router currentPath={$currentPath} />
     </div>
   </div>
+  {#if showDriveTabs}
+    <DriveTabs currentPath={$currentPath} {homeHref} />
+  {/if}
 
   <!-- Modals -->
   <CreateModal />

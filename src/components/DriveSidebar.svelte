@@ -1,23 +1,24 @@
 <script lang="ts">
-  import { acceptedShares, isOwnShare } from '../drive/shareLibrary';
+  import { acceptedShares } from '../drive/shareLibrary';
   import { isEditableDriveRouteScope } from '../drive/profileRoute';
   import { nostrStore } from '../nostr';
   import { routeStore } from '../stores';
   import { buildRouteUrl } from '../actions';
   import { isDocumentFolderName } from '../lib/documentNames';
+  import { DRIVE_FOOTER_PLACES, drivePlaces } from '../lib/drivePlaces';
   import NewMenu from './NewMenu.svelte';
 
   interface Props {
     currentPath: string;
     homeHref: string;
+    /** Icons with short names under them, for windows without room for the full sidebar. */
+    rail?: boolean;
   }
 
-  let { currentPath, homeHref }: Props = $props();
+  let { currentPath, homeHref, rail = false }: Props = $props();
 
-  let shareScope = $derived(currentPath.split('/').filter(Boolean)[0]);
-  // A folder shared with this profile; one it shared itself stays under My Drive.
-  let sharedFolderRoute = $derived($acceptedShares.some((record) => record.share_id === shareScope && !isOwnShare(record)));
   let route = $derived($routeStore);
+  let places = $derived(drivePlaces(currentPath, homeHref, $acceptedShares));
 
   /**
    * Where New puts things: undefined in a folder only to read, where it is not
@@ -34,65 +35,64 @@
     if (documentAt < 0) return null;
     return `#${buildRouteUrl(route.npub, route.treeName, route.path.slice(0, documentAt), undefined, route.params.get('k'))}`;
   });
-  let myDriveActive = $derived(!sharedFolderRoute &&
-    currentPath !== '/recent'
-      && currentPath !== '/shared-with-me'
-      && !currentPath.startsWith('/settings')
-  );
-
-  const navItems = [
-    { href: '/recent', label: 'Recent', icon: 'i-lucide-clock-3' },
-    { href: '/shared-with-me', label: 'Shared with me', icon: 'i-lucide-users' },
-  ] as const;
 </script>
 
+{#snippet railLink(href: string, label: string, short: string, icon: string, active: boolean)}
+  <a
+    {href}
+    aria-label={label}
+    title={label}
+    aria-current={active ? 'page' : undefined}
+    class="group flex flex-col items-center gap-1 py-1 text-xs no-underline {active ? 'text-text-1 font-medium' : 'text-text-2'}"
+  >
+    <span class="flex h-8 w-14 items-center justify-center rounded-full transition-colors {active ? 'bg-accent/15 text-accent' : 'group-hover:bg-surface-2'}">
+      <span class="{icon} text-xl"></span>
+    </span>
+    <span>{short}</span>
+  </a>
+{/snippet}
+
+{#snippet fullLink(href: string, label: string, icon: string, active: boolean)}
+  <a
+    {href}
+    aria-current={active ? 'page' : undefined}
+    class="flex h-10 items-center gap-3 rounded-full px-4 text-sm no-underline transition-colors {active ? 'bg-accent/12 text-accent font-medium' : 'text-text-2 hover:bg-surface-2'}"
+  >
+    <span class="{icon} text-lg"></span>
+    <span>{label}</span>
+  </a>
+{/snippet}
+
 <aside
-  class="hidden md:flex w-60 shrink-0 flex-col px-3 pb-4 bg-surface-1"
+  class="hidden md:flex shrink-0 flex-col pb-4 bg-surface-1 {rail ? 'w-20 items-center px-1' : 'w-60 px-3'}"
   aria-label="Drive navigation"
   data-testid="drive-sidebar"
+  data-rail={rail ? '' : undefined}
 >
   {#if newTarget !== undefined}
-    <NewMenu variant="sidebar" goTo={newTarget} class="mt-2 mb-4 ml-1 self-start" />
+    <NewMenu variant={rail ? 'rail' : 'sidebar'} goTo={newTarget} class="mt-2 mb-4 {rail ? '' : 'ml-1 self-start'}" />
   {:else}
     <!-- Keeps the places below where they were. -->
     <div class="mt-2 mb-4 h-14 shrink-0"></div>
   {/if}
 
-  <nav class="flex flex-col gap-1">
-    <a
-      href={homeHref}
-      aria-current={myDriveActive ? 'page' : undefined}
-      class="flex h-10 items-center gap-3 rounded-full px-4 text-sm no-underline transition-colors {myDriveActive ? 'bg-accent/12 text-accent font-medium' : 'text-text-2 hover:bg-surface-2'}"
-    >
-      <span class="i-lucide-hard-drive text-lg"></span>
-      <span>My Drive</span>
-    </a>
-    {#each navItems as item (item.href)}
-      <a
-        href={`#${item.href}`}
-        aria-current={(currentPath === item.href || (item.href === '/shared-with-me' && sharedFolderRoute)) ? 'page' : undefined}
-        class="flex h-10 items-center gap-3 rounded-full px-4 text-sm no-underline transition-colors {(currentPath === item.href || (item.href === '/shared-with-me' && sharedFolderRoute)) ? 'bg-accent/12 text-accent font-medium' : 'text-text-2 hover:bg-surface-2'}"
-      >
-        <span class={`${item.icon} text-lg`}></span>
-        <span>{item.label}</span>
-      </a>
+  <nav class="flex flex-col {rail ? 'gap-3' : 'gap-1'}">
+    {#each places as place (place.href)}
+      {#if rail}
+        {@render railLink(place.href, place.label, place.short, place.icon, place.active)}
+      {:else}
+        {@render fullLink(place.href, place.label, place.icon, place.active)}
+      {/if}
     {/each}
   </nav>
 
-  <div class="mt-auto pt-4 border-t border-surface-2">
-    <a
-      href="#/settings/storage"
-      class="flex h-10 items-center gap-3 rounded-full px-4 text-sm text-text-2 no-underline transition-colors hover:bg-surface-2"
-    >
-      <span class="i-lucide-database text-lg"></span>
-      <span>Storage</span>
-    </a>
-    <a
-      href="#/settings"
-      class="flex h-10 items-center gap-3 rounded-full px-4 text-sm text-text-2 no-underline transition-colors hover:bg-surface-2"
-    >
-      <span class="i-lucide-settings text-lg"></span>
-      <span>Settings</span>
-    </a>
+  <div class="mt-auto pt-4 border-t border-surface-2 flex flex-col {rail ? 'gap-3 self-stretch items-center' : ''}">
+    {#each DRIVE_FOOTER_PLACES as place (place.href)}
+      {#if rail}
+        {@render railLink(place.href, place.label, place.label, place.icon, false)}
+      {:else}
+        {@render fullLink(place.href, place.label, place.icon, false)}
+      {/if}
+    {/each}
   </div>
 </aside>

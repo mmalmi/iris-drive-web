@@ -2,7 +2,7 @@
   /**
    * The one place to make or add something: a folder, a document, a
    * spreadsheet, a presentation, a text file, or files and folders from the
-   * device. In the sidebar it is the big New button. In a folder's header it
+   * device. In the sidebar it is the big New button, a square + on its rail. In a folder's header it
    * is a small New button where there is no sidebar, and on a phone a round
    * button at the bottom whose menu rises from the bottom of the screen.
    */
@@ -13,7 +13,7 @@
   import { readFilesFromWebkitDirectory, supportsDirectoryUpload } from '@iris/hashtree-app/directory';
 
   interface Props {
-    variant: 'sidebar' | 'folder';
+    variant: 'sidebar' | 'rail' | 'folder';
     /** A folder to open first, for when the page shown is not one to add to. */
     goTo?: string | null;
     class?: string;
@@ -184,12 +184,13 @@
 
 <!-- On a phone the folder's New floats, so it takes no room in the header. -->
 <div class="{variant === 'folder' ? 'contents sm:relative sm:block md:hidden' : 'relative'} {className}">
-  {#if variant === 'sidebar'}
+  {#if variant !== 'folder'}
     <button
       bind:this={sidebarButton}
       type="button"
-      class="flex h-14 w-28 items-center gap-3 rounded-2xl px-4 text-sm font-medium text-text-1 shadow-sm ring-1 ring-surface-2 transition hover:bg-surface-2 hover:shadow {open ? 'bg-surface-2' : 'bg-surface-0'}"
+      class="flex h-14 items-center rounded-2xl text-sm font-medium text-text-1 shadow-sm ring-1 ring-surface-2 transition hover:bg-surface-2 hover:shadow {variant === 'rail' ? 'w-14 justify-center' : 'w-28 gap-3 px-4'} {open ? 'bg-surface-2' : 'bg-surface-0'}"
       aria-label="New"
+      title={variant === 'rail' ? 'New' : undefined}
       aria-haspopup="menu"
       aria-expanded={open}
       aria-controls={open ? menuId : undefined}
@@ -198,7 +199,7 @@
       onkeydown={onTriggerKeydown}
     >
       <span class="i-lucide-plus text-2xl"></span>
-      <span>New</span>
+      {#if variant === 'sidebar'}<span>New</span>{/if}
     </button>
   {:else}
     <button
@@ -219,7 +220,7 @@
       bind:this={fabButton}
       type="button"
       class="sm:hidden fixed z-30 flex h-14 w-14 items-center justify-center rounded-2xl bg-accent text-white shadow-lg shadow-black/25 transition-transform active:scale-95"
-      style="right: calc(1rem + env(safe-area-inset-right)); bottom: calc(1.25rem + env(safe-area-inset-bottom));"
+      style="right: calc(1rem + env(safe-area-inset-right)); bottom: calc(1.25rem + var(--drive-tabs-height, 0px) + env(safe-area-inset-bottom));"
       title="New"
       aria-label="New"
       aria-haspopup="menu"
