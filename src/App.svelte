@@ -163,7 +163,7 @@
   <!-- Main area -->
   <div class="flex-1 flex min-h-0">
     {#if showDriveSidebar}
-      <DriveSidebar currentPath={$currentPath} {homeHref} rail={sidebarRail} />
+      <DriveSidebar currentPath={$currentPath} {homeHref} rail={sidebarRail} auto={$sidebarChoice === null} />
     {/if}
     <div class="flex-1 flex flex-col min-w-0 min-h-0 bg-surface-0 md:mr-2 md:mb-2 md:rounded-2xl md:overflow-hidden">
       <Router currentPath={$currentPath} />

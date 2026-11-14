@@ -13,9 +13,15 @@
     homeHref: string;
     /** Icons with short names under them, for windows without room for the full sidebar. */
     rail?: boolean;
+    /**
+     * Nobody has chosen, so the window's width decides. The width is then set
+     * by CSS, which follows a resize at once, so what is beside the sidebar
+     * does not move again a moment later when the script catches up.
+     */
+    auto?: boolean;
   }
 
-  let { currentPath, homeHref, rail = false }: Props = $props();
+  let { currentPath, homeHref, rail = false, auto = false }: Props = $props();
 
   let route = $derived($routeStore);
   let places = $derived(drivePlaces(currentPath, homeHref, $acceptedShares));
@@ -64,7 +70,7 @@
 {/snippet}
 
 <aside
-  class="hidden md:flex shrink-0 flex-col pb-4 bg-surface-1 {rail ? 'w-20 items-center px-1' : 'w-60 px-3'}"
+  class="hidden md:flex shrink-0 flex-col pb-4 bg-surface-1 {auto ? 'w-20 xl:w-60' : rail ? 'w-20' : 'w-60'} {rail ? 'items-center px-1' : 'px-3'}"
   aria-label="Drive navigation"
   data-testid="drive-sidebar"
   data-rail={rail ? '' : undefined}
