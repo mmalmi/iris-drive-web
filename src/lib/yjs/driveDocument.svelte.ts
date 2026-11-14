@@ -34,6 +34,7 @@ import { freeName } from '../driveClipboard';
 import { getCidFileUrl } from '../mediaUrl';
 import { DocumentSession, LIVE_ORIGIN, STORED_ORIGIN, UPDATES_DIRECTORY, changeFileName, type DocumentChange } from './documentStore';
 import { withDriveRootLock } from '../driveRootTabs';
+import { inTurn } from '../driveWrites';
 import { ATTACHMENTS_DIRECTORY, generateImageFilename } from './imageAttachments';
 import { findMovedDocument } from './movedDocument';
 import { documentWriteScope } from './routeScope';
@@ -429,14 +430,16 @@ export class DriveDocument {
 
   /**
    * Changes the Drive this document is in, as one root update made on its
-   * newest version. Tabs of this browser write one after another.
+   * newest version. Tabs of this browser write one after another, and in
+   * this page it takes its turn with uploads, renames and other changes, so
+   * that neither saves over the other.
    */
   async #writeRoot(change: (root: CID) => Promise<CID>): Promise<void> {
     const opened = this.#opened;
     if (!opened) throw new Error('This document cannot be edited here');
     const { scope, treeName } = opened;
     const tree = getTree();
-    await withDriveRootLock(scope, treeName, async () => {
+    await inTurn(() => withDriveRootLock(scope, treeName, async () => {
       for (let attempt = 0; attempt < 4; attempt += 1) {
         const base = getTreeRootSync(scope, treeName);
         const root = await change(base ?? (await tree.putDirectory([])).cid);
@@ -450,7 +453,7 @@ export class DriveDocument {
         return;
       }
       throw new Error('The Drive kept changing while saving');
-    });
+    }));
   }
 
   /** Opens the list of earlier versions, for someone who may change the document. */

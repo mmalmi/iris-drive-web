@@ -1,6 +1,6 @@
 import { expect, test, type BrowserContext, type Page } from './fixtures';
 import { createDocument, createDriveProfile, documentBody, expectSaved, linkSecondDevice, prepareFreshSession, typeInDocument } from './documents.helpers';
-import { chooseNew, flushPendingPublishes, openRowMenu, waitForRelayConnected } from './test-utils';
+import { chooseNew, expectFolderEditable, fileRow, flushPendingPublishes, openRowMenu, waitForRelayConnected } from './test-utils';
 
 /**
  * A document renamed or deleted on one device while another device has it
@@ -169,6 +169,41 @@ test.describe('renaming or deleting a document that another device is typing in'
     await expectAllText(device, all);
     await page.goto(device.url());
     await expectAllText(page, all);
+  });
+
+  test('renamed while an upload into the same folder is still saving: both stay', async ({ page, relayUrl }) => {
+    await prepareFreshSession(page, relayUrl);
+    const { profileId } = await createDriveProfile(page, 'Owner');
+    await expectFolderEditable(page);
+    await createDocument(page, 'Notes');
+    await typeInDocument(page, 'Written first.');
+    await expectSaved(page);
+    await page.getByRole('link', { name: 'Back to folder' }).click();
+
+    // Each uploaded file is saved into the folder on its own; renames come between them.
+    const names = Array.from({ length: 200 }, (_, index) => `scan-${String(index).padStart(3, '0')}.txt`);
+    await page.getByTestId('upload-files-input').setInputFiles(names.map((name, index) => ({
+      name, mimeType: 'text/plain', buffer: Buffer.from(`scan ${index} `.repeat(200)),
+    })));
+    await expect(fileRow(page, names[0]!)).toBeVisible({ timeout: 30_000 });
+    // What the Rename dialog of a row does, a few times over while files keep landing.
+    const renamed = await page.evaluate(async () => {
+      const { renameEntry } = await import('/src/actions/index.ts');
+      let name = 'Notes';
+      for (let round = 1; round <= 8; round += 1) {
+        await renameEntry(`${name}.irisdoc`, `Plan ${round}.irisdoc`);
+        name = `Plan ${round}`;
+      }
+      return `${name}.irisdoc`;
+    });
+    expect(await fileRow(page, names[names.length - 1]!).count()).toBe(0);
+
+    for (const name of names) await expect(fileRow(page, name)).toBeVisible({ timeout: 60_000 });
+    await expect.poll(() => documentsIn(page, profileId), { timeout: 30_000 }).toEqual([renamed]);
+    await flushPendingPublishes(page);
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    for (const name of names) await expect(fileRow(page, name)).toBeVisible({ timeout: 60_000 });
+    expect(await documentsIn(page, profileId)).toEqual([renamed]);
   });
 
   test('two people in a shared folder: renamed by one while the other types', async ({ page, browser, relayUrl }) => {
