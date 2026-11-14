@@ -9,9 +9,17 @@ export const XML_HEAD = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 export const NS_R = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
 const NS_PACKAGE_RELS = 'http://schemas.openxmlformats.org/package/2006/relationships';
 
+export interface Relationship {
+  id: string;
+  type: string;
+  target: string;
+  /** Points outside the file, such as a link to a web address. */
+  external?: boolean;
+}
+
 /** A `.rels` part: what a part points to. */
-export function relationshipsXml(rels: Array<{ id: string; type: string; target: string }>): string {
-  return `${XML_HEAD}<Relationships xmlns="${NS_PACKAGE_RELS}">${rels.map(rel => `<Relationship Id="${rel.id}" Type="${rel.type}" Target="${escapeXml(rel.target)}"/>`).join('')}</Relationships>`;
+export function relationshipsXml(rels: Relationship[]): string {
+  return `${XML_HEAD}<Relationships xmlns="${NS_PACKAGE_RELS}">${rels.map(rel => `<Relationship Id="${rel.id}" Type="${rel.type}" Target="${escapeXml(rel.target)}"${rel.external ? ' TargetMode="External"' : ''}/>`).join('')}</Relationships>`;
 }
 
 /** Where a relationship of a part points, as a path in the file. */

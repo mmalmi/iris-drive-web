@@ -57,6 +57,27 @@
   /** True while a file from the Drive is being brought in. */
   let importing = $state(false);
 
+  /** The sheet open when this spreadsheet was last seen on this device, opened again next time. */
+  const openSheetKey = `iris-sheets:open:${window.location.hash.split('?')[0]}`;
+  $effect(() => {
+    const id = ctl.sheetId;
+    if (!ready || !id) return;
+    try {
+      localStorage.setItem(openSheetKey, id);
+    } catch {
+      // Not kept; the first sheet opens next time.
+    }
+  });
+
+  function reopenSheet(): void {
+    try {
+      const id = localStorage.getItem(openSheetKey);
+      if (id) ctl.showSheet(id);
+    } catch {
+      // Storage is not available here.
+    }
+  }
+
   // Printing, from the toolbar or the browser's own menu, prints the cells in use alone.
   $effect(() => printAlone(() => (ready && ctl.hasSheet ? sheetPrintPage(ctl) : null)));
 
@@ -67,6 +88,7 @@
     void (async () => {
       if (!await drive.open()) return;
       ctl.start(drive.canEdit);
+      reopenSheet();
       ready = true;
       await bringInRequestedFile();
     })();

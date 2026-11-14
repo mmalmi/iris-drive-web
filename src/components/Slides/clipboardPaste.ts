@@ -7,6 +7,22 @@ import type { SlidesEditorState } from '../../lib/slides/editorState.svelte';
 import { WEB_CLIPBOARD_TYPE, payloadFromHtml, readPayload, type ClipboardPayload, type Copied } from '../../lib/slides/clipboard';
 import { adoptMedia, imageFromSource, readForeignHtml } from '../../lib/slides/clipboardMedia';
 import type { ClipboardOptions, Held } from './clipboardEvents';
+import { parseClipboardTable } from '../../lib/sheets/table';
+
+/** Cells copied from a spreadsheet or a web page's table: tab-separated text with more than one cell in a row, small enough for a slide. */
+function copiedCells(text: string): string[][] | null {
+  if (!text.includes('\t')) return null;
+  const rows = parseClipboardTable(text.replace(/[\r\n]+$/, ''));
+  if (rows.length > 40 || rows.some(row => row.length > 40)) return null;
+  return rows.some(row => row.length > 1) ? rows : null;
+}
+
+/** Plain text: cells become a table, anything else a text box. */
+function pasteWords(current: SlidesEditorState, text: string): void {
+  const cells = copiedCells(text);
+  if (cells) current.pasteTable(cells);
+  else current.pasteText(text);
+}
 
 /** Pastes something copied from a deck, with its pictures made this deck's own first. */
 export async function pastePayload(current: SlidesEditorState, payload: ClipboardPayload, options: ClipboardOptions): Promise<void> {
@@ -45,7 +61,7 @@ export async function pasteHeld(current: SlidesEditorState, held: Held, copied: 
   }
   if (!held.text) return;
   if (copied && (copied.text || ' ') === held.text) return pastePayload(current, copied.payload, options);
-  current.pasteText(held.text);
+  pasteWords(current, held.text);
 }
 
 /** What the clipboard holds, read when the browser allows it; otherwise what was last copied here. */
@@ -71,5 +87,5 @@ export async function pasteFromClipboard(current: SlidesEditorState, copied: Cop
     text = await navigator.clipboard?.readText?.().catch(() => null) ?? null;
   }
   if (copied && (text === null || text === (copied.text || ' '))) await pastePayload(current, copied.payload, options);
-  else if (text) current.pasteText(text);
+  else if (text) pasteWords(current, text);
 }

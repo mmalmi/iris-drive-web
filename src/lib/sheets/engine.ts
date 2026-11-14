@@ -25,6 +25,7 @@ import {
   type RefSpec,
 } from './formula';
 import { NUMBER_FORMATS, formatKind, formatValue, type NumberLocale } from './format';
+import { linkTarget } from './links';
 import { cellKey, decodeRaw, isFormula, type Book, type BookChange, type Sheet } from './model';
 import { nameRef, resolveName } from './names';
 import { resolveRef } from './refs';
@@ -185,6 +186,24 @@ export class Engine {
     const value = this.valueAt(sheet, row, col);
     if (value === null) return '';
     return formatValue(value, this.formatAt(sheet, row, col), this.book.numberLocale);
+  }
+
+  /** Where the cell links to: the web address it holds, or the one its HYPERLINK formula names. */
+  linkAt(sheet: Sheet, row: number, col: number): string | null {
+    const value = this.valueAt(sheet, row, col);
+    if (typeof value !== 'string' || value === '') return null;
+    const rowId = sheet.rows.ids[row];
+    const colId = sheet.cols.ids[col];
+    const node = rowId === undefined || colId === undefined ? null : this.formulas.get(sheet.id)?.get(cellKey(rowId, colId))?.node;
+    if (node?.t === 'call' && node.name === 'HYPERLINK' && node.args[0]) {
+      try {
+        const target = evaluateFormula(node.args[0], this.host, { sheetId: sheet.id, row, col });
+        return typeof target === 'string' ? linkTarget(target, true) : null;
+      } catch {
+        return null;
+      }
+    }
+    return linkTarget(value);
   }
 
   /** How numbers and dates are written in this spreadsheet. */

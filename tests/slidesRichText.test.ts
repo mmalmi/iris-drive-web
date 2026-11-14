@@ -153,3 +153,16 @@ test('a point left empty at the end of a list is drawn without its bullet', () =
   const points = [...container.querySelectorAll('li')];
   expect(points.map(point => point.className)).toEqual(['', 'slide-empty-point']);
 });
+
+test('links are drawn as they are edited, and only web and mail addresses open', () => {
+  const { fragment } = textBox();
+  const editor = edit(fragment);
+  editor.commands.setContent('<p>See <a href="https://example.com/plan">the plan</a>, <a href="mailto:ada@example.com">mail</a> and <a href="javascript:alert(1)">this</a></p>');
+  expect(drawn(fragment)).toEqual([...editor.view.dom.childNodes].map(shape));
+  const container = document.createElement('div');
+  renderRichText(fragment, container);
+  const links = [...container.querySelectorAll('a')];
+  expect(links.map(link => link.getAttribute('href'))).toEqual(['https://example.com/plan', 'mailto:ada@example.com']);
+  expect(links.every(link => link.getAttribute('target') === '_blank' && link.getAttribute('rel')?.includes('noopener'))).toBe(true);
+  expect(container.textContent).toBe('See the plan, mail and this');
+});

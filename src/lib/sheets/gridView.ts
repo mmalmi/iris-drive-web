@@ -91,6 +91,7 @@ export function readTheme(element: Element): GridTheme {
     accentSoft: 'rgb(145 109 254 / 0.13)',
     frozenLine: token('--surface-3'),
     error: dark ? '#ff7b72' : '#c5221f',
+    link: dark ? '#8ab4f8' : '#1155cc',
   };
 }
 

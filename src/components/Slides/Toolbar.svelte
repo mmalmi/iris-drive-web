@@ -11,8 +11,10 @@
   interface Props {
     editorState: SlidesEditorState;
     onPickImage: () => void;
+    /** Opens the field for a link's address, for the words chosen. */
+    onLink?: () => void;
   }
-  let { editorState, onPickImage }: Props = $props();
+  let { editorState, onPickImage, onLink }: Props = $props();
 
   type MenuName = 'layout' | 'shape' | 'size' | 'colour' | 'align' | 'fill' | 'border' | 'arrange' | 'relayout' | 'background' | 'theme' | 'motion'
     | 'table' | 'tableEdit' | 'cellFill' | 'cellLines' | 'slideMore';
@@ -327,6 +329,11 @@
     <button class="tool" class:on={editorState.listActive('orderedList')} onclick={() => editorState.toggleList('orderedList')} title="Numbered list" aria-label="Numbered list" aria-pressed={editorState.listActive('orderedList')}>
       <span class="i-lucide-list-ordered"></span>
     </button>
+    {#if editorState.editingId && onLink}
+      <button class="tool" onclick={onLink} title="Link" aria-label="Link" data-testid="text-link">
+        <span class="i-lucide-link"></span>
+      </button>
+    {/if}
 {/snippet}
 
 {#snippet shapeTools()}

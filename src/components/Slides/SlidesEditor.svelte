@@ -17,6 +17,7 @@
   import NotesBox from './NotesBox.svelte';
   import SlideStack from './SlideStack.svelte';
   import Popover from './Popover.svelte';
+  import DocumentLinkMenu from '../Viewer/DocumentLinkMenu.svelte';
   import { isPresenterWindow, presenterUrl } from '../../lib/slides/presentSync';
   import { stretchCells } from '../../lib/slides/tableEditing';
   import { readSiblingFile, takeImportRequest } from '../../lib/fileImports';
@@ -40,6 +41,12 @@
   const { onCopy, onCut, onPaste, onBlur, menuCopy, menuPaste } = clipboard;
 
   let canEdit = $derived(!!editorState?.canEdit);
+  /** The field for a link's address is open, for the words chosen in the box being typed in. */
+  let linkEditing = $state(false);
+  let workspace: HTMLElement | undefined = $state();
+  $effect(() => {
+    if (!editorState?.textEditor) linkEditing = false;
+  });
 
   // Presenting, the presenter's window and printing are loaded apart from the editor, so a deck opens light.
   // Presenting is fetched once the deck is open, so that it starts at once when asked for.
@@ -253,6 +260,12 @@
       current.redo();
       return;
     }
+    // Ctrl+K: a link for the words chosen, or for an address to be typed in.
+    if (mod && !event.altKey && !event.shiftKey && lower === 'k' && where === 'text' && current.textEditor) {
+      done();
+      linkEditing = true;
+      return;
+    }
     if (where === 'text' || current.editingId) {
       if (key === 'Escape') {
         done();
@@ -434,7 +447,7 @@
     {/await}
   {:else}
     {#if canEdit}
-      <Toolbar {editorState} onPickImage={() => imageInput?.click()} />
+      <Toolbar {editorState} onPickImage={() => imageInput?.click()} onLink={() => (linkEditing = true)} />
     {/if}
     {#if editorState.deck.isNewer}
       <div class="shrink-0 px-4 py-1.5 text-xs text-text-1 bg-warning/20" role="status">
@@ -471,7 +484,7 @@
         }}
       />
     {:else}
-      <div class="flex-1 flex min-h-0 flex-col-reverse sm:flex-row" data-testid="slides-workspace">
+      <div class="relative flex-1 flex min-h-0 flex-col-reverse sm:flex-row" data-testid="slides-workspace" bind:this={workspace}>
         <SlideStrip {editorState} {urls} />
         <div class="flex-1 flex flex-col min-w-0 min-h-0">
           <Canvas {editorState} {urls} onImageFiles={addImages} onCopy={menuCopy} onPaste={() => void menuPaste()} />
@@ -479,6 +492,9 @@
             <NotesBox {editorState} />
           {/if}
         </div>
+        {#if editorState.textEditor && workspace}
+          <DocumentLinkMenu editor={editorState.textEditor} page={workspace} bind:editing={linkEditing} />
+        {/if}
       </div>
     {/if}
 

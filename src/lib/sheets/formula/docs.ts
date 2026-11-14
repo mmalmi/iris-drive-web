@@ -41,6 +41,7 @@ const DOCS: Array<[name: string, args: string, about: string]> = [
   ['FLOOR', 'number, [multiple]', 'Rounds down to the nearest multiple.'],
   ['FV', 'rate, periods, payment, [present_value], [at_start]', 'What savings grow to at a steady interest rate.'],
   ['HLOOKUP', 'search_key, range, index, [is_sorted]', 'Finds a value in the top row and returns the cell below it.'],
+  ['HYPERLINK', 'address, [label]', 'A link to a web address, shown as its label.'],
   ['HOUR', 'time', 'The hour of a time.'],
   ['IF', 'condition, value_if_true, [value_if_false]', 'One value when a condition is true, another when it is not.'],
   ['IFERROR', 'value, [value_if_error]', 'The value, or something else when it is an error.'],

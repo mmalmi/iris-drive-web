@@ -40,6 +40,7 @@ export interface GridTheme {
   accentSoft: string;
   frozenLine: string;
   error: string;
+  link: string;
 }
 
 /** What rules and comments add to cells: looks, checkboxes, lists and marks. */
@@ -202,7 +203,9 @@ function drawCellText(
     ctx.fillRect(clipLeft, y, clipRight - clipLeft - 1, height - 1);
   }
   ctx.font = font;
-  ctx.fillStyle = style.c || (isError(value) ? theme.error : style.bg ? readableOn(style.bg, theme.text) : theme.text);
+  // A link is drawn as one: in the link colour unless the cell has its own, and underlined.
+  const link = typeof value === 'string' && engine.linkAt(sheet, row, col) !== null;
+  ctx.fillStyle = style.c || (isError(value) ? theme.error : link ? theme.link : style.bg ? readableOn(style.bg, theme.text) : theme.text);
   ctx.textBaseline = 'alphabetic';
   ctx.textAlign = align === 'l' ? 'left' : align === 'r' ? 'right' : 'center';
   const right = x + width - (control === 'list' ? LIST_ARROW - 2 : 0);
@@ -220,11 +223,12 @@ function drawCellText(
   shown.forEach((line, index) => {
     const baseline = firstBaseline + index * lineHeight;
     ctx.fillText(line, textX, baseline);
-    if (style.s || style.u) {
+    const underline = style.u || link;
+    if (style.s || underline) {
       const lineWidth = textWidth(line, font);
       const left = align === 'l' ? textX : align === 'r' ? textX - lineWidth : textX - lineWidth / 2;
       ctx.fillRect(left, style.s ? Math.round(baseline - px * 0.32) : Math.round(baseline + 2), lineWidth, thickness);
-      if (style.s && style.u) ctx.fillRect(left, Math.round(baseline + 2), lineWidth, thickness);
+      if (style.s && underline) ctx.fillRect(left, Math.round(baseline + 2), lineWidth, thickness);
     }
   });
   ctx.restore();

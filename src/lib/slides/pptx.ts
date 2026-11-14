@@ -17,9 +17,9 @@ import * as Y from 'yjs';
 import { SLIDE_HEIGHT, SLIDE_WIDTH, type Slide, type SlideElement } from './model';
 import { cellKey, cellPlace, edgeBorder, type CellBorder, type Side } from './table';
 import { paletteFor, readableOn, resolveColour, textStyle, type Palette, type Theme } from './themes';
-import { cssColour, validFontSize } from './richText';
+import { cssColour, linkHref, validFontSize } from './richText';
 import { escapeXml } from '../markup';
-import { NS_R, XML_HEAD, relationshipsXml } from '../ooxml';
+import { NS_R, XML_HEAD, relationshipsXml, type Relationship } from '../ooxml';
 import { saveFile } from '../saveFile';
 
 /** One slide unit in EMU: a 1280-unit slide is PowerPoint's 13.333-inch widescreen. */
@@ -97,7 +97,10 @@ interface TextLook {
 
 const ALIGN = { left: 'l', center: 'ctr', right: 'r' } as const;
 
-function runXml(text: string, attributes: Record<string, unknown>, look: TextLook): string {
+/** The id of the slide's relationship to a web address, for a link in its text. */
+type LinkTo = (href: string) => string;
+
+function runXml(text: string, attributes: Record<string, unknown>, look: TextLook, linkTo?: LinkTo): string {
   const size = validFontSize((attributes.fontSize as { size?: unknown } | undefined)?.size) ?? look.size;
   const colour = cssColour((attributes.color as { color?: unknown } | undefined)?.color);
   const fill = hex(colour?.startsWith('#') ? colour : null) ?? hex(look.colour);
@@ -111,7 +114,9 @@ function runXml(text: string, attributes: Record<string, unknown>, look: TextLoo
     on('strike') ? 'strike="sngStrike"' : '',
     'dirty="0"',
   ].filter(Boolean).join(' ');
-  return `<a:r><a:rPr ${props}>${fill ? `<a:solidFill><a:srgbClr val="${fill}"/></a:solidFill>` : ''}<a:latin typeface="${escapeXml(look.font)}"/></a:rPr><a:t>${escapeXml(text)}</a:t></a:r>`;
+  const href = linkTo ? linkHref((attributes.link as { href?: unknown } | undefined)?.href) : null;
+  const click = href ? `<a:hlinkClick r:id="${linkTo!(href)}"/>` : '';
+  return `<a:r><a:rPr ${props}>${fill ? `<a:solidFill><a:srgbClr val="${fill}"/></a:solidFill>` : ''}<a:latin typeface="${escapeXml(look.font)}"/>${click}</a:rPr><a:t>${escapeXml(text)}</a:t></a:r>`;
 }
 
 function themeColour(value: string | null, palette: Palette): string | null {
@@ -121,7 +126,7 @@ function themeColour(value: string | null, palette: Palette): string | null {
   return named[value] ?? value;
 }
 
-function runsOf(paragraph: Y.XmlElement, look: TextLook, palette: Palette): string {
+function runsOf(paragraph: Y.XmlElement, look: TextLook, palette: Palette, linkTo?: LinkTo): string {
   let runs = '';
   for (const child of paragraph.toArray()) {
     if (child instanceof Y.XmlText) {
@@ -130,7 +135,7 @@ function runsOf(paragraph: Y.XmlElement, look: TextLook, palette: Palette): stri
         const attributes = { ...(part.attributes ?? {}) };
         const colour = themeColour(cssColour((attributes.color as { color?: unknown } | undefined)?.color), palette);
         if (colour) attributes.color = { color: colour };
-        runs += runXml(part.insert, attributes, look);
+        runs += runXml(part.insert, attributes, look, linkTo);
       }
     } else if (child instanceof Y.XmlElement && child.nodeName === 'hardBreak') {
       runs += '<a:br/>';
@@ -139,7 +144,7 @@ function runsOf(paragraph: Y.XmlElement, look: TextLook, palette: Palette): stri
   return runs;
 }
 
-function paragraphXml(node: Y.XmlElement, look: TextLook, palette: Palette, list: { kind: 'bullet' | 'number'; level: number } | null): string {
+function paragraphXml(node: Y.XmlElement, look: TextLook, palette: Palette, list: { kind: 'bullet' | 'number'; level: number } | null, linkTo?: LinkTo): string {
   const own = node.getAttribute('textAlign');
   const align = own === 'left' || own === 'center' || own === 'right' ? own : look.align;
   const indent = list ? Math.round(look.size * 1.25 * EMU) : 0;
@@ -149,19 +154,19 @@ function paragraphXml(node: Y.XmlElement, look: TextLook, palette: Palette, list
       ? '<a:buFont typeface="+mj-lt"/><a:buAutoNum type="arabicPeriod"/>'
       : `<a:buFont typeface="Arial"/><a:buChar char="${list.level % 2 ? '◦' : '•'}"/>`;
   const level = list ? ` lvl="${Math.min(8, list.level)}" marL="${indent * (list.level + 1)}" indent="-${indent}"` : ' marL="0" indent="0"';
-  const runs = runsOf(node, look, palette);
+  const runs = runsOf(node, look, palette, linkTo);
   const end = `<a:endParaRPr lang="en-US" sz="${Math.round(look.size * POINT * 100)}" dirty="0"/>`;
   return `<a:p><a:pPr algn="${ALIGN[align]}"${level}>${bullet}</a:pPr>${runs}${end}</a:p>`;
 }
 
 /** The paragraphs of a text, lists flattened to paragraphs with bullets and levels. */
-function paragraphsXml(fragment: Y.XmlFragment | null | undefined, look: TextLook, palette: Palette): string {
+function paragraphsXml(fragment: Y.XmlFragment | null | undefined, look: TextLook, palette: Palette, linkTo?: LinkTo): string {
   let out = '';
   const visit = (node: Y.XmlFragment | Y.XmlElement, list: { kind: 'bullet' | 'number'; level: number } | null): void => {
     for (const child of node.toArray()) {
       if (!(child instanceof Y.XmlElement)) continue;
       if (child.nodeName === 'paragraph') {
-        out += paragraphXml(child, look, palette, list);
+        out += paragraphXml(child, look, palette, list, linkTo);
       } else if (child.nodeName === 'bulletList' || child.nodeName === 'orderedList') {
         visit(child, { kind: child.nodeName === 'orderedList' ? 'number' : 'bullet', level: list ? list.level + 1 : 0 });
       } else if (child.nodeName === 'listItem') {
@@ -173,11 +178,11 @@ function paragraphsXml(fragment: Y.XmlFragment | null | undefined, look: TextLoo
   return out || `<a:p><a:endParaRPr lang="en-US" sz="${Math.round(look.size * POINT * 100)}" dirty="0"/></a:p>`;
 }
 
-function bodyXml(fragment: Y.XmlFragment | null | undefined, look: TextLook, palette: Palette, options: { valign: 'top' | 'middle' | 'bottom'; inset: [number, number]; fit: 'shrink' | 'grow' }): string {
+function bodyXml(fragment: Y.XmlFragment | null | undefined, look: TextLook, palette: Palette, options: { valign: 'top' | 'middle' | 'bottom'; inset: [number, number]; fit: 'shrink' | 'grow' }, linkTo?: LinkTo): string {
   const anchor = options.valign === 'middle' ? 'ctr' : options.valign === 'bottom' ? 'b' : 't';
   const [x, y] = options.inset;
   const fit = options.fit === 'shrink' ? '<a:normAutofit/>' : '<a:spAutoFit/>';
-  return `<p:txBody><a:bodyPr wrap="square" lIns="${emu(x)}" tIns="${emu(y)}" rIns="${emu(x)}" bIns="${emu(y)}" anchor="${anchor}" rtlCol="0">${fit}</a:bodyPr><a:lstStyle/>${paragraphsXml(fragment, look, palette)}</p:txBody>`;
+  return `<p:txBody><a:bodyPr wrap="square" lIns="${emu(x)}" tIns="${emu(y)}" rIns="${emu(x)}" bIns="${emu(y)}" anchor="${anchor}" rtlCol="0">${fit}</a:bodyPr><a:lstStyle/>${paragraphsXml(fragment, look, palette, linkTo)}</p:txBody>`;
 }
 
 function xfrm(element: SlideElement, flip = ''): string {
@@ -194,6 +199,7 @@ interface Writer {
   id: number;
   /** Adds a relationship from the slide and returns its id. */
   rel: (type: string, target: string) => string;
+  link: LinkTo;
 }
 
 function textShape(element: SlideElement, theme: Theme, layout: string, palette: Palette, writer: Writer): string {
@@ -201,7 +207,7 @@ function textShape(element: SlideElement, theme: Theme, layout: string, palette:
   const look = lookOf(element, theme, layout);
   const id = writer.id++;
   const name = element.role ? `${element.role[0]!.toUpperCase()}${element.role.slice(1)} ${id}` : `Text ${id}`;
-  const body = bodyXml(element.content, look, palette, { valign: style.valign, inset: [12, 8], fit: element.role ? 'shrink' : 'grow' });
+  const body = bodyXml(element.content, look, palette, { valign: style.valign, inset: [12, 8], fit: element.role ? 'shrink' : 'grow' }, writer.link);
   return `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="${escapeXml(name)}"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr><p:spPr>${xfrm(element)}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/></p:spPr>${body}</p:sp>`;
 }
 
@@ -217,7 +223,7 @@ function shapeXml(element: SlideElement, theme: Theme, layout: string, palette: 
     : '<a:avLst/>';
   const line = stroke ? `<a:ln w="${emu(element.strokeWidth ?? 3)}">${solid(stroke)}</a:ln>` : '<a:ln><a:noFill/></a:ln>';
   const inset: [number, number] = element.shape === 'ellipse' ? [element.w * 0.146, element.h * 0.146] : [12, 8];
-  const body = bodyXml(element.content, look, palette, { valign: style.valign, inset, fit: 'shrink' });
+  const body = bodyXml(element.content, look, palette, { valign: style.valign, inset, fit: 'shrink' }, writer.link);
   return `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="Shape ${id}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr>${xfrm(element)}<a:prstGeom prst="${geometry}">${adjust}</a:prstGeom>${solid(fill)}${line}</p:spPr>${body}</p:sp>`;
 }
 
@@ -292,7 +298,7 @@ function tableXml(element: SlideElement, theme: Theme, layout: string, palette: 
       const fill = own ?? (header ? palette.accent : null);
       const colour = fill ? (!own && header ? palette.onAccent : element.color ? style.color : readableOn(fill, palette)) : style.color;
       const cellLook = { ...look, colour, bold: header || look.bold };
-      const body = `<a:txBody><a:bodyPr/><a:lstStyle/>${paragraphsXml(cell?.content, cellLook, palette)}</a:txBody>`;
+      const body = `<a:txBody><a:bodyPr/><a:lstStyle/>${paragraphsXml(cell?.content, cellLook, palette, writer.link)}</a:txBody>`;
       const props = `<a:tcPr marL="${emu(12)}" marR="${emu(12)}" marT="${emu(6)}" marB="${emu(6)}" anchor="${anchor}">${lineXmlFor('lnL', sideOf(index, colIndex, 'l'))}${lineXmlFor('lnR', sideOf(index, colIndex, 'r'))}${lineXmlFor('lnT', sideOf(index, colIndex, 't'))}${lineXmlFor('lnB', sideOf(index, colIndex, 'b'))}${fill ? solid(fill) : '<a:noFill/>'}</a:tcPr>`;
       return `<a:tc${merge}>${body}${props}</a:tc>`;
     }).join('');
@@ -373,12 +379,23 @@ export async function deckToPptx(options: PptxOptions): Promise<Uint8Array> {
     const number = index + 1;
     const palette = paletteFor(theme, slide.layout);
     const background = resolveColour(slide.background, palette) ?? palette.background;
-    const rels: Array<{ id: string; type: string; target: string }> = [{ id: 'rId1', type: `${NS_R}/slideLayout`, target: '../slideLayouts/slideLayout1.xml' }];
+    const rels: Relationship[] = [{ id: 'rId1', type: `${NS_R}/slideLayout`, target: '../slideLayouts/slideLayout1.xml' }];
+    const links = new Map<string, string>();
     const writer: Writer = {
       id: 2,
       rel: (type, target) => {
         const id = `rId${rels.length + 1}`;
         rels.push({ id, type, target });
+        return id;
+      },
+      // One relationship for each address, however often the slide links to it.
+      link: (href) => {
+        let id = links.get(href);
+        if (!id) {
+          id = `rId${rels.length + 1}`;
+          rels.push({ id, type: `${NS_R}/hyperlink`, target: href, external: true });
+          links.set(href, id);
+        }
         return id;
       },
     };
