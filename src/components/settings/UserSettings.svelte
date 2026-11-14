@@ -33,6 +33,12 @@
       && projection.active_facets[session.appKeyPubkey]?.capabilities?.can_admin_profile,
   ));
 
+  // The last device that can add and remove others keeps that right: taking it
+  // away would leave nobody able to manage the account.
+  let adminCount = $derived(projection
+    ? Object.values(projection.active_facets).filter((facet) => facet.capabilities?.can_admin_profile).length
+    : 0);
+
   let connectedDevicePubkeys = $derived(new Set(
     $appStore.peers
       .filter((peer) => peer.state === 'connected')
@@ -136,7 +142,7 @@
     if (approvalBusy) return;
     const bootstrap = parseDeviceApprovalBootstrap(input);
     if (!bootstrap) {
-      error = 'Scan or paste a Drive device approval QR';
+      error = 'Scan or paste the code from the new device';
       return;
     }
     approvalBusy = true;
@@ -195,7 +201,7 @@
     {#if canManage}
       <section class="rounded-lg bg-surface-2 p-4 space-y-3" data-testid="device-approval-section">
         <div class="flex items-center justify-between gap-3">
-          <h3 class="text-sm font-semibold text-text-1">Approve device</h3>
+          <h3 class="text-sm font-semibold text-text-1">Add a device</h3>
           <button
             type="button"
             class="btn-ghost flex items-center gap-2 text-sm"
@@ -207,17 +213,18 @@
             <span>Scan</span>
           </button>
         </div>
+        <p class="text-xs text-text-3">On the new device, open Drive and choose Sign in. Then scan its code or paste its link here.</p>
         <div class="flex flex-col gap-2 sm:flex-row">
           <input
             class="min-w-0 flex-1 rounded-lg border border-surface-3 bg-surface-1 px-3 py-2 text-sm text-text-1 outline-none focus:border-accent"
             type="text"
             value={approvalInput}
-            placeholder="Link from your other device"
+            placeholder="Link from the new device"
             autocomplete="off"
             autocapitalize="none"
             spellcheck="false"
             disabled={approvalBusy}
-            aria-label="Device approval request"
+            aria-label="Link from the new device"
             data-testid="device-approval-input"
             oninput={(event) => (approvalInput = (event.currentTarget as HTMLInputElement).value)}
           />
@@ -247,13 +254,13 @@
       keyBadgeMode="admin"
       {actionBusyKey}
       onGrantAdmin={grantAdmin}
-      onRevokeAdmin={revokeAdmin}
+      onRevokeAdmin={adminCount > 1 ? revokeAdmin : undefined}
       onRemoveKey={removeKey}
     />
   {:else}
     <div class="rounded-lg bg-surface-2 p-4" data-testid="user-no-session">
-      <h3 class="mb-2 text-sm font-semibold text-text-1">No devices</h3>
-      <p class="text-sm text-text-3">Create or link Drive to manage devices.</p>
+      <h3 class="mb-2 text-sm font-semibold text-text-1">Not signed in</h3>
+      <p class="text-sm text-text-3">Sign in or create an account to see its devices.</p>
     </div>
   {/if}
 

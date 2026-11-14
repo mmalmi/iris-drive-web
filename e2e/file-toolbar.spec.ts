@@ -34,7 +34,7 @@ test('a file page shows Download, Share and ⋮, in one row on a phone', async (
 
   await header.getByRole('button', { name: 'More actions' }).click();
   const menu = page.getByRole('menu', { name: 'More actions' });
-  await expect(menu.getByRole('menuitem')).toHaveText(['Edit', 'Copy text', 'Read-only copy', 'Full screen', 'Save to file servers', 'Rename', 'Move', 'Delete']);
+  await expect(menu.getByRole('menuitem')).toHaveText(['Edit', 'Copy text', 'Read-only copy', 'Full screen', 'Keep a copy on a server', 'Rename', 'Move', 'Delete']);
   await expect(menu.getByRole('menuitem').first()).toBeFocused();
   await page.screenshot({ path: testInfo.outputPath('file-menu-desktop.png') });
   const fileUrl = page.url();

@@ -162,11 +162,11 @@ test.describe('a walk through the app', () => {
         await page.setViewportSize(DESKTOP);
       }
     });
-    for (const tab of ['', '/user', '/storage', '/network']) {
+    for (const tab of ['', '/storage', '/about', '/network', '/keys', '/developer']) {
       await step(`settings${tab}`, async () => {
         await page.goto(`${origin}/#/settings${tab}`);
         await page.waitForTimeout(1200);
-        await shot(page, `17-settings${tab.replace('/', '-') || '-app'}`);
+        await shot(page, `17-settings${tab.replace('/', '-') || '-account'}`);
       });
     }
     await step('users', async () => {

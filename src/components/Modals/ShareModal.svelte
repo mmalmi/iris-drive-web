@@ -37,9 +37,9 @@
       ? createShareUrlOptions(getAppType(), latestShareUrl)
       : null;
     linkVariants = [
-      { id: 'snapshot', label: 'Snapshot', options: snapshotOptions },
+      { id: 'snapshot', label: 'This version', options: snapshotOptions },
       ...(latestOptions && latestOptions[0]?.url !== snapshotOptions[0]?.url
-        ? [{ id: 'latest' as const, label: 'Latest', options: latestOptions }]
+        ? [{ id: 'latest' as const, label: 'Latest version', options: latestOptions }]
         : []),
     ];
     selectedLinkVariantId = 'snapshot';
@@ -245,8 +245,8 @@
         </div>
         <p class="px-4 pt-2 text-xs text-text-3">
           {selectedLinkVariantId === 'snapshot'
-            ? 'Fixed to this revision.'
-            : 'Follows future updates at this path.'}
+            ? 'Shows it as it is now.'
+            : 'Shows later changes too.'}
         </p>
       {:else}
         <!-- The only link is to what is here now: say so, next to the invite link that gives access. -->

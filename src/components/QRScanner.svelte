@@ -1,6 +1,6 @@
 <script lang="ts">
   /**
-   * QR Scanner component for scanning npubs from QR codes
+   * Scans a QR code with the camera, such as the one a new device shows to be let in.
    * Based on React implementation using jsQR
    */
   import { onMount, onDestroy } from 'svelte';
@@ -124,8 +124,8 @@
     <!-- Scanner viewport -->
     <div class="bg-surface-1 rounded-lg overflow-hidden">
       <div class="p-3 border-b border-surface-3">
-        <h3 class="text-lg font-semibold">Scan QR Code</h3>
-        <p class="text-sm text-text-3">Point camera at a QR code containing an npub</p>
+        <h3 class="text-lg font-semibold">Scan code</h3>
+        <p class="text-sm text-text-3">Point the camera at the code on the new device.</p>
       </div>
 
       <div class="relative aspect-square">

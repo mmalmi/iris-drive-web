@@ -24,7 +24,7 @@ async function newFolder(page: Page, name: string): Promise<void> {
 
 async function setOwnName(page: Page, name: string): Promise<void> {
   await page.goto(`${new URL(page.url()).origin}/#/settings`);
-  await page.getByTestId('settings-nav-app').click();
+  await page.getByTestId('settings-nav-account').click();
   await page.getByTestId('settings-own-name').fill(name);
   await page.getByTestId('settings-own-name-save').click();
   await expect(page.getByTestId('settings-own-name-save')).toHaveText('Saved');

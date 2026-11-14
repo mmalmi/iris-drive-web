@@ -57,5 +57,5 @@
     <Viewer />
   </div>
 {:else}
-  <div class="p-4 text-muted">Invalid nhash format</div>
+  <div class="p-4 text-muted">This link is not valid</div>
 {/if}

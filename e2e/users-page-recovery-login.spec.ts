@@ -181,7 +181,7 @@ test.describe('Users Page recovery login', () => {
         });
       },
       exercise: async (targetPage, profile) => {
-        await targetPage.getByRole('button', { name: 'Sign in with remote signer' }).click();
+        await targetPage.getByRole('button', { name: 'Sign in with a signer app' }).click();
         await targetPage.getByLabel('Signer connection link').fill(link);
         await targetPage.getByRole('button', { name: 'Connect', exact: true }).click();
         await assertRecovered(targetPage, profile);
@@ -206,7 +206,7 @@ test.describe('Users Page recovery login', () => {
     await page.getByRole('button', { name: 'Browser extension' }).click();
     await expect(page).toHaveURL(/#\/users\/no_existing/, { timeout: 30000 });
     await expect(page.getByTestId('identity-recovery-create-new-view')).toBeVisible({ timeout: 30000 });
-    await expect(page.getByText('No existing Drive user found for that key')).toBeVisible();
+    await expect(page.getByText('No Drive account found for that key')).toBeVisible();
     await expect(page.getByTestId('identity-create-name')).toBeVisible();
     await expect(page.getByTestId('create-new-after-recovery-miss')).toBeVisible();
     await expect(page.getByTestId('identity-create-name')).toHaveValue('');

@@ -108,7 +108,7 @@ test.describe('a first look at Drive', () => {
     await expect(page.getByTestId('device-approval-qr')).toBeVisible({ timeout: 30_000 });
     const request = page.getByTestId('device-approval-request-section');
     await expect(request.getByRole('heading', { name: 'Use a device you are signed in on' })).toBeVisible();
-    await expect(request).toContainText('open Settings › Devices and scan this code');
+    await expect(request).toContainText('open Settings › Account and scan this code');
     await expect(request.getByRole('button', { name: 'Copy link' })).toBeVisible();
   });
 

@@ -25,12 +25,12 @@
 
 <div class:root-layout={!embedded} class:embedded-layout={embedded}>
   <section>
-    <h3 class="text-xs font-medium text-muted uppercase tracking-wide mb-1">Display</h3>
+    <h3 class="text-xs font-medium text-muted uppercase tracking-wide mb-1">Top bar</h3>
     <div class="bg-surface-2 rounded divide-y divide-surface-3">
       <label class="p-3 flex items-center justify-between cursor-pointer">
         <div>
-          <span class="text-sm text-text-1">Always show connectivity</span>
-          <p class="text-xs text-text-3">Otherwise the header only warns when Drive is offline</p>
+          <span class="text-sm text-text-1">Always show connection status</span>
+          <p class="text-xs text-text-3">Otherwise it only shows when Drive is offline</p>
         </div>
         <input
           type="checkbox"
@@ -41,8 +41,8 @@
       </label>
       <label class="p-3 flex items-center justify-between cursor-pointer">
         <div>
-          <span class="text-sm text-text-1">Show bandwidth</span>
-          <p class="text-xs text-text-3">Display transfer rates in the header when available</p>
+          <span class="text-sm text-text-1">Show transfer speed</span>
+          <p class="text-xs text-text-3">Upload and download speed, when there is any</p>
         </div>
         <input
           type="checkbox"
@@ -56,14 +56,15 @@
 
   <section data-testid="settings-fips-peers">
     <h3 class="text-xs font-medium text-muted uppercase tracking-wide mb-1">
-      FIPS peers ({peerList.length})
+      Direct connections ({peerList.length})
     </h3>
     <p class="text-xs text-text-3 mb-3">
-      Device peers discovered over Nostr and connected through authenticated FIPS WebRTC.
+      Devices running Iris that this one exchanges data with directly, without a server in between.
+      Found through relays and connected over WebRTC (FIPS).
     </p>
 
     {#if peerList.length === 0}
-      <div class="bg-surface-2 rounded p-3 text-sm text-muted">No FIPS peers connected</div>
+      <div class="bg-surface-2 rounded p-3 text-sm text-muted">No direct connections</div>
     {:else}
       <div class="bg-surface-2 rounded divide-y divide-surface-3">
         {#each peerList as peer (peer.id)}
@@ -73,14 +74,8 @@
               <div class="font-mono text-sm text-text-1 truncate" title={peer.peerId}>
                 {shortPeerId(peer.peerId)}
               </div>
-              <div class="text-xs text-text-3">FIPS device identity</div>
+              <div class="text-xs text-text-3">Device</div>
             </div>
-            <span class="rounded bg-surface-1 px-2 py-1 text-[10px] uppercase tracking-wide text-text-3">
-              WebRTC
-            </span>
-            <span class="rounded bg-surface-1 px-2 py-1 text-[10px] uppercase tracking-wide text-text-3">
-              Nostr discovery
-            </span>
           </div>
         {/each}
       </div>

@@ -110,14 +110,14 @@
         if (profileId) {
           acceptShareInviteForProfile(resolvedInvite, profileId);
         } else {
-          throw new Error('Sign in to the invited profile to accept this folder.');
+          throw new Error('Sign in to the invited account to accept this folder.');
         }
       }
       toast.success('Share accepted');
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Could not accept share invite';
       toast.error(message.startsWith('share invite is not for NostrIdentity ')
-        ? 'This invite is for another profile. Switch profiles to accept it.'
+        ? 'This invite is for another account. Switch accounts to accept it.'
         : message);
     } finally {
       shareActionPending = false;

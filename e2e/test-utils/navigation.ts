@@ -265,7 +265,7 @@ export async function addFileViaTreeAPI(page: any, routePath: string[], filename
 
 /**
  * Opens the menu beside a folder's name that holds its less common actions:
- * Read-only copy, Download ZIP, Make a copy or Fork, Save to file servers,
+ * Read-only copy, Download ZIP, Make a copy or Fork, Keep a copy on a server,
  * Rename, Move and Delete.
  */
 export async function openFolderMenu(page: any): Promise<void> {

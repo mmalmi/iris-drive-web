@@ -253,7 +253,7 @@
       if (!inDrive) items.push({ label: 'Fork', icon: 'i-lucide-git-fork', testid: 'fork-folder-btn', run: handleFork });
       else if (canEdit && folderDepth > 0) items.push({ label: 'Make a copy', icon: 'i-lucide-copy', testid: 'make-copy-btn', run: () => void makeCopyOfFolder() });
       items.push({
-        label: 'Save to file servers',
+        label: 'Keep a copy on a server',
         icon: 'i-lucide-upload-cloud',
         testid: 'blossom-push-btn',
         run: () => openBlossomPushModal(cid, forkBaseName, true, route.npub ? (npubToPubkey(route.npub) ?? undefined) : undefined, route.treeName ?? undefined),
@@ -278,7 +278,7 @@
         deleteCurrentFolder();
       }
     } else if (route.treeName) {
-      if (confirm(`Delete "${route.treeName}"? This will remove it from your tree list.`)) {
+      if (confirm(`Delete "${route.treeName}"? It will be removed from your folders.`)) {
         await deleteTree(route.treeName);
         window.location.hash = '/';
       }

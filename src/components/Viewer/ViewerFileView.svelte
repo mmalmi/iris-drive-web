@@ -382,7 +382,7 @@
     items.push({ label: 'Full screen', icon: 'i-lucide-maximize', testid: 'viewer-fullscreen', run: toggleFullscreen });
     if (canEdit) {
       items.push(
-        { label: 'Save to file servers', icon: 'i-lucide-upload-cloud', testid: 'viewer-push', run: () => openBlossomPushModal(current.cid, current.name, false, routeNpub ? (npubToPubkey(routeNpub) ?? undefined) : undefined, routeTreeName ?? undefined) },
+        { label: 'Keep a copy on a server', icon: 'i-lucide-upload-cloud', testid: 'viewer-push', run: () => openBlossomPushModal(current.cid, current.name, false, routeNpub ? (npubToPubkey(routeNpub) ?? undefined) : undefined, routeTreeName ?? undefined) },
         { label: 'Rename', icon: 'i-lucide-pencil', testid: 'viewer-rename', run: () => openRenameModal(current.name) },
         { label: 'Move', icon: 'i-lucide-folder-input', testid: 'viewer-move', run: () => openMoveModal(current.name, routePath.slice(0, -1)) },
         { label: 'Delete', icon: 'i-lucide-trash-2', testid: 'viewer-delete', run: handleDelete, danger: true },
