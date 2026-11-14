@@ -16,6 +16,7 @@
   import { close as closeShareDialog } from './Modals/ShareModal.svelte';
   import { Avatar } from './User';
   import PersonName from './User/PersonName.svelte';
+  import FollowBadge from './User/FollowBadge.svelte';
   import { linkShareOf, linkShares, linkShareUrl, type LinkAccess } from '../drive/linkShares';
   import {
     addPersonToShare,
@@ -211,7 +212,7 @@
           >
             <Avatar pubkey={contact.pubkey} size={28} />
             <span class="min-w-0 flex-1">
-              <span class="block text-sm text-text-1 truncate"><PersonName pubkey={contact.pubkey} known={contact.display_name} /></span>
+              <span class="flex items-center gap-1 text-sm text-text-1 min-w-0"><span class="truncate"><PersonName pubkey={contact.pubkey} known={contact.display_name} /></span><FollowBadge pubkey={contact.pubkey} /></span>
               <span class="block text-xs text-text-3 truncate">{contact.follow_distance === 1 ? 'You follow them' : contact.representative_npub.slice(0, 20) + '…'}</span>
             </span>
             <span class="i-lucide-user-plus text-text-3 shrink-0"></span>
@@ -305,6 +306,7 @@
               data-testid="share-people-member-link"
             >{member.display_name}</a>
           {/if}
+          <FollowBadge {pubkey} />
           {#if member.can_change_role}
             <select
               class="pick"

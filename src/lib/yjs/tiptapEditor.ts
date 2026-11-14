@@ -4,6 +4,7 @@ import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
 import Image from '@tiptap/extension-image';
 import Collaboration from '@tiptap/extension-collaboration';
+import CollaborationCaret from '@tiptap/extension-collaboration-caret';
 import { TableKit } from '@tiptap/extension-table';
 import TextAlign from '@tiptap/extension-text-align';
 import { Color, TextStyle } from '@tiptap/extension-text-style';
@@ -12,6 +13,7 @@ import * as Y from 'yjs';
 import { CommentMark, createCommentsStore, type CommentsStore } from '../comments';
 import { htmlIsOnlyPictures, imageFiles, importForeignImages, rewriteCopiedHtml } from './pastedImages';
 import type { CommentsState } from '../comments/types';
+import type { LivePresence } from './presence.svelte';
 
 /** Transaction origin of restoring an earlier version: the editor's undo takes it back in one step. */
 export const VERSION_ORIGIN = 'version-restore';
@@ -41,6 +43,8 @@ interface CreateYjsTiptapEditorOptions {
   onCommentsState: (state: CommentsState) => void;
   /** Ctrl+K or ⌘K: the person wants to add or change a link. */
   onLinkShortcut: () => void;
+  /** Others who have the document open: their cursors and selections show, coloured and named. */
+  presence?: LivePresence;
 }
 
 /**
@@ -78,6 +82,10 @@ export function createYjsTiptapEditor(options: CreateYjsTiptapEditorOptions): Yj
       StarterKit.configure({ undoRedo: false, link: { openOnClick: false } }),
       Placeholder.configure({ placeholder: options.canEdit ? 'Start writing…' : '' }),
       Collaboration.configure({ document: options.ydoc, yUndoOptions: { trackedOrigins: [VERSION_ORIGIN] } }),
+      ...(options.presence ? [CollaborationCaret.configure({
+        provider: { awareness: options.presence.awareness },
+        user: { ...options.presence.user, name: options.presence.user.name || 'Someone' },
+      })] : []),
       // data: pictures are accepted on paste only to be stored as attachments at once.
       Image.configure({ inline: false, allowBase64: true }),
       TableKit.configure({ table: { resizable: options.canEdit } }),

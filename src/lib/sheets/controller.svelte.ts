@@ -20,6 +20,7 @@ import type { CommentAuthor } from './comments';
 import { rectReference } from './refs';
 import { defineName, resolveName } from './names';
 import { SheetError, isError } from './values';
+import type { PresenceState } from '../yjs/presence.svelte';
 
 export type SelectionScope = 'cells' | 'rows' | 'cols' | 'all';
 
@@ -144,6 +145,8 @@ export class SheetController {
   authorOf: () => CommentAuthor | null = () => null;
   /** Set by the spreadsheet's page when pictures can be stored; null for a file only looked at. */
   media: SheetMedia | null = null;
+  /** Set by the spreadsheet's page: the others who have it open, whose selections are outlined. */
+  others: () => PresenceState[] = () => [];
 
   /** Set by the grid: scrolls a cell into view. */
   reveal: (row: number, col: number) => void = () => {};

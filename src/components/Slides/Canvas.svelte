@@ -36,6 +36,8 @@
   import type { SlidesEditorState } from '../../lib/slides/editorState.svelte';
   import SlideView from './SlideView.svelte';
   import Overlay from './Overlay.svelte';
+  import PresenceOutlines from './PresenceOutlines.svelte';
+  import type { PresenceState } from '../../lib/yjs/presence.svelte';
   import { writePng } from '../../lib/pictures';
 
   interface Props {
@@ -45,8 +47,10 @@
     /** Copies the selection; takes it off the slide too when `cut`. */
     onCopy: (cut: boolean) => void;
     onPaste: () => void;
+    /** Others who have the deck open: what they selected on this slide is outlined. */
+    others?: PresenceState[];
   }
-  let { editorState, urls, onImageFiles, onCopy, onPaste }: Props = $props();
+  let { editorState, urls, onImageFiles, onCopy, onPaste, others = [] }: Props = $props();
 
   const DRAG_START = 4;
   const SNAP_DISTANCE = 7;
@@ -558,6 +562,9 @@
   {#if slide && stageWidth > 0}
     <div class="sheet" style:left="{left}px" style:top="{top}px" style:width="{width}px" style:height="{height}px" data-testid="slide-sheet">
       <SlideView {slide} theme={editorState.theme} {urls} {width} overrides={drawn} editorState={canEdit ? editorState : undefined} />
+      {#if others.length > 0}
+        <PresenceOutlines {slide} {others} {scale} />
+      {/if}
 
       {#if canEdit}
         <Overlay {shown} {single} {groupBox} {turning} {guides} {sketch} {tool} {marquee} {scale} {width} {height} {editing} />
