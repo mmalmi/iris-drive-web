@@ -612,9 +612,8 @@ export class DriveDocument {
     }
   }
 
-  /** Asks, then removes the document from the Drive and returns to its folder. */
+  /** Removes the document from the Drive, with Undo, and returns to its folder. */
   async delete(): Promise<void> {
-    if (!confirm(`Delete "${this.title}"?`)) return;
     if (this.#saveTimer) clearTimeout(this.#saveTimer);
     this.#leaving = true;
     this.#isSaver = false;

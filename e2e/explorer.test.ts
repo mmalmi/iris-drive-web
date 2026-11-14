@@ -69,7 +69,6 @@ test.describe('files and folders in My Drive', () => {
     await page.getByPlaceholder('New name...').fill('new-folder');
     await page.getByPlaceholder('New name...').press('Enter');
     await expect(page).toHaveURL(/\/Work\/new-folder$/);
-    page.once('dialog', (dialog) => dialog.accept());
     await openFolderMenu(page);
     await page.getByTestId('delete-folder-btn').click();
     await expect(page).toHaveURL(folderUrl);
@@ -81,7 +80,6 @@ test.describe('files and folders in My Drive', () => {
     await page.getByPlaceholder('New name...').press('Enter');
     await expect(listed(page, 'new-name.txt')).toBeVisible({ timeout: 30_000 });
     await listed(page, 'to-delete.txt').click();
-    page.once('dialog', (dialog) => dialog.accept());
     await chooseFileAction(page, 'viewer-delete');
     await expect(listed(page, 'to-delete.txt')).toHaveCount(0);
 

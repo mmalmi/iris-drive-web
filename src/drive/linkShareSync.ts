@@ -207,23 +207,33 @@ export async function setLinkAccess(subject: LinkSubject, access: LinkAccess | '
  * Keeps links with their items: one renamed or moved in My Drive on this
  * device takes its link along, and one deleted has its link turned off.
  */
-export function followLinkShares(from: string[], to: string[] | null): void {
+export function followLinkShares(from: string[], to: string[] | null): LinkShare[] {
   const me = account();
-  if (!me) return;
+  if (!me) return [];
   const at = from.join('/');
   const now = Date.now();
-  const moved = get(linkShares)
+  const before = get(linkShares)
     .filter((record) => record.profile === me.profile && !record.share && record.access !== 'off'
-      && (record.path === at || record.path.startsWith(`${at}/`)))
-    .map((record): LinkShare => (to
-      ? { ...record, path: to.join('/') + record.path.slice(at.length), at: now }
-      : { ...record, access: 'off', at: now }));
-  if (moved.length === 0) return;
+      && (record.path === at || record.path.startsWith(`${at}/`)));
+  if (before.length === 0) return [];
+  const moved = before.map((record): LinkShare => (to
+    ? { ...record, path: to.join('/') + record.path.slice(at.length), at: now }
+    : { ...record, access: 'off', at: now }));
   linkShares.update((items) => mergeLinkShares(items, moved));
   for (const record of moved) {
     if (record.access === 'off' && record.npub === me.npub) void unpublish(record).catch(() => undefined);
     tell(record);
   }
+  return before;
+}
+
+/** Sets links followLinkShares changed back as they were: the same links open the same items again. */
+export function putBackLinkShares(records: LinkShare[]): void {
+  if (records.length === 0) return;
+  const now = Date.now();
+  const back = records.map((record) => ({ ...record, at: now }));
+  linkShares.update((items) => mergeLinkShares(items, back));
+  for (const record of back) tell(record);
 }
 
 /**

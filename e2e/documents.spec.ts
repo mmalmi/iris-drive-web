@@ -258,7 +258,6 @@ test.describe('documents in a Drive', () => {
     }
     await expect.poll(storedFiles, { timeout: 30_000 }).toEqual(['2/base']);
 
-    page.once('dialog', dialog => void dialog.accept());
     await page.getByTestId('document-delete').click();
     await expect(page.getByRole('link', { name: /^neighbour\.txt\b/ })).toBeVisible({ timeout: 30_000 });
     await expect(page.getByTestId('document-entry')).toHaveCount(0);

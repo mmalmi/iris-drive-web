@@ -274,9 +274,7 @@
 
   async function handleDelete() {
     if (isSubdir && currentDirName) {
-      if (confirm(`Delete folder "${currentDirName}" and all its contents?`)) {
-        deleteCurrentFolder();
-      }
+      void deleteCurrentFolder();
     } else if (route.treeName) {
       if (confirm(`Delete "${route.treeName}"? It will be removed from your folders.`)) {
         await deleteTree(route.treeName);

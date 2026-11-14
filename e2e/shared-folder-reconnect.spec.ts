@@ -100,7 +100,6 @@ test('trip collaborators add, rename and delete files while a reader reconnects 
     await readerPage.setViewportSize({ width: 390, height: 844 });
     await readerPage.screenshot({ path: testInfo.outputPath('reconnected-reader-mobile.png') });
 
-    page.once('dialog', dialog => dialog.accept());
     await chooseFileAction(page, 'viewer-delete');
     await expect(page.getByRole('link', { name: /^Plan\.txt\b/ })).toBeVisible();
     await waitForSharedFolderPublished(page, share.share_id, { lacks: ['Packing final.txt'] });

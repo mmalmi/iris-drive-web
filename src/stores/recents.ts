@@ -118,15 +118,32 @@ export function removeRecentByTreeName(npub: string, treeName: string) {
  * Keeps recents true to a rename, move or delete in this Drive: what was at
  * or below `path` follows it to `to`, or goes when `to` is null.
  */
-export function moveRecents(path: string, to: string | null) {
+/** Moves the items at or below `path` to `to`, or drops them when `to` is null; resolves them as they were. */
+export function moveRecents(path: string, to: string | null): RecentItem[] {
+  const before: RecentItem[] = [];
   recentsStore.update(current => {
     const updated = current.flatMap((item) => {
       if (item.path !== path && !item.path.startsWith(`${path}/`)) return [item];
+      before.push(item);
       if (to === null) return [];
       if (item.path !== path) return [{ ...item, path: to + item.path.slice(path.length) }];
       const name = to.slice(to.lastIndexOf('/') + 1);
       return [{ ...item, path: to, label: isDocumentFolderName(name) ? documentTitle(name) : name }];
     });
+    saveRecents(updated);
+    return updated;
+  });
+  return before;
+}
+
+/** Puts items moveRecents took back in their places, by when they were opened. */
+export function putBackRecents(items: RecentItem[]) {
+  if (items.length === 0) return;
+  recentsStore.update(current => {
+    const paths = new Set(items.map((item) => item.path));
+    const updated = [...current.filter((item) => !paths.has(item.path)), ...items]
+      .sort((a, b) => b.timestamp - a.timestamp)
+      .slice(0, MAX_RECENTS);
     saveRecents(updated);
     return updated;
   });

@@ -11,6 +11,13 @@ export interface Toast {
   type: ToastType;
   message: string;
   duration?: number; // ms, undefined = no auto-dismiss
+  /** A button beside the message, such as Undo; pressing it dismisses the toast. */
+  action?: ToastAction;
+}
+
+export interface ToastAction {
+  label: string;
+  run: () => void;
 }
 
 // Module-level state
@@ -19,9 +26,9 @@ let nextId = 1;
 // Svelte store for toasts
 export const toasts = writable<Toast[]>([]);
 
-export function showToast(type: ToastType, message: string, duration = 4000): string {
+export function showToast(type: ToastType, message: string, duration = 4000, action?: ToastAction): string {
   const id = String(nextId++);
-  const toast: Toast = { id, type, message, duration };
+  const toast: Toast = { id, type, message, duration, action };
 
   toasts.update(t => [...t, toast]);
 

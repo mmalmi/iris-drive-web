@@ -1,27 +1,18 @@
 <script lang="ts" module>
   import { LinkType, type TreeEntry } from '@hashtree/core';
-  import { deleteEntry } from '../actions';
+  import { deleteEntries } from '../actions';
   import { documentKindInfo, documentTitle } from '../lib/documentNames';
   import { toast } from '../stores/toast';
 
   const isDocument = (entry: TreeEntry) => entry.type === LinkType.Dir && !!documentKindInfo(entry.name);
   const title = (entry: TreeEntry) => (isDocument(entry) ? documentTitle(entry.name) : entry.name);
 
-  /**
-   * Deletes the chosen items of the open folder once that is confirmed, each
-   * by the usual delete from the latest Drive; `onConfirmed` lets go of them.
-   */
-  export async function deleteChosen(items: TreeEntry[], onConfirmed: () => void): Promise<void> {
+  /** Deletes the chosen items of the open folder, with Undo; `onDeleting` lets go of them. */
+  export async function deleteChosen(items: TreeEntry[], onDeleting: () => void): Promise<void> {
     if (items.length === 0) return;
-    if (!confirm(items.length === 1 ? `Delete ${title(items[0])}?` : `Delete ${items.length} items?`)) return;
-    onConfirmed();
-    let failed = 0;
-    for (const entry of items) {
-      // Each delete takes its turn with the page's other changes itself.
-      await deleteEntry(entry.name).catch(() => { failed += 1; });
-    }
-    if (failed) toast.error(items.length === 1 ? `Could not delete ${title(items[0])}` : `Could not delete ${failed} of ${items.length} items`);
-    else if (items.length > 1) toast.success(`Deleted ${items.length} items`);
+    onDeleting();
+    await deleteEntries(items.map((entry) => entry.name))
+      .catch(() => toast.error(items.length === 1 ? `Could not delete ${title(items[0])}` : `Could not delete ${items.length} items`));
   }
 </script>
 

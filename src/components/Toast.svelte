@@ -43,6 +43,16 @@
       >
         <span class="{iconMap[toast.type]} {colorMap[toast.type]} shrink-0 mt-0.5"></span>
         <span class="text-sm text-text-1 flex-1">{toast.message}</span>
+        {#if toast.action}
+          {@const action = toast.action}
+          <button
+            onclick={() => { dismissToast(toast.id); action.run(); }}
+            class="shrink-0 -my-0.5 rounded px-2 py-0.5 text-sm font-medium text-accent hover:bg-surface-2"
+            data-testid="toast-action"
+          >
+            {action.label}
+          </button>
+        {/if}
         <button
           onclick={() => dismissToast(toast.id)}
           class="shrink-0 text-text-3 hover:text-text-1 transition-colors"

@@ -256,7 +256,6 @@ test.describe('renaming or deleting a document that another device is typing in'
     const device = await deviceContext.newPage();
     await openOnTwoDevices(page, device, relayUrl, profileId, 'Notes', 'Written first.');
 
-    page.once('dialog', dialog => void dialog.accept());
     await page.getByTestId('document-delete').click();
     await expect(page).toHaveURL(new RegExp(`/${profileId}/main$`), { timeout: 30_000 });
     // The other device learns the document is gone, and typing there does not bring part of it back.
@@ -276,7 +275,6 @@ test.describe('renaming or deleting a document that another device is typing in'
     await deviceContext.setOffline(true);
     await typeInDocument(device, ' Kept offline.');
     await expect(device.getByTestId('document-save-status')).toHaveAttribute('data-state', 'saved', { timeout: 30_000 });
-    page.once('dialog', dialog => void dialog.accept());
     await page.getByTestId('document-delete').click();
     await expect.poll(() => documentsIn(page, profileId), { timeout: 30_000 }).toEqual([]);
     await flushPendingPublishes(page);

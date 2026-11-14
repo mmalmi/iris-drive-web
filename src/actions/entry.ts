@@ -5,13 +5,20 @@ import { navigate } from '../utils/navigate';
 import { parseRoute } from '../utils/route';
 import { autosaveIfOwn, nostrStore } from '../nostr';
 import { getTree } from '../store';
-import { LinkType, type CID } from '@hashtree/core';
+import { LinkType, type CID, type HashTree, type TreeEntry } from '@hashtree/core';
 import { getCurrentRootCid, getCurrentPathFromUrl, buildRouteUrl, updateRoute } from './route';
 import { activeNostrIdentityRootScope, isEditableDriveRouteScope } from '../drive/profileRoute';
-import { followLinkShares } from '../drive/linkShareSync';
+import { followLinkShares, putBackLinkShares } from '../drive/linkShareSync';
 import { mutateProfileDriveRoot } from '../drive/profileDriveMutation';
-import { moveRecents } from '../stores/recents';
+import { setEntryForDriveRoute } from '../drive/profileDriveRouteEntry';
+import { moveRecents, putBackRecents } from '../stores/recents';
 import { inTurn } from '../lib/driveWrites';
+import { freeName } from '../lib/driveClipboard';
+import { documentTitle, isDocumentFolderName } from '../lib/documentNames';
+import { showToast, toast } from '../stores/toast';
+
+/** How long Undo stays offered after a delete. */
+const UNDO_MS = 10_000;
 
 function isProfileDriveMutation(): boolean {
   const route = parseRoute();
@@ -22,13 +29,22 @@ function pathString(parts: string[]): string {
   return parts.filter(Boolean).join('/');
 }
 
-/** Moves Recent and links along with an entry of the open tree, or drops them when `to` is null. */
-function followInRecents(from: string[], to: string[] | null) {
+/**
+ * Moves Recent and links along with an entry of the open tree, or drops them
+ * when `to` is null; resolves a function that sets them back as they were.
+ */
+function followInRecents(from: string[], to: string[] | null): () => void {
   const route = parseRoute();
-  if (!route.npub || !route.treeName) return;
+  if (!route.npub || !route.treeName) return () => {};
   const at = (parts: string[]) => `/${route.npub}/${route.treeName}/${pathString(parts)}`;
-  moveRecents(at(from), to ? at(to) : null);
-  if (route.treeName === 'main' && route.npub === activeNostrIdentityRootScope(nostrStore.getState())) followLinkShares(from, to);
+  const recents = moveRecents(at(from), to ? at(to) : null);
+  const links = route.treeName === 'main' && route.npub === activeNostrIdentityRootScope(nostrStore.getState())
+    ? followLinkShares(from, to)
+    : [];
+  return () => {
+    putBackRecents(recents);
+    putBackLinkShares(links);
+  };
 }
 
 /**
@@ -121,34 +137,96 @@ export async function renameEntry(oldName: string, newName: string) {
   }
 }
 
-// Delete entry
-export async function deleteEntry(name: string) {
-  const currentPath = getCurrentPathFromUrl();
-  if (!await changeOpenTree(root => removeIn(root, currentPath, name))) return;
-  followInRecents([...currentPath, name], null);
-
-  // Navigate to directory if deleted file was active
-  const route = parseRoute();
-  const urlFileName = route.path.length > 0 ? route.path[route.path.length - 1] : null;
-  if (urlFileName === name) {
-    const url = buildRouteUrl(route.npub, route.treeName, currentPath, undefined, route.params.get('k'));
-    navigate(url);
-  }
+async function folderAt(tree: HashTree, root: CID, path: string[]): Promise<CID | null> {
+  return path.length ? (await tree.resolvePath(root, pathString(path)))?.cid ?? null : root;
 }
 
-// Delete current folder (must be in a subdirectory)
-export async function deleteCurrentFolder() {
+/**
+ * Deletes the named items of the folder at `parentPath` of the open tree and
+ * says so, offering Undo for a while. Leaves an open file that was deleted
+ * for its folder.
+ */
+export async function deleteEntries(names: string[], parentPath: string[] = getCurrentPathFromUrl()): Promise<void> {
+  const removed: TreeEntry[] = [];
+  await changeOpenTree(async (root) => {
+    removed.length = 0;
+    const tree = getTree();
+    const folder = await folderAt(tree, root, parentPath);
+    if (!folder) return null;
+    const here = new Map((await tree.listDirectory(folder)).map((entry) => [entry.name, entry]));
+    let next = root;
+    for (const name of new Set(names)) {
+      const entry = here.get(name);
+      if (!entry) continue;
+      next = await removeIn(next, parentPath, name);
+      removed.push(entry);
+    }
+    return removed.length ? next : null;
+  });
+  if (removed.length === 0) return;
+  const followers = removed.map((entry) => followInRecents([...parentPath, entry.name], null));
+
+  const route = parseRoute();
+  const open = route.path.at(-1);
+  if (open && removed.some((entry) => entry.name === open) && pathString(route.path.slice(0, -1)) === pathString(parentPath)) {
+    navigate(buildRouteUrl(route.npub, route.treeName, parentPath, undefined, route.params.get('k')));
+  }
+
+  const one = removed.length === 1 ? removed[0]!.name : null;
+  const said = one ? `Deleted “${isDocumentFolderName(one) ? documentTitle(one) : one}”` : `Deleted ${removed.length} items`;
+  showToast('success', said, UNDO_MS, {
+    label: 'Undo',
+    run: () => void putBack(parentPath, removed)
+      .then((sameNames) => removed.forEach((entry, i) => { if (sameNames.has(entry.name)) followers[i]!(); }))
+      .catch(() => toast.error('Could not undo the delete')),
+  });
+}
+
+/**
+ * Puts deleted entries back in the folder at `parentPath` of the open tree,
+ * as they were; one whose name was taken since gets a free one. Resolves the
+ * names put back as they were.
+ */
+async function putBack(parentPath: string[], entries: TreeEntry[]): Promise<Set<string>> {
+  const sameNames = new Set<string>();
+  const saved = await changeOpenTree(async (root) => {
+    sameNames.clear();
+    const tree = getTree();
+    const folder = await folderAt(tree, root, parentPath);
+    const taken = new Set(folder ? (await tree.listDirectory(folder)).map((entry) => entry.name) : []);
+    let next = root;
+    for (const entry of entries) {
+      const name = freeName(entry.name, taken);
+      taken.add(name);
+      if (name === entry.name) sameNames.add(name);
+      next = await setEntryForDriveRoute(
+        tree,
+        next,
+        parentPath,
+        name,
+        { cid: entry.cid, size: entry.size, type: entry.type, meta: entry.meta },
+        parseRoute(),
+        nostrStore.getState(),
+      );
+    }
+    return next;
+  });
+  if (!saved) throw new Error('No folder is open');
+  return sameNames;
+}
+
+/** Deletes an item of the open folder; see deleteEntries. */
+export function deleteEntry(name: string): Promise<void> {
+  return deleteEntries([name]);
+}
+
+/** Deletes the folder the page shows, and goes to the one it was in; see deleteEntries. */
+export async function deleteCurrentFolder(): Promise<void> {
   const route = parseRoute();
   if (route.path.length === 0) return; // Can't delete root
-
   const parentPath = route.path.slice(0, -1);
-  const name = route.path[route.path.length - 1];
-  if (!await changeOpenTree(root => removeIn(root, parentPath, name))) return;
-  followInRecents([...parentPath, name], null);
-
-  // Navigate to parent directory
-  const url = buildRouteUrl(route.npub, route.treeName, parentPath, undefined, route.params.get('k'));
-  navigate(url);
+  navigate(buildRouteUrl(route.npub, route.treeName, parentPath, undefined, route.params.get('k')));
+  await deleteEntries([route.path.at(-1)!], parentPath);
 }
 
 /**

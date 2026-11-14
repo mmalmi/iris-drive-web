@@ -575,10 +575,8 @@
       const targetEntry = chosenEntry();
       if (targetEntry) {
         e.preventDefault();
-        if (confirm(`Delete ${targetEntry.name}?`)) {
-          deleteEntry(targetEntry.name);
-          focusedIndex = -1;
-        }
+        void deleteEntry(targetEntry.name);
+        focusedIndex = -1;
       }
       return;
     }

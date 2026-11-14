@@ -151,18 +151,13 @@ test.describe('choosing several items', () => {
     await page.getByTestId('viewer-back').click();
     await expect(page).toHaveURL(/\/Trip\/Archive$/, { timeout: 30_000 });
 
-    // Delete: everything in Archive, one by one from the latest Drive.
+    // Delete: everything in Archive at once, saying so.
     await page.getByTestId('file-list').focus();
     await page.keyboard.press('ControlOrMeta+a');
     await expect(count(page)).toHaveText('4 selected');
-    const prompts: string[] = [];
-    page.once('dialog', (confirm) => {
-      prompts.push(confirm.message());
-      void confirm.accept();
-    });
     await bar(page).getByRole('button', { name: 'Delete' }).click();
     await expect(page.getByTestId('empty-folder')).toBeVisible({ timeout: 30_000 });
-    expect(prompts).toEqual(['Delete 4 items?']);
+    await expect(page.getByText('Deleted 4 items')).toBeVisible();
     await expect(bar(page)).toBeHidden();
     await expect(page.getByTestId('file-list')).toBeFocused();
     expect(newPages).toHaveLength(0);
@@ -235,16 +230,6 @@ test.describe('choosing several items', () => {
     await expect(count(page)).toHaveText('3 selected');
     await expectSelected(page, ['Inner', 'x.txt', 'y.txt'], []);
 
-    // Delete asks about all of them; saying no keeps them, still chosen.
-    const prompts: string[] = [];
-    page.once('dialog', (confirm) => {
-      prompts.push(confirm.message());
-      void confirm.dismiss();
-    });
-    await page.keyboard.press('Delete');
-    await expect.poll(() => prompts).toEqual(['Delete 3 items?']);
-    await expect(count(page)).toHaveText('3 selected');
-
     await page.keyboard.press('Escape');
     await expect(bar(page)).toBeHidden();
     await expect(list).toBeFocused();
@@ -256,6 +241,15 @@ test.describe('choosing several items', () => {
     await bar(page).getByRole('button', { name: 'Clear selection' }).click();
     await expect(bar(page)).toBeHidden();
     await expect(list).toBeFocused();
+
+    // Delete takes all of them at once, asking nothing; Undo puts them back.
+    await page.keyboard.press('ControlOrMeta+a');
+    await page.keyboard.press('Delete');
+    await expect(page.getByTestId('empty-folder')).toBeVisible({ timeout: 30_000 });
+    await expect(bar(page)).toBeHidden();
+    await expect(list).toBeFocused();
+    await page.getByTestId('toast-action').filter({ hasText: 'Undo' }).click();
+    await expectSelected(page, [], ['Inner', 'x.txt', 'y.txt']);
   });
 
   test.describe('on a phone', () => {

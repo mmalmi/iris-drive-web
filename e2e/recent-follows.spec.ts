@@ -25,7 +25,6 @@ test.describe('Recent', () => {
     await openFile(page, 'notes.txt');
     await openFile(page, 'old.txt');
 
-    page.once('dialog', dialog => void dialog.accept());
     await chooseFileAction(page, 'viewer-delete');
     await expect(row(page, 'old.txt')).toHaveCount(0, { timeout: 30_000 });
 

@@ -92,7 +92,6 @@
   }
 
   function remove() {
-    if (!confirm(`Delete ${title}?`)) return;
     void deleteEntry(entry.name).catch(() => toast.error(`Could not delete ${title}`));
   }
 

@@ -305,14 +305,12 @@
 
   function handleDelete() {
     if (!entry) return;
-    if (confirm(`Delete ${entry.name}?`)) {
-      deleteEntry(entry.name);
-      const dirPath = routePath.slice(0, -1);
-      const parts: string[] = [];
-      if (routeNpub && routeTreeName) parts.push(routeNpub, routeTreeName, ...dirPath);
-      const linkKeySuffix = linkKey ? `?k=${linkKey}` : '';
-      window.location.hash = '#/' + parts.map(encodeURIComponent).join('/') + linkKeySuffix;
-    }
+    void deleteEntry(entry.name);
+    const dirPath = routePath.slice(0, -1);
+    const parts: string[] = [];
+    if (routeNpub && routeTreeName) parts.push(routeNpub, routeTreeName, ...dirPath);
+    const linkKeySuffix = linkKey ? `?k=${linkKey}` : '';
+    window.location.hash = '#/' + parts.map(encodeURIComponent).join('/') + linkKeySuffix;
   }
 
   async function handleDownload() {

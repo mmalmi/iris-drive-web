@@ -91,7 +91,6 @@ test.describe('the menu of a row', () => {
     await dialog.getByTestId('move-confirm').click();
     await expect(fileRow(page, 'packing.txt')).toHaveCount(0, { timeout: 30_000 });
 
-    page.once('dialog', (confirm) => void confirm.accept());
     opened = await openRowMenu(page, 'Copy of Trip');
     await opened.getByRole('menuitem', { name: 'Delete' }).click();
     await expect(fileRow(page, 'Copy of Trip')).toHaveCount(0, { timeout: 30_000 });
