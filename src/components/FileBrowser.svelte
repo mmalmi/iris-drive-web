@@ -4,6 +4,7 @@
   import { COPY_NAME_PARAM } from '../lib/shareUrls';
   import { untrack } from 'svelte';
   import { addCopiedEntry, deleteEntry } from '../actions';
+  import EmptyFolder from './EmptyFolder.svelte';
   import { moveAndTell } from './Modals/MoveModal.svelte';
   import SelectionBar, { deleteChosen } from './SelectionBar.svelte';
   import ListSortHeader from './ListSortHeader.svelte';
@@ -751,16 +752,7 @@
         {:else if loadingEntries}
           <div class="p-4 pl-6"></div>
         {:else if entries.length === 0}
-          <div class="flex flex-col items-center gap-2 px-4 py-12 text-center text-sm text-text-3" data-testid="empty-folder">
-            {#if !isDraggingOver}
-              <span class="i-lucide-folder-open text-4xl text-text-3/70"></span>
-              <span class="text-text-2">This folder is empty</span>
-              {#if canEdit}
-                <NewMenu variant="empty" class="mt-2" />
-                <span>or drop files here</span>
-              {/if}
-            {/if}
-          </div>
+          <EmptyFolder {canEdit} draggingOver={isDraggingOver} />
         {:else}
           {#each entries as entry, idx (entry.name)}
             {@const documentInfo = entry.type === LinkType.Dir ? documentKindInfo(entry.name) : null}
