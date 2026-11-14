@@ -24,6 +24,13 @@ export interface DriveRosterRelayAnswer {
   complete: boolean;
 }
 
+/** Each relay once, from the answers to several queries: complete only when it answered each completely. */
+export function mergeRelayAnswers(answers: readonly DriveRosterRelayAnswer[]): DriveRosterRelayAnswer[] {
+  const complete = new Map<string, boolean>();
+  for (const answer of answers) complete.set(answer.relay, (complete.get(answer.relay) ?? true) && answer.complete);
+  return [...complete].map(([relay, done]) => ({ relay, complete: done }));
+}
+
 /**
  * - `confirmed`: a relay answered completely and the answers hold every
  *   operation this device already knew from the authors asked.

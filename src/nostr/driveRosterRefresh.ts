@@ -8,12 +8,13 @@ import {
 } from '../drive/protocol';
 import {
   decideRosterAdmission,
+  mergeRelayAnswers,
   type DriveRosterAdmission,
   type DriveRosterRelayAnswer,
 } from './driveRosterAdmission';
 
 /** How long a roster confirmed by a relay is trusted when no relay answers. */
-export const DRIVE_ROSTER_CONFIRMATION_MAX_AGE_MS = 10 * 60_000;
+const DRIVE_ROSTER_CONFIRMATION_MAX_AGE_MS = 10 * 60_000;
 
 export interface DriveRosterAuthorSnapshot {
   /** Every operation any relay returned, from complete answers or not. */
@@ -326,8 +327,7 @@ export async function fetchAuthoritativeDriveRoster(options: {
 }): Promise<DriveRosterAdmission> {
   const fetchedById = new Map<string, SignedNostrIdentityRosterOp>();
   const queriedAuthors = new Set<string>();
-  // A relay counts as answered only when it answered every round completely.
-  const relayComplete = new Map<string, boolean>();
+  const answers: DriveRosterRelayAnswer[] = [];
   let anchored = projectAnchoredDriveRoster(options.profileId, options.trustedRosterOps);
 
   while (true) {
@@ -336,9 +336,7 @@ export async function fetchAuthoritativeDriveRoster(options: {
     if (nextAuthors.length === 0) break;
 
     const snapshot = await options.fetchAuthors(nextAuthors);
-    for (const answer of snapshot.relays) {
-      relayComplete.set(answer.relay, (relayComplete.get(answer.relay) ?? true) && answer.complete);
-    }
+    answers.push(...snapshot.relays);
     for (const author of nextAuthors) queriedAuthors.add(author);
     const queriedThisRound = new Set(nextAuthors);
     for (const op of snapshot.rosterOps) {
@@ -362,7 +360,8 @@ export async function fetchAuthoritativeDriveRoster(options: {
     heldRosterOps: options.trustedRosterOps,
     fetchedRosterOps: [...fetchedById.values()],
     queriedAuthors: [...queriedAuthors],
-    relays: [...relayComplete].map(([relay, complete]) => ({ relay, complete })),
+    // A relay counts as answered only when it answered every round completely.
+    relays: mergeRelayAnswers(answers),
     confirmedAt: options.confirmedAt ?? null,
     now: (options.now ?? Date.now)(),
     maxAgeMs: options.maxAgeMs ?? DRIVE_ROSTER_CONFIRMATION_MAX_AGE_MS,

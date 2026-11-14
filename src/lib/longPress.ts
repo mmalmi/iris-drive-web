@@ -8,7 +8,7 @@
  * element: a list that is drawn again while the finger is down (a change
  * arriving from another device) still gets the press and its end.
  */
-export const LONG_PRESS_MS = 500;
+const LONG_PRESS_MS = 500;
 const MOVE_LIMIT_PX = 10;
 
 let timer: ReturnType<typeof setTimeout> | null = null;
@@ -45,12 +45,11 @@ export function longPress(node: HTMLElement, onPress: (at: { x: number; y: numbe
     stop();
     if (event.pointerType === 'mouse') return;
     const at = { x: event.clientX, y: event.clientY };
-    const press = () => handler(at);
     start = at;
     timer = setTimeout(() => {
       timer = null;
       pressed = true;
-      press();
+      handler(at);
     }, LONG_PRESS_MS);
   };
 

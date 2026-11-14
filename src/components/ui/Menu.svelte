@@ -159,33 +159,21 @@
   {#each items as item (item.testid)}
     {@const classes = `flex w-full items-center border-none bg-transparent text-left no-underline outline-none cursor-pointer hover:bg-surface-2 focus-visible:bg-surface-2 aria-disabled:opacity-50 aria-disabled:cursor-default ${item.danger ? 'text-danger' : 'text-text-1'} ${itemClass} ${item.class ?? ''}`}
     {#if item.danger}<div class="my-1.5 h-px bg-surface-3/70 {item.class ?? ''}" role="separator"></div>{/if}
-    {#if item.href}
-      <a
-        href={item.href}
-        role="menuitem"
-        tabindex="-1"
-        class={classes}
-        target={item.external ? '_blank' : undefined}
-        rel={item.external ? 'noreferrer' : undefined}
-        data-testid={item.testid}
-        onclick={(event) => choose(event, item)}
-      >
-        <span class="{item.icon} shrink-0 {sheet ? 'text-xl' : 'text-lg'} text-text-2"></span>
-        {item.label}
-      </a>
-    {:else}
-      <button
-        type="button"
-        role="menuitem"
-        tabindex="-1"
-        class={classes}
-        aria-disabled={item.disabled ? 'true' : undefined}
-        data-testid={item.testid}
-        onclick={(event) => choose(event, item)}
-      >
-        <span class="{item.icon} shrink-0 {sheet ? 'text-xl' : 'text-lg'} {item.danger ? '' : 'text-text-2'}"></span>
-        {item.label}
-      </button>
-    {/if}
+    <svelte:element
+      this={item.href ? 'a' : 'button'}
+      type={item.href ? undefined : 'button'}
+      href={item.href}
+      target={item.external ? '_blank' : undefined}
+      rel={item.external ? 'noreferrer' : undefined}
+      role="menuitem"
+      tabindex="-1"
+      class={classes}
+      aria-disabled={item.disabled ? 'true' : undefined}
+      data-testid={item.testid}
+      onclick={(event: MouseEvent) => choose(event, item)}
+    >
+      <span class="{item.icon} shrink-0 {sheet ? 'text-xl' : 'text-lg'} {item.danger ? '' : 'text-text-2'}"></span>
+      {item.label}
+    </svelte:element>
   {/each}
 </div>

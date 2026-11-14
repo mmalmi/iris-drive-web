@@ -89,7 +89,7 @@ import {
   rosterAuthorFilter,
   type DriveRosterAuthorSnapshot,
 } from './driveRosterRefresh';
-import type { DriveRosterAdmission } from './driveRosterAdmission';
+import { mergeRelayAnswers, type DriveRosterAdmission } from './driveRosterAdmission';
 import {
   publishDriveRosterHistory,
 } from './driveRosterPublish';
@@ -1825,17 +1825,13 @@ async function fetchDriveRosterAuthorSnapshots(
     batches.map((batch) => fetchDriveRosterAuthorBatch(profileId, batch, remainingMs)),
   );
   const byId = new Map<string, SignedNostrIdentityRosterOp>();
-  // A relay answered only when it answered every batch completely.
-  const relayComplete = new Map<string, boolean>();
   for (const snapshot of snapshots) {
     for (const op of snapshot.rosterOps) byId.set(op.op_id, op);
-    for (const answer of snapshot.relays) {
-      relayComplete.set(answer.relay, (relayComplete.get(answer.relay) ?? true) && answer.complete);
-    }
   }
   return {
     rosterOps: [...byId.values()],
-    relays: [...relayComplete].map(([relay, complete]) => ({ relay, complete })),
+    // A relay answered only when it answered every batch completely.
+    relays: mergeRelayAnswers(snapshots.flatMap((snapshot) => snapshot.relays)),
   };
 }
 

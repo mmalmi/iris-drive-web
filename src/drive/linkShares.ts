@@ -12,11 +12,9 @@
  * This file holds the records and what is decided from them; publishing is in
  * linkShareSync.ts.
  */
-import { finalizeEvent, getPublicKey, nip44, type Event } from 'nostr-tools';
-import { sha256 } from '@noble/hashes/sha2.js';
-import { bytesToHex } from '@noble/hashes/utils.js';
+import type { Event } from 'nostr-tools';
 import { writable } from 'svelte/store';
-import { KIND_DRIVE_ROOT } from './protocolTypes';
+import { buildDeviceNotes, readDeviceNote } from './deviceNotes';
 import { documentTitle, isDocumentFolderName } from '../lib/documentNames';
 
 export type LinkAccess = 'link' | 'public';
@@ -125,22 +123,9 @@ linkShares.subscribe((records) => {
 /** Tells one device of the account about a link; a later note about the same tree replaces it. */
 export const LINK_SHARE_LABEL = 'iris-drive/link-share';
 
-function noteDTag(record: LinkShare, devicePubkey: string): string {
-  return bytesToHex(sha256(new TextEncoder().encode(`${LINK_SHARE_LABEL}\n${record.profile}\n${record.npub}\n${record.tree}\n${devicePubkey}`)));
-}
-
 /** One note per device, readable only by it: relays see a label and the device it is for. */
 export function buildLinkShareNotes(signerSecretKey: Uint8Array, record: LinkShare, devicePubkeys: string[], createdAt: number): Event[] {
-  return [...new Set(devicePubkeys)].map((devicePubkey) => finalizeEvent({
-    kind: KIND_DRIVE_ROOT,
-    created_at: createdAt,
-    content: nip44.encrypt(JSON.stringify(record), nip44.getConversationKey(signerSecretKey, devicePubkey)),
-    tags: [
-      ['d', noteDTag(record, devicePubkey)],
-      ['l', LINK_SHARE_LABEL],
-      ['p', devicePubkey],
-    ],
-  }, signerSecretKey));
+  return buildDeviceNotes(signerSecretKey, LINK_SHARE_LABEL, [record.profile, record.npub, record.tree], record, devicePubkeys, createdAt);
 }
 
 /**
@@ -152,14 +137,7 @@ export function readLinkShareNote(
   deviceSecretKey: Uint8Array,
   account: { profile: string; devices: ReadonlySet<string> },
 ): LinkShare | null {
-  const devicePubkey = getPublicKey(deviceSecretKey);
-  const tag = (name: string) => event.tags.filter(([key]) => key === name).map(([, value]) => value);
-  if (event.kind !== KIND_DRIVE_ROOT || !tag('l').includes(LINK_SHARE_LABEL) || !tag('p').includes(devicePubkey)) return null;
   if (!account.devices.has(event.pubkey)) return null;
-  try {
-    const record = JSON.parse(nip44.decrypt(event.content, nip44.getConversationKey(deviceSecretKey, event.pubkey))) as unknown;
-    return isLinkShare(record) && record.profile === account.profile ? record : null;
-  } catch {
-    return null;
-  }
+  const record = readDeviceNote(event, LINK_SHARE_LABEL, deviceSecretKey)?.payload;
+  return isLinkShare(record) && record.profile === account.profile ? record : null;
 }

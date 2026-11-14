@@ -1,6 +1,4 @@
-import { finalizeEvent, getPublicKey, nip44, verifyEvent, type Event } from 'nostr-tools';
-import { sha256 } from '@noble/hashes/sha2.js';
-import { bytesToHex } from '@noble/hashes/utils.js';
+import { finalizeEvent, getPublicKey, verifyEvent, type Event } from 'nostr-tools';
 import type {
   NostrIdentityId,
   ShareAccessSnapshot,
@@ -11,6 +9,7 @@ import type {
 } from './protocolTypes';
 import { KIND_DRIVE_ROOT } from './protocolTypes';
 import { base64UrlEncode } from './protocolJson';
+import { buildDeviceNotes, deviceNoteDTag, readDeviceNote } from './deviceNotes';
 import {
   parseNostrIdentityFacetAcceptanceEvent,
   parseNostrIdentityRosterOpEvent,
@@ -45,11 +44,6 @@ export interface ShareAddedNotice {
   role: Exclude<ShareRole, 'admin'>;
 }
 
-/** Names the notice for one device without naming the folder, so a newer one replaces it. */
-function shareAddedDTag(shareId: string, devicePubkey: string): string {
-  return bytesToHex(sha256(new TextEncoder().encode(`${SHARE_ADDED_LABEL}\n${shareId}\n${devicePubkey}`)));
-}
-
 /**
  * One notice per device, readable only by that device: relays and anyone
  * else see a label and the device it is for, not which folder, its name or
@@ -61,37 +55,20 @@ export function buildShareAddedNotices(
   devicePubkeys: string[],
   createdAt: number,
 ): Event[] {
-  return [...new Set(devicePubkeys)].map((devicePubkey) => finalizeEvent({
-    kind: KIND_DRIVE_ROOT,
-    created_at: createdAt,
-    content: nip44.encrypt(JSON.stringify(notice), nip44.getConversationKey(signerSecretKey, devicePubkey)),
-    tags: [
-      ['d', shareAddedDTag(notice.share_id, devicePubkey)],
-      ['l', SHARE_ADDED_LABEL],
-      ['p', devicePubkey],
-    ],
-  }, signerSecretKey));
+  return buildDeviceNotes(signerSecretKey, SHARE_ADDED_LABEL, [notice.share_id], notice, devicePubkeys, createdAt);
 }
 
 /** The notice, if the event is one for this device and reads as one; otherwise null. */
 export function readShareAddedNotice(event: Event, deviceSecretKey: Uint8Array): ShareAddedNotice | null {
-  const devicePubkey = getPublicKey(deviceSecretKey);
-  const tag = (name: string) => event.tags.filter(([key]) => key === name).map(([, value]) => value);
-  if (event.kind !== KIND_DRIVE_ROOT || !tag('l').includes(SHARE_ADDED_LABEL)) return null;
-  if (tag('p').length !== 1 || tag('p')[0] !== devicePubkey) return null;
-  if (event.content.length > 4096) return null;
-  try {
-    if (!verifyEvent(event)) return null;
-    const notice = JSON.parse(nip44.decrypt(event.content, nip44.getConversationKey(deviceSecretKey, event.pubkey))) as Partial<ShareAddedNotice>;
-    if (notice.v !== 1 || !UUID.test(notice.share_id ?? '') || !UUID.test(notice.owner_profile_id ?? '')
-      || (notice.role !== 'editor' && notice.role !== 'reader') || typeof notice.name !== 'string'
-      || tag('d')[0] !== shareAddedDTag(notice.share_id!, devicePubkey)) {
-      return null;
-    }
-    return { v: 1, share_id: notice.share_id!, owner_profile_id: notice.owner_profile_id!, name: notice.name.slice(0, 200), role: notice.role };
-  } catch {
+  if (event.content.length > 4096 || !verifyEvent(event)) return null;
+  const note = readDeviceNote(event, SHARE_ADDED_LABEL, deviceSecretKey);
+  const notice = (note?.payload ?? {}) as Partial<ShareAddedNotice>;
+  if (notice.v !== 1 || !UUID.test(notice.share_id ?? '') || !UUID.test(notice.owner_profile_id ?? '')
+    || (notice.role !== 'editor' && notice.role !== 'reader') || typeof notice.name !== 'string'
+    || note?.dTag !== deviceNoteDTag(SHARE_ADDED_LABEL, [notice.share_id!], getPublicKey(deviceSecretKey))) {
     return null;
   }
+  return { v: 1, share_id: notice.share_id!, owner_profile_id: notice.owner_profile_id!, name: notice.name.slice(0, 200), role: notice.role };
 }
 
 export interface ShareJoinLink {

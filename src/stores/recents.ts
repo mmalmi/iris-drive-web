@@ -102,19 +102,6 @@ export function updateRecentVisibility(path: string, visibility: TreeVisibility)
 }
 
 /**
- * Update a recent item's label by path
- */
-export function updateRecentLabel(path: string, label: string) {
-  recentsStore.update(current => {
-    const updated = current.map(item =>
-      item.path === path ? { ...item, label } : item
-    );
-    saveRecents(updated);
-    return updated;
-  });
-}
-
-/**
  * Remove a recent item by tree name (for when trees are deleted)
  */
 export function removeRecentByTreeName(npub: string, treeName: string) {
