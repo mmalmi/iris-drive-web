@@ -18,6 +18,17 @@
   let saveStatus = $derived(drive.saveStatus);
   let noun = $derived(drive.kind.noun);
 
+  let online = $state(typeof navigator === 'undefined' || navigator.onLine);
+  $effect(() => {
+    const update = () => { online = navigator.onLine; };
+    window.addEventListener('online', update);
+    window.addEventListener('offline', update);
+    return () => {
+      window.removeEventListener('online', update);
+      window.removeEventListener('offline', update);
+    };
+  });
+
   // The title is renamed where it is shown: click, type, Enter.
   let renaming = $state(false);
   let titleField: HTMLInputElement | undefined = $state();
@@ -87,7 +98,10 @@
   <div class="ml-auto flex items-center gap-1 shrink-0">
     <!-- Saving happens on its own; only its outcome is worth a glance. -->
     <span class="text-xs text-text-3 flex items-center gap-1 mr-1" role="status" data-testid="document-save-status" data-state={saveStatus}>
-      {#if saveStatus === 'saving' || saveStatus === 'unsaved' || saveStatus === 'saved'}
+      {#if !online && saveStatus !== 'error' && saveStatus !== 'other-tab'}
+        <!-- Edits are still stored here; only sending them waits for the network. -->
+        <span class="flex items-center gap-1" title="Changes are kept on this device until the network is back"><span class="i-lucide-cloud-off text-base"></span><span class="hidden sm:inline">Offline</span></span>
+      {:else if saveStatus === 'saving' || saveStatus === 'unsaved' || saveStatus === 'saved'}
         <span class="i-lucide-cloud-check text-base" title={saveStatus === 'saved' ? 'Saved' : 'Saving'}></span>
       {:else if saveStatus === 'error'}
         <span class="text-danger flex items-center gap-1"><span class="i-lucide-triangle-alert"></span>Not saved, retrying</span>

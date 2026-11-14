@@ -197,4 +197,25 @@ test.describe('writing a document', () => {
     await expect(documentBody(page)).toContainText('The week');
     await expectSaved(page);
   });
+
+  test('the header says when the network is gone, and what was written meanwhile is kept', async ({ page, context, relayUrl }) => {
+    await prepareFreshSession(page, relayUrl);
+    await createDriveProfile(page);
+    await createDocument(page, 'Away');
+    await typeInDocument(page, 'Written online.');
+    await expectSaved(page);
+    const status = page.getByTestId('document-save-status');
+    await expect(status).not.toContainText('Offline');
+
+    await context.setOffline(true);
+    await expect(status).toContainText('Offline');
+    await typeInDocument(page, ' Written offline.');
+    await expectSaved(page);
+    await expect(status).toContainText('Offline');
+
+    await context.setOffline(false);
+    await expect(status).not.toContainText('Offline');
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await expect(documentBody(page)).toContainText('Written online. Written offline.', { timeout: 60_000 });
+  });
 });
