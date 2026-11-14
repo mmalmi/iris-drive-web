@@ -33,6 +33,7 @@
   import { acceptedShares } from '../drive/shareLibrary';
   import { activeNostrIdentityRootScope } from '../drive/profileRoute';
   import { sharePeopleTarget } from '../drive/sharePeople';
+  import { linkTargetAt } from '../drive/linkShares';
   import { createDriveShareLinkVariants, entryCopyHref } from '../lib/shareUrls';
   import { documentKindInfo, documentTitle } from '../lib/documentNames';
   import { downloadFile, downloadFolderZip } from '../lib/downloadEntry';
@@ -66,14 +67,17 @@
       routeScope: route.npub,
       isPermalink: route.isPermalink,
     });
-    const people = isDir && canEdit && !route.isPermalink ? sharePeopleTarget({
+    const where = {
       scope: route.npub,
       treeName: route.treeName,
       path: [...path, entry.name],
       profileId: activeNostrIdentityRootScope($nostrStore),
       records: $acceptedShares,
-    }) : null;
-    if (primary) openShareModal(primary.url, secondary?.url ?? null, people);
+    };
+    const people = isDir && canEdit && !route.isPermalink ? sharePeopleTarget(where) : null;
+    // A single file is not shared with people, but it can open by link.
+    const general = !isDir && !route.isPermalink ? linkTargetAt(where) : null;
+    if (primary) openShareModal(primary.url, secondary?.url ?? null, people, true, general);
   }
 
   async function download() {

@@ -1,8 +1,9 @@
 /**
  * Publishing what linkShares.ts records: turning a link on or off, keeping
  * the published version current while Drive is open, and telling the
- * account's other devices. Nothing here waits for a relay: publishing is
- * signed here and handed to the worker, which sends it when it can.
+ * account's other devices and the people a folder is shared with. Nothing
+ * here waits for a relay: publishing is signed here and handed to the worker,
+ * which sends it when it can.
  */
 import { get } from 'svelte/store';
 import { fromHex, LinkType, toHex, type CID } from '@hashtree/core';
@@ -15,17 +16,23 @@ import { isDocumentFolderName } from '../lib/documentNames';
 import { getTree } from '../store';
 import { getTreeRootSync, subscribeToTreeRoot } from '../stores/treeRoot';
 import { getWorkerAdapter } from '../workerAdapter';
-import { projectNostrIdentityRoster } from './protocol';
+import { projectNostrIdentityRoster, sharedFolderKeyRecipientPubkeys } from './protocol';
+import { acceptedShares } from './shareLibrary';
 import {
   buildLinkShareNotes,
+  buildShareLinkNotes,
   LINK_SHARE_LABEL,
   linkShareOf,
   linkShares,
+  linkSource,
   linkTreeName,
   mergeLinkShares,
   readLinkShareNote,
+  readShareLinkNote,
+  SHARE_LINK_LABEL,
   type LinkAccess,
   type LinkShare,
+  type LinkSubject,
 } from './linkShares';
 import { KIND_DRIVE_ROOT } from './protocolTypes';
 
@@ -33,6 +40,8 @@ const DRIVE_ID = 'main';
 /** Edits come in bursts; each link is published at most this often. */
 const REPUBLISH_DELAY_MS = 1500;
 const RETIRED_KEY = 'iris-drive.link-shares.retired';
+/** Notes from a shared folder this device has not taken in yet, kept until it has. */
+const MAX_WAITING_NOTES = 50;
 
 function account() {
   const session = getCurrentNostrIdentitySession();
@@ -45,17 +54,39 @@ function account() {
     .map((facet) => facet.pubkey));
   return { profile: session.profileId, npub, pubkey, secretKey, devices };
 }
+type Account = NonNullable<ReturnType<typeof account>>;
 
-/** What the link opens: the item itself, or for a document a folder holding just it, so it opens as a document. */
-async function publishedCid(profile: string, path: string): Promise<CID | null> {
-  const root = getTreeRootSync(profile, DRIVE_ID);
-  if (!root) return null;
+/**
+ * What the link opens: a folder itself, and a document or a single file in a
+ * folder holding just it, so the link opens it as itself.
+ */
+async function contentAt(root: CID, path: string[]): Promise<{ cid: CID; file: boolean } | null> {
+  const name = path.at(-1);
+  if (!name) return { cid: root, file: false };
   const tree = getTree();
   const entry = await tree.resolvePath(root, path);
-  if (!entry || entry.type !== LinkType.Dir) return null;
-  const name = path.split('/').at(-1)!;
-  if (!isDocumentFolderName(name)) return entry.cid;
-  return (await tree.putDirectory([{ name, cid: entry.cid, size: 0, type: LinkType.Dir }])).cid;
+  if (!entry) return null;
+  if (entry.type === LinkType.Dir) {
+    if (!isDocumentFolderName(name)) return { cid: entry.cid, file: false };
+    return { cid: (await tree.putDirectory([{ name, cid: entry.cid, size: 0, type: LinkType.Dir }])).cid, file: false };
+  }
+  const parent = path.length > 1 ? await tree.resolvePath(root, path.slice(0, -1)) : { cid: root };
+  const listed = parent ? (await tree.listDirectory(parent.cid)).find((item) => item.name === name) : undefined;
+  const { cid } = await tree.putDirectory([{
+    name,
+    cid: entry.cid,
+    size: listed?.size ?? 0,
+    type: entry.type,
+    ...(listed?.meta ? { meta: listed.meta } : {}),
+  }]);
+  return { cid, file: true };
+}
+
+/** The newest version of a link's item: from the shared folder it is in, or from My Drive. */
+async function publishedContent(record: Pick<LinkShare, 'profile' | 'path' | 'share'>): Promise<{ cid: CID; file: boolean } | null> {
+  const source = linkSource(record, get(acceptedShares));
+  const root = getTreeRootSync(source.scope, DRIVE_ID);
+  return root ? contentAt(root, source.path) : null;
 }
 
 const published = new Map<string, string>();
@@ -98,25 +129,49 @@ async function unpublish(record: LinkShare): Promise<void> {
   }
 }
 
+function send(notes: Event[]): void {
+  for (const note of notes) void publishEvent(note).catch((error) => console.warn('[links] Could not send a note:', error));
+}
+
+/**
+ * The shared folder a link's item is in and the devices of the people in it,
+ * other than this account's; null when it is not in one.
+ */
+function membersOf(record: LinkShare, me: Account): { share: string; inner: string[]; devices: string[] } | null {
+  const shares = get(acceptedShares);
+  const source = linkSource(record, shares);
+  const share = shares.find((item) => item.share_id === source.scope && item.local_profile_id === me.profile);
+  if (!share) return null;
+  const devices = sharedFolderKeyRecipientPubkeys(share.folder).filter((pubkey) => !me.devices.has(pubkey));
+  return { share: share.share_id, inner: source.path, devices };
+}
+
+/** Tells the people a link's item is shared with whether it opens by link; only the device that publishes it does. */
+function tellMembers(record: LinkShare, me: Account): void {
+  const members = record.npub === me.npub ? membersOf(record, me) : null;
+  if (!members || members.devices.length === 0) return;
+  send(buildShareLinkNotes(me.secretKey, record, members, members.devices, Math.floor(Date.now() / 1000)));
+}
+
 function tell(record: LinkShare): void {
   const me = account();
   if (!me) return;
   const others = [...me.devices].filter((pubkey) => pubkey !== me.pubkey);
-  if (others.length === 0) return;
-  for (const note of buildLinkShareNotes(me.secretKey, record, others, Math.floor(Date.now() / 1000))) {
-    void publishEvent(note).catch((error) => console.warn('[links] Could not tell another device:', error));
-  }
+  if (others.length > 0) send(buildLinkShareNotes(me.secretKey, record, others, Math.floor(Date.now() / 1000)));
+  tellMembers(record, me);
 }
 
 /**
- * Sets who can open the item at `path` of My Drive by its link. Turning it on
- * publishes the item now; the same link opens it from then on.
+ * Sets who can open an item by its link (see linkSubjectAt). Turning it on
+ * publishes the item now; the same link opens it from then on. `name` names
+ * the link of a whole shared folder.
  */
-export async function setLinkAccess(path: string[], access: LinkAccess | 'off'): Promise<LinkShare | null> {
+export async function setLinkAccess(subject: LinkSubject, access: LinkAccess | 'off', name?: string): Promise<LinkShare | null> {
   const me = account();
   if (!me) throw new Error('Sign in to share by link');
   const records = get(linkShares);
-  const current = linkShareOf(path, me.profile, records);
+  // Another account's admin keeps their own link to a shared folder; this account changes its own.
+  const current = linkShareOf(subject.path, me.profile, records.filter((record) => record.profile === me.profile), subject.share);
   if (access === 'off') {
     if (!current || current.access === 'off') return current;
     const record: LinkShare = { ...current, access: 'off', at: Date.now() };
@@ -127,18 +182,22 @@ export async function setLinkAccess(path: string[], access: LinkAccess | 'off'):
   }
   // A link this device made before comes back the same; another device's link stays that device's to keep current.
   const mine = current?.npub === me.npub ? current : null;
-  const cid = await publishedCid(me.profile, path.join('/'));
-  if (!cid) throw new Error('This is not in My Drive any more');
+  const item = { profile: me.profile, path: subject.path.join('/'), ...(subject.share ? { share: subject.share } : {}) };
+  const content = await publishedContent(item);
+  if (!content) {
+    const inShare = linkSource(item, get(acceptedShares)).scope !== me.profile;
+    throw new Error(inShare ? 'This is not in the shared folder any more' : 'This is not in My Drive any more');
+  }
   const draft: LinkShare = {
-    profile: me.profile,
-    path: path.join('/'),
+    ...item,
+    ...(content.file ? { file: true } : {}),
     npub: me.npub,
-    tree: mine?.tree ?? linkTreeName(path, me.npub, records),
+    tree: mine?.tree ?? linkTreeName(subject, me.npub, records, name),
     key: access === 'link' ? (mine?.key ?? '') : '',
     access,
     at: Date.now(),
   };
-  const record: LinkShare = { ...draft, key: await publish(draft, cid) };
+  const record: LinkShare = { ...draft, key: await publish(draft, content.cid) };
   linkShares.update((items) => mergeLinkShares(items, [record]));
   tell(record);
   return record;
@@ -154,7 +213,7 @@ export function followLinkShares(from: string[], to: string[] | null): void {
   const at = from.join('/');
   const now = Date.now();
   const moved = get(linkShares)
-    .filter((record) => record.profile === me.profile && record.access !== 'off'
+    .filter((record) => record.profile === me.profile && !record.share && record.access !== 'off'
       && (record.path === at || record.path.startsWith(`${at}/`)))
     .map((record): LinkShare => (to
       ? { ...record, path: to.join('/') + record.path.slice(at.length), at: now }
@@ -169,16 +228,18 @@ export function followLinkShares(from: string[], to: string[] | null): void {
 
 /**
  * While Drive is open: publish each new version of the items this device
- * shares by link, unpublish the ones turned off on another device, and take
- * in what the account's other devices say.
+ * shares by link, from My Drive or from the shared folder they are in,
+ * whoever changed them; unpublish the ones turned off on another device; and
+ * take in what the account's other devices and shared folders' admins say.
  */
 export function watchLinkShares(): () => void {
   let timer: ReturnType<typeof setTimeout> | null = null;
-  let stopRoot: (() => void) | null = null;
-  let watchedRoot = '';
+  const roots = new Map<string, () => void>();
   let stopNotes: (() => void) | null = null;
   let notesFor = '';
   let toldOthers = '';
+  const toldMembers = new Map<string, string>();
+  let waiting: Event[] = [];
 
   const republish = async () => {
     timer = null;
@@ -192,9 +253,9 @@ export function watchLinkShares(): () => void {
         continue;
       }
       try {
-        const cid = await publishedCid(me.profile, record.path);
-        if (!cid || published.get(record.tree) === `${record.access}:${toHex(cid.hash)}`) continue;
-        await publish(record, cid);
+        const content = await publishedContent(record);
+        if (!content || published.get(record.tree) === `${record.access}:${toHex(content.cid.hash)}`) continue;
+        await publish(record, content.cid);
       } catch (error) {
         console.warn('[links] Could not publish a new version:', error);
       }
@@ -204,47 +265,89 @@ export function watchLinkShares(): () => void {
     if (!timer) timer = setTimeout(() => void republish(), REPUBLISH_DELAY_MS);
   };
 
+  /** A note this device can read: from its own account, or from an admin of a shared folder it is in. */
+  const takeIn = (event: Event): boolean => {
+    const me = account();
+    if (!me) return true;
+    const own = readLinkShareNote(event, me.secretKey, { profile: me.profile, devices: me.devices });
+    const record = own ?? readShareLinkNote(event, me.secretKey, me.profile, get(acceptedShares));
+    if (record) {
+      // Only news is stored: storing wakes refresh, which reads waiting notes again.
+      const items = get(linkShares);
+      const merged = mergeLinkShares(items, [record]);
+      if (merged !== items) linkShares.set(merged);
+    }
+    return !!record || event.tags.some(([name, value]) => name === 'l' && value === LINK_SHARE_LABEL);
+  };
+
   const refresh = (recordsChanged: boolean) => {
     const me = account();
     const records = get(linkShares);
-    // Keep the Drive root watched while this device publishes a link.
-    const rootFor = me && records.some((record) => record.profile === me.profile && record.npub === me.npub) ? me.profile : '';
-    if (rootFor !== watchedRoot) {
-      stopRoot?.();
-      stopRoot = rootFor ? subscribeToTreeRoot(rootFor, DRIVE_ID, soon) : null;
-      watchedRoot = rootFor;
+    const shares = get(acceptedShares);
+    const mine = me ? records.filter((record) => record.profile === me.profile && record.npub === me.npub) : [];
+
+    // Watch where the items this device publishes are: My Drive, and each shared folder one of them is in now.
+    const scopes = new Set<string>();
+    if (me && mine.length > 0) scopes.add(me.profile);
+    for (const record of mine) if (record.access !== 'off') scopes.add(linkSource(record, shares).scope);
+    for (const [scope, stop] of roots) {
+      if (!scopes.has(scope)) {
+        stop();
+        roots.delete(scope);
+      }
     }
-    if (rootFor && recordsChanged) soon();
+    for (const scope of scopes) if (!roots.has(scope)) roots.set(scope, subscribeToTreeRoot(scope, DRIVE_ID, soon));
+    if (mine.length > 0 && recordsChanged) soon();
 
     const notesKey = me ? `${me.profile}:${me.pubkey}` : '';
     if (notesKey !== notesFor) {
       stopNotes?.();
       stopNotes = null;
       notesFor = notesKey;
+      waiting = [];
       if (me) {
-        const sub = nostr.subscribe({ kinds: [KIND_DRIVE_ROOT], '#l': [LINK_SHARE_LABEL], '#p': [me.pubkey] }, { closeAfterHistory: false });
+        const sub = nostr.subscribe(
+          { kinds: [KIND_DRIVE_ROOT], '#l': [LINK_SHARE_LABEL, SHARE_LINK_LABEL], '#p': [me.pubkey] },
+          { closeAfterHistory: false },
+        );
         sub.on('event', (event: Event) => {
-          const now = account();
-          const record = now && readLinkShareNote(event, now.secretKey, { profile: now.profile, devices: now.devices });
-          if (record) linkShares.update((items) => mergeLinkShares(items, [record]));
+          // One about a shared folder this device has not taken in yet is read again once it has.
+          if (!takeIn(event)) waiting = [...waiting, event].slice(-MAX_WAITING_NOTES);
         });
         stopNotes = () => sub.stop();
       }
     }
+    if (waiting.length > 0) {
+      const pending = waiting;
+      waiting = [];
+      waiting = [...waiting, ...pending.filter((event) => !takeIn(event))];
+    }
+
+    if (!me) return;
     // A device added since a link was made learns of it the next time this one opens Drive.
-    const devicesKey = me ? `${notesKey}:${[...me.devices].sort().join(',')}` : '';
-    if (me && devicesKey !== toldOthers) {
+    const devicesKey = `${notesKey}:${[...me.devices].sort().join(',')}`;
+    if (devicesKey !== toldOthers) {
       toldOthers = devicesKey;
       for (const record of records) if (record.profile === me.profile && record.npub === me.npub) tell(record);
+      for (const record of mine) toldMembers.set(record.tree, `${record.at}:${membersOf(record, me)?.devices.join(',') ?? ''}`);
+    }
+    // So do people who join a shared folder, and those of a folder shared after its link was made.
+    for (const record of mine) {
+      const told = `${record.at}:${membersOf(record, me)?.devices.join(',') ?? ''}`;
+      if (toldMembers.get(record.tree) === told) continue;
+      toldMembers.set(record.tree, told);
+      tellMembers(record, me);
     }
   };
 
   const stopRecords = linkShares.subscribe(() => refresh(true));
+  const stopShares = acceptedShares.subscribe(() => refresh(true));
   const stopSession = nostrStore.subscribe(() => refresh(false));
   return () => {
     stopRecords();
+    stopShares();
     stopSession();
-    stopRoot?.();
+    for (const stop of roots.values()) stop();
     stopNotes?.();
     if (timer) clearTimeout(timer);
   };
