@@ -54,12 +54,24 @@ function graphSyncOnDemandPlugin(): Plugin {
   };
 }
 
+/**
+ * The build's time goes in the page, which is fetched fresh, not in the code:
+ * a value that changes every build would rename every file and send them all
+ * again to returning devices.
+ */
+function buildTimeMetaPlugin(): Plugin {
+  const time = new Date().toISOString();
+  return {
+    name: 'build-time-meta',
+    apply: 'build',
+    transformIndexHtml: () => [{ tag: 'meta', attrs: { name: 'build-time', content: time }, injectTo: 'head' }],
+  };
+}
+
 export default defineConfig({
   base: getFilesBase(),
-  define: {
-    'import.meta.env.VITE_BUILD_TIME': JSON.stringify(new Date().toISOString()),
-  },
   plugins: [
+    buildTimeMetaPlugin(),
     UnoCSS(),
     svelte(),
     graphSyncOnDemandPlugin(),

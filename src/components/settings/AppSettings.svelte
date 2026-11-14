@@ -134,8 +134,8 @@
         <span class="text-muted">Build</span>
         <span class="text-text-1 font-mono text-xs">
           {(() => {
-            const buildTime = import.meta.env.VITE_BUILD_TIME;
-            if (!buildTime || buildTime === 'undefined') return 'development';
+            const buildTime = document.querySelector('meta[name="build-time"]')?.getAttribute('content');
+            if (!buildTime) return 'development';
             try {
               return new Date(buildTime).toLocaleString();
             } catch {
