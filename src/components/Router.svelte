@@ -20,6 +20,7 @@
     | 'shareJoin'
     | 'shareInvite'
     | 'recent'
+    | 'photos'
     | 'sharedWithMe'
     | 'settings'
     | 'users'
@@ -41,6 +42,7 @@
     { pattern: '/share-invite/:payload', id: 'shareInvite' },
     { pattern: '/share-join/:payload', id: 'shareJoin' },
     { pattern: '/recent', id: 'recent' },
+    { pattern: '/photos', id: 'photos' },
     { pattern: '/shared-with-me', id: 'sharedWithMe' },
     { pattern: '/settings', id: 'settings' },
     { pattern: '/settings/*', id: 'settings' },
@@ -108,6 +110,10 @@
   {:else if route.id === 'recent'}
     {#await import('../routes/RecentRoute.svelte') then { default: RecentRoute }}
       <RecentRoute />
+    {/await}
+  {:else if route.id === 'photos'}
+    {#await import('../routes/PhotosRoute.svelte') then { default: PhotosRoute }}
+      <PhotosRoute />
     {/await}
   {:else if route.id === 'sharedWithMe'}
     {#await import('../routes/SharedWithMeRoute.svelte') then { default: SharedWithMeRoute }}

@@ -10,7 +10,7 @@ import type { CID } from '@hashtree/core';
 import { getTree } from '../store';
 import { autosaveIfOwn, saveHashtree, saveOwnTreeRoot, nostrStore } from '../nostr';
 import { navigate } from '../utils/navigate';
-import { parseRoute } from '../utils/route';
+import { parseRoute, parseRouteFromHash } from '../utils/route';
 import { getCurrentPathFromUrl } from '../actions/route';
 import { markFilesChanged, revealFile } from './recentlyChanged';
 import { open as openExtractModal } from '../components/Modals/ExtractModal.svelte';
@@ -103,6 +103,8 @@ function beginUpload(mayWriteAtStart: () => boolean) {
 /** Where an upload goes: the open folder unless `dirPath` names another one, such as a folder dropped onto. */
 export interface UploadTarget {
   dirPath?: string[];
+  /** A Drive or shared folder to upload into from a page that is not one, such as Photos; `dirPath` is then from its top. */
+  drive?: { scope: string; treeName: string };
   /** The caller says what was added, as pasting does. */
   quiet?: boolean;
 }
@@ -117,8 +119,10 @@ interface UploadOrigin {
 }
 
 function uploadOrigin(target: UploadTarget): UploadOrigin {
-  const route = parseRoute();
-  const dirPath = target.dirPath ?? getCurrentPathFromUrl();
+  const route = target.drive
+    ? parseRouteFromHash(`#/${encodeURIComponent(target.drive.scope)}/${encodeURIComponent(target.drive.treeName)}`)
+    : parseRoute();
+  const dirPath = target.dirPath ?? (target.drive ? [] : getCurrentPathFromUrl());
   // A Drive or shared folder is saved by its own address, so an upload into it
   // goes on while its person opens the folder, another one or another page.
   if (route.treeName && isEditableDriveRouteScope(route.npub, nostrStore.getState())) {

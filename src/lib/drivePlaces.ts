@@ -18,6 +18,7 @@ export function drivePlaces(currentPath: string, homeHref: string, records: Acce
   // A folder shared with this profile; one it shared itself stays under My Drive.
   const inShared = records.some((record) => record.share_id === scope && !isOwnShare(record));
   const recent = currentPath === '/recent';
+  const photos = currentPath === '/photos';
   const shared = inShared || currentPath === '/shared-with-me';
   // A Drive or shared folder this account holds no record of is no place of its own: "You need access".
   const homeScope = homeHref.replace(/^#?\//, '').split('/')[0];
@@ -29,9 +30,10 @@ export function drivePlaces(currentPath: string, homeHref: string, records: Acce
       label: 'My Drive',
       short: 'My Drive',
       icon: 'i-lucide-hard-drive',
-      active: !recent && !shared && !unknown && !currentPath.startsWith('/settings'),
+      active: !recent && !photos && !shared && !unknown && !currentPath.startsWith('/settings'),
     },
     { href: '#/recent', label: 'Recent', short: 'Recent', icon: 'i-lucide-clock-3', active: recent },
+    { href: '#/photos', label: 'Photos', short: 'Photos', icon: 'i-lucide-image', active: photos },
     { href: '#/shared-with-me', label: 'Shared with me', short: 'Shared', icon: 'i-lucide-users', active: shared },
   ];
 }
