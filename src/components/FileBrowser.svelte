@@ -10,10 +10,8 @@
   import SelectionBar, { deleteChosen } from './SelectionBar.svelte';
   import ListSortHeader from './ListSortHeader.svelte';
   import { loadGridView } from './FolderViewSwitch.svelte';
-  import PhotoImage from './PhotoImage.svelte';
-  import { isPhotoName, isVideoName } from '../lib/photos';
-  import { ensureMediaStreamingReady } from '../lib/mediaStreamingSetup';
-  import RowDetails from './RowDetails.svelte';
+  import FolderEntries, { verticalGridIndex } from './FolderEntries.svelte';
+  import FileEntryLabel from './FileEntryLabel.svelte';
   import SelectionRectangle from './SelectionRectangle.svelte';
   import { ListSelection } from '../lib/listSelection.svelte';
   import { loadSort, sortEntries, type ListSort } from '../lib/fileListSort';
@@ -30,7 +28,6 @@
   import EntryMenu, { type EntryMenuRequest } from './EntryMenu.svelte';
   import { longPress } from '../lib/longPress';
   import VisibilityIcon from './VisibilityIcon.svelte';
-  import AccessBadge from './AccessBadge.svelte';
   import { itemAccess } from '../drive/itemAccess';
   import { linkShares } from '../drive/linkShares';
   import ProtectedTreeNotice from './ProtectedTreeNotice.svelte';
@@ -144,11 +141,6 @@
   let sort = $state<ListSort>(loadSort());
   let grid = $state(loadGridView());
   let showGrid = $derived(grid && !compact);
-  let mediaReady = $state(false);
-  const saveData = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection?.saveData === true;
-  $effect(() => {
-    if (showGrid && !saveData) void ensureMediaStreamingReady().then((ok) => { mediaReady = ok; });
-  });
   let entries = $derived(sortEntries(dirEntries.entries, sort));
   let resolvingPath = $derived($resolvingPathStore);
   // Treat the store as still loading until its loadedHashKey matches the
@@ -542,23 +534,6 @@
     queueMicrotask(() => rowElement(name)?.scrollIntoView({ block: 'nearest' }));
   });
 
-  /** Folders can end on a short row. Go to the nearest column of the row above or below. */
-  function verticalGridIndex(index: number, down: boolean): number {
-    const cells = Array.from(fileListRef?.querySelectorAll<HTMLElement>('[data-entry-name]') ?? []);
-    const from = cells[index];
-    if (!from) return down ? 0 : cells.length - 1;
-    const rows = [...new Set(cells.map((cell) => cell.offsetTop))];
-    const targetTop = rows[(rows.indexOf(from.offsetTop) + (down ? 1 : rows.length - 1)) % rows.length];
-    let nearest = index;
-    let distance = Infinity;
-    cells.forEach((cell, i) => {
-      if (cell.offsetTop !== targetTop) return;
-      const delta = Math.abs(cell.offsetLeft - from.offsetLeft);
-      if (delta < distance) { distance = delta; nearest = i; }
-    });
-    return nearest;
-  }
-
   function handleKeyDown(e: KeyboardEvent) {
     const key = e.key.toLowerCase();
     // A row's checkbox takes its own keys.
@@ -638,7 +613,7 @@
     let newIndex: number;
 
     if (showGrid && ['arrowdown', 'arrowup', 'j', 'k'].includes(key)) {
-      newIndex = verticalGridIndex(currentIndex, key === 'arrowdown' || key === 'j');
+      newIndex = verticalGridIndex(fileListRef, currentIndex, key === 'arrowdown' || key === 'j');
     } else if (key === 'arrowdown' || key === 'arrowright' || key === 'j' || key === 'l') {
       newIndex = currentIndex < navItemCount - 1 ? currentIndex + 1 : 0;
     } else {
@@ -785,10 +760,12 @@
         {:else if entries.length === 0}
           <EmptyFolder {canEdit} draggingOver={isDraggingOver} />
         {:else}
-          <div class:tile-grid={showGrid}>
+          <FolderEntries grid={showGrid}>
+          {#snippet children(mediaReady)}
           {#each entries as entry, idx (entry.name)}
             {@const documentInfo = entry.type === LinkType.Dir ? documentKindInfo(entry.name) : null}
             {@const isDocument = !!documentInfo}
+            {@const title = isDocument ? documentTitle(entry.name) : entry.name}
             {@const isFolder = entry.type === LinkType.Dir && !isDocument}
             {@const icon = documentInfo ? documentInfo.icon : isFolder ? 'i-lucide-folder text-warning' : fileIcon(entry.name)}
             {@const entryAccess = accessAt([...currentPath, entry.name])}
@@ -812,7 +789,7 @@
                 class="absolute top-1/2 -translate-y-1/2 z-1 m-0 w-4 h-4 accent-accent cursor-pointer {showDirectoryNavigationRows ? 'left-9.5' : 'left-3.5 lg:left-5.5'} {selecting ? '' : 'opacity-0 pointer-events-none sm:group-hover:opacity-100 sm:group-hover:pointer-events-auto'}"
                 {checked}
                 tabindex="-1"
-                aria-label="Select {isDocument ? documentTitle(entry.name) : entry.name}"
+                aria-label="Select {title}"
                 onclick={(e) => handleRowClick(e, entry, true)}
               />
               <a
@@ -827,39 +804,14 @@
                 use:longPress={() => selection.add(entry.name)}
                 data-testid={isDocument ? 'document-entry' : undefined}
               >
-                <span class="shrink-0 {icon} {selecting ? 'invisible' : 'sm:group-hover:invisible'}"></span>
-                <span class="min-w-0 flex-1 flex flex-col">
-                  <span class="min-w-0 flex items-center gap-3">
-                    <span class="truncate min-w-0" title={entry.name}>{isDocument ? documentTitle(entry.name) : entry.name}</span>
-                    <!-- Marked where sharing starts; inside a shared folder the heading says it once. -->
-                    {#if entryAccess && entryAccess.kind !== 'private' && entryAccess.kind !== currentAccess?.kind}
-                      <AccessBadge access={entryAccess} class="text-text-3 text-sm" />
-                    {/if}
-                  </span>
-                  {#if showGrid}
-                    <span class="sr-only"><RowDetails {entry} part="line" compact id={detailsId} /></span>
-                  {:else}
-                    <RowDetails {entry} part="line" {compact} id={detailsId} />
-                  {/if}
-                </span>
-                {#if showGrid && !isFolder}
-                  <span class="tile-preview" aria-hidden="true">
-                    <span class="{icon} text-4xl text-text-3"></span>
-                    {#if entry.type !== LinkType.Dir && isPhotoName(entry.name) && !saveData}
-                      {#key toHex(entry.cid.hash)}
-                        <PhotoImage photo={{ cid: entry.cid, name: entry.name, hash: toHex(entry.cid.hash), video: isVideoName(entry.name) }} ready={mediaReady} />
-                      {/key}
-                    {/if}
-                  </span>
-                {:else if !showGrid}
-                  <RowDetails {entry} part="columns" {compact} />
-                {/if}
+                <FileEntryLabel {entry} {title} {icon} {isFolder} {selecting} {detailsId} {compact} {mediaReady} grid={showGrid}
+                  access={entryAccess?.kind !== 'private' && entryAccess?.kind !== currentAccess?.kind ? entryAccess : null} />
               </a>
               <button
                 type="button"
                 class="btn-circle shrink-0 mr-1.5 {showDirectoryNavigationRows ? '' : 'lg:mr-3'} b-0 bg-transparent cursor-pointer text-text-3 hover:text-text-1 hover:bg-surface-3 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 {menuOpen ? 'sm:opacity-100 bg-surface-3' : ''}"
                 title="More actions"
-                aria-label="More actions for {isDocument ? documentTitle(entry.name) : entry.name}"
+                aria-label="More actions for {title}"
                 aria-haspopup="menu"
                 aria-expanded={menuOpen}
                 tabindex="-1"
@@ -870,7 +822,8 @@
               </button>
             </div>
           {/each}
-          </div>
+          {/snippet}
+          </FolderEntries>
         {/if}
       {/if}
     </div>
@@ -880,40 +833,3 @@
   {/if}
   <div class="sr-only" role="status">{selecting ? `${selectionEntries.length} selected` : ''}</div>
 </div>
-
-<style>
-  .tile-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(min(100%, 11.5rem), 1fr));
-    gap: 0.75rem;
-    align-items: start;
-    padding: 0.75rem;
-  }
-  .tile-grid > .folder-tile + :not(.folder-tile) { grid-column-start: 1; }
-  .tile-grid > div { min-width: 0; }
-  .tile-grid > div > a {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr);
-    width: 100%;
-    min-height: 2.75rem;
-    padding: 0.625rem;
-    gap: 0.55rem;
-  }
-  .tile-grid > div > a > span:nth-child(2) { padding-inline-end: 1.75rem; }
-  .tile-grid > div > input { top: 1.375rem; left: 0.625rem; }
-  .tile-grid > div > button { position: absolute; top: 0.375rem; right: 0.25rem; margin: 0; opacity: 1; }
-  .tile-preview {
-    grid-column: 1 / -1;
-    position: relative;
-    aspect-ratio: 1.65;
-    overflow: hidden;
-    border-radius: 0.375rem;
-    display: grid;
-    place-items: center;
-    background: rgb(var(--surface-2));
-    pointer-events: none;
-  }
-  @media (max-width: 639px) {
-    .tile-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5rem; padding: 0.5rem; }
-  }
-</style>

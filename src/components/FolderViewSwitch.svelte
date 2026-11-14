@@ -14,7 +14,7 @@
 </script>
 
 <div class="inline-flex shrink-0 rounded-full border border-surface-3 p-0.5" role="group" aria-label="Folder view">
-  {#each [false, true] as value}
+  {#each [false, true] as value (value)}
     <button
       type="button"
       class="w-9 h-7 flex items-center justify-center rounded-full b-0 cursor-pointer {value === grid ? 'bg-accent/15 text-accent' : 'bg-transparent text-text-3 hover:bg-surface-2 hover:text-text-1'}"
