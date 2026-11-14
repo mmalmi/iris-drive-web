@@ -136,9 +136,9 @@
 
   function formatRelayRole(url: string): string {
     if (nativeDaemonRelayUrl && url === nativeDaemonRelayUrl) {
-      return 'Embedded daemon transport relay';
+      return 'Relay in the Iris app on this device';
     }
-    return 'Direct transport relay';
+    return 'Relay';
   }
 
 </script>
@@ -156,8 +156,8 @@
     </div>
     <p class="text-xs text-text-3 mb-3">
       {usesEmbeddedDaemonRelay
-        ? 'Connected through the local daemon relay; expand upstream relays to edit the daemon relay list'
-        : 'Nostr servers for peer discovery and data sync'}
+        ? 'Connected through the Iris app on this device, which uses the relays below'
+        : 'Servers that carry messages between your devices and the people you share with'}
     </p>
     {#if usesEmbeddedDaemonRelay}
       <div class="bg-surface-2 rounded divide-y divide-surface-3">
@@ -173,7 +173,7 @@
             </div>
           {/each}
         {:else}
-          <div class="p-3 text-sm text-text-3">No live relay socket</div>
+          <div class="p-3 text-sm text-text-3">Not connected</div>
         {/if}
       </div>
 
@@ -196,7 +196,7 @@
                     <span class="i-lucide-x text-sm"></span>
                   </button>
                 {:else}
-                  <span class="text-xs text-text-3">Managed by daemon</span>
+                  <span class="text-xs text-text-3">Set by the Iris app</span>
                 {/if}
               </div>
             {/each}
@@ -265,14 +265,15 @@
   <div>
     <div class="flex items-center justify-between mb-1">
       <h3 class="text-xs font-medium text-muted uppercase tracking-wide">
-        File Servers ({displayedBlossomServers.length})
+        File servers ({displayedBlossomServers.length})
       </h3>
       <button onclick={() => editingBlossom = !editingBlossom} class="btn-ghost text-xs">
         {editingBlossom ? 'Done' : 'Edit'}
       </button>
     </div>
     <p class="text-xs text-text-3 mb-3">
-      <a href="https://github.com/hzrd149/blossom" target="_blank" rel="noopener" class="text-accent hover:underline">Blossom</a> servers for file storage fallback
+      Servers that keep copies of files, so they open when your other devices are offline
+      (<a href="https://github.com/hzrd149/blossom" target="_blank" rel="noopener" class="text-accent hover:underline">Blossom</a>)
     </p>
     <div class="bg-surface-2 rounded divide-y divide-surface-3">
       {#if embeddedBlossomServer}
@@ -281,7 +282,7 @@
           <span class="i-lucide-server text-text-3 shrink-0"></span>
           <div class="min-w-0 flex-1">
             <div class="truncate text-text-1">{formatServerLabel(embeddedBlossomServer.url)}</div>
-            <div class="text-xs text-text-3">Embedded daemon fallback server</div>
+            <div class="text-xs text-text-3">File server in the Iris app on this device</div>
           </div>
           <span class="text-xs text-text-3">↑ {formatBytes(usage?.bytesSent ?? 0)} · ↓ {formatBytes(usage?.bytesReceived ?? 0)}</span>
         </div>
@@ -292,11 +293,11 @@
           <span class="text-text-1 truncate flex-1">{formatServerLabel(server.url)}</span>
           <label class="flex items-center gap-1 text-xs text-text-3 cursor-pointer">
             <input type="checkbox" checked={server.read} onchange={() => toggleBlossomRead(server.url)} class="accent-accent" />
-            read
+            Read
           </label>
           <label class="flex items-center gap-1 text-xs text-text-3 cursor-pointer">
             <input type="checkbox" checked={server.write} onchange={() => toggleBlossomWrite(server.url)} class="accent-accent" />
-            write
+            Save
           </label>
           {#if editingBlossom}
             <button onclick={() => removeBlossomServer(server.url)} class="btn-ghost p-1 text-danger" title="Remove server">
@@ -310,7 +311,7 @@
     </div>
 
     <div class="mt-3 bg-surface-2 rounded p-3">
-      <div class="text-xs text-text-3 mb-2">Session bandwidth</div>
+      <div class="text-xs text-text-3 mb-2">This session</div>
       <div class="grid grid-cols-2 gap-3 text-sm">
         <div>
           <div class="text-xs text-text-3">Upload</div>

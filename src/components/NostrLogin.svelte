@@ -102,7 +102,7 @@
           data-testid="account-menu-users"
         >
           <span class="i-lucide-users"></span>
-          <span>Users</span>
+          <span>Accounts</span>
         </button>
         <button
           class="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-text-1 hover:bg-surface-2"
@@ -130,8 +130,8 @@
   <button
     onclick={() => navigate('/')}
     class="btn-circle btn-ghost"
-    title="Set up profile"
-    aria-label="Set up profile"
+    title="Sign in"
+    aria-label="Sign in"
   >
     <span class="i-lucide-user-plus"></span>
   </button>

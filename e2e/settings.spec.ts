@@ -2,7 +2,7 @@ import { test, expect } from './fixtures';
 import { setupPageErrorHandler, configureBlossomServers, navigateToPublicFolder, disableOthersPool, waitForAppReady, getTestBlossomUrl } from './test-utils.js';
 
 test.describe('Settings page', () => {
-  test('can navigate to settings page and defaults to the app section', async ({ page }) => {
+  test('can navigate to settings page and defaults to the account section', async ({ page }) => {
     setupPageErrorHandler(page);
     await page.goto('/');
 
@@ -12,16 +12,20 @@ test.describe('Settings page', () => {
 
     await page.waitForURL(/#\/settings/, { timeout: 5000 });
 
-    await expect(page.getByTestId('settings-nav-app')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByTestId('settings-nav-account')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByTestId('settings-advanced-toggle')).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.getByRole('button', { name: 'Network' })).toHaveCount(0);
+    await page.getByTestId('settings-nav-about').click();
+    await expect(page.getByText('Refresh app')).toBeVisible({ timeout: 5000 });
+    await page.getByTestId('settings-advanced-toggle').click();
     await expect(page.getByRole('button', { name: 'Network' })).toBeVisible({ timeout: 5000 });
-    await expect(page.getByText('Refresh App')).toBeVisible({ timeout: 5000 });
   });
 
   test('app settings do not link to the retired Iris Browser', async ({ page }) => {
     setupPageErrorHandler(page);
     await page.goto('/#/settings/app');
 
-    await expect(page.getByTestId('settings-nav-app')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId('settings-nav-account')).toHaveAttribute('aria-current', 'page', { timeout: 10000 });
     await expect(page.getByTestId('settings-iris-browser-link')).toHaveCount(0);
     await expect(page.getByTestId('settings-iris-browser-repo-link')).toHaveCount(0);
     await expect(page.getByText('browser.iris.to')).toHaveCount(0);
@@ -68,9 +72,9 @@ test.describe('Settings page', () => {
     setupPageErrorHandler(page);
     await page.goto('/#/settings/network/servers');
 
-    await expect(page.getByRole('heading', { name: /File Servers/ })).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole('heading', { name: /File servers/ })).toBeVisible({ timeout: 10000 });
 
-    const blossomSection = page.locator('div').filter({ hasText: /^File Servers/ }).first();
+    const blossomSection = page.locator('div').filter({ hasText: /^File servers/ }).first();
     const editBtn = blossomSection.locator('button', { hasText: 'Edit' });
     await expect(editBtn).toBeVisible({ timeout: 5000 });
     await editBtn.click();
@@ -109,9 +113,9 @@ test.describe('Settings page', () => {
     await waitForAppReady(page);
     await configureBlossomServers(page);
 
-    await expect(page.getByRole('heading', { name: /File Servers/ })).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole('heading', { name: /File servers/ })).toBeVisible({ timeout: 10000 });
     
-    const editBtn = page.locator('h3:has-text("File Servers")').locator('..').locator('button', { hasText: 'Edit' });
+    const editBtn = page.locator('h3:has-text("File servers")').locator('..').locator('button', { hasText: 'Edit' });
     await expect(editBtn).toBeVisible({ timeout: 5000 });
     await editBtn.click();
 
@@ -136,7 +140,7 @@ test.describe('Settings page', () => {
     setupPageErrorHandler(page);
     await page.goto('/#/settings');
 
-    await expect(page.getByTestId('settings-nav-app')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId('settings-nav-account')).toBeVisible({ timeout: 10000 });
     await page.getByRole('button', { name: 'Storage' }).click();
 
     for (let i = 0; i < 5; i++) {

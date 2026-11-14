@@ -14,9 +14,9 @@
   let { embedded = false }: Props = $props();
   let usageState = $derived($transportUsageStore);
   const labels: Record<TransportKind, string> = {
-    relay: 'Relay',
-    blossom: 'Blossom',
-    webrtc: 'WebRTC',
+    relay: 'Relays',
+    blossom: 'File servers',
+    webrtc: 'Direct connections',
     bluetooth: 'Bluetooth',
   };
 
@@ -39,8 +39,8 @@
 
 <div class:root-layout={!embedded} class:embedded-layout={embedded}>
   <div>
-    <h3 class="text-xs font-medium text-muted uppercase tracking-wide mb-1">Transferred</h3>
-    <p class="text-xs text-text-3 mb-3">Persisted traffic totals on this device, grouped by transport</p>
+    <h3 class="text-xs font-medium text-muted uppercase tracking-wide mb-1">Sent and received</h3>
+    <p class="text-xs text-text-3 mb-3">Totals kept on this device, by how the data travelled</p>
 
     <div class="bg-surface-2 rounded p-3">
       <div class="grid grid-cols-2 gap-3 text-sm">
@@ -58,7 +58,7 @@
 
       <div class="mt-3 pt-3 border-t border-surface-3">
         <div class="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-x-3 gap-y-2 text-xs">
-          <div class="text-text-3 uppercase tracking-wide">Transport</div>
+          <div class="text-text-3 uppercase tracking-wide">Through</div>
           <div class="text-right text-text-3 uppercase tracking-wide">Session</div>
           <div class="text-right text-text-3 uppercase tracking-wide">All time</div>
           {#each rows as row (row.key)}

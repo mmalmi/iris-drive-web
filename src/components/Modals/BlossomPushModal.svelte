@@ -196,7 +196,7 @@
       <div class="p-4 border-b border-surface-3 flex items-center justify-between">
         <h2 class="text-lg font-semibold flex items-center gap-2">
           <span class="i-lucide-upload-cloud"></span>
-          Save to file servers
+          Keep a copy on a server
         </h2>
         {#if phase !== 'pushing'}
           <button onclick={close} class="btn-ghost p-1" title="Close">
@@ -211,8 +211,8 @@
           <!-- Confirmation -->
           <div class="mb-4">
             <p class="text-sm text-text-3">
-              Save a copy of <span class="text-text-1 font-medium">{target.name}</span>
-              {target.isDirectory ? ' and all that is in it' : ''} on your file servers?
+              Keep a copy of <span class="text-text-1 font-medium">{target.name}</span>
+              {target.isDirectory ? ' and all that is in it' : ''} on your file servers, so it opens even when your devices are offline?
             </p>
           </div>
 
@@ -240,7 +240,7 @@
 
             <div class="bg-surface-2 rounded p-3">
               <div class="text-xs text-text-3 mb-1">
-                {progress.current} / {progress.total} chunks
+                {progress.current} / {progress.total} parts
               </div>
               <div class="h-2 bg-surface-3 rounded-full overflow-hidden">
                 <div
@@ -256,10 +256,10 @@
           <div class="space-y-4">
             <div class="flex items-center gap-2">
               <span class="i-lucide-loader-2 animate-spin text-accent"></span>
-              <span class="text-sm">Re-encrypting data...</span>
+              <span class="text-sm">Encrypting…</span>
             </div>
             <p class="text-xs text-text-3">
-              This may take a while for large trees.
+              This can take a while for large folders.
             </p>
           </div>
 
@@ -279,7 +279,7 @@
                 </div>
                 <div class="bg-surface-2 rounded p-2">
                   <div class="text-lg font-semibold text-text-3">{pushResult.skipped}</div>
-                  <div class="text-xs text-text-3">Already exist</div>
+                  <div class="text-xs text-text-3">Already there</div>
                 </div>
                 <div class="bg-surface-2 rounded p-2">
                   <div class="text-lg font-semibold text-danger">{pushResult.failed}</div>
@@ -290,14 +290,14 @@
               {#if reencrypted}
                 <div class="flex items-center gap-2 text-sm text-success">
                   <span class="i-lucide-check"></span>
-                  <span>Data re-encrypted</span>
+                  <span>Encrypted</span>
                 </div>
               {/if}
 
               {#if nostrPublished}
                 <div class="flex items-center gap-2 text-sm text-success">
                   <span class="i-lucide-check"></span>
-                  <span>Published to Nostr relays</span>
+                  <span>Folder link updated</span>
                 </div>
               {/if}
 

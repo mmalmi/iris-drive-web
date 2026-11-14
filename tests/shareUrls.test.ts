@@ -22,7 +22,7 @@ describe('shareUrls', () => {
     })).toEqual([
       {
         id: 'snapshot',
-        label: 'Snapshot',
+        label: 'This version',
         url: permalinkUrl,
       },
     ]);
@@ -37,12 +37,12 @@ describe('shareUrls', () => {
     })).toEqual([
       {
         id: 'snapshot',
-        label: 'Snapshot',
+        label: 'This version',
         url: '#/nhash1revision/share.txt',
       },
       {
         id: 'latest',
-        label: 'Latest',
+        label: 'Latest version',
         url: 'https://drive.iris.to/#/npub1owner/main/share.txt',
       },
     ]);
@@ -63,12 +63,12 @@ describe('shareUrls', () => {
     expect(createShareUrlOptions('files', 'https://drive.iris.to/#/npub1owner/main/share.txt?k=abc')).toEqual([
       {
         id: 'web',
-        label: 'Web URL',
+        label: 'Web link',
         url: 'https://drive.iris.to/#/npub1owner/main/share.txt?k=abc',
       },
       {
         id: 'htree',
-        label: 'htree URL',
+        label: 'Link for other apps',
         url: 'htree://npub1xdhnr9mrv47kkrn95k6cwecearydeh8e895990n3acntwvmgk2dsdeeycm/drive#/npub1owner/main/share.txt?k=abc',
       },
     ]);
@@ -78,12 +78,12 @@ describe('shareUrls', () => {
     expect(createShareUrlOptions('files', 'http://localhost:5173/#/')).toEqual([
       {
         id: 'web',
-        label: 'Web URL',
+        label: 'Web link',
         url: 'https://drive.iris.to',
       },
       {
         id: 'htree',
-        label: 'htree URL',
+        label: 'Link for other apps',
         url: 'htree://npub1xdhnr9mrv47kkrn95k6cwecearydeh8e895990n3acntwvmgk2dsdeeycm/drive',
       },
     ]);

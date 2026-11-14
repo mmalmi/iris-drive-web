@@ -46,11 +46,11 @@ test.describe('Drive setup', () => {
       'href',
       'https://getdrive.iris.to/',
     );
-    await expect(page.getByTestId('generate-new-account')).toHaveText(/Create Profile/);
+    await expect(page.getByTestId('generate-new-account')).toHaveText(/Create account/);
     await expect(page.getByTestId('add-existing-profile')).toHaveText(/Sign in/);
     await page.getByTestId('generate-new-account').click();
     await expect(page).toHaveURL(/#\/users\/create/);
-    await expect(page.getByRole('heading', { name: 'Create Profile' })).toHaveCount(1);
+    await expect(page.getByRole('heading', { name: 'Create account' })).toHaveCount(1);
     await expect(page.getByText('This name is used for your Drive user profile.')).toHaveCount(0);
     await expect(page.getByTestId('identity-create-name')).toBeVisible();
     await expect(page.getByTestId('create-new-after-recovery-miss')).toBeEnabled();

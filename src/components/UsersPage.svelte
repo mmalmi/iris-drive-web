@@ -71,7 +71,7 @@
   let isCreateMode = $derived(mode === 'create');
   let isNoExistingMode = $derived(mode === 'no_existing');
   let isSecondaryMode = $derived(isExistingMode || isCreateMode || isNoExistingMode);
-  let headerTitle = $derived(isCreateMode || isNoExistingMode ? 'Create Profile' : isExistingMode ? 'Sign in' : 'Users');
+  let headerTitle = $derived(isCreateMode || isNoExistingMode ? 'Create account' : isExistingMode ? 'Sign in' : 'Accounts');
   let backHref = $derived(isNoExistingMode ? '/users/existing' : '/users');
   let initialRecoveryRequest = $derived<IdentityRecoveryRequest | null>(
     initialDeviceLink.trim()
@@ -187,7 +187,7 @@
       const profile = await createDriveProfile({ name });
       navigate(driveRootPath(profile.profileId));
     } catch (error) {
-      recoveryError = error instanceof Error ? error.message : 'Profile creation failed';
+      recoveryError = error instanceof Error ? error.message : 'Could not create the account';
     } finally {
       creatingProfile = false;
     }
@@ -269,7 +269,7 @@
     return {
       id: getAccountIdentityKey(account),
       name: accountDisplayName(account),
-      description: account.nostrIdentityId ? 'Drive user' : account.npub,
+      description: account.nostrIdentityId ? 'Drive account' : 'Signed in with a key',
       avatarKey: account.pubkey,
       current: isActive,
       removable: accounts.length > 1 && !isActive,
@@ -346,7 +346,7 @@
       <button
         type="button"
         class="btn-circle btn-ghost shrink-0"
-        aria-label="Back to users"
+        aria-label="Back to accounts"
         title="Back"
         onclick={() => navigate(backHref)}
         disabled={recoveryBusy || creatingProfile}
@@ -357,7 +357,7 @@
       <h1 class="text-xl font-semibold">{headerTitle}</h1>
     {:else}
       <BackButton href="/" />
-      <h1 class="text-xl font-semibold">Users</h1>
+      <h1 class="text-xl font-semibold">Accounts</h1>
     {/if}
   </div>
   {/if}
@@ -369,7 +369,7 @@
           <h2 class="text-sm font-semibold text-text-1">Use a device you are signed in on</h2>
           <span class="i-lucide-loader-2 animate-spin text-text-3 shrink-0" title="Waiting for approval"></span>
         </div>
-        <p class="text-sm text-text-2">There, open Settings › Devices and scan this code, or paste the link.</p>
+        <p class="text-sm text-text-2">There, open Settings › Account and scan this code, or paste the link.</p>
         {#if approvalLink}
           <div class="grid gap-3 justify-items-center">
             {#if approvalQrUrl}
@@ -398,7 +398,7 @@
 
       <button type="button" class="btn-ghost w-full justify-center border border-surface-3"
         disabled={recoveryBusy || creatingProfile} onclick={() => handleRecovery({ method: 'nip46' })}>
-        Sign in with remote signer
+        Sign in with a signer app
       </button>
       <IdentityRecoveryPanel
         methodLayout="column"
@@ -420,7 +420,7 @@
     <div class="identity-recovery-shell bg-surface-1 rounded-lg p-4 space-y-3" data-testid="identity-recovery-create-screen">
       {#if isNoExistingMode}
         <p class="text-sm font-semibold text-text-1" data-testid="identity-recovery-create-new-view">
-          No existing Drive user found for that key
+          No Drive account found for that key
         </p>
       {/if}
       <form class="space-y-3" onsubmit={submitCreateProfile}>
@@ -450,7 +450,7 @@
           {:else}
             <span class="i-lucide-plus"></span>
           {/if}
-          <span>Create Profile</span>
+          <span>Create account</span>
         </button>
       </form>
     </div>
@@ -477,7 +477,7 @@
         {:else}
           <span class="i-lucide-plus"></span>
         {/if}
-        Create Profile
+        Create account
       </button>
 
       <button

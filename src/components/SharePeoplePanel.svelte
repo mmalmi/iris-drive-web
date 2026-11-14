@@ -190,7 +190,7 @@
         <input
           class="input w-full pl-9"
           bind:value={query}
-          placeholder="Add people by name or npub"
+          placeholder="Add people by name or public key"
           aria-label="Add people"
           autocomplete="off"
           onfocus={() => refreshSocialGraph()}
@@ -220,7 +220,7 @@
         {/each}
       </div>
     {:else if query.trim()}
-      <p class="text-xs text-text-3">{searching ? 'Searching…' : 'Nobody found. Paste their npub, or send the invite link.'}</p>
+      <p class="text-xs text-text-3">{searching ? 'Searching…' : 'Nobody found. Paste their public key, or send the invite link.'}</p>
     {/if}
   </div>
 {/snippet}

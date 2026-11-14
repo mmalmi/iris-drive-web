@@ -110,7 +110,7 @@ export function createDriveShareLinkVariants(options: DriveShareLinkOptions): Sh
   const currentUrl = withoutHashQueryParam(options.currentUrl.trim(), 'edit');
 
   if (permalinkUrl) {
-    variants.push({ id: 'snapshot', label: 'Snapshot', url: permalinkUrl });
+    variants.push({ id: 'snapshot', label: 'This version', url: permalinkUrl });
   }
 
   const currentRouteIsShareable = options.isPermalink || options.routeScope?.startsWith('npub1');
@@ -119,7 +119,7 @@ export function createDriveShareLinkVariants(options: DriveShareLinkOptions): Sh
     && currentUrl
     && (!permalinkUrl || !sameShareTarget(permalinkUrl, currentUrl))
   ) {
-    variants.push({ id: 'latest', label: 'Latest', url: currentUrl });
+    variants.push({ id: 'latest', label: 'Latest version', url: currentUrl });
   }
 
   return variants;
@@ -156,12 +156,12 @@ export function createShareUrlOptions(appType: AppType, rawUrl: string): ShareUr
   return [
     {
       id: 'web',
-      label: 'Web URL',
+      label: 'Web link',
       url: hashSuffix ? `${getDefaultWebAppUrl(appType)}/${hashSuffix}` : getDefaultWebAppUrl(appType),
     },
     {
       id: 'htree',
-      label: 'htree URL',
+      label: 'Link for other apps',
       url: `${getDefaultHtreeAppUrl(appType)}${hashSuffix}`,
     },
   ];
