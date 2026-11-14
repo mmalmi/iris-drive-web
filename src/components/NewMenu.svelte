@@ -1,7 +1,7 @@
 <script lang="ts">
   /**
    * The one place to make or add something: a folder, a document, a
-   * spreadsheet, a presentation, a text file, or files and folders from the
+   * spreadsheet, a presentation, a form, a text file, or files and folders from the
    * device. In the sidebar it is the big New button, a square + on its rail.
    * In a folder's header it is a small New button where there is no sidebar,
    * and on a phone a round button at the bottom whose menu rises from the
@@ -52,6 +52,7 @@
 
   // The kinds' icons come from DOCUMENT_KINDS, which UnoCSS does not read; named here so they are built:
   // i-lucide-file-text text-accent i-lucide-table-2 text-success i-lucide-presentation text-orange-500
+  // i-lucide-clipboard-list text-violet-500
   const items: MenuItem[] = [
     { label: 'Folder', icon: 'i-lucide-folder text-warning', testid: 'new-folder', run: create('folder') },
     ...Object.values(DOCUMENT_KINDS)

@@ -1,0 +1,238 @@
+{
+  "source": "Emitted by native idrive 0.1.40 (`idrive restore <phrase>`), which signs the add_key op with NostrIdentityFacet::recovery_phrase. The phrase is the public NIP-06 test vector that native's recovery_phrase.rs tests use; every key here is disposable.",
+  "phrase": "leader monkey parrot ring guide accident before fence cannon height naive bean",
+  "secretKeyHex": "7f7ff03d123792d6ac594bfa67bf6d0c0ab55b6b1fdb6249303fe861f1ccba9a",
+  "recoveryPubkey": "17162c921dc4d2518f9a101db33695df1afb56ab82f5ff3e5da6eec3ca5cd917",
+  "profileId": "4ec8a9da-89cd-452f-9b76-74170a5e6caf",
+  "rosterEvents": [
+    {
+      "id": "2268b20912aeb07fd4055b9a4ea43d5d17dde6a1fe67e671ba1332b7716c5dfb",
+      "pubkey": "16a4adac561610157ffe554ee47f25fe757a07757490326eaa417e4bb8c2bcf7",
+      "created_at": 1794682778,
+      "kind": 7368,
+      "tags": [
+        [
+          "i",
+          "4ec8a9da-89cd-452f-9b76-74170a5e6caf",
+          "subject"
+        ],
+        [
+          "i",
+          "52b359c6-2f8c-4712-97b7-66375e6a6f25"
+        ],
+        [
+          "actor_pubkey",
+          "16a4adac561610157ffe554ee47f25fe757a07757490326eaa417e4bb8c2bcf7"
+        ],
+        [
+          "client_nonce",
+          "52b359c6-2f8c-4712-97b7-66375e6a6f25"
+        ],
+        [
+          "created_at",
+          "1794682778"
+        ],
+        [
+          "encrypted_device_labels",
+          "v1.aVL8P2_SR6F_e_5Q.cQhNZ6xxY61kcTE9_iLvE8SK1tILVwDz94pO5U5I5Sm2qsjw9d9dh4ZjP3XytQ-UtDaoG1twpxRQlFPOK6jKYci5-ZfWS7C92tWClofP-o43KcXywUEF3-h1QnnGxiUAHLVvV8CpUchbcjkTtnib7OTUBng2MZfhV573rEMVFxdQP1cznTR1V7IkR3AQS4elrTwl_SU-c8V9lmt-TQoiQzp47rdCjthd5OsXVvGVPTaiHrVqQ-XFIMiA68QoKdugMa8WGpT912ErDVZlOX-aUS6BVZc"
+        ],
+        [
+          "key_added_at",
+          "1794682778"
+        ],
+        [
+          "key_capability",
+          "admin"
+        ],
+        [
+          "key_capability",
+          "decrypt_secret_epochs"
+        ],
+        [
+          "key_capability",
+          "receive_secret_wraps"
+        ],
+        [
+          "key_capability",
+          "write"
+        ],
+        [
+          "key_pubkey",
+          "16a4adac561610157ffe554ee47f25fe757a07757490326eaa417e4bb8c2bcf7"
+        ],
+        [
+          "key_purpose",
+          "app"
+        ],
+        [
+          "op",
+          "add_key"
+        ],
+        [
+          "schema",
+          "1"
+        ],
+        [
+          "type",
+          "nostr_identity_roster_op"
+        ]
+      ],
+      "content": "",
+      "sig": "dbab741fdd01df81a74ba3457ab118e3a3bec16b4828a77bd2e6160d2a53f437da03dfd98263433209cd97e512c269f09450b0888deb4bbbf2930d8886d11e35"
+    },
+    {
+      "id": "e57f08555f1420c7b157ef90d057dbe1dec9b24ad592bff108c41dd1f48dfc8f",
+      "pubkey": "16a4adac561610157ffe554ee47f25fe757a07757490326eaa417e4bb8c2bcf7",
+      "created_at": 1794682779,
+      "kind": 7368,
+      "tags": [
+        [
+          "i",
+          "4ec8a9da-89cd-452f-9b76-74170a5e6caf",
+          "subject"
+        ],
+        [
+          "e",
+          "2268b20912aeb07fd4055b9a4ea43d5d17dde6a1fe67e671ba1332b7716c5dfb",
+          "",
+          "prev"
+        ],
+        [
+          "i",
+          "552eb108-43db-4e88-b619-74eb8bf4bba0"
+        ],
+        [
+          "p",
+          "17162c921dc4d2518f9a101db33695df1afb56ab82f5ff3e5da6eec3ca5cd917"
+        ],
+        [
+          "actor_pubkey",
+          "16a4adac561610157ffe554ee47f25fe757a07757490326eaa417e4bb8c2bcf7"
+        ],
+        [
+          "client_nonce",
+          "552eb108-43db-4e88-b619-74eb8bf4bba0"
+        ],
+        [
+          "created_at",
+          "1794682779"
+        ],
+        [
+          "key_added_at",
+          "1794682779"
+        ],
+        [
+          "key_capability",
+          "decrypt_secret_epochs"
+        ],
+        [
+          "key_capability",
+          "receive_secret_wraps"
+        ],
+        [
+          "key_capability",
+          "recover"
+        ],
+        [
+          "key_label",
+          "Recovery key"
+        ],
+        [
+          "key_pubkey",
+          "17162c921dc4d2518f9a101db33695df1afb56ab82f5ff3e5da6eec3ca5cd917"
+        ],
+        [
+          "key_purpose",
+          "recovery"
+        ],
+        [
+          "op",
+          "add_key"
+        ],
+        [
+          "schema",
+          "1"
+        ],
+        [
+          "type",
+          "nostr_identity_roster_op"
+        ]
+      ],
+      "content": "",
+      "sig": "dd2aa6260071e2e9a6f93029109dcb9acf44d683dccfc9b625515786b9159b3b3245dedd243c71cd7f1853ccf430970d5af8a28abbc1eb599376cd92620ae373"
+    },
+    {
+      "id": "964d9c94a24c823492d26c57cc75d525d3b7cf7bb24b60d9323025222f65e71c",
+      "pubkey": "16a4adac561610157ffe554ee47f25fe757a07757490326eaa417e4bb8c2bcf7",
+      "created_at": 1794682780,
+      "kind": 7368,
+      "tags": [
+        [
+          "i",
+          "4ec8a9da-89cd-452f-9b76-74170a5e6caf",
+          "subject"
+        ],
+        [
+          "e",
+          "2268b20912aeb07fd4055b9a4ea43d5d17dde6a1fe67e671ba1332b7716c5dfb",
+          "",
+          "prev"
+        ],
+        [
+          "e",
+          "e57f08555f1420c7b157ef90d057dbe1dec9b24ad592bff108c41dd1f48dfc8f",
+          "",
+          "prev"
+        ],
+        [
+          "i",
+          "86e72b6b-f707-44bf-aa2d-b950ca42c874"
+        ],
+        [
+          "p",
+          "17162c921dc4d2518f9a101db33695df1afb56ab82f5ff3e5da6eec3ca5cd917"
+        ],
+        [
+          "actor_pubkey",
+          "16a4adac561610157ffe554ee47f25fe757a07757490326eaa417e4bb8c2bcf7"
+        ],
+        [
+          "client_nonce",
+          "86e72b6b-f707-44bf-aa2d-b950ca42c874"
+        ],
+        [
+          "created_at",
+          "1794682780"
+        ],
+        [
+          "op",
+          "rotate_secret_epoch"
+        ],
+        [
+          "schema",
+          "1"
+        ],
+        [
+          "secret_epoch",
+          "1"
+        ],
+        [
+          "type",
+          "nostr_identity_roster_op"
+        ],
+        [
+          "wrapped_secret",
+          "16a4adac561610157ffe554ee47f25fe757a07757490326eaa417e4bb8c2bcf7",
+          "Arj2T5txMCt2nN+P2cRkmzjYF39Lk2pbAM+5yY6XNcWjpzafKypwKTadx5cb0YPtPa9zlTMSOA9bMyE+9ikyP4A4OXkPW6bRxSErY34cC+oZomRfQEwkN/lUJ36bZQFOKKfuLUnZ+y+dgiYRPX2WkPKoR5AAZnXGi5FtkZg/T896xLc="
+        ],
+        [
+          "wrapped_secret",
+          "17162c921dc4d2518f9a101db33695df1afb56ab82f5ff3e5da6eec3ca5cd917",
+          "Aic+oTo1O3EgS80f0lQkpuKTwggB7cSRLv3y111BTvAztgXJivkMcJGuuS0rQfjPFrWEy/lhXcoFuiTKhigt18f2Ptyj8uu3WmUZVl9elieZVrn+p+3p2ilGZ7kf1OPJ2hRtXWy3SfrObXsJIwk2onLeZFPDBnGuhla8RYEFvwxUlpc="
+        ]
+      ],
+      "content": "",
+      "sig": "b0ce39a0c0c4a78af0eeae9017acdc7121f7db55e2e595859b069c67758bf11c47b9a85fabb0d85e8da8625b4dc8a25ba7f7be422a94e5e2f460fe8c74ef43f5"
+    }
+  ]
+}

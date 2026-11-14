@@ -60,15 +60,24 @@ function checkLine(record: BackupRecord | undefined, now: number): string {
   return `${when}: ${checked.verified} of ${checked.sampled} parts read back`;
 }
 
+/** Whether the last check read back every part it asked for, for the Drive version `root`. */
+function checkPassed(record: BackupRecord, root: string | null): boolean {
+  const checked = record.checked;
+  return !!checked && checked.root === root && checked.sampled > 0 && checked.missing === 0 && checked.verified === checked.sampled;
+}
+
 /**
  * Where one place stands for the Drive version `root` (hex), in plain words.
- * `live` is a job going on in this tab now.
+ * `live` is a job going on in this tab now. A file server already gets the
+ * Drive as it is saved; a backup there only makes sure every part arrived. A
+ * folder gets it only from a backup.
  */
 export function backupStatus(
   record: BackupRecord | undefined,
   root: string | null,
   live: LiveJob | undefined,
   now: number,
+  kind: 'server' | 'folder' = 'server',
 ): BackupStatus {
   const detail = checkLine(record, now);
   if (live?.job === 'backup') {
@@ -76,7 +85,9 @@ export function backupStatus(
     return { tone: 'busy', label, detail };
   }
   if (live?.job === 'check') return { tone: 'busy', label: 'Checking…', detail };
-  if (!record) return { tone: 'idle', label: 'Not checked yet', detail: '' };
+  if (!record) return kind === 'server'
+    ? { tone: 'idle', label: SAVED_AS_YOU_GO, detail }
+    : { tone: 'idle', label: 'Not backed up yet', detail: '' };
   if (record.running) return { tone: 'idle', label: 'Paused', detail };
 
   const lastGood = Math.max(record.backedUp?.at ?? 0, record.checked?.at ?? 0);
@@ -94,8 +105,11 @@ export function backupStatus(
   }
   if (record.backedUp && record.backedUp.root === root) return { tone: 'ok', label: 'Up to date', detail };
   if (record.backedUp) return { tone: 'idle', label: `Last backed up ${timeAgo(record.backedUp.at, now)}`, detail };
+  if (kind === 'server') return { tone: checkPassed(record, root) ? 'ok' : 'idle', label: SAVED_AS_YOU_GO, detail };
   return { tone: 'idle', label: 'Not backed up yet', detail };
 }
+
+const SAVED_AS_YOU_GO = 'Saved here as you go';
 
 /** A file server address as typed, made comparable; null when it is not one. */
 export function normalizeServerUrl(input: string): string | null {

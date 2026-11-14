@@ -74,6 +74,7 @@ import {
   saveStoredDeviceLabel,
   saveStoredDeviceLabels,
 } from '../drive/deviceLabels';
+import { createRecoveryPhraseRosterOps } from '../drive/recoveryPhrase';
 import {
   IRIS_IDENTITY_SESSION_STORAGE_KEY,
   loadStoredNostrIdentitySessions,
@@ -1033,6 +1034,38 @@ export async function removeDriveProfileAppKeyWithAdmin(
   return updated;
 }
 
+/**
+ * Add a recovery phrase to the account, as native `add_recovery_pubkey` does.
+ * Only the phrase's public key goes into the account. The change is signed on
+ * the roster this device holds and reaches relays in the background.
+ */
+export async function addDriveRecoveryPhrase(recoveryPhrase: string): Promise<NostrIdentitySession> {
+  const session = requireActiveDriveIdentitySession();
+  requireCurrentDriveAdmin(session);
+  if (!secretKey) throw new Error('No active Drive AppKey secret');
+  const rosterOps = [...session.rosterOps];
+  const deviceLabels = await collectDriveDeviceLabels(session, rosterOps);
+  const ops = await createRecoveryPhraseRosterOps({
+    profileId: session.profileId,
+    appKeySecretKey: secretKey,
+    rosterOps,
+    recoveryPhrase,
+    createdAt: nextDriveRosterOpCreatedAt(session.profileId, rosterOps),
+    clientNonce: randomClientNonce(),
+    deviceLabels,
+  });
+  if (!ops) return session;
+  const changed = [...rosterOps, ops.addOp, ops.dckRotationOp];
+  const updated = appendCurrentNostrIdentitySessionRosterOps(session.profileId, changed);
+  if (!updated) throw new Error('Drive user session is no longer active');
+  saveStoredDeviceLabels(session.profileId, deviceLabels);
+  publishIdentityInBackground(async () => {
+    await publishDriveIdentityRosterOps(changed);
+    await publishSignedIdentityEventJson(ops.acceptance.event_json);
+  });
+  return updated;
+}
+
 export async function recoverDriveProfileWithAppKey(
   options: DriveRecoveryAppKeyOptions,
 ): Promise<{ nsec: string; npub: string; session: NostrIdentitySession }> {
@@ -1068,6 +1101,9 @@ export async function recoverDriveProfileWithAppKey(
     appKeySecretKey,
     createdAt,
     encryptedDeviceLabels,
+    // A device let in by the account's recovery key can manage the account,
+    // as in native: after losing every device, it is the only one left.
+    capabilities: DRIVE_APP_KEY_ADMIN_CAPABILITIES,
     clientNonce: randomClientNonce(),
   });
   if (session.status !== 'active') {
@@ -1478,12 +1514,32 @@ function syncActiveDriveRosterSubscription(session: NostrIdentitySession | null)
       void import('../stores/treeRootResolver').then(({ refreshDriveRootResolverKey }) => {
         refreshDriveRootResolverKey(`${profileId}/${DRIVE_ROOT_NAME}`);
       });
+      handDriveToNewDevices(profileId, current.rosterOps, anchored.rosterOps);
     } catch (error) {
       console.warn('[auth] Ignoring invalid live Drive roster event:', error);
     }
   });
 
   activeDriveRosterSubscription = sub;
+}
+
+/**
+ * The roster gained a device this one did not let in, such as one signed in
+ * with the recovery phrase. Roots already published cannot be opened by its
+ * key, so this device publishes its version of the Drive again for it.
+ */
+function handDriveToNewDevices(
+  profileId: NostrIdentityId,
+  before: SignedNostrIdentityRosterOp[],
+  after: SignedNostrIdentityRosterOp[],
+): void {
+  const appKeys = (rosterOps: SignedNostrIdentityRosterOp[]) => Object.values(
+    projectNostrIdentityRoster(profileId, rosterOps).active_facets,
+  ).filter((facet) => facet.purposes?.includes('app_key')).map((facet) => facet.pubkey);
+  const known = new Set(appKeys(before));
+  if (appKeys(after).every((pubkey) => known.has(pubkey))) return;
+  void import('../drive/profileDriveRootPublish')
+    .then(({ scheduleDriveRootRewrap }) => scheduleDriveRootRewrap(profileId));
 }
 
 export function getStoredNostrIdentitySessionForAccount(appKeyPubkey: string): NostrIdentitySession | null {
@@ -1633,7 +1689,10 @@ export async function refreshCurrentDriveRosterOps(
   // not rewrite the stored session or wake every account subscriber.
   const unchanged = refreshed.length === current.rosterOps.length
     && refreshed.every((op, index) => op.op_id === current.rosterOps[index].op_id);
-  if (!unchanged) replaceCurrentNostrIdentitySessionRosterOps(profileId, refreshed);
+  if (!unchanged) {
+    replaceCurrentNostrIdentitySessionRosterOps(profileId, refreshed);
+    handDriveToNewDevices(profileId, current.rosterOps, refreshed);
+  }
   return admission;
 }
 

@@ -8,7 +8,7 @@ async function makeFolder(page: Page, name: string): Promise<void> {
   await chooseNew(page, 'Folder');
   await page.getByPlaceholder('Folder name...').fill(name);
   await page.getByPlaceholder('Folder name...').press('Enter');
-  await page.getByRole('link', { name: new RegExp(`^${name}\\b`) }).first().click();
+  await page.getByTestId('file-list').getByRole('link', { name: new RegExp(`^${name}\\b`) }).first().click();
   await expect(page).toHaveURL(new RegExp(`/main/${name}$`), { timeout: 30_000 });
 }
 

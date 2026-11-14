@@ -1,9 +1,9 @@
 /**
- * A document, spreadsheet or presentation is a Drive folder whose name ends in
- * the extension of its kind. Kept apart from the editor code so file lists can
- * recognise them without loading it.
+ * A document, spreadsheet, presentation or form is a Drive folder whose name
+ * ends in the extension of its kind. Kept apart from the editor code so file
+ * lists can recognise them without loading it.
  */
-export type DocumentKind = 'document' | 'sheet' | 'slides';
+export type DocumentKind = 'document' | 'sheet' | 'slides' | 'form';
 
 export interface DocumentKindInfo {
   kind: DocumentKind;
@@ -40,6 +40,14 @@ export const DOCUMENT_KINDS: Record<DocumentKind, DocumentKindInfo> = {
     noun: 'presentation',
     newLabel: 'New Presentation',
     icon: 'i-lucide-presentation text-orange-500',
+    ready: true,
+  },
+  form: {
+    kind: 'form',
+    extension: '.irisform',
+    noun: 'form',
+    newLabel: 'New Form',
+    icon: 'i-lucide-clipboard-list text-violet-500',
     ready: true,
   },
 };
