@@ -12,6 +12,7 @@
   import type { MenuItem } from './PopupMenu.svelte';
   import { chartsNow, loadCharts } from './chartLoader';
   import { copyObject, copyObjectImage } from './objectClipboard';
+  import PresenceLayer from './PresenceLayer.svelte';
 
   interface Props {
     ctl: SheetController;
@@ -321,6 +322,8 @@
     {/if}
   </div>
 {/each}
+
+<PresenceLayer {ctl} {view} />
 
 <style>
   .object {

@@ -6,7 +6,7 @@
  * their edits to it and show its edits at once.
  */
 import * as Y from 'yjs';
-import { STORED_ORIGIN } from './documentStore';
+import { LIVE_ORIGIN, STORED_ORIGIN } from './documentStore';
 
 /** Transaction origin of edits received from another tab. */
 export const TAB_ORIGIN = 'tab';
@@ -31,8 +31,9 @@ export function connectDocumentTabs(options: TabSyncOptions): () => void {
   const channel = typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel(`irisdoc:${options.key}`);
 
   const onUpdate = (update: Uint8Array, origin: unknown) => {
-    // Stored updates reach every tab through its own view of the Drive.
-    if (origin === STORED_ORIGIN || origin === TAB_ORIGIN) return;
+    // Stored updates reach every tab through its own view of the Drive, and
+    // live ones through its own live channel.
+    if (origin === STORED_ORIGIN || origin === TAB_ORIGIN || origin === LIVE_ORIGIN) return;
     channel?.postMessage({ type: 'update', update } satisfies TabMessage);
   };
   ydoc.on('update', onUpdate);

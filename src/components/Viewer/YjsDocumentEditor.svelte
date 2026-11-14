@@ -96,6 +96,7 @@
         onLinkShortcut: () => {
           linkEditing = true;
         },
+        presence: drive.presence,
       });
       editor = setup.editor;
       commentsStore = setup.commentsStore;

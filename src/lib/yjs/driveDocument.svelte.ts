@@ -21,6 +21,7 @@ import { activeNostrIdentityRootScope } from '../../drive/profileRoute';
 import { itemAccess, type ItemAccess } from '../../drive/itemAccess';
 import { linkShares } from '../../drive/linkShares';
 import { nostrStore, saveOwnTreeRoot } from '../../nostr';
+import { accountsStore } from '../../accounts';
 import type { NostrState } from '../../nostr/store';
 import { flushPendingPublishes } from '../../treeRootCache';
 import { deleteCurrentFolder, renameCurrentFolder } from '../../actions';
@@ -28,17 +29,21 @@ import { removeOwnDirectoryForDriveRoute, setEntryForDriveRoute } from '../../dr
 import { DOCUMENT_KINDS, documentFolderName, documentKind, documentTitle, snapshotLinkQuery, type DocumentKindInfo } from '../documentNames';
 import { freeName } from '../driveClipboard';
 import { getCidFileUrl } from '../mediaUrl';
-import { DocumentSession, STORED_ORIGIN, UPDATES_DIRECTORY, changeFileName, type DocumentChange } from './documentStore';
+import { DocumentSession, LIVE_ORIGIN, STORED_ORIGIN, UPDATES_DIRECTORY, changeFileName, type DocumentChange } from './documentStore';
 import { withDriveRootLock } from '../driveRootTabs';
 import { ATTACHMENTS_DIRECTORY, generateImageFilename } from './imageAttachments';
 import { documentWriteScope } from './routeScope';
 import { connectDocumentTabs } from './tabSync';
+import { LivePresence, presenceColor, type PresenceUser } from './presence.svelte';
+import type { LiveConnection } from './liveConnect';
 
 // Edits are stored after a short pause, and at least this often while typing without one.
 const SAVE_IDLE_MS = 800;
 const SAVE_MAX_WAIT_MS = 4000;
 // About half a minute of looking for the document before saying it is not there.
 const MAX_MISSED_LOADS = 60;
+// An edit seen live is stored here too when its writer has not stored it by then.
+const KEEP_LIVE_AFTER_MS = 30_000;
 
 export type SaveStatus = 'idle' | 'unsaved' | 'saving' | 'saved' | 'error' | 'other-tab';
 
@@ -53,6 +58,15 @@ export interface VersionPreview {
 export interface DriveDocumentOptions {
   /** Called with the folder's entries each time stored content has been applied. */
   onStored?: (entries: TreeEntry[]) => void | Promise<void>;
+}
+
+/** This person as the others who have a document open see them. */
+function ownPresenceUser(): PresenceUser {
+  const state = nostrStore.getState();
+  const key = state.pubkey ?? '';
+  const id = activeNostrIdentityRootScope(state) ?? key;
+  const name = accountsStore.getState().accounts.find(account => account.pubkey === key)?.name?.trim() ?? '';
+  return { name, color: presenceColor(id), key, id };
 }
 
 function sameCid(left: CID | null, right: CID | null): boolean {
@@ -81,6 +95,8 @@ export class DriveDocument {
   historyOpen = $state(false);
   /** The earlier version shown, read-only, in place of the document. */
   preview = $state.raw<VersionPreview | null>(null);
+  /** Who else has the document open, and where they are in it. */
+  readonly presence = new LivePresence(this.ydoc, ownPresenceUser());
 
   readonly #route = fromStore(routeStore);
   readonly #nostr = fromStore<NostrState>(nostrStore);
@@ -136,6 +152,10 @@ export class DriveDocument {
   // The route can change before the editor is torn down; the document's place does not.
   #documentPath: string[] = [];
   #destroyed = false;
+  #live: LiveConnection | null = null;
+  /** Edits taken in live, kept until their writers are known to have stored them. */
+  #liveSeen: Array<{ update: Uint8Array; at: number }> = [];
+  #liveSeenTimer: ReturnType<typeof setInterval> | undefined;
   /**
    * Where this document lives, fixed when it is opened. A save can finish
    * after the user has moved to another page, and must still land here.
@@ -187,7 +207,7 @@ export class DriveDocument {
     session.setSaver(false);
     this.#session = session;
     this.ydoc.on('update', (_update: Uint8Array, origin: unknown) => {
-      if (origin !== STORED_ORIGIN) this.#scheduleSave();
+      if (origin !== STORED_ORIGIN && origin !== LIVE_ORIGIN) this.#scheduleSave();
     });
 
     if (this.#opened) {
@@ -223,12 +243,60 @@ export class DriveDocument {
     if (this.#destroyed) return false;
     this.missing = false;
     this.loading = false;
+    if (route.npub && route.treeName && !route.isPermalink) {
+      void this.#connectLive({ scope: route.npub, treeName: route.treeName, path: [...route.path] });
+    }
     return true;
+  }
+
+  /** Presence and live edits with the others who have the document open, once it has loaded. */
+  async #connectLive(place: { scope: string; treeName: string; path: string[] }): Promise<void> {
+    try {
+      const { connectLive } = await import('./liveConnect');
+      if (this.#destroyed) return;
+      this.#live = connectLive({
+        ydoc: this.ydoc,
+        presence: this.presence,
+        place,
+        canEdit: () => this.canEdit,
+        onRemoteUpdate: update => this.#rememberLive(update),
+      });
+    } catch (error) {
+      console.warn('[Document] Others who have it open are not shown:', error);
+    }
+  }
+
+  /**
+   * Someone's live edit is stored by them. Should it still not be stored a
+   * while later, as when their tab closed first, it is stored here, so that
+   * what was written after it does not hang on content no file has.
+   */
+  #rememberLive(update: Uint8Array): void {
+    if (!this.#isCurrentSaver()) return;
+    this.#liveSeen.push({ update, at: Date.now() });
+    this.#liveSeenTimer ??= setInterval(() => this.#keepUnstoredLive(), KEEP_LIVE_AFTER_MS / 3);
+  }
+
+  #keepUnstoredLive(): void {
+    const due = Date.now() - KEEP_LIVE_AFTER_MS;
+    const ready = this.#liveSeen.filter(seen => seen.at <= due);
+    this.#liveSeen = this.#liveSeen.filter(seen => seen.at > due);
+    if (this.#liveSeen.length === 0) {
+      clearInterval(this.#liveSeenTimer);
+      this.#liveSeenTimer = undefined;
+    }
+    const session = this.#session;
+    if (!session || !this.#isCurrentSaver() || ready.length === 0) return;
+    for (const { update } of ready) session.keep(update);
+    if (session.dirty) this.#scheduleSave();
   }
 
   destroy(): void {
     this.#saveBeforeLeaving();
     this.#destroyed = true;
+    this.#live?.destroy();
+    this.presence.destroy();
+    clearInterval(this.#liveSeenTimer);
     if (this.#saveTimer) clearTimeout(this.#saveTimer);
     if (this.#retryLoadTimer) clearTimeout(this.#retryLoadTimer);
     document.removeEventListener('visibilitychange', this.#handleVisibilityChange);

@@ -4,7 +4,7 @@
   import * as Y from 'yjs';
   import DocumentHeader from '../Viewer/DocumentHeader.svelte';
   import { HISTORY_SHORTCUT } from '../Viewer/versionShortcut';
-  import { DriveDocument, STORED_ORIGIN } from '../../lib/yjs';
+  import { DriveDocument, LIVE_ORIGIN, STORED_ORIGIN } from '../../lib/yjs';
   import { SheetController } from '../../lib/sheets/controller.svelte';
   import { LOCAL_ORIGIN } from '../../lib/sheets/model';
   import FormulaBar from './FormulaBar.svelte';
@@ -46,6 +46,7 @@
     const name = chosen || (named.name !== named.fallbackName ? named.name : '');
     return { pubkey: state.pubkey, ...(profile ? { profile } : {}), ...(name ? { name } : {}) };
   };
+  ctl.others = () => drive.presence.others;
   // Pictures are kept with the spreadsheet's attachments.
   ctl.media = {
     urlOf: file => drive.attachmentUrls.get(file),
@@ -81,6 +82,20 @@
     }
   }
 
+  // Where this person is, for the others who have the spreadsheet open: the
+  // sheet, and the rows and columns of the selection's corners, which stay
+  // right when rows move.
+  $effect(() => {
+    if (!ready || !ctl.hasSheet) return;
+    const { rows, cols } = ctl.sheet;
+    const { anchor, focus } = ctl;
+    drive.presence.set('sheet', {
+      id: ctl.sheetId,
+      a: [rows.ids[anchor.row] ?? '', cols.ids[anchor.col] ?? ''],
+      f: [rows.ids[focus.row] ?? '', cols.ids[focus.col] ?? ''],
+    });
+  });
+
   // Printing, from the toolbar or the browser's own menu, prints the cells in use alone.
   $effect(() => printAlone(() => (ready && ctl.hasSheet ? sheetPrintPage(ctl) : null)));
 
@@ -98,7 +113,7 @@
     // Someone who may only read can sort their own copy. It cannot take in
     // later changes without mixing the two, so then the stored sheet is shown again.
     drive.ydoc.on('update', (_update: Uint8Array, origin: unknown) => {
-      if (origin === STORED_ORIGIN && ctl.localOnly) onreset();
+      if ((origin === STORED_ORIGIN || origin === LIVE_ORIGIN) && ctl.localOnly) onreset();
     });
     return stopName;
   });

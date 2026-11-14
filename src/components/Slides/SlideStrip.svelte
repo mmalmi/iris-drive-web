@@ -4,12 +4,16 @@
   import type { SlidesEditorState } from '../../lib/slides/editorState.svelte';
   import SlideView from './SlideView.svelte';
   import Popover from './Popover.svelte';
+  import { onSlide } from './PresenceOutlines.svelte';
+  import type { PresenceState } from '../../lib/yjs/presence.svelte';
 
   interface Props {
     editorState: SlidesEditorState;
     urls: Map<string, string>;
+    /** Others who have the deck open: each slide shows who is on it. */
+    others?: PresenceState[];
   }
-  let { editorState, urls }: Props = $props();
+  let { editorState, urls, others = [] }: Props = $props();
 
   const DRAG_START = 5;
   /** How long a finger rests on a slide before it picks the slide up, and how far it may wander meanwhile. */
@@ -211,6 +215,16 @@
       </span>
       <div class="thumb">
         <SlideView {slide} theme={editorState.theme} {urls} width={thumbWidth} />
+        {#if others.length > 0}
+          {@const here = onSlide(others, slide.id)}
+          {#if here.length > 0}
+            <span class="here" data-testid="slide-thumb-presence">
+              {#each here.slice(0, 3) as state (state.clientId)}
+                <span class="here-dot" style:background-color={state.user.color} title={state.user.name || 'Someone'} data-name={state.user.name}>{(Array.from(state.user.name.trim() || '?')[0] ?? '?').toUpperCase()}</span>
+              {/each}
+            </span>
+          {/if}
+        {/if}
         {#if canEdit}
           <button
             class="more"
@@ -330,6 +344,32 @@
     overflow: hidden;
     outline: 1px solid rgb(var(--surface-3));
     pointer-events: none;
+  }
+
+  /* Who else is on a slide: their initials in a corner of it. */
+  .here {
+    position: absolute;
+    left: 4px;
+    bottom: 4px;
+    display: flex;
+  }
+
+  .here-dot {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    border-radius: 9999px;
+    border: 1.5px solid rgb(var(--surface-1));
+    color: #fff;
+    font-size: 9px;
+    font-weight: 600;
+    line-height: 1;
+  }
+
+  .here-dot + .here-dot {
+    margin-left: -4px;
   }
 
   .item.picked .thumb {

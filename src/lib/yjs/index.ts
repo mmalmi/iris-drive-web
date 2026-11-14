@@ -10,6 +10,7 @@ export { documentWriteScope } from './routeScope';
 export {
   DocumentSession,
   STORED_ORIGIN,
+  LIVE_ORIGIN,
   type DocumentChange,
 } from './documentStore';
 export { connectDocumentTabs } from './tabSync';

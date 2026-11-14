@@ -11,6 +11,7 @@
   import type { DriveDocument } from '../../lib/yjs';
   import { showToast } from '../../stores/toast';
   import AccessBadge from '../AccessBadge.svelte';
+  import PresenceAvatars from './PresenceAvatars.svelte';
   import PopupMenu from '../Sheets/PopupMenu.svelte';
   import { HISTORY_SHORTCUT } from './versionShortcut';
 
@@ -128,6 +129,7 @@
   <AccessBadge access={drive.access} label onclick={drive.canEdit ? () => void drive.share() : undefined} />
 
   <div class="ml-auto flex items-center gap-1 shrink-0">
+    <PresenceAvatars peers={drive.presence.peers} />
     <!-- Saving happens on its own; only its outcome is worth a glance. -->
     <span class="text-xs text-text-3 flex items-center gap-1 mr-1" role="status" data-testid="document-save-status" data-state={saveStatus}>
       {#if !online && saveStatus !== 'error' && saveStatus !== 'other-tab'}

@@ -27,6 +27,11 @@ const TIME_DIGITS = 9;
 
 /** Transaction origin of updates that came from storage and need no saving. */
 export const STORED_ORIGIN = 'stored';
+/**
+ * Transaction origin of edits received live from someone else who has the
+ * document open. Their writer stores them; see liveChannel.ts.
+ */
+export const LIVE_ORIGIN = 'live';
 
 export interface DocumentChange {
   /** Files to add, as paths below the document folder. */
@@ -115,6 +120,8 @@ export class DocumentSession {
   /** Folder listings already walked, by folder hash. */
   private readonly walked = new Set<string>();
   private readonly storedClocks = new Map<number, number>();
+  /** The highest clock of each writer that storage is known to hold. */
+  private readonly storedTo = new Map<number, number>();
   private pending: Uint8Array[] = [];
   private own: OwnFolders = { generation: 0, changeCount: 0, stale: new Set() };
   private lastForeignAt = 0;
@@ -144,9 +151,29 @@ export class DocumentSession {
   }
 
   private readonly onUpdate = (update: Uint8Array, origin: unknown): void => {
-    if (origin === STORED_ORIGIN || !this.saver) return;
+    if (origin === STORED_ORIGIN || origin === LIVE_ORIGIN || !this.saver) return;
     this.pending.push(update);
   };
+
+  /**
+   * Whether storage holds what `update` brought. Each writer stores its edits
+   * in order, so its highest stored clock stands for all before it.
+   */
+  holds(update: Uint8Array): boolean {
+    for (const [client, clock] of Y.parseUpdateMeta(update).to) {
+      if ((this.storedTo.get(client) ?? 0) < clock) return false;
+    }
+    return true;
+  }
+
+  /**
+   * Stores `update` with this device's next edits: something received live
+   * whose writer never stored it, so that what was written after it does not
+   * hang on content nobody has.
+   */
+  keep(update: Uint8Array): void {
+    if (this.saver && !this.holds(update)) this.pending.push(update);
+  }
 
   /**
    * Only one tab of a device saves. A tab that stops saving keeps receiving
@@ -310,6 +337,9 @@ export class DocumentSession {
   private noteStored(update: Uint8Array): void {
     for (const [client, clock] of Y.decodeStateVector(Y.encodeStateVectorFromUpdate(update))) {
       if (clock > (this.storedClocks.get(client) ?? 0)) this.storedClocks.set(client, clock);
+    }
+    for (const [client, clock] of Y.parseUpdateMeta(update).to) {
+      if (clock > (this.storedTo.get(client) ?? 0)) this.storedTo.set(client, clock);
     }
   }
 }

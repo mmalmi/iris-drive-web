@@ -407,4 +407,29 @@
   .document-container :global(.comment-highlight:hover) {
     background-color: rgb(255 204 0 / 0.45);
   }
+
+  /* Where the others who have the document open are writing, in their colour and with their name. */
+  .document-container :global(.collaboration-carets__caret) {
+    position: relative;
+    margin-left: -1px;
+    margin-right: -1px;
+    border-left: 1px solid;
+    border-right: 1px solid;
+    word-break: normal;
+    pointer-events: none;
+  }
+
+  .document-container :global(.collaboration-carets__label) {
+    position: absolute;
+    top: -1.35em;
+    left: -1px;
+    padding: 0.05rem 0.3rem;
+    border-radius: 3px 3px 3px 0;
+    color: #fff;
+    font-size: 0.7rem;
+    font-weight: 600;
+    line-height: 1.3;
+    white-space: nowrap;
+    user-select: none;
+  }
 </style>

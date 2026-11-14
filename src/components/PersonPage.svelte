@@ -11,6 +11,7 @@
   import { documentKindInfo } from '../lib/documentNames';
   import { isNostrIdentityId } from '../utils/route';
   import { Avatar, Name } from './User';
+  import FollowBadge from './User/FollowBadge.svelte';
 
   let { id }: { id: string } = $props();
 
@@ -43,8 +44,9 @@
           <span class="i-lucide-circle-user-round text-5xl text-text-3 shrink-0"></span>
         {/if}
         <div class="min-w-0">
-          <h1 class="text-xl font-semibold text-text-1 truncate" data-testid="person-name">
-            {#if person.name}{person.name}{:else if pubkey}<Name {pubkey} />{:else}{fallbackIdentityName(id)}{/if}
+          <h1 class="text-xl font-semibold text-text-1 flex items-center gap-1.5 min-w-0" data-testid="person-name">
+            <span class="truncate">{#if person.name}{person.name}{:else if pubkey}<Name {pubkey} />{:else}{fallbackIdentityName(id)}{/if}</span>
+            <FollowBadge {pubkey} size={18} />
           </h1>
           {#if person.npub}
             <div class="text-xs text-text-3 font-mono truncate">{person.npub}</div>
