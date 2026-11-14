@@ -7,9 +7,9 @@
   import { nostrStore } from '../nostr';
   import { acceptedShares } from '../drive/shareLibrary';
   import { activeNostrIdentityRootScope } from '../drive/profileRoute';
-  import { getTreeRootSync } from '../stores/treeRoot';
   import { recentsStore } from '../stores/recents';
   import { recentDisplay, recentHref, timeAgo } from '../lib/recentDisplay';
+  import { driveRoots } from '../lib/driveRoots';
   import type { DriveSearchRoot } from '../lib/driveSearch';
 
   interface Props {
@@ -46,21 +46,7 @@
 
   /** My Drive and the shared folders, as far as this device has them now. */
   function currentRoots(): DriveSearchRoot[] {
-    const scope = ownProfileId ?? $nostrStore.npub;
-    const shares = $acceptedShares.filter((record) => !ownProfileId || record.local_profile_id === ownProfileId);
-    const roots: DriveSearchRoot[] = [];
-    const ownCid = scope ? getTreeRootSync(scope, 'main') : null;
-    if (scope && ownCid) {
-      const sharedOut = shares
-        .filter((record) => record.folder.owner_profile_id === ownProfileId && record.folder.source_path)
-        .map((record) => record.folder.source_path);
-      roots.push({ scope, label: 'My Drive', cid: ownCid, skip: sharedOut });
-    }
-    for (const record of shares) {
-      const cid = getTreeRootSync(record.share_id, 'main');
-      if (cid) roots.push({ scope: record.share_id, label: record.folder.display_name, cid, shared: true });
-    }
-    return roots;
+    return driveRoots(ownProfileId, $nostrStore.npub, $acceptedShares);
   }
 
   let recents = $derived($recentsStore
