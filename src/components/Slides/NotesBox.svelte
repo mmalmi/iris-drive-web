@@ -3,14 +3,19 @@
    * Speaker notes for the slide on the canvas: plain text only the presenter
    * needs. On a wide screen the line above them is dragged to give them more
    * or less room; that height is this browser's own and is remembered.
+   * Someone who may only view reads them, read-only, and can put them away.
    */
   import { onMount } from 'svelte';
   import type { SlidesEditorState } from '../../lib/slides/editorState.svelte';
 
   interface Props {
     editorState: SlidesEditorState;
+    /** The notes are read, not changed. */
+    readonly?: boolean;
+    /** Puts the notes away again. */
+    onhide?: () => void;
   }
-  let { editorState }: Props = $props();
+  let { editorState, readonly = false, onhide }: Props = $props();
 
   const STORE_KEY = 'irisslides-notes-height';
   const DEFAULT_HEIGHT = 84;
@@ -113,7 +118,7 @@
   });
 </script>
 
-<div class="pane" class:resizing bind:this={pane} style:--notes-height="{height}px" data-testid="notes-pane">
+<div class="pane" class:resizing class:closable={!!onhide} bind:this={pane} style:--notes-height="{height}px" data-testid="notes-pane">
   <!-- A focusable separator is a control that resizes; Svelte does not know that kind. -->
   <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
   <div
@@ -133,16 +138,23 @@
   <textarea
     class="notes"
     bind:this={field}
-    placeholder="Speaker notes"
+    {readonly}
+    placeholder={readonly ? 'No notes for this slide' : 'Speaker notes'}
     aria-label="Speaker notes"
-    spellcheck="true"
-    oninput={event => editorState.setNotes((event.target as HTMLTextAreaElement).value)}
+    spellcheck={!readonly}
+    oninput={readonly ? undefined : event => editorState.setNotes((event.target as HTMLTextAreaElement).value)}
     data-testid="speaker-notes"
   ></textarea>
+  {#if onhide}
+    <button class="hide btn-circle btn-ghost" onclick={onhide} title="Hide speaker notes" aria-label="Hide speaker notes" data-testid="hide-speaker-notes">
+      <span class="i-lucide-x text-xs"></span>
+    </button>
+  {/if}
 </div>
 
 <style>
   .pane {
+    position: relative;
     flex: none;
     display: flex;
     flex-direction: column;
@@ -209,6 +221,19 @@
 
   .resizing .notes {
     pointer-events: none;
+  }
+
+  .closable .notes {
+    padding-right: 40px;
+  }
+
+  .hide {
+    position: absolute;
+    top: 6px;
+    right: 8px;
+    width: 24px;
+    height: 24px;
+    min-height: 0;
   }
 
   /* On a phone the notes simply take the room under the slide. */
