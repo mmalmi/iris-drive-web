@@ -52,7 +52,7 @@
     gap: 0.55rem;
   }
   .tile-grid > :global(div > a > span:nth-child(2)) { padding-inline-end: 1.75rem; }
-  .tile-grid > :global(div > input) { top: 1.375rem; left: 0.625rem; }
+  .tile-grid > :global(div > input) { top: 1.375rem; left: 0.125rem; }
   .tile-grid > :global(div > button) { position: absolute; top: 0.375rem; right: 0.25rem; margin: 0; opacity: 1; }
   @media (max-width: 639px) {
     .tile-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5rem; padding: 0.5rem; }

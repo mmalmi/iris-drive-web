@@ -209,7 +209,7 @@
     <Menu
       {items}
       label="New"
-      heading={inMyDrive ? 'Create in My Drive' : null}
+      heading={inMyDrive ? 'Create in My Drive' : variant === 'name' ? 'New' : null}
       headingOnDesktop
       {at}
       sheet={opener === fabButton}

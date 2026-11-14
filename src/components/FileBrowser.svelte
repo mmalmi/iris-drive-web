@@ -513,17 +513,19 @@
 
   /**
    * Ctrl/⌘+click chooses a row and Shift+click the rows from the anchor,
-   * neither opening a new tab or window; so does a click on a row's checkbox,
-   * which only shows what the list keeps. A plain click opens the row and
+   * neither opening a new tab or window. The leading file icon toggles selection.
+   * A plain click on the name opens the row and
    * lets go of the rest, except a tap while choosing on a phone.
    */
   function handleRowClick(e: MouseEvent, entry: FileEntry, onCheckbox = false) {
     // The click that ends a long press only lifts the finger.
-    if (e.defaultPrevented && !onCheckbox) return;
+    if (e.defaultPrevented) return;
     if (!(e.shiftKey || e.ctrlKey || e.metaKey || onCheckbox || (selecting && lastPointer !== 'mouse'))) return selection.clear();
-    e.preventDefault();
+    // Cancelling a checkbox click rolls back the browser's checked state after this handler.
+    if (!onCheckbox) e.preventDefault();
     if (e.shiftKey) selection.extendTo(entries.map((item) => item.name), entry.name);
     else selection.toggle(entry.name);
+    if (onCheckbox && e.currentTarget instanceof HTMLInputElement) e.currentTarget.checked = selection.has(entry.name);
   }
 
   // A file just uploaded here scrolls into view once the list shows it.
@@ -699,6 +701,7 @@
       tabindex="0"
       role="listbox"
       aria-label="File list"
+      aria-multiselectable="true"
       onkeydown={handleKeyDown}
       onpointerdowncapture={(e) => { lastPointer = e.pointerType; }}
       oncontextmenu={(e) => { if (entryMenu) e.preventDefault(); else if (canEdit) openNewMenuBeside(e); }}
@@ -783,13 +786,13 @@
               ondragleave={isFolder ? handleDirDragLeave : undefined}
               ondrop={isFolder ? (e) => handleDirDrop(e, entry.name) : undefined}
             >
-              <!-- Where the icon is: shown on hover, and on every row while choosing. -->
+              <!-- The file icon doubles as a checkbox. Only a chosen item shows a checkmark. -->
               <input
                 type="checkbox"
-                class="absolute top-1/2 -translate-y-1/2 z-1 m-0 w-4 h-4 accent-accent cursor-pointer {showDirectoryNavigationRows ? 'left-9.5' : 'left-3.5 lg:left-5.5'} {selecting ? '' : 'opacity-0 pointer-events-none sm:group-hover:opacity-100 sm:group-hover:pointer-events-auto'}"
+                class="absolute top-1/2 -translate-y-1/2 z-1 m-0 w-8 h-8 appearance-none rounded-full border-0 bg-transparent cursor-pointer hover:bg-accent/10 focus-visible:outline-accent {showDirectoryNavigationRows ? 'left-7' : 'left-1 lg:left-3'}"
                 {checked}
-                tabindex="-1"
                 aria-label="Select {title}"
+                title={checked ? `Deselect ${title}` : `Select ${title}`}
                 onclick={(e) => handleRowClick(e, entry, true)}
               />
               <a
@@ -804,7 +807,7 @@
                 use:longPress={() => selection.add(entry.name)}
                 data-testid={isDocument ? 'document-entry' : undefined}
               >
-                <FileEntryLabel {entry} {title} {icon} {isFolder} {selecting} {detailsId} {compact} {mediaReady} grid={showGrid}
+                <FileEntryLabel {entry} {title} {icon} {isFolder} {checked} {detailsId} {compact} {mediaReady} grid={showGrid}
                   access={entryAccess?.kind !== 'private' && entryAccess?.kind !== currentAccess?.kind ? entryAccess : null} />
               </a>
               <button

@@ -106,6 +106,7 @@ test.describe('the New menu', () => {
 
     // The folder's name, as in Google Drive.
     await page.getByTestId('folder-header').getByTestId('folder-name-new').click();
+    await expect(menu(page).getByText('New', { exact: true })).toBeVisible();
     await expect(menu(page).getByRole('menuitem')).toHaveText(ITEMS);
     await expect(item(page, 'Folder')).toBeFocused();
     await page.screenshot({ path: testInfo.outputPath('folder-name-new.png') });
@@ -120,6 +121,7 @@ test.describe('the New menu', () => {
     const point = { x: list.x + list.width / 2, y: last.y + last.height + 40 };
     await page.mouse.click(point.x, point.y, { button: 'right' });
     await expect(menu(page)).toBeVisible();
+    await expect(menu(page).getByText('New', { exact: true })).toBeVisible();
     const opened = (await menu(page).boundingBox())!;
     expect(Math.abs(opened.x - point.x)).toBeLessThan(2);
     await page.screenshot({ path: testInfo.outputPath('right-click-new.png') });

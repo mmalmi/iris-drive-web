@@ -104,10 +104,9 @@ test.describe('choosing several items', () => {
     await expect(page.getByTestId('folder-header')).toBeVisible();
     await expectSelected(page, [], ['a.txt', 'b.txt', 'c.txt', 'd.txt']);
 
-    // Move: two at once through the dialog, chosen by the checkboxes that show on hover.
+    // Move two at once by clicking their file icons.
     for (const name of ['a.txt', 'b.txt']) {
-      await fileRow(page, name).hover();
-      await fileRow(page, name).getByRole('checkbox').click();
+      await fileRow(page, name).getByRole('checkbox').check();
     }
     await expect(count(page)).toHaveText('2 selected');
     await bar(page).getByRole('button', { name: 'Move' }).click();
@@ -161,6 +160,34 @@ test.describe('choosing several items', () => {
     await expect(bar(page)).toBeHidden();
     await expect(page.getByTestId('file-list')).toBeFocused();
     expect(newPages).toHaveLength(0);
+  });
+
+  test('file icons stay visible on hover and toggle selection beside an open preview', async ({ page, relayUrl }, testInfo) => {
+    await page.setViewportSize(DESKTOP);
+    await startInMyDrive(page, relayUrl);
+    await uploadIntoFolder(page, [text('Preview.txt'), text('Notes.txt')]);
+    await link(page, 'Preview.txt').click();
+    await expect(page.getByTestId('viewer-header')).toContainText('Preview.txt');
+    const previewUrl = page.url();
+    const notes = fileRow(page, 'Notes.txt');
+    const control = notes.getByRole('checkbox', { name: 'Select Notes.txt' });
+    const icon = notes.getByTestId('entry-icon');
+    await notes.hover();
+    await expect(icon).toBeVisible();
+    await control.check();
+    await expect(count(page)).toHaveText('1 selected');
+    await expect(notes.getByTestId('selection-mark')).toBeVisible();
+    await expect(fileRow(page, 'Preview.txt').getByTestId('entry-icon')).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath('preview-selection.png') });
+    await control.uncheck();
+    await expect(icon).toBeVisible();
+    await expect(bar(page)).toBeHidden();
+    await control.focus();
+    await control.press('Space');
+    await expect(control).toBeChecked();
+    await control.press('Space');
+    await expect(control).not.toBeChecked();
+    expect(page.url()).toBe(previewUrl);
   });
 
   test('a rectangle that reaches the top of the list scrolls it, choosing what comes into view', async ({ page, relayUrl }) => {

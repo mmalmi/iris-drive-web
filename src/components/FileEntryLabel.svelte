@@ -11,7 +11,7 @@
     title: string;
     icon: string;
     isFolder: boolean;
-    selecting: boolean;
+    checked: boolean;
     access?: ItemAccess | null;
     detailsId?: string;
     grid: boolean;
@@ -19,10 +19,16 @@
     mediaReady: boolean;
   }
 
-  let { entry, title, icon, isFolder, selecting, access, detailsId, grid, compact, mediaReady }: Props = $props();
+  let { entry, title, icon, isFolder, checked, access, detailsId, grid, compact, mediaReady }: Props = $props();
 </script>
 
-<span class="shrink-0 {icon} {selecting ? 'invisible' : 'sm:group-hover:invisible'}"></span>
+{#if checked}
+  <span class="shrink-0 w-4 h-4 inline-grid place-items-center rounded-full bg-accent text-surface-0" aria-hidden="true" data-testid="selection-mark">
+    <span class="i-lucide-check text-xs"></span>
+  </span>
+{:else}
+  <span class="shrink-0 {icon}" aria-hidden="true" data-testid="entry-icon"></span>
+{/if}
 <span class="min-w-0 flex-1 flex flex-col">
   <span class="min-w-0 flex items-center gap-3">
     <span class="truncate min-w-0" title={entry.name}>{title}</span>
