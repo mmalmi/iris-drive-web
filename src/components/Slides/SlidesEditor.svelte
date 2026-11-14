@@ -582,7 +582,7 @@
     {:else}
       <div class="relative flex-1 flex min-h-0 flex-col-reverse sm:flex-row" data-testid="slides-workspace" bind:this={workspace}>
         {#key view}
-          <SlideStrip editorState={view} {urls} others={versionState ? [] : drive.presence.others} />
+          <SlideStrip editorState={view} {urls} others={versionState ? [] : drive.presence.others} onCopy={menuCopy} onPaste={() => void menuPaste()} />
           <div class="flex-1 flex flex-col min-w-0 min-h-0">
             <Canvas editorState={view} {urls} onImageFiles={addImages} onCopy={menuCopy} onPaste={() => void menuPaste()} others={versionState ? [] : drive.presence.others} />
             {#if canEdit}

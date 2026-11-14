@@ -8,6 +8,13 @@
   import { describeModified } from '../lib/modifiedAt';
   import { downloadFile } from '../lib/downloadEntry';
   import { toast } from '../stores/toast';
+  import { nostrStore } from '../nostr';
+  import { acceptedShares } from '../drive/shareLibrary';
+  import { activeNostrIdentityRootScope } from '../drive/profileRoute';
+  import { linkTargetAt } from '../drive/linkShares';
+  import { createDriveShareLinkVariants, entryCopyHref } from '../lib/shareUrls';
+  import { DRIVE_TREE_NAME } from '../lib/driveWalk';
+  import { open as openShareModal } from './Modals/ShareModal.svelte';
   import MediaPlayer from './Viewer/MediaPlayer.svelte';
 
   interface Props {
@@ -57,6 +64,8 @@
   function onkeydown(event: KeyboardEvent) {
     if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
     const target = event.target as HTMLElement | null;
+    // Keys in a dialog over it, such as Share, are that dialog's.
+    if (target && target !== document.body && !dialog?.contains(target)) return;
     // A playing video's own keys move within it.
     const inMedia = target?.closest('video, audio, input');
     if (event.key === 'Escape') {
@@ -87,6 +96,25 @@
 
   function download() {
     downloadFile(photo).catch(() => toast.error(`Could not download ${photo.name}`));
+  }
+
+  /** As a file's Share in its folder: its link, and who may open it by that link. */
+  function share() {
+    const here = `${window.location.origin}${window.location.pathname}`;
+    const [primary, secondary] = createDriveShareLinkVariants({
+      permalinkUrl: `${here}${entryCopyHref(photo)}`,
+      currentUrl: `${here}${photo.href}`,
+      routeScope: photo.scope,
+      isPermalink: false,
+    });
+    const general = linkTargetAt({
+      scope: photo.scope,
+      treeName: DRIVE_TREE_NAME,
+      path: photo.path,
+      profileId: activeNostrIdentityRootScope($nostrStore),
+      records: $acceptedShares,
+    });
+    if (primary) openShareModal(primary.url, secondary?.url ?? null, null, true, general);
   }
 </script>
 
@@ -120,6 +148,16 @@
     >
       <span class="i-lucide-folder-open text-lg"></span><span class="max-sm:hidden">Open in folder</span>
     </a>
+    <button
+      type="button"
+      class="flex h-10 shrink-0 items-center gap-2 rounded-full px-3 text-sm text-white hover:bg-white/15 max-sm:w-10 max-sm:justify-center max-sm:px-0"
+      onclick={share}
+      title="Share"
+      aria-label="Share"
+      data-testid="photo-viewer-share"
+    >
+      <span class="i-lucide-share text-lg"></span><span class="max-sm:hidden">Share</span>
+    </button>
     <button
       type="button"
       class="flex h-10 shrink-0 items-center gap-2 rounded-full px-3 text-sm text-white hover:bg-white/15 max-sm:w-10 max-sm:justify-center max-sm:px-0"

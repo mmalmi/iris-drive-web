@@ -11,6 +11,7 @@ export interface AppBrand {
 }
 
 export const IRIS_FILES_APPS = ['files'] as const satisfies readonly IrisFilesAppId[];
+export const DRIVE_APP_DOWNLOAD_URL = 'https://getdrive.iris.to/';
 
 const APP_BRANDS: Record<IrisFilesAppId, AppBrand> = {
   files: {

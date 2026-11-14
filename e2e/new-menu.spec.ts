@@ -80,6 +80,58 @@ test.describe('the New menu', () => {
     for (const { name } of cases) await expect(listed(page, new RegExp(`^${name}\\.txt`))).toHaveCount(0);
   });
 
+  test('the New in an empty folder stays open until it is used', async ({ page, relayUrl }) => {
+    await page.setViewportSize(DESKTOP);
+    await startInMyDrive(page, relayUrl);
+    const button = page.getByTestId('empty-folder-new');
+    await button.click();
+    const menu = page.getByRole('menu').filter({ visible: true });
+    await expect(menu).toBeVisible();
+    await button.evaluate((element) => { (element as HTMLElement & { opened?: boolean }).opened = true; });
+    // Longer than the folder takes to look for what may still be on its way, more than once.
+    await page.waitForTimeout(4_000);
+    await expect(menu).toBeVisible();
+    expect(await button.evaluate((element) => (element as HTMLElement & { opened?: boolean }).opened)).toBe(true);
+  });
+
+  test('in a folder it opens from the folder name and from a right click beside the items', async ({ page, relayUrl }, testInfo) => {
+    await page.setViewportSize(DESKTOP);
+    await startInMyDrive(page, relayUrl);
+    await chooseNew(page, 'Folder');
+    await nameIt(page, 'Folder name...', 'Trip');
+    await listed(page, 'Trip').click({ timeout: 30_000 });
+    await expect(page).toHaveURL(/\/main\/Trip$/, { timeout: 30_000 });
+    await uploadFilesInput(page).setInputFiles({ name: 'plan.txt', mimeType: 'text/plain', buffer: Buffer.from('Day one') });
+    await expect(listed(page, /^plan\.txt/)).toBeVisible({ timeout: 30_000 });
+
+    // The folder's name, as in Google Drive.
+    await page.getByTestId('folder-header').getByTestId('folder-name-new').click();
+    await expect(menu(page).getByRole('menuitem')).toHaveText(ITEMS);
+    await expect(item(page, 'Folder')).toBeFocused();
+    await page.screenshot({ path: testInfo.outputPath('folder-name-new.png') });
+    await item(page, 'Folder').click();
+    await nameIt(page, 'Folder name...', 'Day one');
+    await expect(listed(page, 'Day one')).toBeVisible({ timeout: 30_000 });
+    await expect(page).toHaveURL(/\/main\/Trip$/);
+
+    // A right click on the list beside the items opens it where it was; on an item, the item's own menu.
+    const list = (await page.getByTestId('file-list').boundingBox())!;
+    const last = (await page.getByTestId('file-row').last().boundingBox())!;
+    const point = { x: list.x + list.width / 2, y: last.y + last.height + 40 };
+    await page.mouse.click(point.x, point.y, { button: 'right' });
+    await expect(menu(page)).toBeVisible();
+    const opened = (await menu(page).boundingBox())!;
+    expect(Math.abs(opened.x - point.x)).toBeLessThan(2);
+    await page.screenshot({ path: testInfo.outputPath('right-click-new.png') });
+    await item(page, 'Folder').click();
+    await nameIt(page, 'Folder name...', 'Day two');
+    await expect(listed(page, 'Day two')).toBeVisible({ timeout: 30_000 });
+    await expect(page).toHaveURL(/\/main\/Trip$/);
+    await listed(page, /^plan\.txt/).click({ button: 'right' });
+    await expect(page.getByTestId('row-menu')).toBeVisible();
+    await expect(menu(page)).toHaveCount(0);
+  });
+
   test('on a wide window it opens from the sidebar, by mouse and by keyboard, and makes each kind', async ({ page, relayUrl }) => {
     await page.setViewportSize(DESKTOP);
     const owner = await startInMyDrive(page, relayUrl);

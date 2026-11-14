@@ -274,6 +274,15 @@ test.describe('working on a slide', () => {
     await shot(page, 'edit-06-slide-menu');
     await page.getByTestId('slide-menu-delete').click();
     await expect.poll(titles).toEqual(['Three', 'Four', 'Two']);
+    // Cut, copy and paste from it, as with the keys: a paste goes after the slide it is on.
+    await thumbs(page).nth(0).click({ button: 'right' });
+    await page.getByTestId('slide-menu-copy').click();
+    await thumbs(page).nth(1).click({ button: 'right' });
+    await page.getByTestId('slide-menu-paste').click();
+    await expect.poll(titles).toEqual(['Three', 'Four', 'Three', 'Two']);
+    await thumbs(page).nth(2).click({ button: 'right' });
+    await page.getByTestId('slide-menu-cut').click();
+    await expect.poll(titles).toEqual(['Three', 'Four', 'Two']);
 
     // Shift-click picks a run of slides; they move and go together.
     await thumbs(page).nth(0).click();

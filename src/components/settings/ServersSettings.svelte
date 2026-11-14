@@ -274,7 +274,7 @@
     <p class="text-xs text-text-3 mb-3">
       Servers that keep copies of files, so they open when your other devices are offline
       (<a href="https://github.com/hzrd149/blossom" target="_blank" rel="noopener" class="text-accent hover:underline">Blossom</a>).
-      Those marked Save keep a backup of your Drive: see <a href="#/settings/backup" class="text-accent hover:underline">Backup</a>.
+      Those marked Save keep a backup of your Drive: see <a href="#/settings/storage" class="text-accent hover:underline">Storage</a>.
     </p>
     <div class="bg-surface-2 rounded divide-y divide-surface-3">
       {#if embeddedBlossomServer}

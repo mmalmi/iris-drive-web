@@ -5,6 +5,7 @@
   import { untrack } from 'svelte';
   import { addCopiedEntry, deleteEntry } from '../actions';
   import EmptyFolder from './EmptyFolder.svelte';
+  import { openNewMenuBeside } from './NewMenu.svelte';
   import { moveAndTell } from './Modals/MoveModal.svelte';
   import SelectionBar, { deleteChosen } from './SelectionBar.svelte';
   import ListSortHeader from './ListSortHeader.svelte';
@@ -693,7 +694,7 @@
       aria-label="File list"
       onkeydown={handleKeyDown}
       onpointerdowncapture={(e) => { lastPointer = e.pointerType; }}
-      oncontextmenu={(e) => { if (entryMenu) e.preventDefault(); }}
+      oncontextmenu={(e) => { if (entryMenu) e.preventDefault(); else if (canEdit) openNewMenuBeside(e); }}
       ondragover={handleFileDragOver}
       ondragleave={handleFileDragLeave}
       ondrop={handleFileDrop}

@@ -1,6 +1,10 @@
 <script lang="ts">
   /** What this app is and when it was last updated, and a way to load it again. */
   import { buildTimeLabel } from './buildTime';
+  import { DRIVE_APP_DOWNLOAD_URL } from '../../lib/appBrand';
+  import { getRuntimeHtreeServerUrl } from '../../lib/htreeRuntime';
+
+  const inNativeApp = Boolean(getRuntimeHtreeServerUrl());
 </script>
 
 <div class="space-y-6" data-testid="about-settings">
@@ -10,6 +14,12 @@
       <div class="min-w-0">
         <div class="font-medium text-text-1">Iris Drive</div>
         <div class="text-xs text-text-3">Files, documents, spreadsheets and presentations, private and in sync on all your devices.</div>
+        <a
+          class="mt-1 inline-block text-accent hover:underline"
+          href={DRIVE_APP_DOWNLOAD_URL}
+          target="_blank"
+          rel="noreferrer"
+        >{inNativeApp ? 'Iris Drive website' : 'Get the Iris Drive app'}</a>
       </div>
     </div>
     <div class="flex justify-between items-center gap-3 border-t border-surface-3 pt-3">

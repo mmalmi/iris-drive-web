@@ -16,7 +16,7 @@ import {
   moveSelected,
 } from '../../lib/sheets/commands';
 import type { SheetController } from '../../lib/sheets/controller.svelte';
-import { hiddenNear, hideSelected, showHidden } from '../../lib/sheets/dataCommands';
+import { hiddenNear, hideSelected, showHidden, sortSelection, toggleFilter } from '../../lib/sheets/dataCommands';
 import type { MenuItem } from './PopupMenu.svelte';
 import { pasteInto, readClipboard } from './gridClipboard';
 
@@ -97,6 +97,9 @@ export function selectionMenu(ctl: SheetController, target: 'cell' | 'row' | 'co
   const deleteRow: MenuItem = { label: `Delete ${plural(rows, 'row', 'rows')}`, icon: 'i-lucide-trash-2', action: () => deleteSelected(ctl, 'row'), disabled: rows >= sheet.rows.length, testId: 'menu-delete-row' };
   const deleteCol: MenuItem = { label: `Delete ${plural(cols, 'column', 'columns')}`, icon: 'i-lucide-trash-2', action: () => deleteSelected(ctl, 'col'), disabled: cols >= sheet.cols.length, testId: 'menu-delete-col' };
   const clear: MenuItem = { label: 'Clear', icon: 'i-lucide-eraser', hint: 'Del', action: () => clearContents(ctl), divider: true, testId: 'menu-clear' };
+  const filter: MenuItem = ctl.filter
+    ? { label: 'Remove filter', icon: 'i-lucide-filter-x', action: () => toggleFilter(ctl), testId: 'menu-filter' }
+    : { label: 'Create a filter', icon: 'i-lucide-filter', action: () => toggleFilter(ctl), testId: 'menu-filter' };
 
   if (target === 'row') {
     items.push(
@@ -120,6 +123,9 @@ export function selectionMenu(ctl: SheetController, target: 'cell' | 'row' | 'co
       ...(hiddenNear(ctl, 'col') ? [{ label: 'Show hidden columns', icon: 'i-lucide-eye', action: () => showHidden(ctl, 'col'), testId: 'menu-show-cols' }] : []),
       { label: 'Fit width to content', icon: 'i-lucide-fold-horizontal', action: () => autoFitColumn(ctl, rect.c1), testId: 'menu-fit-width' },
       ...freezeItems(ctl, 'col'),
+      { label: 'Sort sheet A to Z', icon: 'i-lucide-arrow-down-a-z', divider: true, action: () => sortSelection(ctl, true), testId: 'menu-sort-az' },
+      { label: 'Sort sheet Z to A', icon: 'i-lucide-arrow-up-z-a', action: () => sortSelection(ctl, false), testId: 'menu-sort-za' },
+      filter,
       clear,
     );
   } else {
@@ -146,6 +152,7 @@ export function selectionMenu(ctl: SheetController, target: 'cell' | 'row' | 'co
       },
       { label: 'Conditional formatting', icon: 'i-lucide-paint-roller', action: () => { ctl.panel = { kind: 'format' }; }, testId: 'menu-conditional' },
       { label: 'Data validation', icon: 'i-lucide-list-checks', action: () => { ctl.panel = { kind: 'valid' }; }, testId: 'menu-validation' },
+      filter,
     );
   }
   return items;

@@ -12,8 +12,11 @@
     urls: Map<string, string>;
     /** Others who have the deck open: each slide shows who is on it. */
     others?: PresenceState[];
+    /** The clipboard, for the menu: copy (or cut) the picked slides, and paste after the current one. */
+    onCopy?: (cut: boolean) => void;
+    onPaste?: () => void;
   }
-  let { editorState, urls, others = [] }: Props = $props();
+  let { editorState, urls, others = [], onCopy, onPaste }: Props = $props();
 
   const DRAG_START = 5;
   /** How long a finger rests on a slide before it picks the slide up, and how far it may wander meanwhile. */
@@ -249,8 +252,20 @@
     <span class="i-lucide-plus"></span>New slide
   </button>
   <button class="menu-item" onclick={() => run(() => editorState.duplicateSlides())} data-testid="slide-menu-duplicate">
-    <span class="i-lucide-copy"></span>Duplicate<span class="keys">{modifier}D</span>
+    <span class="i-lucide-copy-plus"></span>Duplicate<span class="keys">{modifier}D</span>
   </button>
+  {#if onCopy && onPaste}
+    <div class="menu-divider"></div>
+    <button class="menu-item" onclick={() => run(() => onCopy(true))} data-testid="slide-menu-cut">
+      <span class="i-lucide-scissors"></span>Cut<span class="keys">{modifier}X</span>
+    </button>
+    <button class="menu-item" onclick={() => run(() => onCopy(false))} data-testid="slide-menu-copy">
+      <span class="i-lucide-copy"></span>Copy<span class="keys">{modifier}C</span>
+    </button>
+    <button class="menu-item" onclick={() => run(onPaste)} data-testid="slide-menu-paste">
+      <span class="i-lucide-clipboard"></span>Paste<span class="keys">{modifier}V</span>
+    </button>
+  {/if}
   <div class="menu-divider"></div>
   <button class="menu-item" disabled={firstPicked <= 0} onclick={() => run(() => editorState.shiftSlides(-1))} data-testid="slide-menu-earlier">
     <span class={sideways ? 'i-lucide-arrow-left' : 'i-lucide-arrow-up'}></span>Move earlier

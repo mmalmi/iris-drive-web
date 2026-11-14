@@ -1,6 +1,8 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import UsersPage from './UsersPage.svelte';
+  import { DRIVE_APP_DOWNLOAD_URL } from '../lib/appBrand';
+  import { getRuntimeHtreeServerUrl } from '../lib/htreeRuntime';
 
   interface Props {
     initialOwnerInput?: string;
@@ -10,6 +12,7 @@
 
   let { initialOwnerInput = '', children }: Props = $props();
   let hasInitialDeviceLink = $derived(Boolean(initialOwnerInput.trim()));
+  const inNativeApp = Boolean(getRuntimeHtreeServerUrl());
 </script>
 
 <div class="flex flex-1 items-center justify-center px-4 py-8 bg-surface-0" data-testid="drive-setup">
@@ -29,13 +32,15 @@
       initialDeviceLink={initialOwnerInput}
     />
 
-    <a
-      class="text-center text-sm text-text-3 hover:text-text-1"
-      href="https://getdrive.iris.to/"
-      target="_blank"
-      rel="noreferrer"
-    >
-      Get native app
-    </a>
+    {#if !children && !inNativeApp}
+      <a
+        class="text-center text-sm text-text-3 hover:text-text-1"
+        href={DRIVE_APP_DOWNLOAD_URL}
+        target="_blank"
+        rel="noreferrer"
+      >
+        Get the Iris Drive app
+      </a>
+    {/if}
   </section>
 </div>

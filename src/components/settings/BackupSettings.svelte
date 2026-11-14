@@ -1,9 +1,10 @@
 <script lang="ts">
   /**
    * Where the Drive is kept besides this device, and how each place stands at
-   * a glance. Backups go on in the background while the page is left.
+   * a glance, below this device's own space on the Storage page. Backups go
+   * on in the background while the page is left.
    */
-  import { appStore, formatBytes, updateStorageStats } from '../../store';
+  import { formatBytes } from '../../store';
   import { settingsStore } from '../../stores/settings';
   import {
     addFolder,
@@ -21,6 +22,7 @@
   import { getCurrentNostrIdentitySession, nostrStore } from '../../nostr';
   import { projectNostrIdentityRoster } from '../../drive/protocol';
   import { activeRecoveryPhraseFacets } from '../../drive/recoveryPhrase';
+  import { DRIVE_APP_DOWNLOAD_URL } from '../../lib/appBrand';
 
   const runsHere = backupsRunHere();
   const folders = canBackUpToFolder();
@@ -35,7 +37,6 @@
   let places = $derived(backupPlaces($settingsStore.network.blossomServers, view.records));
   let servers = $derived(places.filter((place) => place.kind === 'server').length);
   let hasFolder = $derived(places.some((place) => place.kind === 'folder'));
-  let stats = $derived($appStore.stats);
   let now = $state(Date.now());
   let draft = $state('');
   let draftError = $state('');
@@ -50,7 +51,6 @@
 
   $effect(() => {
     startBackups();
-    updateStorageStats();
     const tick = setInterval(() => { now = Date.now(); }, 30_000);
     return () => clearInterval(tick);
   });
@@ -63,23 +63,6 @@
 </script>
 
 <div class="space-y-6" data-testid="backup-settings">
-  <section>
-    <h3 class="text-xs font-medium text-muted uppercase tracking-wide mb-3">On this device</h3>
-    <a
-      href="#/settings/storage"
-      class="flex items-center gap-3 rounded bg-surface-2 p-3 no-underline transition-colors hover:bg-surface-3"
-      data-testid="backup-this-device"
-    >
-      <span class="i-lucide-laptop shrink-0 text-xl text-text-3"></span>
-      <span class="min-w-0 flex-1">
-        <span class="block text-sm text-text-1">This device</span>
-        <span class="block text-xs text-text-3">Keeps {formatBytes(stats.bytes)} of files you added or opened here</span>
-      </span>
-      <span class="shrink-0 text-sm text-accent">Storage</span>
-      <span class="i-lucide-chevron-right shrink-0 text-text-3"></span>
-    </a>
-  </section>
-
   <section>
     <h3 class="text-xs font-medium text-muted uppercase tracking-wide mb-1">Backups</h3>
     <p class="text-sm text-text-2 mb-3">
@@ -159,7 +142,14 @@
 
   <section>
     <h3 class="text-xs font-medium text-muted uppercase tracking-wide mb-1">Friends</h3>
-    <p class="text-sm text-text-2">Keeping backups for each other with friends is available in the Iris Drive app.</p>
+    <p class="text-sm text-text-2">
+      {#if runsHere}
+        You and a friend can keep backups for each other with the
+        <a class="text-accent underline" href={DRIVE_APP_DOWNLOAD_URL} target="_blank" rel="noreferrer">Iris Drive app</a>.
+      {:else}
+        Open the Backups tab to set up backups with a friend.
+      {/if}
+    </p>
   </section>
 
   <section>

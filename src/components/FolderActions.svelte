@@ -11,7 +11,7 @@
   import { open as openForkModal } from './Modals/ForkModal.svelte';
   import ShareButton from './ShareButton.svelte';
   import { open as openBlossomPushModal } from './Modals/BlossomPushModal.svelte';
-  import { deleteCurrentFolder, buildRouteUrl, getCurrentRootCid, makeCopyOfFolder } from '../actions';
+  import { deleteCurrentFolder, buildRouteUrl, getCurrentRootCid, makeCopy } from '../actions';
   import { toast } from '../stores/toast';
   import { nostrStore, deleteTree, npubToPubkey } from '../nostr';
   import { downloadFolderZip } from '../lib/downloadEntry';
@@ -251,7 +251,7 @@
           : { label: 'Download ZIP', icon: 'i-lucide-download', testid: 'zip-folder-btn', run: () => void handleDownloadZip() });
       }
       if (!inDrive) items.push({ label: 'Fork', icon: 'i-lucide-git-fork', testid: 'fork-folder-btn', run: handleFork });
-      else if (canEdit && folderDepth > 0) items.push({ label: 'Make a copy', icon: 'i-lucide-copy', testid: 'make-copy-btn', run: () => void makeCopyOfFolder() });
+      else if (canEdit && folderDepth > 0) items.push({ label: 'Make a copy', icon: 'i-lucide-copy', testid: 'make-copy-btn', run: () => void makeCopy() });
       items.push({
         label: 'Keep a copy on a server',
         icon: 'i-lucide-upload-cloud',

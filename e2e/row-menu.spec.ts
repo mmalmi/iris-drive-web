@@ -35,7 +35,7 @@ test.describe('the menu of a row', () => {
 
     // ⋮ on a file: what applies to a file, in plain words.
     let opened = await openRowMenu(page, 'notes.txt');
-    await expect(opened.getByRole('menuitem')).toHaveText(['Open', 'Share', 'Rename', 'Move', 'Download', 'Delete']);
+    await expect(opened.getByRole('menuitem')).toHaveText(['Open', 'Share', 'Copy link', 'Rename', 'Move', 'Make a copy', 'Download', 'Delete']);
     await expect(opened.getByRole('menuitem').first()).toBeFocused();
     await page.screenshot({ path: testInfo.outputPath('row-menu-desktop.png') });
     const pending = page.waitForEvent('download');
@@ -59,9 +59,9 @@ test.describe('the menu of a row', () => {
     await expect(fileRow(page, 'notes.txt')).toHaveCount(0);
     expect(page.url()).toBe(folderUrl);
 
-    // A right click on a folder: a folder can also be copied.
+    // A right click on a folder: copied with what is in it.
     await fileRow(page, 'Trip').getByRole('link').click({ button: 'right' });
-    await expect(menu(page).getByRole('menuitem')).toHaveText(['Open', 'Share', 'Rename', 'Move', 'Make a copy', 'Download', 'Delete']);
+    await expect(menu(page).getByRole('menuitem')).toHaveText(['Open', 'Share', 'Copy link', 'Rename', 'Move', 'Make a copy', 'Download', 'Delete']);
     await menu(page).getByRole('menuitem', { name: 'Make a copy' }).click();
     await expect(fileRow(page, 'Copy of Trip')).toBeVisible({ timeout: 30_000 });
     expect(page.url()).toBe(folderUrl);
@@ -102,6 +102,37 @@ test.describe('the menu of a row', () => {
     await expect(fileRow(page, 'packing.txt')).toBeVisible({ timeout: 30_000 });
   });
 
+  test('Copy link copies where the item opens, and Make a copy copies a file beside it', async ({ page, relayUrl }) => {
+    await page.setViewportSize(DESKTOP);
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+    await startInMyDrive(page, relayUrl);
+    await uploadIntoFolder(page, { name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('Buy bread') });
+    const clipboard = () => page.evaluate(() => navigator.clipboard.readText());
+
+    // Shared with no one: its address in Drive, which opens for whoever it is shared with.
+    await (await openRowMenu(page, 'notes.txt')).getByRole('menuitem', { name: 'Copy link' }).click();
+    await expect(page.getByText('Link copied')).toBeVisible();
+    const own = new URL(page.url());
+    expect(await clipboard()).toBe(`${own.origin}${own.pathname}${own.hash}/notes.txt`);
+
+    // Anyone with the link: that link.
+    await (await openRowMenu(page, 'notes.txt')).getByRole('menuitem', { name: 'Share' }).click();
+    await page.getByTestId('general-access-select').selectOption('link');
+    await page.getByTestId('general-access-link').click({ timeout: 30_000 });
+    const link = await clipboard();
+    expect(link).toMatch(/^https:\/\/drive\.iris\.to\/#\/npub1[a-z0-9]+\/[^?]+\?k=[0-9a-f]+$/);
+    await page.keyboard.press('Escape');
+    await page.evaluate(() => navigator.clipboard.writeText(''));
+    await (await openRowMenu(page, 'notes.txt')).getByRole('menuitem', { name: 'Copy link' }).click();
+    await expect.poll(clipboard).toBe(link);
+
+    // A copy of a file, as of a folder: beside it, the same inside.
+    await (await openRowMenu(page, 'notes.txt')).getByRole('menuitem', { name: 'Make a copy' }).click();
+    await expect(fileRow(page, 'Copy of notes.txt')).toBeVisible({ timeout: 30_000 });
+    await fileRow(page, 'Copy of notes.txt').getByRole('link').click();
+    await expect(page.locator('pre')).toContainText('Buy bread', { timeout: 30_000 });
+  });
+
   test('on a phone ⋮ opens it from the bottom, and a long press chooses the row instead', async ({ page, relayUrl }, testInfo) => {
     await page.setViewportSize(PHONE);
     await startInMyDrive(page, relayUrl);
@@ -124,7 +155,7 @@ test.describe('the menu of a row', () => {
 
     await fileRow(page, 'photo-notes.txt').getByTestId('row-menu-btn').click();
     await expect(menu(page)).toBeVisible();
-    await expect(menu(page).getByRole('menuitem')).toHaveText(['Open', 'Share', 'Rename', 'Move', 'Download', 'Delete']);
+    await expect(menu(page).getByRole('menuitem')).toHaveText(['Open', 'Share', 'Copy link', 'Rename', 'Move', 'Make a copy', 'Download', 'Delete']);
     const sheet = (await menu(page).boundingBox())!;
     expect(sheet.x).toBe(0);
     expect(Math.round(sheet.y + sheet.height)).toBe(PHONE.height);

@@ -123,18 +123,19 @@ export async function createFolder(name: string) {
 }
 
 /**
- * Make a copy: the folder at `path` (the open one unless given) again beside
- * it, as "Copy of <name>", and say so. Content is addressed by its hash, so
- * the copy stores nothing twice and the two change apart from then on.
+ * Make a copy: the file or folder at `path` (the open folder unless given)
+ * again beside it, as "Copy of <name>", and say so. Content is addressed by
+ * its hash, so the copy stores nothing twice and the two change apart from
+ * then on.
  */
-export async function makeCopyOfFolder(path: string[] = getCurrentPathFromUrl()): Promise<void> {
-  const name = await copyFolderBeside(path).catch(() => null);
+export async function makeCopy(path: string[] = getCurrentPathFromUrl()): Promise<void> {
+  const name = await copyBeside(path).catch(() => null);
   if (name) toast.success(`Made “${name}”`);
   else toast.error('Could not make a copy.');
 }
 
-/** The copy's name, or null when there is no folder to copy here. */
-async function copyFolderBeside(path: string[]): Promise<string | null> {
+/** The copy's name, or null when there is nothing to copy here. */
+async function copyBeside(path: string[]): Promise<string | null> {
   const isCurrent = captureRouteWriteGuard();
   const rootCid = getCurrentRootCid();
   const name = path.at(-1);
@@ -145,7 +146,7 @@ async function copyFolderBeside(path: string[]): Promise<string | null> {
   if (!parentCid) return null;
   const siblings = await tree.listDirectory(parentCid);
   const original = siblings.find((entry) => entry.name === name);
-  if (!original || original.type !== LinkType.Dir) return null;
+  if (!original) return null;
   const copyName = freeName(`Copy of ${name}`, new Set(siblings.map((entry) => entry.name)));
   if (!isCurrent()) return null;
   const newRootCid = await setEntryForDriveRoute(
@@ -153,7 +154,7 @@ async function copyFolderBeside(path: string[]): Promise<string | null> {
     rootCid,
     parentPath,
     copyName,
-    { cid: original.cid, size: original.size, type: LinkType.Dir, meta: original.meta },
+    { cid: original.cid, size: original.size, type: original.type, meta: original.meta },
     parseRoute(),
     useNostrStore.getState(),
   );
