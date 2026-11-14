@@ -59,7 +59,7 @@
     data-name={outline.name}
     data-element={element.id}
   >
-    <span class="tag" style:background-color={outline.color}>{outline.name}{#if outline.npub}<FollowBadge pubkey={outline.npub} size={10} />{/if}</span>
+    <span class="tag" style:background-color={outline.color} data-label={outline.name} aria-hidden="true">{#if outline.npub}<FollowBadge pubkey={outline.npub} size={10} />{/if}</span>
   </div>
 {/each}
 
@@ -88,5 +88,10 @@
     display: inline-flex;
     align-items: center;
     gap: 3px;
+  }
+
+  /* The name is not text of the slide. */
+  .tag::before {
+    content: attr(data-label);
   }
 </style>

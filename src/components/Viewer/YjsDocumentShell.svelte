@@ -419,12 +419,14 @@
     pointer-events: none;
   }
 
-  .document-container :global(.collaboration-carets__label) {
+  .document-container :global(.collaboration-carets__caret::after) {
+    content: attr(data-name);
     position: absolute;
     top: -1.35em;
     left: -1px;
     padding: 0.05rem 0.3rem;
     border-radius: 3px 3px 3px 0;
+    background: var(--caret-color);
     color: #fff;
     font-size: 0.7rem;
     font-weight: 600;

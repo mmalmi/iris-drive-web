@@ -97,7 +97,11 @@ test.describe('live collaboration', () => {
       await guest.keyboard.up('Shift');
       const caret = page.locator('.collaboration-carets__caret');
       await expect(caret).toHaveCount(1, { timeout: 5000 });
-      await expect(caret.locator('.collaboration-carets__label')).toHaveText('Guest');
+      await expect(caret).toHaveAttribute('data-name', 'Guest');
+      // The name is drawn on the caret, not written into the text.
+      await expect(documentBody(page)).not.toContainText('Guest');
+      const shownText = async (on: Page) => (await documentBody(on).innerText()).replace(/\s+/g, ' ').trim();
+      expect(await shownText(page)).toBe(await shownText(guest));
       await expect(page.locator('.ProseMirror-yjs-selection')).toContainText('irst.');
       await page.screenshot({ path: testInfo.outputPath('owner-sees-guest.png') });
 
@@ -160,7 +164,7 @@ test.describe('live collaboration', () => {
         const box = await outline.boundingBox();
         return box ? [box.x, box.y, box.x + box.width, box.y + box.height].map(Math.round) : null;
       }, { timeout: 2000 }).toEqual(expected);
-      await expect(outline).toContainText('Guest');
+      await expect(outline.locator('[data-label]')).toHaveAttribute('data-label', 'Guest');
       await page.screenshot({ path: testInfo.outputPath('owner-sees-guest-cells.png') });
 
       // What the guest types into a cell reaches the owner within two seconds.

@@ -73,7 +73,7 @@
     data-name={box.name}
   >
     {#if box.tag}
-      <span class="tag" style:background-color={box.color}>{box.name}{#if box.npub}<FollowBadge pubkey={box.npub} size={10} />{/if}</span>
+      <span class="tag" style:background-color={box.color} data-label={box.name} aria-hidden="true">{#if box.npub}<FollowBadge pubkey={box.npub} size={10} />{/if}</span>
     {/if}
   </div>
 {/each}
@@ -101,5 +101,10 @@
     display: inline-flex;
     align-items: center;
     gap: 3px;
+  }
+
+  /* The name is not text of the grid. */
+  .tag::before {
+    content: attr(data-label);
   }
 </style>

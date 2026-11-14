@@ -67,6 +67,22 @@ export function insertPicture(editor: Editor, attrs: { src: string; alt: string 
   editor.view.dispatch(tr.setSelection(TextSelection.create(tr.doc, end + 1)).scrollIntoView());
 }
 
+/**
+ * Where someone else is writing: a line in their colour with their name on a
+ * flag. It is one empty inline element and the flag is drawn by CSS, so
+ * nothing of it is part of the document's text: not in what is copied, found
+ * or read aloud, and no line break where it stands.
+ */
+function otherCaret(user: { name: string; color: string }): HTMLElement {
+  const caret = document.createElement('span');
+  caret.className = 'collaboration-carets__caret';
+  caret.setAttribute('aria-hidden', 'true');
+  caret.dataset.name = user.name;
+  caret.style.borderColor = user.color;
+  caret.style.setProperty('--caret-color', user.color);
+  return caret;
+}
+
 interface YjsTiptapEditorSetup {
   editor: Editor;
   commentsStore: CommentsStore;
@@ -85,6 +101,7 @@ export function createYjsTiptapEditor(options: CreateYjsTiptapEditorOptions): Yj
       ...(options.presence ? [CollaborationCaret.configure({
         provider: { awareness: options.presence.awareness },
         user: { ...options.presence.user, name: options.presence.user.name || 'Someone' },
+        render: otherCaret,
       })] : []),
       // data: pictures are accepted on paste only to be stored as attachments at once.
       Image.configure({ inline: false, allowBase64: true }),

@@ -343,6 +343,60 @@ describe('live channel', () => {
     expect(text(alice)).toBe('once');
   });
 
+  it('does not show this device to itself, as an earlier page of it before a reload', async () => {
+    const bus = new Bus();
+    const before = member(bus, 'Alice');
+    const key = keyFor('s');
+    before.channel.setKeys([key]);
+    before.presence.set('cursor', 'somewhere');
+    // The page is loaded again: same device key, another awareness client.
+    const ydoc = new Y.Doc();
+    const presence = new LivePresence(ydoc, user(before.key, 'Alice'));
+    const after = new LiveChannel({
+      ydoc, presence, transports: [bus.transport()], deviceSecretKey: before.secret,
+      canEdit: () => true, identify: defaultAccess.identify,
+    });
+    after.setKeys([key]);
+    before.ydoc.getText('body').insert(0, 'before the reload');
+    await vi.advanceTimersByTimeAsync(3000);
+    expect([...presence.awareness.getStates().keys()]).toEqual([ydoc.clientID]);
+    expect(ydoc.getText('body').toString()).toBe('');
+    after.destroy();
+  });
+
+  it('sends nothing without a network, and asks for what it missed once back', async () => {
+    const bus = new Bus();
+    const alice = member(bus, 'Alice');
+    let online = true;
+    const ydoc = new Y.Doc();
+    const bobSecret = generateSecretKey();
+    const presence = new LivePresence(ydoc, user(getPublicKey(bobSecret), 'Bob'));
+    defaultAccess.add(getPublicKey(bobSecret), 'Bob');
+    const bob = new LiveChannel({
+      ydoc, presence, transports: [bus.transport()], deviceSecretKey: bobSecret,
+      canEdit: () => true, identify: defaultAccess.identify, online: () => online,
+    });
+    const key = keyFor('s');
+    alice.channel.setKeys([key]);
+    bob.setKeys([key]);
+    await vi.advanceTimersByTimeAsync(300);
+    online = false;
+    const sent = bus.sent.length;
+    ydoc.getText('body').insert(0, 'written offline');
+    alice.ydoc.getText('body').insert(0, 'meanwhile ');
+    await vi.advanceTimersByTimeAsync(5000);
+    const senders = bus.sent.slice(sent).map(event => (JSON.parse(nip44.v2.decrypt(event.content, key.key)) as Event).pubkey);
+    expect(senders).toContain(alice.key);
+    expect(senders).not.toContain(getPublicKey(bobSecret));
+    expect(text(alice)).toBe('meanwhile ');
+    online = true;
+    bob.resume();
+    await vi.advanceTimersByTimeAsync(500);
+    // Alice answers what Bob asked; Bob's own edit reaches her with the files.
+    expect(ydoc.getText('body').toString()).toContain('meanwhile');
+    bob.destroy();
+  });
+
   it('takes someone away when they leave, and when they go quiet', async () => {
     const bus = new Bus();
     const alice = member(bus, 'Alice');

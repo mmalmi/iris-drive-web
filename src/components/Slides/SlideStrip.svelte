@@ -220,7 +220,7 @@
           {#if here.length > 0}
             <span class="here" data-testid="slide-thumb-presence">
               {#each here.slice(0, 3) as state (state.clientId)}
-                <span class="here-dot" style:background-color={state.user.color} title={state.user.name || 'Someone'} data-name={state.user.name}>{(Array.from(state.user.name.trim() || '?')[0] ?? '?').toUpperCase()}</span>
+                <span class="here-dot" style:background-color={state.user.color} title={state.user.name || 'Someone'} data-name={state.user.name} data-initial={(Array.from(state.user.name.trim() || '?')[0] ?? '?').toUpperCase()}></span>
               {/each}
             </span>
           {/if}
@@ -366,6 +366,11 @@
     font-size: 9px;
     font-weight: 600;
     line-height: 1;
+  }
+
+  /* An initial, not text of the slide. */
+  .here-dot::after {
+    content: attr(data-initial);
   }
 
   .here-dot + .here-dot {

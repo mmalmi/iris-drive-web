@@ -7,8 +7,12 @@ import type { Event, Filter } from 'nostr-tools';
 import { getLoadedDriveFipsRuntime } from '../driveFipsRuntimeRef';
 import { LIVE_KIND, type LiveTransport } from './liveChannel';
 
-/** How far back a new subscription looks, for messages sent while it was being set up. */
-const LISTEN_BACK_S = 2;
+/**
+ * A new subscription asks for nothing older than this second. Relays keep no
+ * ephemeral messages, and one that did would bring back copies already gone;
+ * what was written before joining comes by asking (see liveChannel.ts).
+ */
+const LISTEN_BACK_S = 0;
 
 /** The app's Nostr client, as far as live messages need it. */
 export interface LiveNostrClient {

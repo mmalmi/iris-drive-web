@@ -69,6 +69,7 @@ export function connectLive(options: ConnectLiveOptions): LiveConnection | null 
       fipsLiveTransport({ audience: () => new Set(access?.devices.keys()), ownKey: deviceKey }),
     ],
     canEdit: options.canEdit,
+    online: () => navigator.onLine,
     identify: key => access?.devices.get(key) ?? null,
     onRemoteUpdate: (update) => {
       // Tests tell edits that came live from ones the files brought.
@@ -135,6 +136,8 @@ export function connectLive(options: ConnectLiveOptions): LiveConnection | null 
   };
   window.addEventListener('pagehide', leave);
   window.addEventListener('pageshow', onPageShow);
+  const onOnline = (): void => channel.resume();
+  window.addEventListener('online', onOnline);
   document.addEventListener('visibilitychange', onVisibility);
 
   return {
@@ -142,6 +145,7 @@ export function connectLive(options: ConnectLiveOptions): LiveConnection | null 
       clearTimeout(hiddenTimer);
       window.removeEventListener('pagehide', leave);
       window.removeEventListener('pageshow', onPageShow);
+      window.removeEventListener('online', onOnline);
       document.removeEventListener('visibilitychange', onVisibility);
       stopName();
       stopShares();

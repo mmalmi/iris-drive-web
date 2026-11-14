@@ -90,6 +90,11 @@ export interface LiveChannelOptions {
   identify: (deviceKey: string) => LiveIdentity | null;
   /** Called with each update taken in from someone else. */
   onRemoteUpdate?: (update: Uint8Array) => void;
+  /**
+   * False while there is no network. Nothing is sent then: it could not
+   * arrive while it still mattered, and the files carry the edits.
+   */
+  online?: () => boolean;
   now?: () => number;
 }
 
@@ -172,6 +177,7 @@ export class LiveChannel {
   readonly #now: () => number;
   readonly #sessionKey = generateSecretKey();
   readonly #session = getPublicKey(this.#sessionKey);
+  readonly #deviceKey: string;
   #keys: LiveKey[] = [];
   /** Messages already taken, by id, until they are too old to be taken anyway. */
   readonly #taken = new Map<string, number>();
@@ -193,6 +199,7 @@ export class LiveChannel {
     this.#ydoc = options.ydoc;
     this.#presence = options.presence;
     this.#now = options.now ?? Date.now;
+    this.#deviceKey = getPublicKey(options.deviceSecretKey);
     this.#ydoc.on('update', this.#onUpdate);
     this.#presence.awareness.on('update', this.#onAwareness);
     this.#heartbeat = setInterval(() => this.#beat(), HEARTBEAT_MS);
@@ -231,6 +238,12 @@ export class LiveChannel {
     }
     // On a new key: here, and what is missing, please.
     if (keys[0]!.topic !== before) this.#send({ ...this.#awarenessBody(), q: base64.encode(Y.encodeStateVector(this.#ydoc)) });
+  }
+
+  /** Back on the network: here again, and what was missed meanwhile, please. */
+  resume(): void {
+    if (this.#keys.length === 0 || this.#closed) return;
+    this.#send({ ...this.#awarenessBody(), q: base64.encode(Y.encodeStateVector(this.#ydoc)) });
   }
 
   /** Stops showing copies whose devices may no longer take part. Called after access changed. */
@@ -322,7 +335,7 @@ export class LiveChannel {
 
   #send(body: LiveBody): void {
     const key = this.#keys[0];
-    if (!key || this.#closed) return;
+    if (!key || this.#closed || this.#options.online?.() === false) return;
     const now = this.#now();
     this.#sequence = Math.max(this.#sequence + 1, now);
     const createdAt = Math.floor(now / 1000);
@@ -360,6 +373,9 @@ export class LiveChannel {
     } catch {
       return;
     }
+    // Tabs of this browser share edits among themselves (tabSync.ts), and an
+    // earlier page of this one, as before a reload, is not someone else.
+    if (message?.pubkey === this.#deviceKey) return;
     const sender = this.#check(message, key.topic);
     if (!sender) return;
     const { deviceKey, clientId, identity } = sender;
