@@ -94,7 +94,8 @@ function createGlobalDirectoryEntriesStore() {
       return;
     }
 
-    state.update(s => ({ ...s, loading: true }));
+    // Another folder is loading; a look at this one again keeps showing it, and what is open in it.
+    if (hasChanged) state.update(s => ({ ...s, loading: true }));
     const tree = getTree();
 
     try {

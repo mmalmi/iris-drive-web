@@ -80,6 +80,20 @@ test.describe('the New menu', () => {
     for (const { name } of cases) await expect(listed(page, new RegExp(`^${name}\\.txt`))).toHaveCount(0);
   });
 
+  test('the New in an empty folder stays open until it is used', async ({ page, relayUrl }) => {
+    await page.setViewportSize(DESKTOP);
+    await startInMyDrive(page, relayUrl);
+    const button = page.getByTestId('empty-folder-new');
+    await button.click();
+    const menu = page.getByRole('menu').filter({ visible: true });
+    await expect(menu).toBeVisible();
+    await button.evaluate((element) => { (element as HTMLElement & { opened?: boolean }).opened = true; });
+    // Longer than the folder takes to look for what may still be on its way, more than once.
+    await page.waitForTimeout(4_000);
+    await expect(menu).toBeVisible();
+    expect(await button.evaluate((element) => (element as HTMLElement & { opened?: boolean }).opened)).toBe(true);
+  });
+
   test('on a wide window it opens from the sidebar, by mouse and by keyboard, and makes each kind', async ({ page, relayUrl }) => {
     await page.setViewportSize(DESKTOP);
     const owner = await startInMyDrive(page, relayUrl);
