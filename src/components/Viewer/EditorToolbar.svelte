@@ -1,6 +1,7 @@
 <script lang="ts">
   /** Formatting controls for the document editor. */
   import type { Editor } from '@tiptap/core';
+  import PopupMenu, { type MenuItem } from '../Sheets/PopupMenu.svelte';
 
   interface Props {
     editor: Editor;
@@ -11,6 +12,7 @@
     onAddComment: () => void;
     onToggleCommentsPanel: () => void;
     onImageUpload: () => void;
+    onLink: () => void;
   }
 
   let {
@@ -22,6 +24,7 @@
     onAddComment,
     onToggleCommentsPanel,
     onImageUpload,
+    onLink,
   }: Props = $props();
 
   // The editor is not reactive; count its changes so the buttons follow the cursor.
@@ -64,8 +67,36 @@
     return editor.can().redo();
   });
 
+  const MOD = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl+';
+
   function keepEditorFocus(event: MouseEvent): void {
     if (!(event.target as HTMLElement).closest('select')) event.preventDefault();
+  }
+
+  // Outside a table the button adds one; inside, it offers what changes it.
+  let tableMenu = $state<{ x: number; y: number } | null>(null);
+  const tableItems: MenuItem[] = [
+    { label: 'Insert row above', icon: 'i-lucide-between-horizontal-start', action: () => editor.chain().focus().addRowBefore().run() },
+    { label: 'Insert row below', icon: 'i-lucide-between-horizontal-end', action: () => editor.chain().focus().addRowAfter().run() },
+    { label: 'Insert column left', icon: 'i-lucide-between-vertical-start', action: () => editor.chain().focus().addColumnBefore().run() },
+    { label: 'Insert column right', icon: 'i-lucide-between-vertical-end', action: () => editor.chain().focus().addColumnAfter().run() },
+    { label: 'Delete row', icon: 'i-lucide-trash-2', divider: true, action: () => editor.chain().focus().deleteRow().run() },
+    { label: 'Delete column', icon: 'i-lucide-trash-2', action: () => editor.chain().focus().deleteColumn().run() },
+    { label: 'Delete table', icon: 'i-lucide-trash-2', danger: true, action: () => editor.chain().focus().deleteTable().run() },
+  ];
+
+  function onTable(event: MouseEvent): void {
+    if (!editor.isActive('table')) {
+      editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: false }).run();
+      return;
+    }
+    const bounds = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    tableMenu = { x: bounds.left, y: bounds.bottom + 4 };
+  }
+
+  function closeTableMenu(): void {
+    tableMenu = null;
+    editor.commands.focus();
   }
 
   function setBlockStyle(event: Event): void {
@@ -91,6 +122,9 @@
   <button onclick={() => editor.chain().focus().redo().run()} disabled={!canRedo} class="tool" title="Redo" aria-label="Redo">
     <span class="i-lucide-redo-2"></span>
   </button>
+  <button onclick={() => window.print()} class="tool wide-only" title="Print or save as PDF" aria-label="Print">
+    <span class="i-lucide-printer"></span>
+  </button>
 
   <span class="divider"></span>
 
@@ -109,11 +143,17 @@
   <button onclick={() => editor.chain().focus().toggleItalic().run()} class="tool" class:on={active('italic')} title="Italic" aria-label="Italic" aria-pressed={active('italic')}>
     <span class="i-lucide-italic"></span>
   </button>
+  <button onclick={() => editor.chain().focus().toggleUnderline().run()} class="tool" class:on={active('underline')} title="Underline" aria-label="Underline" aria-pressed={active('underline')}>
+    <span class="i-lucide-underline"></span>
+  </button>
   <button onclick={() => editor.chain().focus().toggleStrike().run()} class="tool" class:on={active('strike')} title="Strikethrough" aria-label="Strikethrough" aria-pressed={active('strike')}>
     <span class="i-lucide-strikethrough"></span>
   </button>
   <button onclick={() => editor.chain().focus().toggleCode().run()} class="tool" class:on={active('code')} title="Code" aria-label="Code" aria-pressed={active('code')}>
     <span class="i-lucide-code"></span>
+  </button>
+  <button onclick={onLink} class="tool" class:on={active('link')} title="Link ({MOD}K)" aria-label="Link" aria-pressed={active('link')}>
+    <span class="i-lucide-link"></span>
   </button>
 
   <span class="divider"></span>
@@ -132,6 +172,9 @@
   </button>
   <button onclick={onImageUpload} class="tool" title="Add image" aria-label="Add image">
     <span class="i-lucide-image"></span>
+  </button>
+  <button onclick={onTable} class="tool" class:on={active('table')} title="Table" aria-label="Table" aria-haspopup={active('table') ? 'menu' : undefined}>
+    <span class="i-lucide-table"></span>
   </button>
 
   <span class="divider"></span>
@@ -161,6 +204,10 @@
     {/if}
   </button>
 </div>
+
+{#if tableMenu}
+  <PopupMenu x={tableMenu.x} y={tableMenu.y} items={tableItems} onclose={closeTableMenu} />
+{/if}
 
 <style>
   .toolbar {
@@ -204,6 +251,13 @@
   .tool.on {
     background: rgb(145 109 254 / 0.18);
     color: #916dfe;
+  }
+
+  /* Phones print seldom; the row there keeps to writing. */
+  @media (max-width: 640px) {
+    .tool.wide-only {
+      display: none;
+    }
   }
 
   .tool:disabled {

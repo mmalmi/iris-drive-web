@@ -1,8 +1,10 @@
 import { Editor } from '@tiptap/core';
+import { TextSelection } from '@tiptap/pm/state';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
 import Image from '@tiptap/extension-image';
 import Collaboration from '@tiptap/extension-collaboration';
+import { TableKit } from '@tiptap/extension-table';
 import type * as Y from 'yjs';
 import { CommentMark, createCommentsStore, type CommentsStore } from '../comments';
 import { htmlIsOnlyPictures, imageFiles, importForeignImages, rewriteCopiedHtml } from './pastedImages';
@@ -12,7 +14,8 @@ interface CreateYjsTiptapEditorOptions {
   element: HTMLElement;
   ydoc: Y.Doc;
   canEdit: boolean;
-  handleImageUpload: (file: File) => void | Promise<void>;
+  /** Adds a picture at a place in the document, or where the cursor is. */
+  handleImageUpload: (file: File, at?: number) => void | Promise<void>;
   resolveImageSrc: (img: HTMLImageElement) => void;
   /** Where this browser loads an attachment from, for copying pictures out. */
   attachmentUrl: (filename: string) => string | undefined;
@@ -21,6 +24,28 @@ interface CreateYjsTiptapEditorOptions {
   /** Shows a short message to the person editing. */
   onNotice: (message: string) => void;
   onCommentsState: (state: CommentsState) => void;
+  /** Ctrl+K or ⌘K: the person wants to add or change a link. */
+  onLinkShortcut: () => void;
+}
+
+/**
+ * Puts a picture in the document, at a place or where the cursor is, and the
+ * cursor on the line below it, so that typing on does not replace it.
+ */
+export function insertPicture(editor: Editor, attrs: { src: string; alt: string }, at?: number): void {
+  const chain = editor.chain().focus();
+  if (at === undefined) chain.setImage(attrs).run();
+  else chain.insertContentAt(Math.min(at, editor.state.doc.content.size), { type: 'image', attrs }).run();
+  // Each picture is stored under a name of its own, so its address finds it.
+  let end = -1;
+  editor.state.doc.descendants((node, pos) => {
+    if (end < 0 && node.type.name === 'image' && node.attrs.src === attrs.src) end = pos + node.nodeSize;
+    return end < 0;
+  });
+  if (end < 0) return;
+  const tr = editor.state.tr;
+  if (!tr.doc.resolve(end).nodeAfter?.isTextblock) tr.insert(end, editor.schema.nodes.paragraph.create());
+  editor.view.dispatch(tr.setSelection(TextSelection.create(tr.doc, end + 1)).scrollIntoView());
 }
 
 interface YjsTiptapEditorSetup {
@@ -34,11 +59,13 @@ export function createYjsTiptapEditor(options: CreateYjsTiptapEditorOptions): Yj
   const editor = new Editor({
     element: options.element,
     extensions: [
-      StarterKit.configure({ undoRedo: false }),
+      // A click on a link while writing puts the cursor in it; the link opens from the bubble that then shows.
+      StarterKit.configure({ undoRedo: false, link: { openOnClick: false } }),
       Placeholder.configure({ placeholder: options.canEdit ? 'Start writing…' : '' }),
       Collaboration.configure({ document: options.ydoc }),
       // data: pictures are accepted on paste only to be stored as attachments at once.
       Image.configure({ inline: false, allowBase64: true }),
+      TableKit.configure({ table: { resizable: options.canEdit } }),
       CommentMark.configure({
         HTMLAttributes: {
           class: 'comment-highlight',
@@ -49,6 +76,12 @@ export function createYjsTiptapEditor(options: CreateYjsTiptapEditorOptions): Yj
     editorProps: {
       attributes: {
         class: 'document-body focus:outline-none',
+      },
+      handleKeyDown: (_view, event) => {
+        if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey || event.key.toLowerCase() !== 'k') return false;
+        event.preventDefault();
+        options.onLinkShortcut();
+        return true;
       },
       handlePaste: (_view, event) => {
         const files = imageFiles(event.clipboardData);
@@ -61,12 +94,12 @@ export function createYjsTiptapEditor(options: CreateYjsTiptapEditorOptions): Yj
         bringPicturesIn();
         return false;
       },
-      handleDrop: (_view, event, _slice, moved) => {
+      handleDrop: (view, event, _slice, moved) => {
         if (moved) return false;
         const files = imageFiles(event.dataTransfer);
         if (files.length > 0) {
           event.preventDefault();
-          void addFiles(files);
+          void addFiles(files, view.posAtCoords({ left: event.clientX, top: event.clientY })?.pos);
           return true;
         }
         if (event.dataTransfer?.files.length) {
@@ -115,8 +148,9 @@ export function createYjsTiptapEditor(options: CreateYjsTiptapEditorOptions): Yj
   options.element.addEventListener('copy', nameCopiedPictures);
   options.element.addEventListener('cut', nameCopiedPictures);
 
-  async function addFiles(files: File[]): Promise<void> {
-    for (const file of files) await options.handleImageUpload(file);
+  /** The first picture goes where it was dropped, the others after it. */
+  async function addFiles(files: File[], at?: number): Promise<void> {
+    for (const [index, file] of files.entries()) await options.handleImageUpload(file, index === 0 ? at : undefined);
   }
 
   function bringPicturesIn(): void {
