@@ -12,6 +12,7 @@ import { LinkType, toHex, type CID } from '@hashtree/core';
 import { fileIcon } from './fileIcon';
 import { getTree } from '../store';
 import { documentKindInfo, documentTitle } from './documentNames';
+import { isHiddenDirectoryName } from './directoryEntryVisibility';
 
 export interface DriveSearchRoot {
   /** The route scope the tree opens under: a Drive profile id, an npub or a shared folder id. */
@@ -38,7 +39,6 @@ const TREE_NAME = 'main';
 const MAX_FOLDERS = 2000;
 const PARALLEL_LISTINGS = 4;
 const LISTING_TIMEOUT_MS = 4000;
-const HIDDEN = new Set(['.hashtree']);
 
 interface Walk {
   items: DriveSearchItem[];
@@ -125,7 +125,7 @@ async function walkInParallel(root: DriveSearchRoot, state: Walk): Promise<void>
             state.items.push({ name: root.label, icon: 'i-lucide-folder text-warning', href: hrefFor(root.scope, []), where: 'Shared', folder: true });
           }
           for (const entry of all) {
-            if (HIDDEN.has(entry.name.toLowerCase())) continue;
+            if (isHiddenDirectoryName(entry.name)) continue;
             const path = [...folder.path, entry.name];
             if (skip.has(path.join('/'))) continue;
             state.items.push(itemFor(root, path, entry.type));

@@ -112,6 +112,7 @@ export type NewMenuChoice =
   | 'Document'
   | 'Spreadsheet'
   | 'Presentation'
+  | 'Form'
   | 'Text file'
   | 'Upload files'
   | 'Upload folder';

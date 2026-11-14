@@ -19,4 +19,8 @@ describe('directory entry visibility', () => {
       entry('.HASHTREE'),
     ]).map(({ name }) => name)).toEqual(['photos']);
   });
+
+  it('never lists where forms keep their keys and responses', () => {
+    expect(filterVisibleDirectoryEntries([entry('.iris-forms'), entry('forms')]).map(({ name }) => name)).toEqual(['forms']);
+  });
 });

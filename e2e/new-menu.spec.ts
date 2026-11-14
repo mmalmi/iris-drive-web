@@ -9,7 +9,7 @@ import { chooseNew, expectFolderEditable, newMenuButton, openFolderMenu, uploadF
 
 const DESKTOP = { width: 1280, height: 800 };
 const PHONE = { width: 390, height: 844 };
-const ITEMS = ['Folder', 'Document', 'Spreadsheet', 'Presentation', 'Text file', 'Upload files', 'Upload folder'];
+const ITEMS = ['Folder', 'Document', 'Spreadsheet', 'Presentation', 'Form', 'Text file', 'Upload files', 'Upload folder'];
 const shots = process.env.NEW_MENU_SHOTS;
 
 async function shot(page: Page, name: string): Promise<void> {
@@ -131,6 +131,7 @@ test.describe('the New menu', () => {
       { choice: 'Document', placeholder: 'Document name...', extension: 'irisdoc' },
       { choice: 'Spreadsheet', placeholder: 'Spreadsheet name...', extension: 'irissheet' },
       { choice: 'Presentation', placeholder: 'Presentation name...', extension: 'irisslides' },
+      { choice: 'Form', placeholder: 'Form name...', extension: 'irisform' },
     ] as const;
     for (const kind of kinds) {
       await chooseNew(page, kind.choice);
@@ -139,7 +140,7 @@ test.describe('the New menu', () => {
       await expect(page.getByTestId('document-title')).toHaveText(`Plan ${kind.choice}`, { timeout: 30_000 });
       await page.goto(`/#/${owner.profileId}/main`);
     }
-    await expect(page.getByTestId('document-entry').filter({ visible: true })).toHaveCount(3, { timeout: 30_000 });
+    await expect(page.getByTestId('document-entry').filter({ visible: true })).toHaveCount(4, { timeout: 30_000 });
 
     // Uploading opens the device's own chooser.
     const files = page.waitForEvent('filechooser');

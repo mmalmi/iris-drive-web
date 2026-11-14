@@ -306,6 +306,10 @@
       {#await import('../Slides/SlidesEditor.svelte') then { default: SlidesEditor }}
         <SlidesEditor dirName={documentFolder} />
       {/await}
+    {:else if documentFolderKind === 'form'}
+      {#await import('../Forms/FormDocument.svelte') then { default: FormDocument }}
+        <FormDocument dirName={documentFolder} />
+      {/await}
     {:else}
       {#await import('./YjsDocumentEditor.svelte') then { default: YjsDocumentEditor }}
         <YjsDocumentEditor dirName={documentFolder} />
