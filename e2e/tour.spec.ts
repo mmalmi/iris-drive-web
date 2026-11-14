@@ -73,7 +73,7 @@ test.describe('a walk through the app', () => {
     await shot(page, '03-drive-empty');
 
     await step('sidebar new', async () => {
-      await page.getByRole('button', { name: 'New', exact: true }).click();
+      await page.getByTestId('drive-sidebar').getByRole('button', { name: 'New', exact: true }).click();
       await shot(page, '04-new-menu');
       await page.keyboard.press('Escape');
     });
