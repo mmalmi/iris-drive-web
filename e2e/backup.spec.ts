@@ -77,8 +77,9 @@ async function startWithDrive(page: Page, relayUrl: string, file = { name: 'note
 }
 
 async function openBackup(page: Page): Promise<ReturnType<Page['getByTestId']>> {
-  await page.getByTestId('drive-sidebar').getByRole('link', { name: 'Backup' }).click();
-  await expect(page).toHaveURL(/#\/settings\/backup$/);
+  // Backup is on the Storage page, below this device's own space.
+  await page.getByTestId('drive-sidebar').getByRole('link', { name: 'Storage' }).click();
+  await expect(page).toHaveURL(/#\/settings\/storage$/);
   const panel = page.getByTestId('backup-settings');
   await expect(panel).toBeVisible({ timeout: 30_000 });
   return panel;
@@ -96,8 +97,8 @@ test.describe('backup', () => {
     await startWithDrive(page, relayUrl);
     const panel = await openBackup(page);
 
-    await expect(page.getByTestId('backup-this-device')).toContainText('This device');
-    await expect(page.getByTestId('backup-this-device')).toHaveAttribute('href', '#/settings/storage');
+    await expect(page.getByTestId('storage-settings').getByRole('heading', { name: 'On this device' })).toBeVisible();
+    await expect(page.getByTestId('storage-size')).toBeVisible();
     await expect(page.getByTestId('backup-restore')).toContainText('recovery phrase');
     await expect(panel).toContainText('available in the Iris Drive app');
     const everyday = panel.getByRole('listitem', { name: 'everyday-files.test' });
@@ -134,7 +135,7 @@ test.describe('backup', () => {
     await expect(page.getByText(BACKUP_HOST.split(':')[0]).first()).toBeVisible({ timeout: 30_000 });
     await expect(page.getByText('Those marked Save keep a backup of your Drive')).toBeVisible();
 
-    await page.getByTestId('settings-nav-backup').click();
+    await page.getByTestId('settings-nav-storage').click();
     const reopened = page.getByTestId('backup-settings');
     await reopened.getByRole('listitem', { name: BACKUP_HOST }).getByRole('button', { name: 'Remove' }).click();
     await expect(reopened.getByRole('listitem', { name: BACKUP_HOST })).toHaveCount(0);
@@ -190,14 +191,14 @@ test.describe('backup', () => {
     await expect(status).toHaveText('Up to date', { timeout: 120_000 });
   });
 
-  test('on a phone, Backup is in Settings and fits the screen', async ({ page, relayUrl }) => {
+  test('on a phone, Backup is in Settings under Storage and fits the screen', async ({ page, relayUrl }) => {
     await page.setViewportSize(PHONE);
     await startWithDrive(page, relayUrl);
     await page.goto(`${new URL(page.url()).origin}/#/settings`);
     const nav = page.getByRole('navigation', { name: 'Settings' });
-    await expect(nav.getByTestId('settings-nav-backup')).toHaveText('Backup', { timeout: 30_000 });
-    await nav.getByTestId('settings-nav-backup').click();
-    await expect(page).toHaveURL(/#\/settings\/backup$/);
+    await expect(nav.getByTestId('settings-nav-storage')).toHaveText('Storage', { timeout: 30_000 });
+    await nav.getByTestId('settings-nav-storage').click();
+    await expect(page).toHaveURL(/#\/settings\/storage$/);
 
     const panel = page.getByTestId('backup-settings');
     await panel.getByLabel('File server address').fill(BACKUP_SERVER);
