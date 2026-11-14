@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import { unzipSync, strFromU8 } from 'fflate';
 import { expect, test } from './fixtures';
 import { createDriveProfile, prepareFreshSession } from './documents.helpers';
-import { clickSlide, createPresentation, elements, selectWords, settle, sheet, shot, thumbs, typeInBox } from './slides.helpers';
+import { clickSlide, createPresentation, elements, settle, sheet, shot, thumbs, typeInBox } from './slides.helpers';
 
 /**
  * Habits people bring from Google Slides: links in the text that open while
@@ -27,8 +27,13 @@ test.describe('what people used to Google Slides reach for', () => {
     const text = sheet(page).locator('.ProseMirror');
     await expect(text.locator('a[href="https://example.com/plan"]')).toHaveText('https://example.com/plan');
 
-    // Ctrl+K on chosen words asks where they go.
-    await selectWords(page, 'notes');
+    // Ctrl+K on chosen words asks where they go. They are chosen with the
+    // keyboard: two quick clicks under a loaded machine can reach the editor
+    // as a double click, which a person's hand does not produce.
+    for (let step = 0; step < ' too'.length; step += 1) await page.keyboard.press('ArrowLeft');
+    await page.keyboard.down('Shift');
+    for (let step = 0; step < 'notes'.length; step += 1) await page.keyboard.press('ArrowLeft');
+    await page.keyboard.up('Shift');
     // The editor learns where the selection went a little after the click; a person sees it before reaching for the keys.
     await expect.poll(() => text.evaluate((root) => {
       const { state } = (root as HTMLElement & { editor: { state: { selection: { from: number; to: number }; doc: { textBetween: (from: number, to: number) => string } } } }).editor;
