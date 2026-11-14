@@ -42,6 +42,12 @@ export async function decryptEncryptionKey(
 
     if (visibilityInfo.encryptedKey) {
       try {
+        // A link made for another version, or turned off, is told apart by its key id
+        // instead of unmasking a wrong key that then opens nothing.
+        if (visibilityInfo.keyId && await visibilityHex.computeKeyId(linkKey) !== visibilityInfo.keyId) {
+          console.warn('[decryptEncryptionKey] The link key is not the one this version was published for');
+          return undefined;
+        }
         const decryptedHex = await visibilityHex.decryptKeyFromLink(visibilityInfo.encryptedKey, linkKey);
         logHtreeDebug('treeRoot:decrypt-link-result', {
           success: !!decryptedHex,
