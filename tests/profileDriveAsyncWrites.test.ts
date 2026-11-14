@@ -6,11 +6,17 @@ const shared = vi.hoisted(() => ({
   tree: null as HashTree | null,
   root: null as CID | null,
   savedRoot: null as CID | null,
+  savedTo: null as string[] | null,
   route: { npub: '123e4567-e89b-42d3-a456-426614174170', treeName: 'main', path: [] as string[] },
 }));
 vi.mock('../src/store', () => ({ getTree: () => shared.tree }));
 vi.mock('../src/nostr', () => ({
-  autosaveIfOwn: (root: CID) => { shared.savedRoot = root; },
+  autosaveIfOwn: (root: CID) => { shared.savedRoot = root; shared.savedTo = ['open page']; },
+  saveOwnTreeRoot: (scope: string, treeName: string, root: CID) => {
+    shared.savedRoot = root;
+    shared.savedTo = [scope, treeName];
+    return true;
+  },
   saveHashtree: vi.fn(),
   nostrStore: {
     getState: () => ({
@@ -69,6 +75,7 @@ describe('async profile Drive write destinations', () => {
     shared.tree = new HashTree({ store: new MemoryStore() });
     shared.root = (await shared.tree.putDirectory([])).cid;
     shared.savedRoot = null;
+    shared.savedTo = null;
     shared.route = { npub: '123e4567-e89b-42d3-a456-426614174170', treeName: 'main', path: [] };
     vi.stubGlobal('window', { location: { hash: '#/private' } });
   });
@@ -81,16 +88,14 @@ describe('async profile Drive write destinations', () => {
     expect(shared.savedRoot).not.toBeNull();
   });
 
-  it.each(['files', 'paths'])('does not attach a delayed %s upload to another route', async (kind) => {
+  it.each(['files', 'paths'])('saves a delayed %s upload in the Drive it was dropped into, not the page now open', async (kind) => {
     const delayed = delayedFile('private.txt');
-    const setEntry = vi.spyOn(shared.tree!, 'setEntry');
     const upload = uploadFile(kind, delayed.file);
     await delayed.reading;
     leavePrivateRoute();
     delayed.resume();
     await upload;
-    expect(shared.savedRoot).toBeNull();
-    expect(setEntry).not.toHaveBeenCalled();
+    expect(shared.savedTo).toEqual(['123e4567-e89b-42d3-a456-426614174170', 'main']);
   });
 
   it.each(['files', 'paths'])('keeps newer upload progress when a cancelled %s upload completes', async (kind) => {

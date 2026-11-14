@@ -20,12 +20,15 @@
   let people = $state<SharePeopleTarget | null>(null);
   let showPeople = $state(false);
 
-  /** `peopleTarget` adds a tab for inviting people to edit; `startWithPeople` opens on it. */
+  /**
+   * `peopleTarget` adds inviting people, which the dialog opens on unless
+   * `startWithPeople` is false: sharing is about people first, as elsewhere.
+   */
   export function open(
     shareUrl: string,
     latestShareUrl: string | null = null,
     peopleTarget: SharePeopleTarget | null = null,
-    startWithPeople = false,
+    startWithPeople = true,
   ) {
     people = peopleTarget;
     showPeople = Boolean(peopleTarget && startWithPeople);
@@ -73,6 +76,8 @@
   import { sharedRouteForOwnPath } from '../../drive/sharePeople';
   import { activeNostrIdentityRootScope } from '../../drive/profileRoute';
   import { nostrStore } from '../../nostr';
+  import { COPY_NAME_PARAM } from '../../lib/shareUrls';
+  import { documentTitle, isDocumentFolderName } from '../../lib/documentNames';
 
   /** The address without its query, which changes when a link key is added. */
   const place = (hash: string) => hash.replace(/^#/, '').split('?')[0];
@@ -105,6 +110,27 @@
   });
 
   let selectedUrl = $derived(options.find((option) => option.id === selectedOptionId)?.url ?? null);
+
+  /** What is being shared, by name: the folder or document, or the last part of the link. */
+  let sharedName = $derived.by((): string => {
+    if (people?.kind === 'drive') return people.name;
+    if (people?.kind === 'share') {
+      if (people.doc) return documentTitle(people.doc);
+      const shareId = people.shareId;
+      return $acceptedShares.find((record) => record.share_id === shareId)?.folder.display_name ?? '';
+    }
+    const [path = '', query = ''] = (options[0]?.url.split('#')[1] ?? '').split('?');
+    const last = decodeURIComponent(path.split('/').filter(Boolean).pop() ?? '');
+    const name = new URLSearchParams(query).get(COPY_NAME_PARAM)
+      ?? (/^(nhash|npub)1/.test(last) ? '' : last);
+    return isDocumentFolderName(name) ? documentTitle(name) : name;
+  });
+  let closeButton: HTMLButtonElement | undefined = $state();
+
+  // The keyboard starts in the dialog, on its way out.
+  $effect(() => {
+    if (show) closeButton?.focus();
+  });
   let qrDataUrl = $state<string | null>(null);
 
   // Generate QR code when modal opens
@@ -166,11 +192,22 @@
   >
     <div
       class="bg-surface-1 sm:rounded-lg overflow-auto w-screen sm:w-96 sm:border border-surface-3 max-h-full my-auto"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="share-dialog-title"
       data-testid="share-modal"
     >
+      <div class="flex items-center gap-2 pl-4 pr-2 pt-3">
+        <h2 id="share-dialog-title" class="min-w-0 flex-1 truncate text-base font-medium text-text-1">
+          {sharedName ? `Share “${sharedName}”` : 'Share'}
+        </h2>
+        <button bind:this={closeButton} class="btn-circle btn-ghost shrink-0" aria-label="Close" title="Close" onclick={close}>
+          <span class="i-lucide-x text-lg"></span>
+        </button>
+      </div>
       {#if people}
-        <div class="grid grid-cols-2 gap-2 px-4 pt-4">
-          {#each [[false, linkVariants.length > 1 ? 'View link' : 'Read-only copy'], [true, 'Share']] as [value, label] (label)}
+        <div class="grid grid-cols-2 gap-2 px-4 pt-3">
+          {#each [[true, 'People'], [false, linkVariants.length > 1 ? 'View link' : 'Read-only copy']] as [value, label] (label)}
             <button
               class={`rounded-md border px-3 py-2 text-sm font-medium transition-colors ${
                 value === showPeople ? 'border-accent bg-accent/10 text-text-1' : 'border-surface-3 text-text-3'

@@ -128,6 +128,8 @@ test.describe('access to shared folders', () => {
     await page.getByTestId('viewer-back').click().catch(() => {});
 
     await openShare(page);
+    // The dialog opens on inviting people; the copy link is beside it.
+    await page.getByTestId('share-tab-link').click();
     await expect(page.getByTestId('share-tab-link')).toHaveText('Read-only copy');
     await expect(page.getByTestId('share-link-note')).toHaveText(
       'Anyone with this link can view a copy as it is now, without an account. Later changes are not included.',

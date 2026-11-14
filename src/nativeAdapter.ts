@@ -201,38 +201,6 @@ export class NativeBackendAdapter implements BackendAdapter {
     };
   }
 
-  async republishTrees(prefix?: string): Promise<{ count: number; encryptionErrors?: string[] }> {
-    const { getAllLocalRoots } = await import('./treeRootCache');
-    const state = nostrStore.getState();
-    if (!state.npub) return { count: 0 };
-
-    let count = 0;
-    const encryptionErrors: string[] = [];
-    for (const [key, record] of getAllLocalRoots().entries()) {
-      const slashIndex = key.indexOf('/');
-      if (slashIndex <= 0) continue;
-      const npub = key.slice(0, slashIndex);
-      const treeName = key.slice(slashIndex + 1);
-      if (npub !== state.npub) continue;
-      if (prefix && !treeName.startsWith(decodeURIComponent(prefix))) continue;
-      try {
-        const { saveHashtree } = await import('./nostr/trees');
-        const result = await saveHashtree(treeName, cid(record.hash, record.key), {
-          visibility: record.visibility,
-          labels: record.labels,
-        });
-        if (result.success) count += 1;
-      } catch (error) {
-        encryptionErrors.push(String(error));
-      }
-    }
-
-    return {
-      count,
-      encryptionErrors: encryptionErrors.length > 0 ? encryptionErrors : undefined,
-    };
-  }
-
   async republishTree(pubkey: string, treeName: string): Promise<boolean> {
     const state = nostrStore.getState();
     const ownNpub = state.npub;

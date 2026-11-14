@@ -90,8 +90,8 @@ test.describe('Drive setup', () => {
     await expect(page).toHaveURL(/#\/users\/existing/);
     await expect(page.getByTestId('identity-recovery-section')).toBeVisible();
     await expect(page.getByTestId('device-approval-request-section')).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Request Link' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Copy Request Link' })).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole('heading', { name: 'Use a device you are signed in on' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Copy link' })).toBeVisible({ timeout: 10000 });
     await expect(page.locator('input[placeholder="nsec1..."]')).toHaveCount(0);
 
     await page.getByRole('button', { name: 'Secret key' }).click();
@@ -116,8 +116,8 @@ test.describe('Drive setup', () => {
 
     await page.getByTestId('add-existing-profile').click();
     await expect(page).toHaveURL(/#\/users\/existing/);
-    await expect(page.getByRole('heading', { name: 'Request Link' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Copy Request Link' })).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole('heading', { name: 'Use a device you are signed in on' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Copy link' })).toBeVisible({ timeout: 10000 });
     await expect(page.getByRole('button', { name: 'New QR' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Check approval' })).toHaveCount(0);
     await expect(page.getByTestId('device-approval-qr')).toBeVisible({ timeout: 10000 });

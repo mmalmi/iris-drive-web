@@ -6,7 +6,7 @@
   import type { TreeVisibility } from '@hashtree/core';
   import { Avatar } from '../User';
   import VisibilityIcon from '../VisibilityIcon.svelte';
-  import { getFileIcon } from '@iris/hashtree-app/fileIcon';
+  import { fileIcon } from '../../lib/fileIcon';
 
   interface Props {
     /** URL to navigate to (optional - if not provided, renders as div) */
@@ -59,7 +59,7 @@
     class: className = '',
   }: Props = $props();
 
-  let icon = $derived(isFolder ? 'i-lucide-folder' : getFileIcon(name));
+  let icon = $derived(isFolder ? 'i-lucide-folder' : fileIcon(name));
   let iconColor = $derived(isFolder ? 'text-warning' : 'text-text-2');
 
   let baseClass = $derived(

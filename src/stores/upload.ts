@@ -8,7 +8,7 @@ import { writable, get } from 'svelte/store';
 import { toHex, cid, LinkType, videoChunker, streamUploadWithProgress } from '@hashtree/core';
 import type { CID } from '@hashtree/core';
 import { getTree } from '../store';
-import { autosaveIfOwn, saveHashtree, nostrStore } from '../nostr';
+import { autosaveIfOwn, saveHashtree, saveOwnTreeRoot, nostrStore } from '../nostr';
 import { navigate } from '../utils/navigate';
 import { parseRoute } from '../utils/route';
 import { getCurrentPathFromUrl } from '../actions/route';
@@ -21,9 +21,10 @@ import { getTreeRootSync } from './treeRoot';
 import { settingsStore } from '../stores/settings';
 import { toast } from '../stores/toast';
 import { isVideoFile, withStallDetection } from './uploadHelpers';
-import { editableTreeRoutePubkey } from '../drive/profileRoute';
+import { editableTreeRoutePubkey, isEditableDriveRouteScope } from '../drive/profileRoute';
 import { setEntryForDriveRoute } from '../drive/profileDriveRouteEntry';
-import { captureRouteWriteGuard } from '../lib/routeWriteGuard';
+import { captureIdentityWriteGuard, captureRouteWriteGuard } from '../lib/routeWriteGuard';
+import { inTurn } from '../lib/driveWrites';
 
 /** A ZIP file, which the person may choose to unpack; the code for it loads only then. */
 function isArchiveFile(fileName: string): boolean {
@@ -61,6 +62,7 @@ export function getUploadProgress() {
 export function cancelUpload() {
   uploadCancelled = true;
   setUploadProgress(null);
+  releaseRunningUpload?.();
 }
 
 /**
@@ -76,9 +78,9 @@ function checkCancelled(): boolean {
 
 let uploadGeneration = 0;
 
-function beginUpload() {
+function beginUpload(mayWriteAtStart: () => boolean) {
   const generation = ++uploadGeneration;
-  let routeIsCurrent = captureRouteWriteGuard();
+  let routeIsCurrent = mayWriteAtStart;
   const isCurrent = () => {
     if (generation !== uploadGeneration) return false;
     if (routeIsCurrent()) return true;
@@ -104,23 +106,100 @@ export interface UploadTarget {
   quiet?: boolean;
 }
 
+/** Where an upload was asked for, kept while it waits for its turn and runs. */
+interface UploadOrigin {
+  route: ReturnType<typeof parseRoute>;
+  dirPath: string[];
+  /** Whether the upload may still write. */
+  mayWrite: () => boolean;
+  save: (root: CID) => void;
+}
+
+function uploadOrigin(target: UploadTarget): UploadOrigin {
+  const route = parseRoute();
+  const dirPath = target.dirPath ?? getCurrentPathFromUrl();
+  // A Drive or shared folder is saved by its own address, so an upload into it
+  // goes on while its person opens the folder, another one or another page.
+  if (route.treeName && isEditableDriveRouteScope(route.npub, nostrStore.getState())) {
+    const { npub: scope, treeName } = route;
+    return {
+      route,
+      dirPath,
+      mayWrite: captureIdentityWriteGuard(),
+      save: (root) => { saveOwnTreeRoot(scope!, treeName, root); },
+    };
+  }
+  return { route, dirPath, mayWrite: captureRouteWriteGuard(), save: autosaveIfOwn };
+}
+
+let uploadsBefore: Promise<void> = Promise.resolve();
+/** Lets the next upload go before the running one has wound down: it was cancelled. */
+let releaseRunningUpload: (() => void) | null = null;
+
+/**
+ * Uploads take turns: one asked for while another runs waits for it to end or
+ * be cancelled, where it used to stop it. Starting, it stops a cancelled one.
+ */
+function afterOtherUploads(upload: () => Promise<void>): Promise<void> {
+  let release!: () => void;
+  const released = new Promise<void>((resolve) => { release = resolve; });
+  const before = uploadsBefore;
+  uploadsBefore = released;
+  return before.then(async () => {
+    releaseRunningUpload = release;
+    try {
+      await upload();
+    } finally {
+      if (releaseRunningUpload === release) releaseRunningUpload = null;
+      release();
+    }
+  });
+}
+
+/**
+ * Puts what was uploaded in its place and saves, on top of whatever was saved
+ * since the upload began. Null when the upload no longer belongs here.
+ */
+function saveEntry(
+  upload: ReturnType<typeof beginUpload>,
+  origin: UploadOrigin,
+  root: CID,
+  parentPath: string[],
+  name: string,
+  entry: { cid: CID; size: number; type: LinkType },
+): Promise<CID | null> {
+  const { route } = origin;
+  return inTurn(async () => {
+    if (!upload.isCurrent()) return null;
+    const latest = getTreeRootSync(route.npub, route.treeName) ?? root;
+    const next = await setEntryForDriveRoute(getTree(), latest, parentPath, name, entry, route, nostrStore.getState());
+    if (!upload.isCurrent()) return null;
+    origin.save(next);
+    return next;
+  });
+}
+
 /**
  * Upload files to the current directory, or to `target.dirPath`
  */
-export async function uploadFiles(files: FileList | File[], target: UploadTarget = {}): Promise<void> {
-  if (!files.length) return;
-  const upload = beginUpload();
+export function uploadFiles(files: FileList | File[], target: UploadTarget = {}): Promise<void> {
+  if (!files.length) return Promise.resolve();
+  // A FileList empties when its input is reset: copied now.
+  const filesArray = Array.from(files);
+  const origin = uploadOrigin(target);
+  return afterOtherUploads(() => uploadFilesNow(filesArray, target, origin));
+}
+
+async function uploadFilesNow(filesArray: File[], target: UploadTarget, origin: UploadOrigin): Promise<void> {
+  const upload = beginUpload(origin.mayWrite);
 
   // Reset cancellation flag at start
   uploadCancelled = false;
 
-  // Convert FileList to array immediately to prevent it from being cleared
-  const filesArray = Array.from(files);
   const total = filesArray.length;
   const uploadedFileNames: string[] = [];
   const tree = getTree();
-  const route = parseRoute();
-  const dirPath = target.dirPath ?? getCurrentPathFromUrl();
+  const { route, dirPath } = origin;
 
   // Get current rootCid from resolver - track locally for multi-file uploads
   let currentRootCid: CID | null = getTreeRootSync(route.npub, route.treeName);
@@ -257,26 +336,13 @@ export async function uploadFiles(files: FileList | File[], target: UploadTarget
     }
     uploadedFileNames.push(file.name);
 
-    // Add file to tree immediately after upload completes
+    // Add file to tree immediately after upload completes, so files appear one by one
     if (currentRootCid?.hash) {
-      // Add to existing tree - setEntry handles encryption based on rootCid.key
-      if (!upload.isCurrent()) return;
-      const newRootCid = await setEntryForDriveRoute(
-        tree,
-        currentRootCid,
-        dirPath,
-        file.name,
-        { cid: fileCid, size, type: LinkType.Blob },
-        route,
-        nostrStore.getState(),
-      );
-      if (!upload.isCurrent()) return;
+      const newRootCid = await saveEntry(upload, origin, currentRootCid, dirPath, file.name, { cid: fileCid, size, type: LinkType.Blob });
+      if (!newRootCid) return;
       currentRootCid = newRootCid;
       // Mark this file as changed for pulse effect
       markFilesChanged(new Set([file.name]));
-      // Update cache immediately so file appears in UI one by one
-      if (!upload.isCurrent()) return;
-      autosaveIfOwn(newRootCid);
     } else if (needsTreeInit) {
       // First file in a new virtual directory - create encrypted tree
       const { cid: newRootCid } = await tree.putDirectory([{ name: file.name, cid: fileCid, size, type: LinkType.Blob }]);
@@ -336,9 +402,14 @@ export async function uploadFiles(files: FileList | File[], target: UploadTarget
  * Files are uploaded with their relative paths preserved in the tree structure
  */
 
-export async function uploadFilesWithPaths(filesWithPaths: FileWithPath[], target: UploadTarget = {}): Promise<void> {
-  if (!filesWithPaths.length) return;
-  const upload = beginUpload();
+export function uploadFilesWithPaths(filesWithPaths: FileWithPath[], target: UploadTarget = {}): Promise<void> {
+  if (!filesWithPaths.length) return Promise.resolve();
+  const origin = uploadOrigin(target);
+  return afterOtherUploads(() => uploadFilesWithPathsNow(filesWithPaths, origin));
+}
+
+async function uploadFilesWithPathsNow(filesWithPaths: FileWithPath[], origin: UploadOrigin): Promise<void> {
+  const upload = beginUpload(origin.mayWrite);
 
   // Reset cancellation flag at start
   uploadCancelled = false;
@@ -346,8 +417,7 @@ export async function uploadFilesWithPaths(filesWithPaths: FileWithPath[], targe
   const total = filesWithPaths.length;
   const uploadedFileNames: string[] = [];
   const tree = getTree();
-  const route = parseRoute();
-  const dirPath = target.dirPath ?? getCurrentPathFromUrl();
+  const { route, dirPath } = origin;
 
   // Get current rootCid from resolver - track locally for multi-file uploads
   let currentRootCid: CID | null = getTreeRootSync(route.npub, route.treeName);
@@ -390,17 +460,8 @@ export async function uploadFilesWithPaths(filesWithPaths: FileWithPath[], targe
     const { cid: emptyDirCid } = await tree.putDirectory([]);
 
     if (currentRootCid?.hash) {
-      if (!upload.isCurrent()) return;
-      const newRootCid = await setEntryForDriveRoute(
-        tree,
-        currentRootCid,
-        parentPath,
-        dirName,
-        { cid: emptyDirCid, size: 0, type: LinkType.Dir },
-        route,
-        nostrStore.getState(),
-      );
-      if (!upload.isCurrent()) return;
+      const newRootCid = await saveEntry(upload, origin, currentRootCid, parentPath, dirName, { cid: emptyDirCid, size: 0, type: LinkType.Dir });
+      if (!newRootCid) return;
       currentRootCid = newRootCid;
     } else if (needsTreeInit) {
       const { cid: rootCidVal } = await tree.putDirectory([]);
@@ -528,26 +589,14 @@ export async function uploadFilesWithPaths(filesWithPaths: FileWithPath[], targe
     // Add file to tree (directories already exist)
     try {
       if (currentRootCid?.hash) {
-        if (!upload.isCurrent()) return;
-        const newRootCid = await setEntryForDriveRoute(
-          tree,
-          currentRootCid,
-          fullDirPath,
-          fileName,
-          { cid: fileCid, size, type: LinkType.Blob },
-          route,
-          nostrStore.getState(),
-        );
-        if (!upload.isCurrent()) return;
+        const newRootCid = await saveEntry(upload, origin, currentRootCid, fullDirPath, fileName, { cid: fileCid, size, type: LinkType.Blob });
+        if (!newRootCid) return;
         currentRootCid = newRootCid;
 
         // Mark this file as changed for pulse effect (use just filename for display in current dir)
         if (fileDirPath.length === 0) {
           markFilesChanged(new Set([fileName]));
         }
-        // Update cache immediately so file appears in UI one by one
-        if (!upload.isCurrent()) return;
-        autosaveIfOwn(newRootCid);
       }
     } catch (err) {
       console.error(`Failed to add file ${relativePath}:`, err);

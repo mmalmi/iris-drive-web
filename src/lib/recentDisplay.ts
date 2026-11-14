@@ -3,7 +3,7 @@
  * search: documents by their title and kind, a Drive's own top folder as
  * "My Drive" (or a shared folder by its name), everything else by its label.
  */
-import { getFileIcon } from '@iris/hashtree-app/fileIcon';
+import { fileIcon } from './fileIcon';
 import type { AcceptedShareRecord } from '../drive/shareLibrary';
 import type { RecentItem } from '../stores/recents';
 import { documentKindInfo, documentTitle } from './documentNames';
@@ -25,7 +25,7 @@ export function recentDisplay(
     if (shared) return { name: shared.folder.display_name, icon: 'i-lucide-folder text-warning' };
   }
   if (item.type === 'tree' || item.type === 'dir') return { name: item.label, icon: 'i-lucide-folder text-warning' };
-  return { name: item.label, icon: `${getFileIcon(item.label)} text-text-2` };
+  return { name: item.label, icon: `${fileIcon(item.label)} text-text-2` };
 }
 
 /** Where a recent item opens. */
