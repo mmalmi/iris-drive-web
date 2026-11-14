@@ -1,6 +1,6 @@
 import { expect, test, type Browser, type BrowserContext, type Page } from './fixtures';
 import { createDocument, createDriveProfile, documentBody, expectSaved, linkSecondDevice, prepareFreshSession, typeInDocument } from './documents.helpers';
-import { cellBox, clickCell, createSpreadsheet, expectCell, waitForGrid } from './sheets.helpers';
+import { activeCell, cellBox, clickCell, createSpreadsheet, expectCell, goTo, waitForGrid } from './sheets.helpers';
 import { createPresentation, elements, sheet, thumbs, typeInBox } from './slides.helpers';
 
 /**
@@ -50,6 +50,17 @@ async function openTogether(
 
 function avatar(page: Page, name: string) {
   return page.getByTestId('presence-avatar').and(page.locator(`[data-name="${name}"]`));
+}
+
+/** Points at someone in the header, then lists who is here and goes to where that person is. */
+async function goToPerson(page: Page, name: string): Promise<void> {
+  await avatar(page, name).hover();
+  await expect(page.getByTestId('presence-tooltip')).toHaveText(name);
+  await avatar(page, name).click();
+  const person = page.getByTestId('presence-people').getByTestId('presence-person').and(page.locator(`[data-name="${name}"]`));
+  await expect(person).toBeVisible();
+  await person.getByTestId('presence-go').click();
+  await expect(page.getByTestId('presence-people')).toHaveCount(0);
 }
 
 /** How many edits a page took in live. */
@@ -121,12 +132,52 @@ test.describe('live collaboration', () => {
       await expectSaved(guest);
       await expectSaved(page);
 
-      // On a phone the faces collapse to how many there are.
+      // Pointing at the guest names them at once; a click lists who is here, with a way to their page.
+      await avatar(page, 'Guest').hover();
+      await expect(page.getByTestId('presence-tooltip')).toHaveText('Guest');
+      await page.screenshot({ path: testInfo.outputPath('owner-points-at-guest.png') });
+      await avatar(page, 'Guest').click();
+      const people = page.getByTestId('presence-people');
+      await expect(people).toBeVisible();
+      await expect(people.getByTestId('presence-person')).toHaveCount(1);
+      await expect(people.getByTestId('presence-person')).toHaveAttribute('data-name', 'Guest');
+      const profile = people.getByTestId('presence-person-link');
+      if (await profile.count() > 0) await expect(profile).toHaveAttribute('href', /^#\/npub1[0-9a-z]+\/profile$/);
+      await page.screenshot({ path: testInfo.outputPath('owner-lists-people.png') });
+      // Escape closes the list and gives the keyboard back to the face that opened it; Enter opens it again.
+      await page.keyboard.press('Escape');
+      await expect(people).toHaveCount(0);
+      await expect(avatar(page, 'Guest')).toBeFocused();
+      await page.keyboard.press('Enter');
+      await expect(people).toBeVisible();
+      await page.keyboard.press('Escape');
+
+      // "Go to" brings the guest's place into view, wherever the owner had scrolled.
+      await documentBody(guest).click();
+      await guest.keyboard.press('ControlOrMeta+End');
+      for (let line = 0; line < 40; line += 1) await guest.keyboard.press('Enter');
+      await guest.keyboard.type('Far down the page.');
+      await expect(documentBody(page)).toContainText('Far down the page.', { timeout: 5000 });
+      await page.evaluate(() => {
+        for (let node = document.querySelector('.ProseMirror')?.parentElement; node; node = node.parentElement) node.scrollTop = 0;
+      });
+      await expect(caret).not.toBeInViewport();
+      await goToPerson(page, 'Guest');
+      await expect(caret).toBeInViewport();
+
+      // On a phone the faces collapse to how many there are; a tap lists them from the bottom of the screen.
       await page.setViewportSize({ width: 390, height: 800 });
       await expect(page.getByTestId('presence-count')).toBeVisible();
       await expect(page.getByTestId('presence-count')).toHaveText('G1');
       await expect(avatar(page, 'Guest')).toBeHidden();
       await page.screenshot({ path: testInfo.outputPath('owner-phone.png') });
+      await page.getByTestId('presence-count').click();
+      await expect(people).toHaveAttribute('data-sheet', 'true');
+      await expect(people.getByTestId('presence-person')).toHaveAttribute('data-name', 'Guest');
+      await page.screenshot({ path: testInfo.outputPath('owner-phone-people.png') });
+      await page.keyboard.press('Escape');
+      await expect(people).toHaveCount(0);
+      await expect(page.getByTestId('presence-count')).toBeFocused();
       await page.setViewportSize({ width: 1280, height: 720 });
 
       // The guest goes back to the folder: the owner no longer sees them, at once.
@@ -181,6 +232,15 @@ test.describe('live collaboration', () => {
       const a3 = await cellBox(page, 'A3');
       await expect.poll(async () => Math.round((await outline.boundingBox())?.y ?? 0), { timeout: 5000 }).toBeGreaterThanOrEqual(Math.round(a3.y) - 3);
 
+      // The guest goes far down and right; "Go to" shows the owner those cells and leaves the owner's own selection alone.
+      await goTo(guest, 'Z80');
+      const mine = await activeCell(page).getAttribute('data-cell');
+      await expect(outline).not.toBeInViewport({ timeout: 5000 });
+      await goToPerson(page, 'Guest');
+      await expect(outline).toBeInViewport();
+      await expect(activeCell(page)).toHaveAttribute('data-cell', mine!);
+      await page.screenshot({ path: testInfo.outputPath('owner-went-to-guest-cells.png') });
+
       // The guest's browser closes without a word: they go once nothing more is heard.
       await guestContext.close();
       await expect(avatar(page, 'Guest')).toHaveCount(0, { timeout: 10_000 });
@@ -229,6 +289,11 @@ test.describe('live collaboration', () => {
       await expect(thumbs(page)).toHaveCount(2, { timeout: 2000 });
       await expect(thumbs(page).nth(1).getByTestId('slide-thumb-presence').locator('[data-name="Guest"]')).toBeVisible({ timeout: 5000 });
       await expect(onSlide).toHaveCount(0);
+
+      // "Go to" opens the slide the guest is on.
+      await expect(thumbs(page).first()).toHaveClass(/current/);
+      await goToPerson(page, 'Guest');
+      await expect(thumbs(page).nth(1)).toHaveClass(/current/);
 
       await guest.goto('about:blank');
       await expect(avatar(page, 'Guest')).toHaveCount(0, { timeout: 10_000 });

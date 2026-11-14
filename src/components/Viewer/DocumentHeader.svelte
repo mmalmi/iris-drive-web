@@ -129,7 +129,7 @@
   <AccessBadge access={drive.access} label onclick={drive.canEdit ? () => void drive.share() : undefined} />
 
   <div class="ml-auto flex items-center gap-1 shrink-0">
-    <PresenceAvatars peers={drive.presence.peers} />
+    <PresenceAvatars presence={drive.presence} />
     <!-- Saving happens on its own; only its outcome is worth a glance. -->
     <span class="text-xs text-text-3 flex items-center gap-1 mr-1" role="status" data-testid="document-save-status" data-state={saveStatus}>
       {#if saveStatus === 'deleted'}

@@ -37,6 +37,7 @@
     const chosen = new Set(slidePlace(state)?.els ?? []);
     return slide.elements.filter(element => chosen.has(element.id)).map(element => ({
       key: `${state.clientId}:${element.id}`,
+      clientId: state.clientId,
       element,
       name: state.user.name.trim() || 'Someone',
       color: state.user.color,
@@ -57,6 +58,7 @@
     style:border-color={outline.color}
     data-testid="slide-presence"
     data-name={outline.name}
+    data-client={outline.clientId}
     data-element={element.id}
   >
     <span class="tag" style:background-color={outline.color} data-label={outline.name} aria-hidden="true">{#if outline.npub}<FollowBadge pubkey={outline.npub} size={10} />{/if}</span>

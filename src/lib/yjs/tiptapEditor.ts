@@ -73,11 +73,13 @@ export function insertPicture(editor: Editor, attrs: { src: string; alt: string 
  * nothing of it is part of the document's text: not in what is copied, found
  * or read aloud, and no line break where it stands.
  */
-function otherCaret(user: { name: string; color: string }): HTMLElement {
+function otherCaret(user: { name: string; color: string; key?: string }): HTMLElement {
   const caret = document.createElement('span');
   caret.className = 'collaboration-carets__caret';
   caret.setAttribute('aria-hidden', 'true');
   caret.dataset.name = user.name;
+  // Going to someone from the header finds their caret by their device.
+  if (user.key) caret.dataset.key = user.key;
   caret.style.borderColor = user.color;
   caret.style.setProperty('--caret-color', user.color);
   return caret;

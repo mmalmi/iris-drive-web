@@ -26,6 +26,23 @@ export interface PresenceState {
   [field: string]: unknown;
 }
 
+/** Set by an editor: whether it can show where another copy is, and showing it there. */
+export interface PresenceFinder {
+  can(state: PresenceState): boolean;
+  /** Moves the view to them; never changes this person's own selection. */
+  go(state: PresenceState): void;
+}
+
+/** Draws the eye to where someone was just found: a short pulse of their outline. */
+export function flashPresence(element: Element | null | undefined, color: string): void {
+  if (!element || typeof element.animate !== 'function') return;
+  element.animate([
+    { boxShadow: `0 0 0 0 ${color}` },
+    { boxShadow: `0 0 0 6px ${color}66` },
+    { boxShadow: `0 0 0 0 ${color}00` },
+  ], { duration: 900, iterations: 2 });
+}
+
 const COLORS = ['#e8590c', '#1c7ed6', '#2f9e44', '#c2255c', '#7048e8', '#0c8599', '#d9480f', '#5f3dc4', '#a61e4d', '#087f5b', '#1864ab', '#862e9c'];
 
 /** A colour of its own for a person, the same on every device. */
@@ -47,6 +64,8 @@ export class LivePresence {
   peers = $state.raw<Array<PresenceUser & { clientId: number }>>([]);
   /** Every other open copy, for showing where each one is. */
   others = $state.raw<PresenceState[]>([]);
+  /** How the editor shows where someone is; null until it has opened. */
+  finder = $state.raw<PresenceFinder | null>(null);
 
   constructor(ydoc: Y.Doc, user: PresenceUser) {
     this.awareness = new Awareness(ydoc);
@@ -72,6 +91,11 @@ export class LivePresence {
   destroy(): void {
     this.awareness.off('change', this.#refresh);
     this.awareness.destroy();
+  }
+
+  /** The copy a person in `peers` has open, as it says now. */
+  stateOf(clientId: number): PresenceState | null {
+    return this.others.find(state => state.clientId === clientId) ?? null;
   }
 
   /** Looks at the states again, after who may be shown changed. */

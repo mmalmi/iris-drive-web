@@ -21,6 +21,9 @@
   import { accountsStore } from '../../accounts';
   import { IMPORT_ACCEPT, downloadCsv, downloadXlsx, fillFromFile, importFile, isBlank, isSheetFile, localeMenu } from './sheetFiles';
   import { printAlone } from '../../lib/printAlone';
+  import { rectOf } from '../../lib/sheets/address';
+  import { flashPresence, type PresenceState } from '../../lib/yjs/presence.svelte';
+  import { sheetPlace } from './PresenceLayer.svelte';
   import { sheetPrintPage } from '../../lib/sheets/print';
 
   interface Props {
@@ -95,6 +98,33 @@
       f: [rows.ids[focus.row] ?? '', cols.ids[focus.col] ?? ''],
     });
   });
+
+  /** The cells someone else has selected, on the sheet they are on, or null when that is gone. */
+  function placeOf(state: PresenceState): { sheetId: string; row: number; col: number } | null {
+    const place = sheetPlace(state.sheet);
+    if (!place || ctl.book.nameOf(place.id) === undefined) return null;
+    const { rows, cols } = ctl.book.sheet(place.id);
+    const anchor = { row: rows.indexOf(place.a[0]), col: cols.indexOf(place.a[1]) };
+    const focus = { row: rows.indexOf(place.f[0]), col: cols.indexOf(place.f[1]) };
+    if (anchor.row < 0 || anchor.col < 0 || focus.row < 0 || focus.col < 0) return null;
+    const rect = rectOf(anchor, focus);
+    return { sheetId: place.id, row: rect.r1, col: rect.c1 };
+  }
+
+  // Going to someone from the header shows their cells, on their sheet, and
+  // makes them blink; this person's own selection stays where it is.
+  drive.presence.finder = {
+    can: state => ready && !versionCtl && placeOf(state) !== null,
+    go: (state) => {
+      const place = placeOf(state);
+      if (!place) return;
+      if (place.sheetId !== ctl.sheetId) ctl.showSheet(place.sheetId);
+      ctl.reveal(place.row, place.col);
+      setTimeout(() => {
+        flashPresence(document.querySelector(`[data-testid="sheet-presence"][data-client="${state.clientId}"]`), state.user.color);
+      }, 150);
+    },
+  };
 
   // Printing, from the toolbar or the browser's own menu, prints the cells in use alone.
   $effect(() => printAlone(() => (ready && ctl.hasSheet ? sheetPrintPage(ctl) : null)));

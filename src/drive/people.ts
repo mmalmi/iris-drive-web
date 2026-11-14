@@ -41,10 +41,15 @@ export function memberNpub(folder: SharedFolder, profileId: NostrIdentityId): st
   return device ? pubkeyNpub(device.pubkey) : null;
 }
 
+/** Where the page of the person with an npub is. */
+export function npubPersonHref(npub: string): string {
+  return `#/${npub}/profile`;
+}
+
 /** Where a member's page is. */
 export function personHref(folder: SharedFolder, profileId: NostrIdentityId): string {
   const npub = memberNpub(folder, profileId);
-  return npub ? `#/${npub}/profile` : `#/${profileId}`;
+  return npub ? npubPersonHref(npub) : `#/${profileId}`;
 }
 
 /** A shared folder opens at its own root; a shared document opens the document. */
