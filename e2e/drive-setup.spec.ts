@@ -53,6 +53,8 @@ test.describe('Drive setup', () => {
     await expect(page.getByRole('heading', { name: 'Create Profile' })).toHaveCount(1);
     await expect(page.getByText('This name is used for your Drive user profile.')).toHaveCount(0);
     await expect(page.getByTestId('identity-create-name')).toBeVisible();
+    // With a mouse the name can be typed at once.
+    await expect(page.getByTestId('identity-create-name')).toBeFocused();
     await expect(page.getByTestId('create-new-after-recovery-miss')).toBeEnabled();
     await page.getByTestId('identity-create-name').press('Enter');
 

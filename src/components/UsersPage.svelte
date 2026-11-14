@@ -161,6 +161,11 @@
     }
   });
 
+  /** Ready to type the name at once with a mouse or trackpad; a phone's keyboard opens only when asked. */
+  function focusWithPointer(input: HTMLInputElement) {
+    if (window.matchMedia('(pointer: fine)').matches) input.focus();
+  }
+
   async function switchToAccount(account: Account) {
     if (account.pubkey === activeAccountPubkey) {
       navigate('/settings/user');
@@ -435,6 +440,7 @@
             autocapitalize="words"
             spellcheck="true"
             disabled={recoveryBusy || creatingProfile}
+            use:focusWithPointer
             data-testid="identity-create-name"
             oninput={(event) => (createProfileName = (event.currentTarget as HTMLInputElement).value)}
           />
