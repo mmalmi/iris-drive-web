@@ -3,17 +3,47 @@
    * The bar above a document, spreadsheet or presentation: the way back, the
    * title, whether it is saved, and sharing and deleting. Buttons that only
    * one kind has go in as children, before Share.
+   *
+   * Version history opens from the More menu, the editor's own when it has
+   * one, and with Ctrl+Alt+Shift+H; Escape returns to the document.
    */
   import type { Snippet } from 'svelte';
   import type { DriveDocument } from '../../lib/yjs';
   import { showToast } from '../../stores/toast';
   import AccessBadge from '../AccessBadge.svelte';
+  import PopupMenu from '../Sheets/PopupMenu.svelte';
+  import { HISTORY_SHORTCUT } from './versionShortcut';
 
   interface Props {
     drive: DriveDocument;
+    /** The editor has a More menu of its own, which holds Version history. */
+    editorMenu?: boolean;
     children?: Snippet;
   }
-  let { drive, children }: Props = $props();
+  let { drive, editorMenu = false, children }: Props = $props();
+
+  let menuAt = $state<{ x: number; y: number } | null>(null);
+
+  function openMenu(event: MouseEvent): void {
+    const bounds = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    menuAt = { x: bounds.right - 220, y: bounds.bottom + 4 };
+  }
+
+  /** Taken before the editors see the keys, so typing and grids do not act on them. */
+  function onWindowKeyDown(event: KeyboardEvent): void {
+    if ((event.ctrlKey || event.metaKey) && event.altKey && event.shiftKey && event.code === 'KeyH') {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      drive.openHistory();
+      return;
+    }
+    if (event.key !== 'Escape' || event.defaultPrevented || !(drive.historyOpen || drive.preview)) return;
+    // An open menu or dialog takes Escape for itself.
+    if (document.querySelector('[role="menu"], [role="dialog"], [data-slides-popover]')) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    drive.closeHistory();
+  }
 
   let saveStatus = $derived(drive.saveStatus);
   let noun = $derived(drive.kind.noun);
@@ -66,6 +96,8 @@
   }
 </script>
 
+<svelte:window onkeydowncapture={onWindowKeyDown} />
+
 <div class="shrink-0 h-12 px-2 sm:px-4 border-b border-surface-2 flex items-center gap-2 bg-surface-1">
   <a href={drive.backHref} class="btn-circle btn-ghost shrink-0 no-underline" title="Back to folder" aria-label="Back to folder">
     <span class="i-lucide-arrow-left text-base"></span>
@@ -110,6 +142,11 @@
       {/if}
     </span>
     {@render children?.()}
+    {#if !editorMenu && drive.canEdit && !drive.loading}
+      <button onclick={openMenu} class="btn-circle btn-ghost" title="More" aria-label="More" data-testid="document-more">
+        <span class="i-lucide-ellipsis-vertical text-base"></span>
+      </button>
+    {/if}
     <button onclick={() => void drive.share()} class="btn-circle btn-ghost" title="Share" aria-label="Share" data-testid="document-share">
       <span class="i-lucide-share text-base"></span>
     </button>
@@ -120,6 +157,15 @@
     {/if}
   </div>
 </div>
+
+{#if menuAt}
+  <PopupMenu
+    x={menuAt.x}
+    y={menuAt.y}
+    items={[{ label: 'Version history', icon: 'i-lucide-history', hint: HISTORY_SHORTCUT, action: () => drive.openHistory(), testId: 'version-history' }]}
+    onclose={() => { menuAt = null; }}
+  />
+{/if}
 
 <style>
   .title-button {

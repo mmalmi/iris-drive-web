@@ -1,9 +1,12 @@
 <script lang="ts">
   /** A spreadsheet opened from a Drive folder: its bars, its grid and its tabs. */
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, untrack } from 'svelte';
+  import * as Y from 'yjs';
   import DocumentHeader from '../Viewer/DocumentHeader.svelte';
+  import { HISTORY_SHORTCUT } from '../Viewer/versionShortcut';
   import { DriveDocument, STORED_ORIGIN } from '../../lib/yjs';
   import { SheetController } from '../../lib/sheets/controller.svelte';
+  import { LOCAL_ORIGIN } from '../../lib/sheets/model';
   import FormulaBar from './FormulaBar.svelte';
   import PopupMenu, { type MenuItem } from './PopupMenu.svelte';
   import { freezeItems } from './menus';
@@ -115,7 +118,7 @@
   }
 
   function onkeydown(event: KeyboardEvent): void {
-    if (!ready || !(event.ctrlKey || event.metaKey) || event.altKey) return;
+    if (!ready || versionCtl || !(event.ctrlKey || event.metaKey) || event.altKey) return;
     const key = event.key.toLowerCase();
     if (key !== 'f' && key !== 'h') return;
     event.preventDefault();
@@ -131,6 +134,38 @@
     }
   });
 
+  /** An earlier version, shown read-only in place of the spreadsheet. */
+  let versionCtl = $state.raw<SheetController | null>(null);
+  $effect(() => {
+    const shown = drive.preview;
+    if (!shown) {
+      versionCtl = null;
+      return;
+    }
+    const ydoc = new Y.Doc();
+    Y.applyUpdate(ydoc, shown.update);
+    const viewed = untrack(() => {
+      const made = new SheetController(ydoc);
+      made.media = { urlOf: file => drive.attachmentUrls.get(file), store: () => Promise.reject(new Error('An earlier version cannot be changed')) };
+      made.start(false);
+      // The sheet that is open stays open, when the version has it.
+      if (made.book.nameOf(ctl.sheetId) !== undefined) made.showSheet(ctl.sheetId);
+      return made;
+    });
+    versionCtl = viewed;
+    return () => {
+      viewed.destroy();
+      ydoc.destroy();
+    };
+  });
+
+  /** Makes the spreadsheet what an earlier version holds, as one step undo takes back. */
+  async function restoreVersion(update: Uint8Array): Promise<void> {
+    const { restoreVersion: restore } = await import('../../lib/yjs/versionHistory');
+    ctl.commitEdit();
+    restore(drive.ydoc, update, LOCAL_ORIGIN);
+  }
+
   onDestroy(() => {
     ctl.commitEdit();
     drive.destroy();
@@ -143,6 +178,7 @@
     const items: MenuItem[] = [];
     if (ctl.canEdit) {
       items.push({ label: 'Import CSV or Excel file', icon: 'i-lucide-file-up', action: () => fileInput?.click(), testId: 'sheet-import-csv' });
+      items.push({ label: 'Version history', icon: 'i-lucide-history', hint: HISTORY_SHORTCUT, action: () => drive.openHistory(), testId: 'version-history' });
     }
     items.push(
       { label: 'Download as Excel', icon: 'i-lucide-file-spreadsheet', action: () => void downloadXlsx(ctl, drive.title), testId: 'sheet-download-xlsx' },
@@ -217,20 +253,37 @@
   {ondrop}
   ondragleave={(event) => { if (!(event.currentTarget as HTMLElement).contains(event.relatedTarget as Node)) dropping = false; }}
 >
-  <DocumentHeader {drive}>
-    {#if ready && ctl.hasSheet}
+  <DocumentHeader {drive} editorMenu>
+    {#if ready && ctl.hasSheet && !versionCtl}
       <button onclick={openMenu} class="btn-circle btn-ghost" title="More" aria-label="More" data-testid="sheet-more">
         <span class="i-lucide-ellipsis-vertical text-base"></span>
       </button>
     {/if}
   </DocumentHeader>
 
+  {#if versionCtl}
+    {#await import('../Viewer/VersionBar.svelte') then { default: VersionBar }}
+      <VersionBar {drive} onrestore={restoreVersion} />
+    {/await}
+  {/if}
+  <div class="flex-1 flex min-h-0">
+  <div class="flex-1 flex flex-col min-w-0 min-h-0">
   {#if drive.loading && drive.missing}
     <div class="flex-1 flex items-center justify-center text-text-3 text-sm" data-testid="document-missing">Spreadsheet not found</div>
   {:else if !ready}
     <div class="flex-1 flex items-center justify-center text-text-3" data-testid="document-loading">
       <span class="i-lucide-loader-2 animate-spin"></span>
     </div>
+  {:else if versionCtl}
+    {#if versionCtl.hasSheet}
+      {#key versionCtl}
+        <FormulaBar ctl={versionCtl} />
+        <SheetGrid ctl={versionCtl} />
+        <SheetTabs ctl={versionCtl} />
+      {/key}
+    {:else}
+      <div class="flex-1 flex items-center justify-center text-text-3 text-sm">This version is empty</div>
+    {/if}
   {:else if !ctl.hasSheet}
     <div class="flex-1 flex items-center justify-center text-text-3 text-sm" data-testid="sheet-empty">This spreadsheet is empty</div>
   {:else}
@@ -247,6 +300,13 @@
     <SheetGrid {ctl} />
     <SheetTabs {ctl} />
   {/if}
+  </div>
+  {#if drive.historyOpen}
+    {#await import('../Viewer/VersionHistoryPanel.svelte') then { default: VersionHistoryPanel }}
+      <VersionHistoryPanel {drive} />
+    {/await}
+  {/if}
+  </div>
   {#if importing}
     <div class="absolute inset-0 z-40 flex items-center justify-center gap-2 bg-surface-0/80 text-text-2 text-sm" data-testid="sheet-importing">
       <span class="i-lucide-loader-2 animate-spin"></span>

@@ -8,6 +8,8 @@
  *
  *   updates/<writer>-<generation>/base          the whole document when the folder was started
  *   updates/<writer>-<generation>/<time>-<id>   one saved batch of edits
+ *   updates/<writer>-<generation>/<time>-<id>-<mark>   one marked as more than edits:
+ *                                                     r<time> restored the version saved then
  *
  * A writer folds a long folder into a fresh one and removes the old folder
  * only after the other writers have been quiet, so a removal rarely races a
@@ -17,9 +19,11 @@
 import { LinkType, toHex, type CID, type HashTree, type TreeEntry } from '@hashtree/core';
 import * as Y from 'yjs';
 
-const UPDATES_DIRECTORY = 'updates';
-const BASE_FILE = 'base';
+export const UPDATES_DIRECTORY = 'updates';
+export const BASE_FILE = 'base';
 const READ_CONCURRENCY = 8;
+// Change files are named by when they were saved, in milliseconds written in base 36.
+const TIME_DIGITS = 9;
 
 /** Transaction origin of updates that came from storage and need no saving. */
 export const STORED_ORIGIN = 'stored';
@@ -50,6 +54,30 @@ interface OwnFolders {
   changeCount: number;
   /** Older folders of this writer whose content a newer base already holds. */
   stale: Set<number>;
+}
+
+/**
+ * The name of a saved batch: it sorts by time, and the counter keeps two
+ * saves in one millisecond apart. A mark says what else the batch is.
+ */
+export function changeFileName(time: number, sequence: number, mark = ''): string {
+  const random = Math.random().toString(36).slice(2, 6).padEnd(4, '0');
+  return `${time.toString(36).padStart(TIME_DIGITS, '0')}-${sequence.toString(36)}${random}${mark ? `-${mark}` : ''}`;
+}
+
+const CHANGE_NAME = /^([0-9a-z]{9})-[0-9a-z]+(?:-([0-9a-z]+))?$/;
+
+/** When a change file was saved, by its name, or null for a base or a name of another form. */
+export function changeFileTime(name: string): number | null {
+  const match = CHANGE_NAME.exec(name);
+  if (!match) return null;
+  const time = Number.parseInt(match[1], 36);
+  return Number.isSafeInteger(time) ? time : null;
+}
+
+/** The mark a change file's name carries, if any. */
+export function changeFileMark(name: string): string | null {
+  return CHANGE_NAME.exec(name)?.[2] ?? null;
 }
 
 function cidKey(cid: CID): string {
@@ -93,6 +121,7 @@ export class DocumentSession {
   private saving: Promise<boolean> | null = null;
   private saver = true;
   private sequence = 0;
+  private mark = '';
 
   constructor(options: DocumentSessionOptions) {
     this.ydoc = options.ydoc;
@@ -187,6 +216,11 @@ export class DocumentSession {
     return updatesToApply.length;
   }
 
+  /** Names the next stored batch of edits with a mark (see changeFileName), when there are edits waiting. */
+  markNext(mark: string): void {
+    if (this.saver && this.pending.length > 0) this.mark = mark;
+  }
+
   /** Stores waiting edits. Resolves false when there was nothing to store. */
   save(): Promise<boolean> {
     if (this.saving) return this.saving.then(() => this.save(), () => this.save());
@@ -199,7 +233,9 @@ export class DocumentSession {
   private async storePending(): Promise<boolean> {
     if (!this.saver || this.pending.length === 0) return false;
     const batch = this.pending;
+    const mark = this.mark;
     this.pending = [];
+    this.mark = '';
     const before: OwnFolders = { ...this.own, stale: new Set(this.own.stale) };
     try {
       const change: DocumentChange = { writes: [], removeDirectories: [] };
@@ -215,7 +251,7 @@ export class DocumentSession {
         stored = batch.length === 1 ? batch[0] : Y.mergeUpdates(batch);
         this.own.changeCount += 1;
         change.writes.push({
-          path: [UPDATES_DIRECTORY, this.folderName(this.own.generation), this.changeName()],
+          path: [UPDATES_DIRECTORY, this.folderName(this.own.generation), this.changeName(mark)],
           data: stored,
         });
       }
@@ -228,6 +264,7 @@ export class DocumentSession {
     } catch (error) {
       this.own = before;
       this.pending = [...batch, ...this.pending];
+      this.mark ||= mark;
       throw error;
     }
   }
@@ -243,11 +280,9 @@ export class DocumentSession {
     return /^\d+$/.test(suffix) ? Number(suffix) : null;
   }
 
-  /** Names sort by time; the counter keeps two saves in one millisecond apart. */
-  private changeName(): string {
+  private changeName(mark: string): string {
     this.sequence += 1;
-    const random = Math.random().toString(36).slice(2, 6).padEnd(4, '0');
-    return `${this.now().toString(36).padStart(9, '0')}-${this.sequence.toString(36)}${random}`;
+    return changeFileName(this.now(), this.sequence, mark);
   }
 
   private markWalked(cid: CID): boolean {

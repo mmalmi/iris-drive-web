@@ -5,10 +5,12 @@
    * presenting, without anything that edits. Opened as the presenter's
    * window, it shows the presenter's view and nothing else.
    */
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, untrack } from 'svelte';
+  import * as Y from 'yjs';
   import DocumentHeader from '../Viewer/DocumentHeader.svelte';
   import { DriveDocument } from '../../lib/yjs';
   import { SlidesEditorState } from '../../lib/slides/editorState.svelte';
+  import { LOCAL_ORIGIN } from '../../lib/slides/model';
   import { createClipboard, eventPlace } from './clipboardEvents';
   import type { Point } from '../../lib/slides/geometry';
   import Canvas from './Canvas.svelte';
@@ -30,17 +32,21 @@
   // svelte-ignore state_referenced_locally
   const drive = new DriveDocument(dirName);
   let editorState = $state.raw<SlidesEditorState | null>(null);
+  /** An earlier version, shown read-only in place of the deck. */
+  let versionState = $state.raw<SlidesEditorState | null>(null);
+  /** What the editor shows: the deck, or the earlier version being looked at. */
+  let shown = $derived(versionState ?? editorState);
   let root: HTMLElement | undefined = $state();
   let imageInput: HTMLInputElement | undefined = $state();
   const clipboard = createClipboard({
-    state: () => editorState,
+    state: () => shown,
     urls: drive.attachmentUrls,
     addAttachment: file => drive.addAttachment(file),
     root: () => root,
   });
   const { onCopy, onCut, onPaste, onBlur, menuCopy, menuPaste } = clipboard;
 
-  let canEdit = $derived(!!editorState?.canEdit);
+  let canEdit = $derived(!!shown?.canEdit);
   /** The field for a link's address is open, for the words chosen in the box being typed in. */
   let linkEditing = $state(false);
   let workspace: HTMLElement | undefined = $state();
@@ -90,6 +96,40 @@
     window.addEventListener('blur', onBlur);
   });
 
+  $effect(() => {
+    const version = drive.preview;
+    if (!version) {
+      versionState = null;
+      return;
+    }
+    const ydoc = new Y.Doc();
+    Y.applyUpdate(ydoc, version.update);
+    const viewed = untrack(() => {
+      editorState?.stopEditing();
+      const made = new SlidesEditorState(ydoc, {
+        addAttachment: () => Promise.reject(new Error('An earlier version cannot be changed')),
+        canEdit: () => false,
+      });
+      // The slide that is open stays open, when the version has it.
+      if (editorState?.currentId) made.goTo(editorState.currentId);
+      return made;
+    });
+    versionState = viewed;
+    return () => {
+      viewed.destroy();
+      ydoc.destroy();
+    };
+  });
+
+  /** Makes the deck what an earlier version holds, as one step undo takes back. */
+  async function restoreVersion(update: Uint8Array): Promise<void> {
+    const current = editorState;
+    if (!current) throw new Error('The presentation is not open');
+    const { restoreVersion: restore } = await import('../../lib/yjs/versionHistory');
+    current.stopEditing();
+    current.step(() => restore(drive.ydoc, update, LOCAL_ORIGIN));
+  }
+
   onDestroy(() => {
     narrowScreen.removeEventListener('change', onNarrowChange);
     window.removeEventListener('keydown', onKeyDown, true);
@@ -103,7 +143,8 @@
   });
 
   function present(): void {
-    if (!editorState || editorState.slides.length === 0) return;
+    // An earlier version on screen is only looked at.
+    if (!editorState || editorState.slides.length === 0 || versionState) return;
     editorState.stopEditing();
     editorState.presenting = true;
   }
@@ -215,7 +256,7 @@
   }
 
   function onKeyDown(event: KeyboardEvent): void {
-    const current = editorState;
+    const current = shown;
     if (!current || current.presenting || event.defaultPrevented || event.isComposing) return;
     // An open menu takes Escape for itself.
     if (document.querySelector('[data-slides-popover]')) return;
@@ -405,8 +446,8 @@
   }}
   ondrop={onDropFile}
 >
-  <DocumentHeader {drive}>
-    {#if editorState && editorState.slides.length > 0 && !presenterWindow}
+  <DocumentHeader {drive} editorMenu>
+    {#if editorState && editorState.slides.length > 0 && !presenterWindow && !versionState}
       <button onclick={present} class="btn-ghost flex items-center gap-1.5 max-sm:px-2.5" title="Present" aria-label="Present" data-testid="present">
         <span class="i-lucide-play text-sm"></span><span class="max-sm:hidden">Present</span>
       </button>
@@ -430,6 +471,9 @@
       <button class="menu-item" onclick={() => pptxInput?.click()} disabled={!!importing} data-testid="slides-pptx-import">
         <span class="i-lucide-file-up"></span>Import PowerPoint
       </button>
+      <button class="menu-item" onclick={() => { moreOpen = false; drive.openHistory(); }} data-testid="version-history">
+        <span class="i-lucide-history"></span>Version history
+      </button>
     {/if}
   </Popover>
 
@@ -446,10 +490,17 @@
       <PresenterView slides={editorState.slides} theme={editorState.theme} {urls} title={drive.title} revision={editorState.revision} />
     {/await}
   {:else}
-    {#if canEdit}
+    {@const view = versionState ?? editorState}
+    {#if versionState}
+      {#await import('../Viewer/VersionBar.svelte') then { default: VersionBar }}
+        <VersionBar {drive} onrestore={restoreVersion} />
+      {/await}
+    {:else if canEdit}
       <Toolbar {editorState} onPickImage={() => imageInput?.click()} onLink={() => (linkEditing = true)} />
     {/if}
-    {#if editorState.deck.isNewer}
+    {#if versionState}
+      <!-- What is said about the deck is not about the version shown. -->
+    {:else if editorState.deck.isNewer}
       <div class="shrink-0 px-4 py-1.5 text-xs text-text-1 bg-warning/20" role="status">
         This presentation was made with a newer version of Iris Drive. It can be viewed here, not changed.
       </div>
@@ -464,7 +515,9 @@
       </div>
     {/if}
 
-    {#if editorState.slides.length === 0}
+    <div class="flex-1 flex min-h-0">
+    <div class="flex-1 flex flex-col min-w-0 min-h-0">
+    {#if view.slides.length === 0}
       <div class="flex-1 flex flex-col items-center justify-center gap-3 text-text-3 text-sm" data-testid="slides-empty">
         No slides yet
         {#if canEdit}
@@ -475,28 +528,38 @@
       </div>
     {:else if narrow && !canEdit}
       <SlideStack
-        slides={editorState.slides}
-        theme={editorState.theme}
+        slides={view.slides}
+        theme={view.theme}
         {urls}
         onPresent={(slideId) => {
+          if (versionState) return;
           editorState?.goTo(slideId);
           present();
         }}
       />
     {:else}
       <div class="relative flex-1 flex min-h-0 flex-col-reverse sm:flex-row" data-testid="slides-workspace" bind:this={workspace}>
-        <SlideStrip {editorState} {urls} />
-        <div class="flex-1 flex flex-col min-w-0 min-h-0">
-          <Canvas {editorState} {urls} onImageFiles={addImages} onCopy={menuCopy} onPaste={() => void menuPaste()} />
-          {#if canEdit}
-            <NotesBox {editorState} />
-          {/if}
-        </div>
-        {#if editorState.textEditor && workspace}
-          <DocumentLinkMenu editor={editorState.textEditor} page={workspace} bind:editing={linkEditing} />
+        {#key view}
+          <SlideStrip editorState={view} {urls} />
+          <div class="flex-1 flex flex-col min-w-0 min-h-0">
+            <Canvas editorState={view} {urls} onImageFiles={addImages} onCopy={menuCopy} onPaste={() => void menuPaste()} />
+            {#if canEdit}
+              <NotesBox editorState={view} />
+            {/if}
+          </div>
+        {/key}
+        {#if view.textEditor && workspace}
+          <DocumentLinkMenu editor={view.textEditor} page={workspace} bind:editing={linkEditing} />
         {/if}
       </div>
     {/if}
+    </div>
+    {#if drive.historyOpen}
+      {#await import('../Viewer/VersionHistoryPanel.svelte') then { default: VersionHistoryPanel }}
+        <VersionHistoryPanel {drive} />
+      {/await}
+    {/if}
+    </div>
 
     {#if editorState.presenting}
       {#await presentViewLoaded() then { default: PresentView }}

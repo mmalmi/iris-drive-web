@@ -35,6 +35,8 @@
     showAddCommentModal: boolean;
     pendingCommentText: string;
     editorElement?: HTMLElement;
+    /** Holds an earlier version while one is shown. */
+    versionElement?: HTMLElement;
     /** True while the field for a link's address is open. */
     linkEditing: boolean;
     onAddComment: () => void;
@@ -45,6 +47,7 @@
     onImageFile: (file: File) => void | Promise<void>;
     onAddCommentSubmit: (commentText: string) => void;
     onAddCommentCancel: () => void;
+    onRestoreVersion: (update: Uint8Array) => void | Promise<void>;
   }
 
   let {
@@ -58,6 +61,7 @@
     showAddCommentModal,
     pendingCommentText,
     editorElement = $bindable(),
+    versionElement = $bindable(),
     linkEditing = $bindable(),
     onAddComment,
     onToggleCommentsPanel,
@@ -67,11 +71,13 @@
     onImageFile,
     onAddCommentSubmit,
     onAddCommentCancel,
+    onRestoreVersion,
   }: Props = $props();
 
   let canEdit = $derived(drive.canEdit);
   let loading = $derived(drive.loading);
   let missing = $derived(drive.missing);
+  let previewing = $derived(!!drive.preview);
 
   let imageFileInput: HTMLInputElement | undefined = $state();
   let pageElement: HTMLElement | undefined = $state();
@@ -108,7 +114,11 @@
     {/if}
   </DocumentHeader>
 
-  {#if canEdit && editor && !loading}
+  {#if previewing}
+    {#await import('./VersionBar.svelte') then { default: VersionBar }}
+      <VersionBar {drive} onrestore={onRestoreVersion} />
+    {/await}
+  {:else if canEdit && editor && !loading}
     <EditorToolbar
       {editor}
       {hasTextSelection}
@@ -140,8 +150,10 @@
             <span class="i-lucide-loader-2 animate-spin"></span>
           </div>
         {:else}
-          <div bind:this={editorElement} class="document-container" data-testid="document-content"></div>
-          {#if canEdit && editor && pageElement}
+          <div bind:this={editorElement} class="document-container" class:hidden={previewing} data-testid="document-content"></div>
+          {#if previewing}
+            <div bind:this={versionElement} class="document-container" data-testid="document-version"></div>
+          {:else if canEdit && editor && pageElement}
             <DocumentLinkMenu {editor} page={pageElement} bind:editing={linkEditing} />
           {/if}
         {/if}
@@ -157,6 +169,12 @@
           onDeleteThread={onDeleteThread}
         />
       </div>
+    {/if}
+
+    {#if drive.historyOpen}
+      {#await import('./VersionHistoryPanel.svelte') then { default: VersionHistoryPanel }}
+        <VersionHistoryPanel {drive} />
+      {/await}
     {/if}
   </div>
 </div>
