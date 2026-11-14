@@ -5,7 +5,7 @@
    * presenting, without anything that edits. Opened as the presenter's
    * window, it shows the presenter's view and nothing else.
    */
-  import { onMount, onDestroy, untrack } from 'svelte';
+  import { onMount, onDestroy, tick, untrack } from 'svelte';
   import * as Y from 'yjs';
   import DocumentHeader from '../Viewer/DocumentHeader.svelte';
   import { DriveDocument } from '../../lib/yjs';
@@ -24,6 +24,8 @@
   import { isPresenterWindow, presenterUrl } from '../../lib/slides/presentSync';
   import { stretchCells } from '../../lib/slides/tableEditing';
   import { readSiblingFile, takeImportRequest } from '../../lib/fileImports';
+  import { flashPresence } from '../../lib/yjs/presence.svelte';
+  import { slidePlace } from './PresenceOutlines.svelte';
 
   interface Props {
     dirName: string;
@@ -138,6 +140,24 @@
     current.stopEditing();
     current.step(() => restore(drive.ydoc, update, LOCAL_ORIGIN));
   }
+
+  // Going to someone from the header opens the slide they are on, where what they selected blinks.
+  drive.presence.finder = {
+    can: (state) => {
+      const place = slidePlace(state);
+      return !!place && !!editorState && !versionState && editorState.slides.some(slide => slide.id === place.id);
+    },
+    go: (state) => {
+      const place = slidePlace(state);
+      if (!place || !editorState) return;
+      editorState.goTo(place.id);
+      void tick().then(() => {
+        for (const outline of document.querySelectorAll(`[data-testid="slide-presence"][data-client="${state.clientId}"]`)) {
+          flashPresence(outline, state.user.color);
+        }
+      });
+    },
+  };
 
   // Where this person is, for the others who have the deck open: the slide, and what is selected on it.
   $effect(() => {

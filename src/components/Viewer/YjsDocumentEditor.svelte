@@ -12,6 +12,7 @@
     attachmentFilename,
   } from '../../lib/yjs';
   import { VERSION_ORIGIN, createYjsTiptapEditor, insertPicture, textUndoManager } from '../../lib/yjs/tiptapEditor';
+  import { flashPresence } from '../../lib/yjs/presence.svelte';
 
   const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 
@@ -100,6 +101,15 @@
       });
       editor = setup.editor;
       commentsStore = setup.commentsStore;
+      // Going to someone from the header: their caret, and so their selection, comes into view.
+      drive.presence.finder = {
+        can: state => !!state.cursor,
+        go: (state) => {
+          const caret = editorElement?.querySelector(`.collaboration-carets__caret[data-key="${CSS.escape(state.user.key)}"]`);
+          caret?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+          flashPresence(caret, state.user.color);
+        },
+      };
       if (canEdit && drive.ydoc.getXmlFragment('default').length === 0) editor.commands.focus();
     })();
   });

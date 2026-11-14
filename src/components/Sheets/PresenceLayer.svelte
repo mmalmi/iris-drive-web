@@ -1,3 +1,17 @@
+<script lang="ts" module>
+  /** What a copy says about its selection: the sheet, and the row and column ids of both corners. */
+  export interface SheetPlace {
+    id: string;
+    a: [string, string];
+    f: [string, string];
+  }
+
+  export function sheetPlace(value: unknown): SheetPlace | null {
+    const place = value as SheetPlace | null;
+    return !!place && typeof place.id === 'string' && Array.isArray(place.a) && Array.isArray(place.f) ? place : null;
+  }
+</script>
+
 <script lang="ts">
   /**
    * The cells others who have the spreadsheet open have selected, outlined in
@@ -15,18 +29,6 @@
   }
   let { ctl, view }: Props = $props();
 
-  /** What a copy says about its selection: the sheet, and the row and column ids of both corners. */
-  interface SheetPlace {
-    id: string;
-    a: [string, string];
-    f: [string, string];
-  }
-
-  function isPlace(value: unknown): value is SheetPlace {
-    const place = value as SheetPlace | null;
-    return !!place && typeof place.id === 'string' && Array.isArray(place.a) && Array.isArray(place.f);
-  }
-
   let boxes = $derived.by(() => {
     void ctl.revision;
     void ctl.layoutRevision;
@@ -34,8 +36,8 @@
     if (!ctl.hasSheet || others.length === 0) return [];
     const sheet = ctl.sheet;
     return others.flatMap((state) => {
-      const place = state.sheet;
-      if (!isPlace(place) || place.id !== ctl.sheetId) return [];
+      const place = sheetPlace(state.sheet);
+      if (!place || place.id !== ctl.sheetId) return [];
       const anchor = { row: sheet.rows.indexOf(place.a[0]), col: sheet.cols.indexOf(place.a[1]) };
       const focus = { row: sheet.rows.indexOf(place.f[0]), col: sheet.cols.indexOf(place.f[1]) };
       if (anchor.row < 0 || anchor.col < 0 || focus.row < 0 || focus.col < 0) return [];
@@ -71,6 +73,7 @@
     style:border-color={box.color}
     data-testid="sheet-presence"
     data-name={box.name}
+    data-client={box.clientId}
   >
     {#if box.tag}
       <span class="tag" style:background-color={box.color} data-label={box.name} aria-hidden="true">{#if box.npub}<FollowBadge pubkey={box.npub} size={10} />{/if}</span>
