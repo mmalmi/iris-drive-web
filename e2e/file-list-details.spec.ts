@@ -74,6 +74,16 @@ test.describe('the list of a folder', () => {
     await page.screenshot({ path: test.info().outputPath('dates-phone.png') });
   });
 
+  test('shows when each file changed for the very first upload of a new Drive', async ({ page, relayUrl }) => {
+    await page.setViewportSize(DESKTOP);
+    await prepareFreshSession(page, relayUrl);
+    await createDriveProfile(page, 'First');
+    await expectFolderEditable(page);
+    const names = ['a.txt', 'b.txt', 'c.txt', 'd.txt'];
+    await uploadIntoFolder(page, names.map((name) => sized(name, 1)));
+    for (const name of names) await expect(fileRow(page, name).getByTestId('row-modified')).toHaveText(TIME);
+  });
+
   test('sorts by name, last change or size, folders first, and keeps the order on this device', async ({ page, relayUrl }) => {
     await page.setViewportSize(DESKTOP);
     await prepareFreshSession(page, relayUrl);
