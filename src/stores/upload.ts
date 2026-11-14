@@ -25,6 +25,7 @@ import { editableTreeRoutePubkey, isEditableDriveRouteScope } from '../drive/pro
 import { setEntryForDriveRoute } from '../drive/profileDriveRouteEntry';
 import { captureIdentityWriteGuard, captureRouteWriteGuard } from '../lib/routeWriteGuard';
 import { inTurn } from '../lib/driveWrites';
+import { withModifiedAt } from '../lib/modifiedAt';
 
 /** A ZIP file, which the person may choose to unpack; the code for it loads only then. */
 function isArchiveFile(fileName: string): boolean {
@@ -345,7 +346,7 @@ async function uploadFilesNow(filesArray: File[], target: UploadTarget, origin: 
       markFilesChanged(new Set([file.name]));
     } else if (needsTreeInit) {
       // First file in a new virtual directory - create encrypted tree
-      const { cid: newRootCid } = await tree.putDirectory([{ name: file.name, cid: fileCid, size, type: LinkType.Blob }]);
+      const { cid: newRootCid } = await tree.putDirectory([{ name: file.name, cid: fileCid, size, type: LinkType.Blob, meta: withModifiedAt(undefined) }]);
       if (!upload.isCurrent()) return;
       currentRootCid = newRootCid;
       markFilesChanged(new Set([file.name]));
@@ -371,7 +372,7 @@ async function uploadFilesNow(filesArray: File[], target: UploadTarget, origin: 
       needsTreeInit = false; // Tree is now initialized
     } else {
       // No existing tree and not a virtual directory - create new encrypted root
-      const { cid: newRootCid } = await tree.putDirectory([{ name: file.name, cid: fileCid, size, type: LinkType.Blob }]);
+      const { cid: newRootCid } = await tree.putDirectory([{ name: file.name, cid: fileCid, size, type: LinkType.Blob, meta: withModifiedAt(undefined) }]);
       if (!upload.isCurrent()) return;
       currentRootCid = newRootCid;
       markFilesChanged(new Set([file.name]));

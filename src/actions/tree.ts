@@ -17,6 +17,7 @@ import { setEntryForDriveRoute } from '../drive/profileDriveRouteEntry';
 import { captureRouteWriteGuard } from '../lib/routeWriteGuard';
 import { inTurn } from '../lib/driveWrites';
 import { freeName } from '../lib/driveClipboard';
+import { withModifiedAt } from '../lib/modifiedAt';
 import { toast } from '../stores/toast';
 export { forkTree } from './treeFork';
 
@@ -55,6 +56,7 @@ export async function initVirtualTree(entries: DirectoryEntryInput[]): Promise<C
     cid: e.cid,
     size: e.size,
     type: e.type ?? LinkType.Blob,
+    meta: withModifiedAt(undefined),
   }));
   const { cid: newRootCid } = await tree.putDirectory(dirEntries);
 
