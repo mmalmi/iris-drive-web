@@ -1,10 +1,11 @@
 import { activeShareScope } from './shareScope';
 import { toHex, type CID } from '@hashtree/core';
-import { getPublicKey } from 'nostr-tools';
+import { getPublicKey, type Event } from 'nostr-tools';
 import type { NostrIdentitySession } from './deviceLink';
 import { getCurrentNostrIdentitySession, getSecretKey } from '../nostr';
 import { publishEvent } from '../lib/nostrPublish';
 import { profileDriveProjection } from './profileDriveProjection';
+import { heldRecoveryKeys, recoveryPhraseRecipients, rootWrapRecipients } from './recoveryRootKeys';
 import {
   buildDriveRootEvent,
   parseDriveRootEventForDevice,
@@ -14,6 +15,8 @@ import {
 
 type SessionProjection = {
   projection: NostrIdentityRosterProjection | null;
+  /** The account's recovery phrase keys: own roots are wrapped for them too. */
+  recoveryPubkeys: string[];
   activeAppKeyPubkeys: string[];
   keyEpoch: number;
 };
@@ -40,6 +43,7 @@ function projectSession(session: NostrIdentitySession): SessionProjection {
 
   return {
     projection,
+    recoveryPubkeys: recoveryPhraseRecipients(projection),
     activeAppKeyPubkeys: Array.from(activeAppKeyPubkeys).sort(),
     keyEpoch,
   };
@@ -108,6 +112,52 @@ export function scheduleShareRootRewrap(shareId: string): void {
  */
 export function scheduleDriveRootRewrap(profileId: string): void {
   scheduleRootRewrap(profileId);
+}
+
+/**
+ * This device's latest root of its own My Drive is published again when its
+ * key is not wrapped for every recovery phrase key of the account, as for a
+ * root published before the phrase was added or before roots were wrapped for
+ * recovery keys at all.
+ */
+export function wrapOwnRootForRecoveryKeys(rootScopeId: string, event: Pick<Event, 'pubkey' | 'content'>): void {
+  const session = getCurrentNostrIdentitySession();
+  if (!session || session.status !== 'active' || rootScopeId !== session.profileId || event.pubkey !== session.appKeyPubkey) return;
+  const wrapped = rootWrapRecipients(event);
+  if (projectSession(session).recoveryPubkeys.every((pubkey) => wrapped.has(pubkey))) return;
+  scheduleDriveRootRewrap(rootScopeId);
+}
+
+/**
+ * After a root came in: this device's own one is published again when it
+ * lacks a recovery wrap, and one opened only through a held recovery key makes
+ * this device keep the Drive as its own.
+ */
+export function recoveryKeysAfterRoot(rootScopeId: string, event: Pick<Event, 'pubkey' | 'content'>, deviceSecretKey: Uint8Array): void {
+  wrapOwnRootForRecoveryKeys(rootScopeId, event);
+  if (heldRecoveryKeys().length > 0 && !rootWrapRecipients(event).has(getPublicKey(deviceSecretKey))) adoptRecoveredDrive(rootScopeId);
+}
+
+const ADOPT_AFTER_MS = 1500;
+let adoptTimer: ReturnType<typeof setTimeout> | undefined;
+
+/**
+ * A device signed in with the recovery phrase opened the other devices' roots
+ * with the phrase's key, which it holds only until the page closes. Once they
+ * have come in, it publishes the Drive it now sees as its own root, wrapped
+ * for itself, so it keeps the files without the phrase.
+ */
+export function adoptRecoveredDrive(profileId: string): void {
+  clearTimeout(adoptTimer);
+  adoptTimer = setTimeout(() => {
+    void (async () => {
+      const session = getCurrentNostrIdentitySession();
+      if (!session || session.status !== 'active' || session.profileId !== profileId) return;
+      const { getTreeRootSync } = await import('../stores/treeRoot');
+      const root = getTreeRootSync(profileId, 'main');
+      if (root?.key) await publishNostrIdentityDriveRootIfAvailable('main', root, { rootScopeId: profileId });
+    })().catch((error) => console.warn('[driveRoot] Could not keep the recovered Drive:', error));
+  }, ADOPT_AFTER_MS);
 }
 
 function scheduleRootRewrap(rootScopeId: string): void {
@@ -210,7 +260,7 @@ async function publishDriveRootNow(
   const rootScopeId = options.rootScopeId ?? session.profileId;
   const share = rootScopeId !== session.profileId ? activeShareScope(rootScopeId) : null;
   if (rootScopeId !== session.profileId && (!share?.canWrite || driveId !== 'main')) return false;
-  const projected = share ? { projection: null, activeAppKeyPubkeys: share.recipients, keyEpoch: share.epoch } : projectSession(session);
+  const projected = share ? { projection: null, activeAppKeyPubkeys: share.recipients, keyEpoch: share.epoch, recoveryPubkeys: [] } : projectSession(session);
   const writers = share?.writers ?? projected.activeAppKeyPubkeys;
   if (projected.projection && !projected.projection.active_facets[appKeyPubkey]) {
     console.warn('[driveRoot] Skipping NostrIdentity Drive root publish because AppKey is not active in roster');
@@ -267,7 +317,7 @@ async function publishDriveRootNow(
     appKeySeq: options.appKeySeq ?? nextDriveRootSequence(rootScopeId, driveId, appKeyPubkey),
     publishedAt: nextDriveRootPublishedAt(rootScopeId, driveId, appKeyPubkey, options.publishedAt),
     publishedAtMs: options.publishedAtMs,
-    authorizedAppKeyPubkeys: projected.activeAppKeyPubkeys,
+    authorizedAppKeyPubkeys: [...projected.activeAppKeyPubkeys, ...projected.recoveryPubkeys],
     observed: profileDriveProjection.observations(
       rootScopeId,
       driveId,

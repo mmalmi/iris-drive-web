@@ -3,8 +3,7 @@ import { acceptedShares } from '../drive/shareLibrary';
 import { activeShareScope } from '../drive/shareScope';
 import { get } from 'svelte/store';
 import { toHex, type Hash, type RefResolverSubscriptionMetadata, type SubscribeVisibilityInfo, type TreeVisibility } from '@hashtree/core';
-import type { Event, Filter } from 'nostr-tools';
-import type { Event as NostrToolsEvent } from 'nostr-tools';
+import type { Event, Event as NostrToolsEvent, Filter } from 'nostr-tools';
 import { routeStore } from './route';
 import { getRefResolver, getResolverKey } from '../refResolver';
 import {
@@ -18,6 +17,7 @@ import {
   projectNostrIdentityRoster,
 } from '../drive/protocol';
 import { profileDriveProjection } from '../drive/profileDriveProjection';
+import { afterRootCameIn, heldRecoveryKeys } from '../drive/recoveryRootKeys';
 import {
   driveRootAuthorizationFingerprint,
   driveRootBackfillFilters,
@@ -270,7 +270,7 @@ function applyDriveRootEvent(
 
   let parsed;
   try {
-    parsed = parseDriveRootEventForDevice(event, secretKey);
+    parsed = parseDriveRootEventForDevice(event, secretKey, heldRecoveryKeys());
   } catch (error) {
     console.warn('[treeRoot] Ignoring unreadable NostrIdentity drive root:', error);
     return false;
@@ -279,6 +279,7 @@ function applyDriveRootEvent(
   if (parsed.root_scope_id !== rootScopeId || parsed.drive_id !== driveId) return false;
 
   const accepted = profileDriveProjection.add(event, parsed);
+  if (accepted) afterRootCameIn(rootScopeId, event, secretKey);
   if ((accepted || changed || projectionChanged) && options.rebuild !== false) {
     scheduleDriveRootProjection(key, rootScopeId, driveId);
   }

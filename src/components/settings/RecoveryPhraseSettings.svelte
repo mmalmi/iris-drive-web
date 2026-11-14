@@ -1,12 +1,20 @@
 <script lang="ts">
   /**
    * The account's recovery phrase: 12 words that sign in to the account on a
-   * new device. Files reach that device from another of the account's devices;
-   * they are not locked to the phrase. The words are shown once, checked by typing two of
+   * new device and bring its files back, also when every other device is lost:
+   * each device wraps its Drive's key for the phrase too. Once added, the page
+   * says when the relays hold what the phrase needs, as leaving before that
+   * could lose it. The words are shown once, checked by typing two of
    * them back, and only then added. Drive keeps the phrase's public key, never
    * the words. As in native, a new phrase is added next to an earlier one.
    */
   import { onDestroy } from 'svelte';
+  import { getPublicKey, type Event } from 'nostr-tools';
+  import { privateKeyFromSeedWords } from 'nostr-tools/nip06';
+  import { whenRelaysHold } from '../../lib/relayHolds';
+  import { KIND_DRIVE_ROOT } from '../../drive/protocolTypes';
+  import { rootWrapRecipients } from '../../drive/recoveryRootKeys';
+  import { profileDriveProjection } from '../../drive/profileDriveProjection';
   import CopyButton from '@iris/svelte-ui/CopyButton.svelte';
   import { addDriveRecoveryPhrase, getCurrentNostrIdentitySession, nostrStore } from '../../nostr';
   import { projectNostrIdentityRoster } from '../../drive/protocol';
@@ -25,6 +33,9 @@
   let typed = $state<[string, string]>(['', '']);
   let busy = $state(false);
   let error = $state('');
+  /** After adding: 'saving' until the relays hold what the phrase needs, then 'saved'. */
+  let saving = $state<'saving' | 'saved' | null>(null);
+  let stopWatching: Array<() => void> = [];
 
   let account = $derived.by(() => {
     void $nostrStore;
@@ -71,9 +82,12 @@
     busy = true;
     error = '';
     try {
-      await addDriveRecoveryPhrase(words.join(' '));
+      const phrase = words.join(' ');
+      const recoveryPubkey = getPublicKey(privateKeyFromSeedWords(normalizeRecoveryPhrase(phrase)));
+      const session = await addDriveRecoveryPhrase(phrase);
       forgetWords();
       step = 'status';
+      watchSaved(recoveryPubkey, session.appKeyPubkey, session.profileId);
     } catch (addError) {
       error = addError instanceof Error ? addError.message : 'Could not add the recovery phrase';
     } finally {
@@ -81,13 +95,44 @@
     }
   }
 
-  onDestroy(forgetWords);
+  /**
+   * The phrase finds the account by the record it signed, and brings the files
+   * back through this device's Drive wrapped for it: both must reach the relays.
+   */
+  function watchSaved(recoveryPubkey: string, device: string, profileId: string): void {
+    for (const stop of stopWatching) stop();
+    saving = 'saving';
+    // A device that has saved nothing yet has no Drive to wrap; its first save is wrapped for the phrase.
+    const hasDrive = !!profileDriveProjection.contributionRoot(profileId, 'main', device);
+    let waiting = hasDrive ? 2 : 1;
+    const held = () => {
+      waiting -= 1;
+      if (waiting === 0) saving = 'saved';
+    };
+    const ownRoot = (event: Event) => event.tags.some(([name, value]) => name === 'd' && value?.startsWith(`iris-drive/${profileId}/main`))
+      && rootWrapRecipients(event).has(recoveryPubkey);
+    stopWatching = [
+      whenRelaysHold({ authors: [recoveryPubkey] }, () => true, held),
+      ...(hasDrive ? [whenRelaysHold({ kinds: [KIND_DRIVE_ROOT], authors: [device] }, ownRoot, held)] : []),
+    ];
+  }
+
+  function onbeforeunload(event: BeforeUnloadEvent): void {
+    if (saving === 'saving') event.preventDefault();
+  }
+
+  onDestroy(() => {
+    forgetWords();
+    for (const stop of stopWatching) stop();
+  });
 </script>
+
+<svelte:window {onbeforeunload} />
 
 <div class="rounded bg-surface-2 p-3 space-y-3" data-testid="recovery-phrase-settings">
   {#if step === 'status'}
     <p class="text-sm text-text-2">
-      Your recovery phrase signs you in to your account on a new device: 12 words for you to write down and keep safe. Your files reach the new device from another of yours while Drive is open there, so keep Drive on two devices.
+      If you lose your devices, your recovery phrase signs you in on a new one and brings your files back. It is 12 words for you to write down and keep safe.
     </p>
     {#if newest}
       <p class="flex items-start gap-2 text-sm text-text-1" data-testid="recovery-phrase-status">
@@ -99,6 +144,15 @@
       </p>
     {:else}
       <p class="text-sm text-text-1" data-testid="recovery-phrase-status">You have no recovery phrase yet.</p>
+    {/if}
+    {#if saving === 'saving'}
+      <p class="flex items-center gap-2 text-xs text-text-3" data-testid="recovery-phrase-saving">
+        <span class="i-lucide-loader-2 animate-spin"></span>Saving. Keep this page open for a moment.
+      </p>
+    {:else if saving === 'saved'}
+      <p class="flex items-center gap-2 text-xs text-text-3" data-testid="recovery-phrase-saved">
+        <span class="i-lucide-check"></span>Saved
+      </p>
     {/if}
     {#if account?.canManage}
       <button

@@ -176,8 +176,7 @@
           <span>You have no recovery phrase yet. <a href="#/settings/account/recovery" class="text-accent">Create recovery phrase</a></span>
         </p>
       {/if}
-      <p>Sign in on another device with your recovery phrase. Your folders and files reach it from one of your other devices the next time Drive is open there.</p>
-      <p class="text-text-1" data-testid="backup-keep-two">If every device is lost, the recovery phrase brings back your account but not your files yet. Keep Drive on two devices.</p>
+      <p>Sign in on another device with your recovery phrase. Your folders and files come back from the file servers above, also when every other device is lost.</p>
       <p>A file server you added yourself: add it there too, here under Backup.</p>
       {#if hasFolder}
         <p>A copy in a folder is kept locked as well; Drive cannot read one back yet.</p>

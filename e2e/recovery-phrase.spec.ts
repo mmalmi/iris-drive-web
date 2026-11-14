@@ -5,6 +5,9 @@
 import { expect, test, type Page } from './fixtures';
 import { createDriveProfile, prepareFreshSession } from './documents.helpers';
 import { expectFolderEditable, fileRow } from './test-utils';
+import WebSocket from 'ws';
+import { getPublicKey } from 'nostr-tools';
+import { privateKeyFromSeedWords } from 'nostr-tools/nip06';
 
 const PHONE = { width: 390, height: 844 };
 const JARGON = [/npub/i, /nsec/i, /relay/i, /nostr/i, /facet/i, /epoch/i, /mnemonic/i, /bip-?39/i];
@@ -48,6 +51,29 @@ async function createRecoveryPhrase(page: Page, screenshot?: (name: string) => P
   return words;
 }
 
+/** The Drive roots the relay holds from `author`: who each one's key is wrapped for. */
+function rootWraps(relayUrl: string, author: string): Promise<string[][]> {
+  return new Promise((resolve) => {
+    const ws = new WebSocket(relayUrl);
+    const found: string[][] = [];
+    ws.on('open', () => ws.send(JSON.stringify(['REQ', 'roots', { kinds: [30078], authors: [author] }])));
+    ws.on('message', (raw) => {
+      const message = JSON.parse(String(raw));
+      if (message[0] === 'EVENT') {
+        try {
+          found.push(Object.keys(JSON.parse(message[2].content).root_key_wraps ?? {}));
+        } catch {
+          // Not a Drive root.
+        }
+      }
+      if (message[0] === 'EOSE') {
+        ws.close();
+        resolve(found);
+      }
+    });
+  });
+}
+
 test.describe('recovery phrase', () => {
   test('made in Settings, it signs a fresh browser in to the same Drive', async ({ page, browser, relayUrl }, testInfo) => {
     test.setTimeout(300_000);
@@ -59,12 +85,10 @@ test.describe('recovery phrase', () => {
     await page.goto(`${new URL(page.url()).origin}/#/settings/backup`);
     const restore = page.getByTestId('backup-restore');
     await expect(restore.getByTestId('backup-recovery-phrase')).toContainText('no recovery phrase', { timeout: 30_000 });
-    // It does not promise the files back without another device.
-    await expect(restore.getByTestId('backup-keep-two')).toContainText('not your files');
     await restore.getByRole('link', { name: 'Create recovery phrase' }).click();
     await expect(page).toHaveURL(/#\/settings\/account\/recovery$/);
     const section = page.getByTestId('recovery-phrase-settings');
-    await expect(section).toContainText('keep Drive on two devices');
+    await expect(section).toContainText('brings your files back');
     await expect(section.getByTestId('recovery-phrase-status')).toHaveText('You have no recovery phrase yet.');
     await expect(page.getByText('Uploaded kept.txt')).toHaveCount(0, { timeout: 10_000 });
     await section.screenshot({ path: testInfo.outputPath('desktop-light-section-before.png') });
@@ -99,6 +123,44 @@ test.describe('recovery phrase', () => {
       await expect(otherSection.getByTestId('recovery-phrase-status')).toContainText('Recovery phrase added on', { timeout: 30_000 });
       await expect(otherSection.getByTestId('create-recovery-phrase')).toHaveText('Create a new recovery phrase');
       await expect(other.getByTestId('user-key-row')).toHaveCount(2, { timeout: 30_000 });
+    } finally {
+      await fresh.close();
+    }
+  });
+
+  test('brings the files back when every other device is gone', async ({ page, browser, relayUrl }) => {
+    test.setTimeout(300_000);
+    await prepareFreshSession(page, relayUrl);
+    const { profileId } = await createDriveProfile(page, 'Lost Devices');
+    await uploadFile(page, 'only-here.txt');
+    const device = await page.evaluate(() => (window as unknown as { __nostrStore: { getState: () => { pubkey: string } } }).__nostrStore.getState().pubkey);
+
+    await page.goto(`${new URL(page.url()).origin}/#/settings/account/recovery`);
+    const phrase = (await createRecoveryPhrase(page)).join(' ');
+    const recoveryKey = getPublicKey(privateKeyFromSeedWords(phrase));
+
+    // The page says when the phrase is safe; the relays then hold this device's
+    // Drive wrapped for the phrase too. Then the device is gone.
+    await expect(page.getByTestId('recovery-phrase-saved')).toBeVisible({ timeout: 60_000 });
+    expect((await rootWraps(relayUrl, device)).some((wraps) => wraps.includes(recoveryKey))).toBe(true);
+    await page.close();
+
+    const fresh = await browser.newContext();
+    try {
+      const other = await fresh.newPage();
+      await prepareFreshSession(other, relayUrl);
+      await other.goto(`${new URL(other.url()).origin}/#/users/existing`);
+      await expect(other.getByTestId('identity-recovery-section')).toBeVisible({ timeout: 30_000 });
+      await other.getByRole('button', { name: 'Recovery phrase' }).click();
+      await other.getByLabel('Recovery phrase').fill(phrase);
+      await other.getByRole('button', { name: 'Continue' }).click();
+      await expect(other).toHaveURL(new RegExp(`#/${profileId}/main`), { timeout: 60_000 });
+      await expect(fileRow(other, 'only-here.txt')).toBeVisible({ timeout: 90_000 });
+
+      // After a reload, without the phrase, the files are still there: the device published them for itself.
+      await expect.poll(async () => (await rootWraps(relayUrl, await other.evaluate(() => (window as unknown as { __nostrStore: { getState: () => { pubkey: string } } }).__nostrStore.getState().pubkey))).length, { timeout: 60_000 }).toBeGreaterThan(0);
+      await other.reload();
+      await expect(fileRow(other, 'only-here.txt')).toBeVisible({ timeout: 90_000 });
     } finally {
       await fresh.close();
     }
