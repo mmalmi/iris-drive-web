@@ -10,6 +10,8 @@ import { LinkType, toHex, type CID } from '@hashtree/core';
 import type { AcceptedShareRecord } from '../drive/shareLibrary';
 import { modifiedAt } from './modifiedAt';
 import { freeName } from './driveClipboard';
+import { isDocumentFolderName } from './documentNames';
+import { isHiddenDirectoryName } from './directoryEntryVisibility';
 import { driveHref, type DriveFound, type DriveRoot } from './driveWalk';
 
 /** Pictures a browser shows, and those of phones it may not (they show as an icon there). */
@@ -163,11 +165,16 @@ export function albumKey(scope: string, path: string[]): string {
   return [scope, ...path].map(encodeURIComponent).join('/');
 }
 
+export function validAlbumName(name: string): boolean {
+  return !!name.trim() && !name.includes('/') && name !== '.' && name !== '..'
+    && !isHiddenDirectoryName(name) && !isDocumentFolderName(name);
+}
+
 /**
  * The folders that hold photos themselves, the one with the newest photo
  * first. The top of My Drive is no album; the top of a shared folder is.
  */
-export function photoAlbums(photos: readonly Photo[], dateOf: PhotoDating): Album[] {
+export function photoAlbums(photos: readonly Photo[], dateOf: PhotoDating, folders: readonly Album[] = []): Album[] {
   const albums = new Map<string, Album>();
   for (const { photo } of newestFirst(photos, dateOf)) {
     const path = photo.path.slice(0, -1);
@@ -179,6 +186,9 @@ export function photoAlbums(photos: readonly Photo[], dateOf: PhotoDating): Albu
       albums.set(key, album);
     }
     album.photos.push(photo);
+  }
+  for (const folder of folders) {
+    if (!albums.has(folder.key)) albums.set(folder.key, folder);
   }
   return [...albums.values()];
 }

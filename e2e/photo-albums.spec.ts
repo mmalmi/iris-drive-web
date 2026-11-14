@@ -20,6 +20,58 @@ async function choose(page: Page, name: string): Promise<void> {
 test.describe('albums in Photos', () => {
   test.setTimeout(180_000);
 
+  test('creates, renames, deletes and restores an album from Photos', async ({ page, relayUrl }, testInfo) => {
+    await prepareFreshSession(page, relayUrl);
+    const { profileId } = await createDriveProfile(page, 'Albums');
+    await page.getByTestId('drive-sidebar').getByRole('link', { name: 'Photos' }).click();
+    await page.getByTestId('albums-tab').click();
+    await page.getByRole('button', { name: 'New album', exact: true }).click();
+    const name = page.getByRole('textbox', { name: 'Album name' });
+    await name.fill('Summer');
+    await name.press('Enter');
+    await expect(page.getByTestId('album-header-count')).toHaveText('0 photos');
+    await page.reload();
+    await expect(page.getByTestId('album-title')).toHaveText('Summer');
+    await page.getByTestId('album-back').click();
+    await expect(card(page, 'Summer')).toBeVisible();
+    await page.getByRole('button', { name: 'Options for Summer' }).click();
+    await page.getByRole('menuitem', { name: 'Rename album' }).click();
+    await name.fill('Beach');
+    await name.press('Enter');
+    await card(page, 'Beach').click();
+    const image = jpeg('sand.jpg', await picture(page, '#e3be83', '#a68361', 300, 200));
+    const chooser = page.waitForEvent('filechooser');
+    await page.getByTestId('album-add-photos').click();
+    await (await chooser).setFiles(image);
+    await expect(tiles(page)).toHaveCount(1);
+    // A Drive folder can hold other files too. Undo restores its whole tree.
+    await page.getByTestId('album-open-folder').click();
+    await uploadIntoFolder(page, { name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('Packing list') });
+    await page.goto('/#/photos/albums');
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.getByRole('button', { name: 'Options for Beach' }).click();
+    const bounds = await page.getByRole('menu', { name: 'Album options' }).boundingBox();
+    expect(bounds!.x).toBeGreaterThanOrEqual(0);
+    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(390);
+    await page.screenshot({ path: testInfo.outputPath('album-options-phone.png') });
+    await page.getByRole('menuitem', { name: 'Delete album' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Delete “Beach”?' });
+    await expect(dialog).toContainText('Drive folder and everything inside');
+    await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused();
+    await page.keyboard.press('Escape');
+    await card(page, 'Beach').click();
+    await page.getByRole('button', { name: 'Options for Beach' }).click();
+    await page.getByRole('menuitem', { name: 'Delete album' }).click();
+    await dialog.getByRole('button', { name: 'Delete album' }).click();
+    await expect(page).toHaveURL(/#\/photos\/albums$/);
+    await expect(card(page, 'Beach')).toHaveCount(0);
+    await page.getByRole('button', { name: 'Undo', exact: true }).click();
+    await expect(card(page, 'Beach')).toBeVisible();
+    await page.goto(`/#/${profileId}/main/Photos/Beach`);
+    await expect(fileRow(page, 'sand.jpg')).toBeVisible();
+    await expect(fileRow(page, 'notes.txt')).toBeVisible();
+  });
+
   test('folders with photos are albums, and chosen photos go into a new one', async ({ page, relayUrl }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await prepareFreshSession(page, relayUrl);

@@ -9,6 +9,9 @@
    */
   import { onMount, tick, untrack } from 'svelte';
   import { SvelteSet } from 'svelte/reactivity';
+  import { LinkType } from '@hashtree/core';
+  import { deleteEntries, renameCurrentFolder, type FolderLocation } from '../actions/entry';
+  import { isDocumentFolderName } from '../lib/documentNames';
   import { nostrStore } from '../nostr';
   import { acceptedShares } from '../drive/shareLibrary';
   import { linkShares } from '../drive/linkShares';
@@ -19,11 +22,11 @@
   import { driveRoots, driveScopes } from '../lib/driveRoots';
   import { DRIVE_TREE_NAME, driveHref, driveWalk, driveWalkDone, listFolder, onDriveWalkProgress, startDriveWalk, type DriveRoot } from '../lib/driveWalk';
   import {
-    albumHref, arrangePhotos, countLabel, photoAlbums, photoDating, photosFound, photosPage, photosUploadPlace, uniquePhotos,
+    albumHref, albumKey, arrangePhotos, countLabel, photoAlbums, photoDating, photosFound, photosPage, photosUploadPlace, uniquePhotos,
     type Album, type Photo,
   } from '../lib/photos';
   import { loadPhotoDates, onPhotoDates, photoDatesKnown, readPhotoDates } from '../lib/photoDates';
-  import { addToAlbum } from '../lib/photoAlbumWrites';
+  import { addToAlbum, createAlbum } from '../lib/photoAlbumWrites';
   import { freeName } from '../lib/driveClipboard';
   import { createDriveShareLinkVariants, folderCopyHref } from '../lib/shareUrls';
   import { ensureMediaStreamingReady } from '../lib/mediaStreamingSetup';
@@ -35,6 +38,8 @@
   import AccessBadge from './AccessBadge.svelte';
   import AlbumList from './AlbumList.svelte';
   import AlbumPicker from './AlbumPicker.svelte';
+  import AlbumMenu from './AlbumMenu.svelte';
+  import AlbumDialog from './AlbumDialog.svelte';
   import PhotoGrid from './PhotoGrid.svelte';
   import PhotoViewer from './PhotoViewer.svelte';
 
@@ -65,7 +70,9 @@
   let settled: { scopes: string; photos: Photo[] } = { scopes: '', photos: [] };
 
   let dating = $derived(photoDating(found, taken));
-  let albums = $derived(photoAlbums(found, dating));
+  let albumFolders = $state.raw<Album[]>([]);
+  let albums = $derived(photoAlbums(found, dating, albumFolders));
+  let edit = $state<{ mode: 'create' | 'rename' | 'delete'; place: FolderLocation; name: string } | null>(null);
   let page = $derived(photosPage($currentPath));
   /** The album shown: an address in My Drive of a folder since shared is the shared folder's. */
   let albumPlace = $derived.by(() => {
@@ -119,6 +126,13 @@
   }
 
   function collect(list: DriveRoot[]) {
+    // Direct subfolders of My Drive/Photos are albums even before their first photo.
+    const parent = photosPlace;
+    const photosRoot = list.find((root) => root.scope === parent?.scope);
+    albumFolders = parent && photosRoot ? (driveWalk(photosRoot)?.found ?? [])
+      .filter(({ path, entry }) => entry.type === LinkType.Dir && !isDocumentFolderName(entry.name)
+        && path.length === parent.path.length + 1 && parent.path.every((part, i) => path[i] === part))
+      .map(({ path, entry }) => ({ path, scope: parent.scope, key: albumKey(parent.scope, path), name: entry.name, photos: [] })) : [];
     const now = list.flatMap((root) => photosFound(root, driveWalk(root)?.found ?? []));
     const done = driveWalkDone(list);
     if (settled.scopes !== scopeKey) settled = { scopes: scopeKey, photos: [] };
@@ -225,6 +239,32 @@
   function toggle(photo: Photo) {
     if (selected.has(photo.href)) selected.delete(photo.href);
     else selected.add(photo.href);
+  }
+
+  function canManage(place: FolderLocation): boolean {
+    return place.path.length > 0 && canWrite(place.scope);
+  }
+
+  function manage(mode: 'rename' | 'delete', item: Album) {
+    if (canManage(item)) edit = { mode, place: { scope: item.scope, path: item.path }, name: item.name };
+  }
+
+  async function saveAlbum(name: string) {
+    if (!edit) return;
+    const { mode, place } = edit;
+    if (!canWrite(place.scope)) throw new Error('You cannot change this folder.');
+    const here = window.location.hash === albumHref(place.scope, place.path);
+    if (mode === 'create') {
+      await createAlbum(place, name);
+      window.location.hash = albumHref(place.scope, [...place.path, name]);
+    } else if (mode === 'rename') {
+      if (name === edit.name) return;
+      if (!await renameCurrentFolder(name, place)) throw new Error('That name is already in use.');
+      if (here) window.location.replace(albumHref(place.scope, [...place.path.slice(0, -1), name]));
+    } else {
+      await deleteEntries([edit.name], place.path.slice(0, -1), place.scope);
+      if (here) window.location.replace('#/photos/albums');
+    }
   }
 
   // Escape lets go of what is chosen, unless a dialog or a field has it.
@@ -360,7 +400,11 @@
       </a>
       <div class="min-w-0 flex-1">
         <div class="flex min-w-0 items-center gap-1.5">
-          <h1 class="truncate text-base font-medium text-text-1 lg:text-xl" data-testid="album-title">{albumName}</h1>
+          <h1 class="min-w-0 truncate text-base font-medium text-text-1 lg:text-xl" data-testid="album-title">
+            {#if album && canManage(album)}
+              <button type="button" class="max-w-full truncate align-middle text-left hover:underline" title="Rename album" onclick={() => album && manage('rename', album)}>{albumName}</button>
+            {:else}{albumName}{/if}
+          </h1>
           {#if albumPlace}
             {@const access = accessOf(albumPlace)}
             <AccessBadge {access} label onclick={share} />
@@ -381,6 +425,9 @@
           <span class="i-lucide-folder-open text-base"></span><span class="max-sm:hidden">Open folder</span>
         </a>
       {/if}
+      {#if album && canManage(album)}
+        <AlbumMenu name={albumName} onrename={() => album && manage('rename', album)} ondelete={() => album && manage('delete', album)} />
+      {/if}
     </div>
   {:else}
     <div class="flex min-h-13 shrink-0 items-center gap-2 border-b border-surface-2 px-3 py-2 lg:px-5 lg:py-3">
@@ -394,7 +441,11 @@
         <span class="i-lucide-loader-2 animate-spin text-sm text-text-3" title="Still looking"></span>
       {/if}
       <!-- Where there are none yet, the message below offers it. -->
-      {#if photosPlace && found.length > 0}
+      {#if page.kind === 'albums' && photosPlace && canWrite(photosPlace.scope)}
+        <button type="button" class="btn-primary ml-auto inline-flex shrink-0 items-center gap-1.5" onclick={() => { if (photosPlace) edit = { mode: 'create', place: photosPlace, name: '' }; }}>
+          <span class="i-lucide-plus text-base"></span>New album
+        </button>
+      {:else if photosPlace && found.length > 0}
         <button type="button" class="{action} ml-auto" onclick={() => chooseFiles(photosPlace)} title="Upload" aria-label="Upload" data-testid="photos-upload">
           <span class="i-lucide-upload text-base"></span><span class="max-sm:hidden">Upload</span>
         </button>
@@ -409,7 +460,7 @@
       </div>
     {:else if page.kind === 'albums'}
       {#if albums.length > 0}
-        <AlbumList {albums} {ready} {accessOf} />
+        <AlbumList {albums} {ready} {accessOf} {canManage} onmanage={manage} />
       {:else}
         {@render empty('i-lucide-images', 'Folders with photos and videos show up here as albums', 'albums-empty')}
       {/if}
@@ -442,6 +493,10 @@
     data-testid="photos-upload-input"
   />
 </div>
+
+{#if edit}
+  <AlbumDialog mode={edit.mode} name={edit.name} onsave={saveAlbum} onclose={() => (edit = null)} />
+{/if}
 
 {#if openIndex >= 0}
   <PhotoViewer photos={ordered} index={openIndex} dateOf={dating} onstep={step} onclose={close} />

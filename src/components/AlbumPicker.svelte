@@ -2,7 +2,7 @@
   /** Where chosen photos go: a new album, named here, or one there is. */
   import Modal from './ui/Modal.svelte';
   import PhotoImage from './PhotoImage.svelte';
-  import { countLabel, type Album } from '../lib/photos';
+  import { countLabel, validAlbumName, type Album } from '../lib/photos';
 
   interface Props {
     /** The albums photos can be added to. */
@@ -21,7 +21,7 @@
   let name = $state('');
   let input: HTMLInputElement | undefined = $state();
   let trimmed = $derived(name.trim());
-  let invalid = $derived(trimmed.includes('/') || trimmed === '.' || trimmed === '..');
+  let invalid = $derived(!!trimmed && !validAlbumName(trimmed));
 
   $effect(() => {
     if (naming) input?.focus();
@@ -70,7 +70,7 @@
     {#each albums as album (album.key)}
       <button type="button" class="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left hover:bg-surface-2" onclick={() => onpick(album)} data-testid="album-choice">
         <span class="relative h-11 w-11 shrink-0 overflow-hidden rounded-lg bg-surface-2">
-          <PhotoImage photo={album.photos[0]!} {ready} />
+          {#if album.photos[0]}<PhotoImage photo={album.photos[0]} {ready} />{:else}<span class="absolute inset-0 m-auto i-lucide-images text-lg text-text-3"></span>{/if}
         </span>
         <span class="min-w-0">
           <span class="block truncate text-sm font-medium text-text-1">{album.name}</span>

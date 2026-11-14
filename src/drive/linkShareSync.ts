@@ -207,13 +207,13 @@ export async function setLinkAccess(subject: LinkSubject, access: LinkAccess | '
  * Keeps links with their items: one renamed or moved in My Drive on this
  * device takes its link along, and one deleted has its link turned off.
  */
-export function followLinkShares(from: string[], to: string[] | null): LinkShare[] {
+export function followLinkShares(from: string[], to: string[] | null, share?: string): LinkShare[] {
   const me = account();
   if (!me) return [];
   const at = from.join('/');
   const now = Date.now();
   const before = get(linkShares)
-    .filter((record) => record.profile === me.profile && !record.share && record.access !== 'off'
+    .filter((record) => record.profile === me.profile && record.share === share && record.access !== 'off'
       && (record.path === at || record.path.startsWith(`${at}/`)));
   if (before.length === 0) return [];
   const moved = before.map((record): LinkShare => (to
