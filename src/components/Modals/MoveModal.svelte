@@ -10,7 +10,6 @@
   import { activeNostrIdentityRootScope } from '../../drive/profileRoute';
   import { parseRoute } from '../../utils/route';
   import { toast } from '../../stores/toast';
-  import { inTurn } from '../../lib/driveWrites';
 
   let show = $state(false);
   let name = $state('');
@@ -44,7 +43,8 @@
    */
   export async function moveAndTell(parentPath: string[], itemName: string, targetPath: string[]): Promise<boolean> {
     try {
-      await inTurn(() => moveEntryTo(parentPath, itemName, targetPath));
+      // It takes its turn with the page's other changes itself.
+      await moveEntryTo(parentPath, itemName, targetPath);
       toast.success(`Moved ${itemName} to ${folderName(targetPath)}`);
       return true;
     } catch (error) {
