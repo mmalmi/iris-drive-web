@@ -1,77 +1,78 @@
 <script lang="ts">
-  /** One square in Photos: a small copy of the picture, or a video's first frame, loaded when it is about to be seen. */
+  /**
+   * One square in Photos. A click opens it, or chooses it while others are
+   * chosen; its round box (on hover, or always while choosing) or a long
+   * press on a phone chooses it.
+   */
   import type { Photo } from '../lib/photos';
-  import { getNhashFileUrl } from '../lib/mediaUrl';
-  import { nearView } from '../lib/nearView';
-  import { photoThumbnail } from '../lib/photoThumbnails';
+  import { longPress } from '../lib/longPress';
+  import PhotoImage from './PhotoImage.svelte';
 
   interface Props {
     photo: Photo;
     href: string;
-    /** The app's own address for files is ready to serve them. */
     ready: boolean;
+    selected: boolean;
+    /** Some photo is chosen: a click chooses rather than opens. */
+    selecting: boolean;
     onopen: (event: MouseEvent) => void;
+    ontoggle: () => void;
   }
 
-  let { photo, href, ready, onopen }: Props = $props();
+  let { photo, href, ready, selected, selecting, onopen, ontoggle }: Props = $props();
 
-  let near = $state(false);
-  let loaded = $state(false);
-  let failed = $state(false);
-  let url = $derived(getNhashFileUrl(photo.cid, photo.name));
-  let thumbnail = $state<string | null>(null);
-
-  $effect(() => {
-    if (!near || !ready || photo.video) return;
-    let current = true;
-    void photoThumbnail(photo).then((src) => { if (current) thumbnail = src; });
-    return () => { current = false; };
-  });
+  function click(event: MouseEvent) {
+    // The click that ends a long press only lifts the finger.
+    if (event.defaultPrevented) return;
+    if (selecting) {
+      event.preventDefault();
+      ontoggle();
+      return;
+    }
+    onopen(event);
+  }
 </script>
 
-<a
-  {href}
-  onclick={onopen}
-  use:nearView={() => (near = true)}
-  class="group relative block aspect-square overflow-hidden bg-surface-2 no-underline outline-none focus-visible:ring-3 focus-visible:ring-accent focus-visible:ring-inset"
-  title={photo.name}
-  aria-label={photo.name}
-  data-photo={photo.href}
-  data-testid="photo-tile"
->
-  {#if near && ready && !failed}
+<div class="group relative aspect-square">
+  <a
+    {href}
+    onclick={click}
+    use:longPress={() => ontoggle()}
+    class="absolute inset-0 block overflow-hidden no-underline outline-none focus-visible:ring-3 focus-visible:ring-accent focus-visible:ring-inset {selected ? 'bg-accent/15' : 'bg-surface-2'}"
+    title={photo.name}
+    aria-label={photo.name}
+    data-photo={photo.href}
+    data-testid="photo-tile"
+    data-selected={selected ? '' : undefined}
+  >
+    <span class="absolute block overflow-hidden bg-surface-2 transition-all duration-150 {selected ? 'inset-[8%] rounded-lg' : 'inset-0'}">
+      <PhotoImage {photo} {ready} />
+    </span>
     {#if photo.video}
-      <video
-        src={`${url}#t=0.1`}
-        preload="metadata"
-        muted
-        playsinline
-        class="h-full w-full object-cover pointer-events-none transition-opacity duration-200 {loaded ? 'opacity-100' : 'opacity-0'}"
-        onloadeddata={() => (loaded = true)}
-        onerror={() => (failed = true)}
-      ></video>
-    {:else if thumbnail}
-      <img
-        src={thumbnail}
-        alt=""
-        decoding="async"
-        draggable="false"
-        class="h-full w-full object-cover transition-opacity duration-200 {loaded ? 'opacity-100' : 'opacity-0'}"
-        onload={() => (loaded = true)}
-        onerror={() => (failed = true)}
-      />
+      <span class="pointer-events-none absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-black/55 text-white">
+        <span class="i-lucide-play text-xs"></span>
+      </span>
     {/if}
-  {/if}
-  {#if failed}
-    <span class="absolute inset-0 flex flex-col items-center justify-center gap-1 p-2 text-center text-xs text-text-3">
-      <span class="{photo.video ? 'i-lucide-video' : 'i-lucide-image'} text-2xl"></span>
-      <span class="w-full truncate">{photo.name}</span>
-    </span>
-  {/if}
-  {#if photo.video}
-    <span class="pointer-events-none absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-black/55 text-white">
-      <span class="i-lucide-play text-xs"></span>
-    </span>
-  {/if}
-  <span class="pointer-events-none absolute inset-0 bg-black/0 transition-colors group-hover:bg-black/10"></span>
-</a>
+    {#if !selecting}
+      <span class="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/30 to-transparent to-35% opacity-0 transition-opacity group-hover:opacity-100"></span>
+    {/if}
+  </a>
+  <button
+    type="button"
+    role="checkbox"
+    aria-checked={selected}
+    aria-label="Select {photo.name}"
+    title={selected ? 'Unselect' : 'Select'}
+    class="absolute left-1 top-1 z-10 flex h-8 w-8 items-center justify-center rounded-full transition-opacity focus-visible:opacity-100 {selecting || selected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}"
+    onclick={ontoggle}
+    data-testid="photo-select"
+  >
+    {#if selected}
+      <span class="flex h-6 w-6 items-center justify-center rounded-full bg-accent text-white shadow">
+        <span class="i-lucide-check text-sm"></span>
+      </span>
+    {:else}
+      <span class="h-5.5 w-5.5 rounded-full bg-black/20 ring-2 ring-white/90 shadow"></span>
+    {/if}
+  </button>
+</div>
