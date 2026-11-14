@@ -81,9 +81,25 @@ describe('how a backup place stands', () => {
     expect(backupStatus(record({ running: { at: NOW - MINUTE } }), ROOT, undefined, NOW).label).toBe('Paused');
   });
 
-  it('has not been checked or backed up before anything happened', () => {
-    expect(backupStatus(undefined, ROOT, undefined, NOW)).toEqual({ tone: 'idle', label: 'Not checked yet', detail: '' });
-    expect(backupStatus(record(), ROOT, undefined, NOW).label).toBe('Not backed up yet');
+  it('says a file server gets the Drive as it is saved, before any backup', () => {
+    expect(backupStatus(undefined, ROOT, undefined, NOW)).toEqual({ tone: 'idle', label: 'Saved here as you go', detail: 'Not checked yet' });
+    expect(backupStatus(record(), ROOT, undefined, NOW)).toEqual({ tone: 'idle', label: 'Saved here as you go', detail: 'Not checked yet' });
+  });
+
+  it('never says a file server is not backed up while a check reads every part back', () => {
+    expect(backupStatus(record({ checked: checked() }), ROOT, undefined, NOW)).toEqual({
+      tone: 'ok',
+      label: 'Saved here as you go',
+      detail: 'Checked 1 minute ago: 8 of 8 parts read back',
+    });
+    // Checked an earlier version: still saved as it goes, not vouched for.
+    expect(backupStatus(record({ checked: checked({ root: OLDER }) }), ROOT, undefined, NOW).tone).toBe('idle');
+  });
+
+  it('says a folder is not backed up until a backup has written to it', () => {
+    const folder = { key: 'me|folder:1', target: 'folder:1' };
+    expect(backupStatus(folder, ROOT, undefined, NOW, 'folder')).toEqual({ tone: 'idle', label: 'Not backed up yet', detail: 'Not checked yet' });
+    expect(backupStatus(undefined, ROOT, undefined, NOW, 'folder').label).toBe('Not backed up yet');
   });
 });
 

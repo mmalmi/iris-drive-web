@@ -82,7 +82,7 @@
       {#each places as place (place.id)}
         {@const record = view.records[place.id]}
         {@const live = view.live[place.id]}
-        {@const status = backupStatus(record, view.root, live, now)}
+        {@const status = backupStatus(record, view.root, live, now, place.kind)}
         {@const lastServer = place.kind === 'server' && servers === 1}
         <li class="p-3" data-testid="backup-place" aria-label={place.name}>
           <div class="flex items-start gap-3">
