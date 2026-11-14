@@ -4,6 +4,9 @@ import type {
   WorkerBlossomUploadProgress as BlossomUploadProgress,
 } from '@hashtree/core';
 import { WorkerAdapterCore, type ExtendedWorkerRequest } from './workerAdapterCore';
+import type { DriveBackupRequest, DriveBackupResult } from './workers/driveBackup';
+
+const DRIVE_BACKUP_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 
 export class WorkerAdapterBlossom extends WorkerAdapterCore {
   // Public API - Blossom Upload Sessions
@@ -108,6 +111,28 @@ export class WorkerAdapterBlossom extends WorkerAdapterCore {
     } as ExtendedWorkerRequest);
     if (response.error) throw new Error(response.error);
     return response.value;
+  }
+
+  /**
+   * Back up the Drive to one place, or check a backup, in the worker. Progress
+   * arrives through `onDriveBackupProgress`; the answer when it is done.
+   */
+  async runDriveBackup(request: DriveBackupRequest): Promise<DriveBackupResult> {
+    return this.request<DriveBackupResult>({
+      type: 'driveBackup',
+      id: generateRequestId(),
+      request,
+    } as ExtendedWorkerRequest, undefined, DRIVE_BACKUP_TIMEOUT_MS);
+  }
+
+  /** Stop a backup or check of one place. */
+  stopDriveBackup(target: string): void {
+    this.postMessage({ type: 'driveBackupStop', target } as ExtendedWorkerRequest);
+  }
+
+  onDriveBackupProgress(callback: (target: string, done: number, total: number) => void): () => void {
+    this.driveBackupProgressCallbacks.add(callback);
+    return () => this.driveBackupProgressCallbacks.delete(callback);
   }
 
   // ============================================================================

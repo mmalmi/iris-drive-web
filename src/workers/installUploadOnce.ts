@@ -2,4 +2,6 @@
 import { browserConfirmedUploadStorage, ConfirmedUploads, uploadOnceFetch } from './uploadOnce';
 
 const storage = typeof indexedDB === 'undefined' ? null : browserConfirmedUploadStorage;
-globalThis.fetch = uploadOnceFetch(globalThis.fetch.bind(globalThis), new ConfirmedUploads(storage));
+/** Blocks each file server confirmed lately; backups ask a server only about the others. */
+export const confirmedUploads = new ConfirmedUploads(storage);
+globalThis.fetch = uploadOnceFetch(globalThis.fetch.bind(globalThis), confirmedUploads);

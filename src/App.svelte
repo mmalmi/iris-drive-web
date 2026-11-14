@@ -60,6 +60,8 @@
 
   onMount(() => {
     initRouter();
+    // Backups that were going when the app closed go on; nothing waits for it.
+    void import('./lib/backup/backups').then(({ startBackups }) => startBackups());
     // A file dropped where nothing takes it would otherwise open in place of the app.
     const keepPage = (event: DragEvent) => {
       if (event.defaultPrevented || !event.dataTransfer?.types.includes('Files')) return;

@@ -85,6 +85,9 @@ export class WorkerAdapterCore {
   protected blossomPushProgressCallback: ((treeName: string, current: number, total: number) => void) | null = null;
   protected blossomPushCompleteCallback: ((treeName: string, pushed: number, skipped: number, failed: number) => void) | null = null;
 
+  // Backup progress (worker → main thread notifications)
+  protected driveBackupProgressCallbacks = new Set<(target: string, done: number, total: number) => void>();
+
   // Tree root update callbacks (worker → main thread notifications)
   protected treeRootUpdateCallbacks = new Set<(npub: string, treeName: string, hash: Uint8Array, updatedAt: number, options: { key?: Uint8Array; visibility: string; labels?: string[]; encryptedKey?: string; keyId?: string; selfEncryptedKey?: string; selfEncryptedLinkKey?: string }) => void>();
 
@@ -271,6 +274,10 @@ export class WorkerAdapterCore {
             selfEncryptedKey?: string;
             selfEncryptedLinkKey?: string;
           });
+          break;
+
+        case 'driveBackupProgress':
+          for (const callback of this.driveBackupProgressCallbacks) callback(msg.target, msg.done, msg.total);
           break;
 
         case 'blossomPushResult':

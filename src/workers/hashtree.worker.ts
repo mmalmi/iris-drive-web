@@ -10,6 +10,8 @@ console.log('[hashtree.worker] Loading worker module...');
 import './installUploadOnce';
 // Before the library's message handler: follow lists are caught up when asked.
 import './installGraphSyncOnDemand';
+// Before the library's message handler: backups to file servers and folders.
+import './installDriveBackup';
 // Import shared worker module from @hashtree/worker package
 import '@hashtree/worker/relay-entry';
 

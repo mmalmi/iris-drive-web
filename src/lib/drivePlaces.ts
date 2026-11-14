@@ -36,8 +36,9 @@ export function drivePlaces(currentPath: string, homeHref: string, records: Acce
   ];
 }
 
-/** Where Storage and Settings are, below the places. */
+/** Where Storage, Backup and Settings are, below the places. */
 export const DRIVE_FOOTER_PLACES = [
   { href: '#/settings/storage', label: 'Storage', icon: 'i-lucide-database' },
+  { href: '#/settings/backup', label: 'Backup', icon: 'i-lucide-database-backup' },
   { href: '#/settings', label: 'Settings', icon: 'i-lucide-settings' },
 ] as const;
