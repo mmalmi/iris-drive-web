@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { onMount, onDestroy, tick } from 'svelte';
+  import { onMount, onDestroy, tick, untrack } from 'svelte';
+  import * as Y from 'yjs';
   import type { Editor } from '@tiptap/core';
   import { nostrStore } from '../../nostr';
   import type { CommentsStore } from '../../lib/comments';
@@ -10,7 +11,7 @@
     DriveDocument,
     attachmentFilename,
   } from '../../lib/yjs';
-  import { createYjsTiptapEditor, insertPicture } from '../../lib/yjs/tiptapEditor';
+  import { VERSION_ORIGIN, createYjsTiptapEditor, insertPicture, textUndoManager } from '../../lib/yjs/tiptapEditor';
 
   const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 
@@ -22,6 +23,8 @@
   let userNpub = $derived($nostrStore.npub);
 
   let editorElement: HTMLElement | undefined = $state();
+  /** Where an earlier version is shown, read-only, in place of the document. */
+  let versionElement: HTMLElement | undefined = $state();
   let editor: Editor | undefined = $state();
   let commentsStore: CommentsStore | undefined = $state();
   let commentsState = $state<CommentsState>({ threads: new Map(), activeThreadId: null, panelOpen: false });
@@ -100,6 +103,43 @@
     })();
   });
 
+  // An earlier version gets an editor of its own that only shows it.
+  $effect(() => {
+    const shown = drive.preview;
+    const element = versionElement;
+    if (!shown || !element) return;
+    const ydoc = new Y.Doc();
+    Y.applyUpdate(ydoc, shown.update);
+    const setup = untrack(() => createYjsTiptapEditor({
+      element,
+      ydoc,
+      canEdit: false,
+      handleImageUpload: () => {},
+      resolveImageSrc,
+      attachmentUrl: (filename) => drive.attachmentUrls.get(filename),
+      storeImage: () => Promise.reject(new Error('An earlier version cannot be changed')),
+      onNotice: () => {},
+      onCommentsState: () => {},
+      onLinkShortcut: () => {},
+    }));
+    return () => {
+      setup.commentsStore.destroy();
+      setup.editor.destroy();
+      ydoc.destroy();
+      element.replaceChildren();
+    };
+  });
+
+  /** Makes the text what an earlier version holds, as one step undo takes back. Comments stay as they are. */
+  async function restoreVersion(update: Uint8Array): Promise<void> {
+    if (!editor) throw new Error('The document is not open');
+    const { restoreVersion: restore } = await import('../../lib/yjs/versionHistory');
+    const undo = textUndoManager(editor);
+    undo?.stopCapturing();
+    restore(drive.ydoc, update, VERSION_ORIGIN, doc => [doc.getXmlFragment('default')]);
+    undo?.stopCapturing();
+  }
+
   onDestroy(() => {
     drive.destroy();
     commentsStore?.destroy();
@@ -175,6 +215,7 @@
 
 <YjsDocumentShell
   bind:editorElement
+  bind:versionElement
   bind:linkEditing
   {drive}
   {notice}
@@ -193,4 +234,5 @@
   onImageFile={handleImageUpload}
   onAddCommentSubmit={handleAddCommentSubmit}
   onAddCommentCancel={handleAddCommentCancel}
+  onRestoreVersion={restoreVersion}
 />

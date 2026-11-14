@@ -8,10 +8,22 @@ import { TableKit } from '@tiptap/extension-table';
 import TextAlign from '@tiptap/extension-text-align';
 import { Color, TextStyle } from '@tiptap/extension-text-style';
 import Highlight from '@tiptap/extension-highlight';
-import type * as Y from 'yjs';
+import * as Y from 'yjs';
 import { CommentMark, createCommentsStore, type CommentsStore } from '../comments';
 import { htmlIsOnlyPictures, imageFiles, importForeignImages, rewriteCopiedHtml } from './pastedImages';
 import type { CommentsState } from '../comments/types';
+
+/** Transaction origin of restoring an earlier version: the editor's undo takes it back in one step. */
+export const VERSION_ORIGIN = 'version-restore';
+
+/** The undo history of a document's text, which restoring a version is one step of. */
+export function textUndoManager(editor: Editor): Y.UndoManager | null {
+  for (const plugin of editor.state.plugins) {
+    const state = plugin.getState(editor.state) as { undoManager?: unknown } | undefined;
+    if (state?.undoManager instanceof Y.UndoManager) return state.undoManager;
+  }
+  return null;
+}
 
 interface CreateYjsTiptapEditorOptions {
   element: HTMLElement;
@@ -65,7 +77,7 @@ export function createYjsTiptapEditor(options: CreateYjsTiptapEditorOptions): Yj
       // A click on a link while writing puts the cursor in it; the link opens from the bubble that then shows.
       StarterKit.configure({ undoRedo: false, link: { openOnClick: false } }),
       Placeholder.configure({ placeholder: options.canEdit ? 'Start writing…' : '' }),
-      Collaboration.configure({ document: options.ydoc }),
+      Collaboration.configure({ document: options.ydoc, yUndoOptions: { trackedOrigins: [VERSION_ORIGIN] } }),
       // data: pictures are accepted on paste only to be stored as attachments at once.
       Image.configure({ inline: false, allowBase64: true }),
       TableKit.configure({ table: { resizable: options.canEdit } }),

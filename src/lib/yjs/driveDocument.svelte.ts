@@ -26,8 +26,9 @@ import { flushPendingPublishes } from '../../treeRootCache';
 import { deleteCurrentFolder, renameCurrentFolder } from '../../actions';
 import { removeOwnDirectoryForDriveRoute, setEntryForDriveRoute } from '../../drive/profileDriveRouteEntry';
 import { DOCUMENT_KINDS, documentFolderName, documentKind, documentTitle, snapshotLinkQuery, type DocumentKindInfo } from '../documentNames';
+import { freeName } from '../driveClipboard';
 import { getCidFileUrl } from '../mediaUrl';
-import { DocumentSession, STORED_ORIGIN, type DocumentChange } from './documentStore';
+import { DocumentSession, STORED_ORIGIN, UPDATES_DIRECTORY, changeFileName, type DocumentChange } from './documentStore';
 import { withDriveRootLock } from '../driveRootTabs';
 import { ATTACHMENTS_DIRECTORY, generateImageFilename } from './imageAttachments';
 import { documentWriteScope } from './routeScope';
@@ -40,6 +41,14 @@ const SAVE_MAX_WAIT_MS = 4000;
 const MAX_MISSED_LOADS = 60;
 
 export type SaveStatus = 'idle' | 'unsaved' | 'saving' | 'saved' | 'error' | 'other-tab';
+
+/** An earlier version shown in place of the document. */
+export interface VersionPreview {
+  /** When the version's last save was made. */
+  time: number;
+  /** The document as it was then, as one Yjs update. */
+  update: Uint8Array;
+}
 
 export interface DriveDocumentOptions {
   /** Called with the folder's entries each time stored content has been applied. */
@@ -66,6 +75,12 @@ export class DriveDocument {
   saveStatus = $state<SaveStatus>('idle');
   /** Where to show each attachment from, by file name. */
   readonly attachmentUrls = new SvelteMap<string, string>();
+  /** The document's folder as last read; its files are the document's history. */
+  folder = $state.raw<CID | null>(null);
+  /** True while the list of earlier versions is open. */
+  historyOpen = $state(false);
+  /** The earlier version shown, read-only, in place of the document. */
+  preview = $state.raw<VersionPreview | null>(null);
 
   readonly #route = fromStore(routeStore);
   readonly #nostr = fromStore<NostrState>(nostrStore);
@@ -117,7 +132,7 @@ export class DriveDocument {
   #retryLoadTimer: ReturnType<typeof setTimeout> | undefined;
   #missedLoads = 0;
   #documentFound: () => void = () => {};
-  #documentCid: CID | null = null;
+  #writerId = 'viewer';
   // The route can change before the editor is torn down; the document's place does not.
   #documentPath: string[] = [];
   #destroyed = false;
@@ -159,11 +174,12 @@ export class DriveDocument {
         pubkey,
       };
     }
+    // Each device has its own key, so its folder is its alone.
+    this.#writerId = (pubkey ?? 'viewer').slice(0, 12);
     const session = new DocumentSession({
       ydoc: this.ydoc,
       tree: getTree(),
-      // Each device has its own key, so its folder is its alone.
-      writerId: (pubkey ?? 'viewer').slice(0, 12),
+      writerId: this.#writerId,
       commit: change => this.commit(change),
       ...(import.meta.env.VITE_TEST_MODE ? (window as Window & { __documentFolding?: { maxChanges?: number; quietMs?: number } }).__documentFolding : undefined),
     });
@@ -232,7 +248,7 @@ export class DriveDocument {
   async commit(change: DocumentChange): Promise<void> {
     const opened = this.#opened;
     if (!opened || !this.#canWriteOpened()) throw new Error('This document cannot be edited here');
-    const { scope, treeName, path: documentPath } = opened;
+    const { treeName, path: documentPath } = opened;
     const target = { npub: opened.npub, treeName };
     const tree = getTree();
     const files = await Promise.all(change.writes.map(async write => ({
@@ -240,27 +256,41 @@ export class DriveDocument {
       ...(await tree.putFile(write.data)),
     })));
 
-    // Tabs of this browser save one after another, each on the newest version.
+    await this.#writeRoot(async (base) => {
+      let root = base;
+      for (const file of files) {
+        root = await setEntryForDriveRoute(
+          tree,
+          root,
+          [...documentPath, ...file.path.slice(0, -1)],
+          file.path[file.path.length - 1],
+          { cid: file.cid, size: file.size, type: LinkType.Blob },
+          target,
+          nostrStore.getState(),
+        );
+      }
+      for (const directory of change.removeDirectories) {
+        root = await removeOwnDirectoryForDriveRoute(
+          tree, root, [...documentPath, ...directory], target, nostrStore.getState(),
+        );
+      }
+      return root;
+    });
+  }
+
+  /**
+   * Changes the Drive this document is in, as one root update made on its
+   * newest version. Tabs of this browser write one after another.
+   */
+  async #writeRoot(change: (root: CID) => Promise<CID>): Promise<void> {
+    const opened = this.#opened;
+    if (!opened) throw new Error('This document cannot be edited here');
+    const { scope, treeName } = opened;
+    const tree = getTree();
     await withDriveRootLock(scope, treeName, async () => {
       for (let attempt = 0; attempt < 4; attempt += 1) {
         const base = getTreeRootSync(scope, treeName);
-        let root = base ?? (await tree.putDirectory([])).cid;
-        for (const file of files) {
-          root = await setEntryForDriveRoute(
-            tree,
-            root,
-            [...documentPath, ...file.path.slice(0, -1)],
-            file.path[file.path.length - 1],
-            { cid: file.cid, size: file.size, type: LinkType.Blob },
-            target,
-            nostrStore.getState(),
-          );
-        }
-        for (const directory of change.removeDirectories) {
-          root = await removeOwnDirectoryForDriveRoute(
-            tree, root, [...documentPath, ...directory], target, nostrStore.getState(),
-          );
-        }
+        const root = await change(base ?? (await tree.putDirectory([])).cid);
         if (!this.#canWriteOpened()) throw new Error('The account changed before the document could be saved');
         // Another write landed while this one was prepared: redo it on the newer Drive.
         if (!sameCid(getTreeRootSync(scope, treeName), base)) continue;
@@ -272,6 +302,62 @@ export class DriveDocument {
       }
       throw new Error('The Drive kept changing while saving');
     });
+  }
+
+  /** Opens the list of earlier versions, for someone who may change the document. */
+  openHistory(): void {
+    if (this.canEdit && !this.loading) this.historyOpen = true;
+  }
+
+  /**
+   * Makes the document an earlier version again: `apply` changes it, as one
+   * edit of its editor. What was there is stored first, so that it stays a
+   * version of its own, and the restore is stored at once, marked with the
+   * time of the version it brought back.
+   */
+  async restoreVersion(time: number, apply: () => void | Promise<void>): Promise<void> {
+    await this.saveNow();
+    await apply();
+    this.#session?.markNext(`r${time.toString(36)}`);
+    await this.saveNow();
+  }
+
+  /** Back to the document itself: the list closes and no earlier version is shown. */
+  closeHistory(): void {
+    this.historyOpen = false;
+    this.preview = null;
+  }
+
+  /**
+   * Puts a new document beside this one that holds `update`, an earlier
+   * version, named "Copy of …" and with the same attachments. Its history
+   * starts with this copy. Resolves to its title.
+   */
+  async makeCopy(update: Uint8Array): Promise<string> {
+    const opened = this.#opened;
+    if (!opened || !this.#canWriteOpened()) throw new Error('This document cannot be copied here');
+    const target = { npub: opened.npub, treeName: opened.treeName };
+    const tree = getTree();
+    const file = await tree.putFile(update);
+    const saves = await tree.putDirectory([{ name: changeFileName(Date.now(), 1), cid: file.cid, size: file.size, type: LinkType.Blob }]);
+    const updates = await tree.putDirectory([{ name: `${this.#writerId}-0`, cid: saves.cid, size: 0, type: LinkType.Dir }]);
+    const entries = [{ name: UPDATES_DIRECTORY, cid: updates.cid, size: 0, type: LinkType.Dir }];
+    // Attachments are addressed by content: the copy lists the same ones without storing them again.
+    const attachments = this.folder
+      ? (await tree.listDirectory(this.folder)).find(entry => entry.name === ATTACHMENTS_DIRECTORY && entry.type === LinkType.Dir)
+      : undefined;
+    if (attachments) entries.push({ name: ATTACHMENTS_DIRECTORY, cid: attachments.cid, size: attachments.size, type: LinkType.Dir });
+    const copy = await tree.putDirectory(entries);
+
+    const parentPath = opened.path.slice(0, -1);
+    let name = '';
+    await this.#writeRoot(async (root) => {
+      const parent = parentPath.length ? await tree.resolvePath(root, parentPath) : { cid: root, type: LinkType.Dir };
+      const siblings = parent?.type === LinkType.Dir ? await tree.listDirectory(parent.cid) : [];
+      name = freeName(documentFolderName(`Copy of ${this.title}`, this.kind.kind), new Set(siblings.map(entry => entry.name)));
+      return setEntryForDriveRoute(tree, root, parentPath, name, { cid: copy.cid, size: 0, type: LinkType.Dir }, target, nostrStore.getState());
+    });
+    return documentTitle(name);
   }
 
   /**
@@ -318,10 +404,11 @@ export class DriveDocument {
   async share(): Promise<void> {
     if (this.#session?.dirty) await this.saveNow();
     await this.#loadStored(this.#currentRoot());
-    if (!this.#documentCid) return;
+    const folder = this.folder;
+    if (!folder) return;
     const snapshot = nhashEncode({
-      hash: toHex(this.#documentCid.hash),
-      decryptKey: this.#documentCid.key ? toHex(this.#documentCid.key) : undefined,
+      hash: toHex(folder.hash),
+      decryptKey: folder.key ? toHex(folder.key) : undefined,
     });
     const link = `${window.location.origin}${window.location.pathname}#/${snapshot}?${snapshotLinkQuery(this.dirName)}`;
     const route = this.#route.current;
@@ -406,7 +493,7 @@ export class DriveDocument {
           await session.load(list);
           await this.#rememberAttachments(list);
           await this.#options.onStored?.(list);
-          this.#documentCid = folder.cid;
+          if (!sameCid(this.folder, folder.cid)) this.folder = folder.cid;
           found = true;
         }
       } catch (error) {
