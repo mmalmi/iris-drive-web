@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import { expect, test, type Page } from './fixtures';
 import { flushPendingPublishes } from './test-utils';
-import { createDriveProfile, prepareFreshSession } from './documents.helpers';
+import { createDriveProfile, linkSecondDevice, prepareFreshSession } from './documents.helpers';
 import {
   activeCell,
   cellBox,
@@ -19,27 +19,6 @@ import {
   typeTable,
   waitForGrid,
 } from './sheets.helpers';
-
-/** Adds a second browser as another device of the owner's Drive. */
-async function linkSecondDevice(owner: Page, device: Page, relayUrl: string, profileId: string): Promise<void> {
-  await prepareFreshSession(device, relayUrl);
-  await device.goto('/#/users', { waitUntil: 'domcontentloaded' });
-  await device.getByTestId('add-existing-profile').click();
-  await expect(device.getByTestId('device-approval-qr')).toBeVisible({ timeout: 30_000 });
-  const approvalUrl = await device.evaluate(() => {
-    const stored = JSON.parse(localStorage.getItem('iris:drive:pending-device-approval') ?? 'null') as { url?: string } | null;
-    return stored?.url ?? '';
-  });
-  expect(approvalUrl).toContain('approve-device');
-  await owner.goto('/#/settings/user', { waitUntil: 'domcontentloaded' });
-  await owner.getByTestId('device-approval-input').fill(approvalUrl);
-  await owner.getByTestId('approve-device-request').click();
-  await expect(owner.getByTestId('user-key-row')).toHaveCount(2, { timeout: 60_000 });
-  await expect.poll(async () => device.evaluate(() => {
-    const stored = JSON.parse(localStorage.getItem('iris:identity:session') ?? 'null');
-    return stored?.status === 'active' ? stored.profileId : null;
-  }), { timeout: 90_000 }).toBe(profileId);
-}
 
 test.describe('working in a spreadsheet', () => {
   test.setTimeout(300_000);

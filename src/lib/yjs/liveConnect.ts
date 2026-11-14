@@ -70,7 +70,11 @@ export function connectLive(options: ConnectLiveOptions): LiveConnection | null 
     ],
     canEdit: options.canEdit,
     online: () => navigator.onLine,
-    identify: key => access?.devices.get(key) ?? null,
+    // This account's other devices are "You": a second device may not know the account's chosen name.
+    identify: (key) => {
+      const device = access?.devices.get(key);
+      return device && device.id === presence.user.id ? { ...device, name: 'You' } : device ?? null;
+    },
     onRemoteUpdate: (update) => {
       // Tests tell edits that came live from ones the files brought.
       if (import.meta.env.VITE_TEST_MODE) {

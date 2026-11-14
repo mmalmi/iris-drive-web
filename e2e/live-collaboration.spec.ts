@@ -1,5 +1,5 @@
 import { expect, test, type Browser, type BrowserContext, type Page } from './fixtures';
-import { createDocument, createDriveProfile, documentBody, expectSaved, prepareFreshSession, typeInDocument } from './documents.helpers';
+import { createDocument, createDriveProfile, documentBody, expectSaved, linkSecondDevice, prepareFreshSession, typeInDocument } from './documents.helpers';
 import { cellBox, clickCell, createSpreadsheet, expectCell, waitForGrid } from './sheets.helpers';
 import { createPresentation, elements, sheet, thumbs, typeInBox } from './slides.helpers';
 
@@ -234,6 +234,32 @@ test.describe('live collaboration', () => {
       await expect(avatar(page, 'Guest')).toHaveCount(0, { timeout: 10_000 });
     } finally {
       await guestContext.close();
+    }
+  });
+
+  test('another device of the same account shows its cursor as "You", not as someone else', async ({ page, browser, relayUrl }) => {
+    await prepareFreshSession(page, relayUrl);
+    const { profileId } = await createDriveProfile(page, 'Owner');
+    const deviceContext = await browser.newContext();
+    try {
+      const device = await deviceContext.newPage();
+      await linkSecondDevice(page, device, relayUrl, profileId);
+      await page.goto(`/#/${profileId}/main`);
+      await createDocument(page, 'Notes');
+      await typeInDocument(page, 'From the first device.');
+      await expectSaved(page);
+      await device.goto(page.url());
+      await expect(documentBody(device)).toContainText('From the first device.', { timeout: 90_000 });
+
+      await documentBody(page).click();
+      await page.keyboard.press('ControlOrMeta+End');
+      const caret = device.locator('.collaboration-carets__caret');
+      await expect(caret).toHaveCount(1, { timeout: 15_000 });
+      await expect(caret).toHaveAttribute('data-name', 'You');
+      // One's own devices are not someone else in the header.
+      await expect(device.getByTestId('presence-avatar')).toHaveCount(0);
+    } finally {
+      await deviceContext.close();
     }
   });
 
