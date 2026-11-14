@@ -53,6 +53,10 @@
   $effect(() => {
     if (!editorState?.textEditor) linkEditing = false;
   });
+  // The text editor is fetched once the deck is shown to someone who may change it, not before.
+  $effect(() => {
+    if (canEdit) void import('../../lib/slides/richTextEditor');
+  });
 
   // Presenting, the presenter's window and printing are loaded apart from the editor, so a deck opens light.
   // Presenting is fetched once the deck is open, so that it starts at once when asked for.
@@ -312,6 +316,10 @@
         done();
         current.stopEditing();
         focusCanvas();
+      } else if (!current.textEditor && key.length === 1 && !mod && !event.altKey) {
+        // The box's editor is still on its way: what is typed meanwhile goes in once it is there.
+        done();
+        current.typeAhead(key);
       } else if (where !== 'text') {
         // A box is being typed in but the cursor is elsewhere: keys must not act on the box itself.
         current.textEditor?.view.focus();

@@ -27,14 +27,6 @@ function throwIfAborted(signal?: AbortSignal): void {
 }
 
 /**
- * Check if a file is a supported archive format
- */
-export function isArchiveFile(fileName: string): boolean {
-  const ext = fileName.toLowerCase().split('.').pop();
-  return ext === 'zip';
-}
-
-/**
  * Get archive entries from a ZIP file
  */
 export function extractZip(data: Uint8Array): Unzipped {

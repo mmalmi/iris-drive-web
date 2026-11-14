@@ -7,7 +7,6 @@
    */
   import { untrack } from 'svelte';
   import type { Editor } from '@tiptap/core';
-  import { TextSelection } from '@tiptap/pm/state';
 
   interface Props {
     editor: Editor;
@@ -90,10 +89,7 @@
       chain
         .extendMarkRange('link')
         .setLink({ href: withScheme(text) })
-        .command(({ tr }) => {
-          tr.setSelection(TextSelection.create(tr.doc, tr.selection.to));
-          return true;
-        })
+        .command(({ tr, commands }) => commands.setTextSelection(tr.selection.to))
         .unsetMark('link')
         .run();
     }

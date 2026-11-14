@@ -11,18 +11,13 @@ export default defineConfig({
     'i-lucide-italic',
     'i-lucide-strikethrough',
     'i-lucide-code',
-    'i-lucide-heading-1',
-    'i-lucide-heading-2',
-    'i-lucide-heading-3',
     'i-lucide-list',
     'i-lucide-list-ordered',
     'i-lucide-quote',
-    'i-lucide-file-code',
     'i-lucide-minus',
     'i-lucide-undo',
     'i-lucide-redo',
     // CollaboratorsModal and QRScanner icons
-    'i-lucide-qr-code',
     'i-lucide-search',
     'i-lucide-share',
     'i-lucide-users',
@@ -35,17 +30,9 @@ export default defineConfig({
     // Peer blocking icons
     'i-lucide-ban',
     'i-lucide-check',
-    // Playlist control icons
-    'i-lucide-shuffle',
-    'i-lucide-repeat',
-    'i-lucide-repeat-1',
-    // Add to playlist modal icons
-    'i-lucide-bookmark',
-    'i-lucide-list-video',
     'i-lucide-video',
     'i-lucide-loader-2',
     'i-lucide-plus',
-    'i-lucide-check-square',
     'i-lucide-square',
     // Settings navigation accent pills
     'bg-accent/8',

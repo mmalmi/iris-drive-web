@@ -6,7 +6,6 @@ import { autosaveIfOwn, nostrStore } from '../nostr';
 import { getTree } from '../store';
 import { markFilesChanged } from '../stores/recentlyChanged';
 import { setUploadProgress } from '../stores/upload';
-import { extractArchive } from '../utils/compression';
 import { parseRoute } from '../utils/route';
 import { getCurrentRootCid, getCurrentPathFromUrl, updateRoute } from './route';
 import { initVirtualTree } from './tree';
@@ -183,6 +182,8 @@ export async function uploadExtractedFiles(archiveData: Uint8Array, archiveName:
   if (!isCurrent()) return;
 
   // Extract all files at once (ZIP format requires this - sync operation)
+  const { extractArchive } = await import('../utils/compression');
+  if (!isCurrent()) return;
   const extractedFiles = extractArchive(archiveData, archiveName);
   if (extractedFiles.length === 0) {
     setUploadProgress(null);

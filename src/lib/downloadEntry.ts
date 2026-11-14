@@ -5,7 +5,6 @@
 import type { CID } from '@hashtree/core';
 import { getTree } from '../store';
 import { getNhashFileUrl } from './mediaUrl';
-import { createZipFromDirectory, downloadBlob, ZipCancelledError } from '../utils/compression';
 import { setUploadProgress } from '../stores/upload';
 
 const MIME_TYPES: Record<string, string> = {
@@ -69,6 +68,7 @@ export async function downloadFile(entry: { cid: CID; name: string }): Promise<v
  * with a way to cancel. Being cancelled, there or by `signal`, is no error.
  */
 export async function downloadFolderZip(cid: CID, name: string, signal?: AbortSignal): Promise<void> {
+  const { createZipFromDirectory, downloadBlob, ZipCancelledError } = await import('../utils/compression');
   const controller = new AbortController();
   const cancel = () => controller.abort();
   signal?.addEventListener('abort', cancel, { once: true });

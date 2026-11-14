@@ -188,3 +188,16 @@ export async function initServiceWorker(options: InitOptions = {}): Promise<void
     }
   }
 }
+
+/**
+ * Has the service worker fetch the rest of the app for offline use, a little
+ * after the page has started, so that what the page needs first goes first.
+ */
+export function keepAppForOffline(delayMs = 5000): void {
+  if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
+  setTimeout(() => {
+    void navigator.serviceWorker.getRegistration()
+      .then(registration => registration?.active?.postMessage({ type: 'keep-app-files' }))
+      .catch(() => undefined);
+  }, delayMs);
+}

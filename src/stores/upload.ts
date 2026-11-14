@@ -15,7 +15,6 @@ import { getCurrentPathFromUrl } from '../actions/route';
 import { markFilesChanged, revealFile } from './recentlyChanged';
 import { open as openExtractModal } from '../components/Modals/ExtractModal.svelte';
 import { open as openGitignoreModal } from '../components/Modals/GitignoreModal.svelte';
-import { isArchiveFile, getArchiveFileList } from '../utils/compression';
 import type { FileWithPath, DirectoryReadResult } from '@iris/hashtree-app/directory';
 import { findGitignoreFile, parseGitignoreFromFile, applyGitignoreFilter, applyDefaultIgnoreFilter } from '@iris/hashtree-app/directory';
 import { getTreeRootSync } from './treeRoot';
@@ -25,6 +24,11 @@ import { isVideoFile, withStallDetection } from './uploadHelpers';
 import { editableTreeRoutePubkey } from '../drive/profileRoute';
 import { setEntryForDriveRoute } from '../drive/profileDriveRouteEntry';
 import { captureRouteWriteGuard } from '../lib/routeWriteGuard';
+
+/** A ZIP file, which the person may choose to unpack; the code for it loads only then. */
+function isArchiveFile(fileName: string): boolean {
+  return fileName.toLowerCase().split('.').pop() === 'zip';
+}
 
 // Upload progress type
 export interface UploadProgress {
@@ -183,6 +187,7 @@ export async function uploadFiles(files: FileList | File[], target: UploadTarget
 
       try {
         // Get file list without decompressing - fast and low memory
+        const { getArchiveFileList } = await import('../utils/compression');
         const archiveInfo = getArchiveFileList(data);
         if (archiveInfo.files.length > 0) {
           upload.setProgress(null);
