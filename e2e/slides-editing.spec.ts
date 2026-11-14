@@ -239,7 +239,7 @@ test.describe('working on a slide', () => {
       await page.keyboard.press('Escape');
     }
     const titles = () => thumbs(page).evaluateAll(nodes => nodes.map(node => node.querySelector('[data-el]')?.textContent?.trim()));
-    expect(await titles()).toEqual(['One', 'Two', 'Three', 'Four']);
+    await expect.poll(titles).toEqual(['One', 'Two', 'Three', 'Four']);
 
     // Drag the last slide to the top.
     const last = (await thumbs(page).nth(3).boundingBox())!;
@@ -250,9 +250,9 @@ test.describe('working on a slide', () => {
     await page.mouse.move(first.x + first.width / 2, first.y + 6, { steps: 8 });
     await shot(page, 'edit-05-dragging-slide');
     await page.mouse.up();
-    expect(await titles()).toEqual(['Four', 'One', 'Two', 'Three']);
+    await expect.poll(titles).toEqual(['Four', 'One', 'Two', 'Three']);
     await page.getByRole('button', { name: 'Undo' }).click();
-    expect(await titles()).toEqual(['One', 'Two', 'Three', 'Four']);
+    await expect.poll(titles).toEqual(['One', 'Two', 'Three', 'Four']);
 
     // Keys in the strip: arrows walk, Alt+arrow moves the slide, Delete removes it.
     await thumbs(page).nth(1).click();
@@ -260,20 +260,20 @@ test.describe('working on a slide', () => {
     await page.keyboard.press('ArrowDown');
     await expect(sheet(page)).toContainText('Three');
     await page.keyboard.press('Alt+ArrowUp');
-    expect(await titles()).toEqual(['One', 'Three', 'Two', 'Four']);
+    await expect.poll(titles).toEqual(['One', 'Three', 'Two', 'Four']);
     await page.keyboard.press('ControlOrMeta+d');
-    expect(await titles()).toEqual(['One', 'Three', 'Three', 'Two', 'Four']);
+    await expect.poll(titles).toEqual(['One', 'Three', 'Three', 'Two', 'Four']);
     await page.keyboard.press('Delete');
-    expect(await titles()).toEqual(['One', 'Three', 'Two', 'Four']);
+    await expect.poll(titles).toEqual(['One', 'Three', 'Two', 'Four']);
 
     // The menu on a slide.
     await thumbs(page).nth(3).click({ button: 'right' });
     await page.getByTestId('slide-menu-earlier').click();
-    expect(await titles()).toEqual(['One', 'Three', 'Four', 'Two']);
+    await expect.poll(titles).toEqual(['One', 'Three', 'Four', 'Two']);
     await thumbs(page).nth(0).click({ button: 'right' });
     await shot(page, 'edit-06-slide-menu');
     await page.getByTestId('slide-menu-delete').click();
-    expect(await titles()).toEqual(['Three', 'Four', 'Two']);
+    await expect.poll(titles).toEqual(['Three', 'Four', 'Two']);
 
     // Shift-click picks a run of slides; they move and go together.
     await thumbs(page).nth(0).click();
@@ -281,18 +281,18 @@ test.describe('working on a slide', () => {
     await thumbs(page).nth(1).click();
     await page.keyboard.up('Shift');
     await page.keyboard.press('Alt+ArrowDown');
-    expect(await titles()).toEqual(['Two', 'Three', 'Four']);
+    await expect.poll(titles).toEqual(['Two', 'Three', 'Four']);
     await page.keyboard.press('Delete');
-    expect(await titles()).toEqual(['Two']);
+    await expect.poll(titles).toEqual(['Two']);
     await page.getByRole('button', { name: 'Undo' }).click();
-    expect(await titles()).toEqual(['Two', 'Three', 'Four']);
+    await expect.poll(titles).toEqual(['Two', 'Three', 'Four']);
 
     // A slide copied in the strip is pasted after the one that is open.
     await thumbs(page).nth(2).click();
     await page.keyboard.press('ControlOrMeta+c');
     await thumbs(page).nth(0).click();
     await page.keyboard.press('ControlOrMeta+v');
-    expect(await titles()).toEqual(['Two', 'Four', 'Three', 'Four']);
+    await expect.poll(titles).toEqual(['Two', 'Four', 'Three', 'Four']);
 
     // With every slide gone the deck says so and offers a way back.
     await page.keyboard.press('ControlOrMeta+a');
