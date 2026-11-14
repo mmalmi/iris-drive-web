@@ -3,6 +3,7 @@
 // The order chosen is kept on this device.
 import { expect, test, type Page } from './fixtures';
 import { createDocument, createDriveProfile, expectSaved, prepareFreshSession, typeInDocument } from './documents.helpers';
+import { jpeg, picture } from './photos.helpers';
 import { createFolder, expectFolderEditable, fileRow, uploadIntoFolder } from './test-utils';
 
 const DESKTOP = { width: 1280, height: 800 };
@@ -25,6 +26,51 @@ async function modifiedAt(page: Page, row: ReturnType<typeof fileRow>): Promise<
 
 test.describe('the list of a folder', () => {
   test.setTimeout(180_000);
+
+  test('grid previews photos, keeps list actions and remembers the layout', async ({ page, relayUrl }, testInfo) => {
+    await page.setViewportSize(DESKTOP);
+    await prepareFreshSession(page, relayUrl);
+    await createDriveProfile(page, 'Grid');
+    await expectFolderEditable(page);
+    await createFolder(page, 'Albums');
+    await uploadIntoFolder(page, jpeg('Meadow.jpg', await picture(page, '#87cfff', '#227744', 720, 480)));
+    await uploadIntoFolder(page, sized('Notes.txt', 12));
+    const grid = page.getByRole('button', { name: 'Grid view', exact: true });
+    await grid.click();
+    await expect(grid).toHaveAttribute('aria-pressed', 'true');
+    const photo = fileRow(page, 'Meadow.jpg');
+    const preview = photo.locator('img');
+    await expect.poll(() => preview.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth), { timeout: 30_000 }).toBeGreaterThan(0);
+    await expect(photo.getByRole('link', { name: 'Meadow.jpg', exact: true })).toBeVisible();
+    await photo.getByTestId('row-menu-btn').click();
+    await expect(page.getByRole('menuitem', { name: 'Rename' })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await photo.hover();
+    await photo.getByRole('checkbox').click();
+    await expect(page.getByTestId('selection-count')).toHaveText('1 selected');
+    await page.getByRole('button', { name: 'Clear selection' }).click();
+    // A rectangle over the photo leaves the neighbouring card on its right alone.
+    const tile = (await photo.boundingBox())!;
+    await page.mouse.move(tile.x + 4, tile.y - 4);
+    await page.mouse.down();
+    await page.mouse.move(tile.x + tile.width / 2, tile.y + tile.height / 2, { steps: 8 });
+    await page.mouse.up();
+    await expect(photo.getByRole('checkbox')).toBeChecked();
+    await expect(fileRow(page, 'Notes.txt').getByRole('checkbox')).not.toBeChecked();
+    await page.getByRole('button', { name: 'Clear selection' }).click();
+    await page.screenshot({ path: testInfo.outputPath('folder-grid-desktop.png') });
+    await page.reload();
+    await expect(grid).toHaveAttribute('aria-pressed', 'true');
+    await page.setViewportSize(PHONE);
+    await expect(photo.locator('img')).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath('folder-grid-mobile.png') });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await fileRow(page, 'Albums').getByRole('link').click();
+    await expect(page.getByTestId('folder-header').getByRole('heading')).toHaveText('Albums');
+    await page.goBack();
+    await page.getByRole('button', { name: 'List view', exact: true }).click();
+    await expect(photo.locator('img')).toHaveCount(0);
+  });
 
   test('shows when each item changed and how big each file is, on a phone in a second line', async ({ page, relayUrl }) => {
     await page.setViewportSize(DESKTOP);

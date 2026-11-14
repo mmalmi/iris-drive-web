@@ -5,14 +5,16 @@
    * Choosing how it already is sorted turns the order around. The choice is
    * kept on this device.
    */
+  import FolderViewSwitch from './FolderViewSwitch.svelte';
   import Menu, { type MenuItem } from './ui/Menu.svelte';
   import { saveSort, type ListSort, type SortKey } from '../lib/fileListSort';
 
   interface Props {
     sort: ListSort;
+    grid: boolean;
   }
 
-  let { sort = $bindable() }: Props = $props();
+  let { sort = $bindable(), grid = $bindable() }: Props = $props();
 
   const LABELS: Record<SortKey, string> = { name: 'Name', modified: 'Last modified', size: 'Size' };
   const ICONS: Record<SortKey, string> = { name: 'i-lucide-case-sensitive', modified: 'i-lucide-clock', size: 'i-lucide-hard-drive' };
@@ -43,7 +45,7 @@
 </script>
 
 <div class="shrink-0 flex items-center gap-3 h-10 border-b border-surface-2 bg-surface-0 text-sm text-text-3" data-testid="list-header">
-  <div class="relative flex-1 min-w-0 pl-1 lg:pl-3">
+  <div class="relative flex flex-1 items-center justify-between min-w-0 pl-1 lg:pl-3">
     <button
       bind:this={button}
       type="button"
@@ -69,13 +71,16 @@
         onClose={(returnFocus) => { open = false; if (returnFocus) button?.focus(); }}
       />
     {/if}
+    <FolderViewSwitch bind:grid />
   </div>
-  <button type="button" class="{column} w-32" onclick={() => sortBy('modified')}>
-    Last modified{#if sort.by === 'modified'}<span class="{arrow} text-sm"></span>{/if}
-  </button>
-  <button type="button" class="{column} w-20 justify-end" onclick={() => sortBy('size')}>
-    {#if sort.by === 'size'}<span class="{arrow} text-sm"></span>{/if}File size
-  </button>
+  {#if !grid}
+    <button type="button" class="{column} w-32" onclick={() => sortBy('modified')}>
+      Last modified{#if sort.by === 'modified'}<span class="{arrow} text-sm"></span>{/if}
+    </button>
+    <button type="button" class="{column} w-20 justify-end" onclick={() => sortBy('size')}>
+      {#if sort.by === 'size'}<span class="{arrow} text-sm"></span>{/if}File size
+    </button>
+  {/if}
   <!-- Where the rows have their ⋮. -->
-  <span class="shrink-0 w-[34px] lg:w-[40px]"></span>
+  <span class="shrink-0 {grid ? 'w-0' : 'hidden sm:block w-[34px] lg:w-[40px]'}"></span>
 </div>

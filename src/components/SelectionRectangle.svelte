@@ -44,11 +44,16 @@
       const top = Math.min(origin.y, at.y);
       const bottom = Math.max(origin.y, at.y);
       rect = { left: Math.min(origin.x, at.x), top, width: Math.abs(at.x - origin.x), height: bottom - top };
-      const contentTop = node.getBoundingClientRect().top - node.scrollTop;
+      const bounds = node.getBoundingClientRect();
+      const contentTop = bounds.top - node.scrollTop;
+      const contentLeft = bounds.left - node.scrollLeft;
+      const left = rect.left;
+      const right = left + rect.width;
       selection.band([...node.querySelectorAll<HTMLElement>('[data-entry-name]')]
         .filter((row) => {
           const place = row.getBoundingClientRect();
-          return place.top - contentTop < bottom && place.bottom - contentTop > top;
+          return place.top - contentTop < bottom && place.bottom - contentTop > top
+            && place.left - contentLeft < right && place.right - contentLeft > left;
         })
         .map((row) => row.dataset.entryName!));
     };

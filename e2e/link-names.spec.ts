@@ -1,6 +1,7 @@
 // A read-only copy of a folder opens under the folder's name, not its
 // "nhash1…" address, and a page without access belongs to no place in Drive.
 import { expect, test, type Page } from './fixtures';
+import { jpeg, picture } from './photos.helpers';
 import { createDriveProfile, prepareFreshSession } from './documents.helpers';
 import { createAndEnterFolder, expectFolderEditable, fileRow, openListedFile, openRowMenu, uploadIntoFolder } from './test-utils';
 
@@ -20,6 +21,7 @@ test.describe('names and places of pages', () => {
     await createAndEnterFolder(page, 'Weekend picnic');
     await uploadIntoFolder(page, { name: 'Plan.txt', mimeType: 'text/plain', buffer: Buffer.from('Meet at noon.') });
 
+    await uploadIntoFolder(page, jpeg('Picnic.jpg', await picture(page, '#80bfff', '#559944', 720, 480)));
     await page.getByTestId('folder-header').locator('button[title="Share"]').click();
     await expect(page.getByTestId('share-modal')).toBeVisible({ timeout: 30_000 });
     await page.getByTestId('share-tab-link').click();
@@ -37,6 +39,9 @@ test.describe('names and places of pages', () => {
       const heading = visitor.getByTestId('folder-header').getByRole('heading');
       await expect(heading).toHaveText('Weekend picnic', { timeout: 60_000 });
       await expect(visitor.getByTestId('folder-header')).not.toContainText('nhash');
+      await visitor.getByRole('button', { name: 'Grid view' }).click();
+      const photo = fileRow(visitor, 'Picnic.jpg').locator('img');
+      await expect.poll(() => photo.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth), { timeout: 30_000 }).toBeGreaterThan(0);
       await visitor.screenshot({ path: testInfo.outputPath('read-only-copy.png') });
 
       // Read-only: a row's menu offers only what does not change anything.

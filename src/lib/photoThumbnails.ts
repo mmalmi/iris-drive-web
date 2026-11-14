@@ -8,6 +8,8 @@ import { getNhashFileUrl } from './mediaUrl';
 import { keyValueStore } from './keyValueStore';
 import type { Photo } from './photos';
 
+export type ThumbnailSource = Pick<Photo, 'cid' | 'name' | 'hash'>;
+
 interface Row {
   key: string;
   /** Null where the picture is small enough to show as it is. */
@@ -24,7 +26,7 @@ const waiting: Array<() => void> = [];
 let active = 0;
 
 /** Where to show a picture in the grid from: its small picture, or the picture itself where there is none. */
-export function photoThumbnail(photo: Photo): Promise<string> {
+export function photoThumbnail(photo: ThumbnailSource): Promise<string> {
   let url = shown.get(photo.hash);
   if (!url) {
     url = thumbnailOf(photo);
@@ -33,7 +35,7 @@ export function photoThumbnail(photo: Photo): Promise<string> {
   return url;
 }
 
-async function thumbnailOf(photo: Photo): Promise<string> {
+async function thumbnailOf(photo: ThumbnailSource): Promise<string> {
   const whole = getNhashFileUrl(photo.cid, photo.name);
   const kept = await store.get(photo.hash).catch(() => undefined);
   if (kept) return kept.blob ? URL.createObjectURL(kept.blob) : whole;

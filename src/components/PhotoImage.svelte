@@ -3,13 +3,12 @@
    * A photo filling the box it is in: its small copy, or a video's first
    * frame, loaded when it is about to be seen.
    */
-  import type { Photo } from '../lib/photos';
   import { getNhashFileUrl } from '../lib/mediaUrl';
   import { nearView } from '../lib/nearView';
-  import { photoThumbnail } from '../lib/photoThumbnails';
+  import { photoThumbnail, type ThumbnailSource } from '../lib/photoThumbnails';
 
   interface Props {
-    photo: Photo;
+    photo: ThumbnailSource & { video: boolean };
     /** The app's own address for files is ready to serve them. */
     ready: boolean;
   }
