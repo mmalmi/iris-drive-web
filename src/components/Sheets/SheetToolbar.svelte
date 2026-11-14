@@ -217,6 +217,11 @@
   <button onclick={() => ctl.redo()} disabled={!ctl.canRedo} class="tool" title="Redo ({MOD}Y)" aria-label="Redo">
     <span class="i-lucide-redo-2"></span>
   </button>
+  {/if}
+  <button onclick={() => window.print()} class="tool wide-only" title="Print or save as PDF ({MOD}P)" aria-label="Print">
+    <span class="i-lucide-printer"></span>
+  </button>
+  {#if ctl.canEdit}
 
   <span class="divider"></span>
 
@@ -363,6 +368,13 @@
   .tool.on {
     background: rgb(145 109 254 / 0.18);
     color: #916dfe;
+  }
+
+  /* Phones print seldom; the row there keeps to the cells. */
+  @media (max-width: 640px) {
+    .tool.wide-only {
+      display: none;
+    }
   }
 
   .tool:disabled {

@@ -6,6 +6,22 @@
   import EditorToolbar from './EditorToolbar.svelte';
   import DocumentHeader from './DocumentHeader.svelte';
   import DocumentLinkMenu from './DocumentLinkMenu.svelte';
+  import { printAlone } from '../../lib/printAlone';
+
+  const PRINT_STYLES = `
+    @media print {
+      .document-print {
+        --surface-2: 221 221 221;
+        --surface-3: 187 187 187;
+        --text-1: 26 26 26;
+        --text-2: 85 85 85;
+        --text-3: 153 153 153;
+      }
+      .document-print .ProseMirror { min-height: 0 !important; padding: 0 !important; }
+      .document-print .comment-highlight { background: none !important; border: none !important; }
+      .document-print * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    }
+  `;
   import type { DriveDocument } from '../../lib/yjs';
 
   interface Props {
@@ -60,33 +76,18 @@
   let imageFileInput: HTMLInputElement | undefined = $state();
   let pageElement: HTMLElement | undefined = $state();
 
-  // Printing, from the toolbar or the browser's own menu, prints the page alone:
-  // a copy of it goes directly under the body, where everything else can be left out.
-  $effect(() => {
-    let copy: HTMLElement | undefined;
-    const after = () => {
-      copy?.remove();
-      copy = undefined;
-    };
-    const before = () => {
-      after();
-      if (!editorElement) return;
-      const page = editorElement.cloneNode(true) as HTMLElement;
-      page.removeAttribute('data-testid');
-      for (const node of page.querySelectorAll('[contenteditable]')) node.removeAttribute('contenteditable');
-      copy = document.createElement('div');
-      copy.className = 'document-print';
-      copy.appendChild(page);
-      document.body.appendChild(copy);
-    };
-    window.addEventListener('beforeprint', before);
-    window.addEventListener('afterprint', after);
-    return () => {
-      after();
-      window.removeEventListener('beforeprint', before);
-      window.removeEventListener('afterprint', after);
-    };
-  });
+  // Printing, from the toolbar or the browser's own menu, prints the page alone,
+  // in the colours of the light theme.
+  $effect(() => printAlone(() => {
+    if (!editorElement) return null;
+    const page = editorElement.cloneNode(true) as HTMLElement;
+    page.removeAttribute('data-testid');
+    for (const node of page.querySelectorAll('[contenteditable]')) node.removeAttribute('contenteditable');
+    const holder = document.createElement('div');
+    holder.className = 'document-print';
+    holder.appendChild(page);
+    return holder;
+  }, PRINT_STYLES));
 
   function handleFileInputChange(event: Event): void {
     const input = event.target as HTMLInputElement;
@@ -310,6 +311,11 @@
     pointer-events: none;
   }
 
+  /* Highlights are light colours: the words on them stay dark, also in the dark theme, unless they have a colour of their own. */
+  .document-container :global(.ProseMirror mark:not(span[style*="color"] > mark)) {
+    color: #1a1a1a !important;
+  }
+
   .document-container :global(.ProseMirror .tableWrapper) {
     overflow-x: auto;
   }
@@ -382,43 +388,5 @@
 
   .document-container :global(.comment-highlight:hover) {
     background-color: rgb(255 204 0 / 0.45);
-  }
-
-  /* The copy that is printed: on paper, in the colours of the light theme. */
-  @media screen {
-    :global(.document-print) {
-      display: none;
-    }
-  }
-
-  @media print {
-    :global(body:has(> .document-print) > :not(.document-print)) {
-      display: none !important;
-    }
-
-    :global(html:has(> body > .document-print)),
-    :global(body:has(> .document-print)) {
-      height: auto !important;
-      overflow: visible !important;
-      background: #fff !important;
-    }
-
-    :global(.document-print) {
-      --surface-2: 221 221 221;
-      --surface-3: 187 187 187;
-      --text-1: 26 26 26;
-      --text-2: 85 85 85;
-      --text-3: 153 153 153;
-    }
-
-    :global(.document-print .ProseMirror) {
-      min-height: 0 !important;
-      padding: 0 !important;
-    }
-
-    :global(.document-print .comment-highlight) {
-      background: none !important;
-      border: none !important;
-    }
   }
 </style>

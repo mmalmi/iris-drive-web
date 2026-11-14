@@ -2,6 +2,7 @@
   /** Formatting controls for the document editor. */
   import type { Editor } from '@tiptap/core';
   import PopupMenu, { type MenuItem } from '../Sheets/PopupMenu.svelte';
+  import ColorMenu from '../Sheets/ColorMenu.svelte';
 
   interface Props {
     editor: Editor;
@@ -74,7 +75,7 @@
   }
 
   // Outside a table the button adds one; inside, it offers what changes it.
-  let tableMenu = $state<{ x: number; y: number } | null>(null);
+  let menu = $state<{ x: number; y: number; items: MenuItem[] } | null>(null);
   const tableItems: MenuItem[] = [
     { label: 'Insert row above', icon: 'i-lucide-between-horizontal-start', action: () => editor.chain().focus().addRowBefore().run() },
     { label: 'Insert row below', icon: 'i-lucide-between-horizontal-end', action: () => editor.chain().focus().addRowAfter().run() },
@@ -90,13 +91,81 @@
       editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: false }).run();
       return;
     }
-    const bounds = (event.currentTarget as HTMLElement).getBoundingClientRect();
-    tableMenu = { x: bounds.left, y: bounds.bottom + 4 };
+    menu = { ...below(event), items: tableItems };
   }
 
-  function closeTableMenu(): void {
-    tableMenu = null;
-    editor.commands.focus();
+  function closeMenu(): void {
+    menu = null;
+    // At once, so that the next key goes into the text.
+    editor.view.focus();
+  }
+
+  type Alignment = 'left' | 'center' | 'right' | 'justify';
+  const ALIGNMENTS: Array<{ value: Alignment; label: string; icon: string }> = [
+    { value: 'left', label: 'Left', icon: 'i-lucide-align-left' },
+    { value: 'center', label: 'Centre', icon: 'i-lucide-align-center' },
+    { value: 'right', label: 'Right', icon: 'i-lucide-align-right' },
+    { value: 'justify', label: 'Justify', icon: 'i-lucide-align-justify' },
+  ];
+
+  let alignment = $derived.by((): Alignment => {
+    void changes;
+    return ALIGNMENTS.find(item => item.value !== 'left' && editor.isActive({ textAlign: item.value }))?.value ?? 'left';
+  });
+  let textColor = $derived.by(() => {
+    void changes;
+    return (editor.getAttributes('textStyle').color as string | undefined) || undefined;
+  });
+  let highlight = $derived.by(() => {
+    void changes;
+    return (editor.getAttributes('highlight').color as string | undefined) || undefined;
+  });
+
+  function alignmentItems(): MenuItem[] {
+    return ALIGNMENTS.map(item => ({
+      label: item.label,
+      icon: item.icon,
+      checked: alignment === item.value,
+      action: () => {
+        const chain = editor.chain().focus();
+        if (item.value === 'left') chain.unsetTextAlign().run();
+        else chain.setTextAlign(item.value).run();
+      },
+    }));
+  }
+
+  /** The palette for the text's colour or its highlight. */
+  let palette = $state<{ x: number; y: number; kind: 'text' | 'highlight' } | null>(null);
+
+  function pickColor(color: string | null): void {
+    const kind = palette?.kind;
+    const chain = editor.chain().focus();
+    if (kind === 'text') (color ? chain.setColor(color) : chain.unsetColor()).run();
+    else if (kind === 'highlight') (color ? chain.setHighlight({ color }) : chain.unsetHighlight()).run();
+  }
+
+  function closePalette(): void {
+    palette = null;
+    // At once, so that the next key goes into the text.
+    editor.view.focus();
+  }
+
+  function below(event: MouseEvent): { x: number; y: number } {
+    const bounds = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    return { x: bounds.left, y: bounds.bottom + 4 };
+  }
+
+  /** On a phone, alignment and colours share one menu at the end of the row. */
+  function openMoreFormatting(event: MouseEvent): void {
+    const at = below(event);
+    menu = {
+      ...at,
+      items: [
+        ...alignmentItems(),
+        { label: 'Text colour', icon: 'i-lucide-baseline', divider: true, action: () => queueMicrotask(() => { palette = { ...at, kind: 'text' }; }) },
+        { label: 'Highlight', icon: 'i-lucide-highlighter', action: () => queueMicrotask(() => { palette = { ...at, kind: 'highlight' }; }) },
+      ],
+    };
   }
 
   function setBlockStyle(event: Event): void {
@@ -149,6 +218,14 @@
   <button onclick={() => editor.chain().focus().toggleStrike().run()} class="tool" class:on={active('strike')} title="Strikethrough" aria-label="Strikethrough" aria-pressed={active('strike')}>
     <span class="i-lucide-strikethrough"></span>
   </button>
+  <button onclick={event => { palette = palette?.kind === 'text' ? null : { ...below(event), kind: 'text' }; }} class="tool color wide-only" title="Text colour" aria-label="Text colour">
+    <span class="i-lucide-baseline"></span>
+    <span class="chip" style="background: {textColor || 'rgb(var(--text-1))'}"></span>
+  </button>
+  <button onclick={event => { palette = palette?.kind === 'highlight' ? null : { ...below(event), kind: 'highlight' }; }} class="tool color wide-only" title="Highlight" aria-label="Highlight">
+    <span class="i-lucide-highlighter"></span>
+    <span class="chip" class:empty={!highlight} style="background: {highlight || 'transparent'}"></span>
+  </button>
   <button onclick={() => editor.chain().focus().toggleCode().run()} class="tool" class:on={active('code')} title="Code" aria-label="Code" aria-pressed={active('code')}>
     <span class="i-lucide-code"></span>
   </button>
@@ -158,6 +235,12 @@
 
   <span class="divider"></span>
 
+  <button onclick={event => { menu = { ...below(event), items: alignmentItems() }; }} class="tool wide-only" title="Alignment" aria-label="Alignment" aria-haspopup="menu">
+    <span class={ALIGNMENTS.find(item => item.value === alignment)?.icon}></span>
+  </button>
+  <button onclick={openMoreFormatting} class="tool narrow-only" title="More formatting" aria-label="More formatting" aria-haspopup="menu">
+    <span class="i-lucide-ellipsis"></span>
+  </button>
   <button onclick={() => editor.chain().focus().toggleBulletList().run()} class="tool" class:on={active('bulletList')} title="Bulleted list" aria-label="Bulleted list" aria-pressed={active('bulletList')}>
     <span class="i-lucide-list"></span>
   </button>
@@ -205,8 +288,19 @@
   </button>
 </div>
 
-{#if tableMenu}
-  <PopupMenu x={tableMenu.x} y={tableMenu.y} items={tableItems} onclose={closeTableMenu} />
+{#if menu}
+  <PopupMenu x={menu.x} y={menu.y} items={menu.items} onclose={closeMenu} />
+{/if}
+
+{#if palette}
+  <ColorMenu
+    x={palette.x}
+    y={palette.y}
+    value={palette.kind === 'text' ? textColor : highlight}
+    noneLabel={palette.kind === 'text' ? 'Default' : 'None'}
+    onpick={pickColor}
+    onclose={closePalette}
+  />
 {/if}
 
 <style>
@@ -253,11 +347,33 @@
     color: #916dfe;
   }
 
-  /* Phones print seldom; the row there keeps to writing. */
+  /* Phones print seldom, and keep alignment and colours in one menu: the row there keeps to writing. */
   @media (max-width: 640px) {
     .tool.wide-only {
       display: none;
     }
+  }
+
+  @media (min-width: 641px) {
+    .tool.narrow-only {
+      display: none;
+    }
+  }
+
+  .tool.color {
+    flex-direction: column;
+    gap: 1px;
+    font-size: 0.9rem;
+  }
+
+  .chip {
+    width: 16px;
+    height: 3px;
+    border-radius: 1px;
+  }
+
+  .chip.empty {
+    box-shadow: inset 0 0 0 1px rgb(var(--surface-3));
   }
 
   .tool:disabled {

@@ -17,6 +17,8 @@
   import { createIdentityProfileNameStore } from '../../stores/identityProfile';
   import { accountsStore } from '../../accounts';
   import { IMPORT_ACCEPT, downloadCsv, downloadXlsx, fillFromFile, importFile, isBlank, isSheetFile, localeMenu } from './sheetFiles';
+  import { printAlone } from '../../lib/printAlone';
+  import { sheetPrintPage } from '../../lib/sheets/print';
 
   interface Props {
     dirName: string;
@@ -54,6 +56,9 @@
   let dropping = $state(false);
   /** True while a file from the Drive is being brought in. */
   let importing = $state(false);
+
+  // Printing, from the toolbar or the browser's own menu, prints the cells in use alone.
+  $effect(() => printAlone(() => (ready && ctl.hasSheet ? sheetPrintPage(ctl) : null)));
 
   onMount(() => {
     // This person's name is looked up now, so their first comment already carries it.

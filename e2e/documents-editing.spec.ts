@@ -223,4 +223,59 @@ test.describe('writing a document', () => {
     await page.reload({ waitUntil: 'domcontentloaded' });
     await expect(documentBody(page)).toContainText('Written online. Written offline.', { timeout: 60_000 });
   });
+
+  test('lines are aligned and words coloured and highlighted, also from the overflow menu on a phone', async ({ page, relayUrl }) => {
+    await prepareFreshSession(page, relayUrl);
+    await createDriveProfile(page);
+    await createDocument(page, 'Looks');
+    await typeInDocument(page, 'A centred line');
+    await page.getByRole('button', { name: 'Alignment', exact: true }).click();
+    await page.getByRole('menuitemcheckbox', { name: 'Centre' }).click();
+    const lines = documentBody(page).locator('p');
+    await expect(lines.first()).toHaveCSS('text-align', 'center');
+    await expect(page.getByRole('button', { name: 'Alignment', exact: true }).locator('.i-lucide-align-center')).toHaveCount(1);
+
+    await page.keyboard.press('Enter');
+    await page.getByRole('button', { name: 'Alignment', exact: true }).click();
+    await page.getByRole('menuitemcheckbox', { name: 'Justify' }).click();
+    const words = 'Red and marked';
+    await page.keyboard.type(words);
+    await expect(lines.nth(1)).toHaveCSS('text-align', 'justify');
+    await page.keyboard.down('Shift');
+    for (let index = 0; index < words.length; index += 1) await page.keyboard.press('ArrowLeft');
+    await page.keyboard.up('Shift');
+    await settle(page);
+    await page.getByRole('button', { name: 'Text colour', exact: true }).click();
+    await page.getByRole('button', { name: 'Red', exact: true }).click();
+    await page.getByRole('button', { name: 'Highlight', exact: true }).click();
+    await page.getByRole('button', { name: 'Light yellow', exact: true }).click();
+    const marked = documentBody(page).locator('mark');
+    await expect(marked).toHaveText(words);
+    await expect(marked).toHaveCSS('background-color', 'rgb(255, 236, 153)');
+    await expect(lines.nth(1).locator('span[style*="color"]')).toHaveCSS('color', 'rgb(224, 49, 49)');
+    // The cursor stays in the words, so typing goes on there.
+    await expect(documentBody(page)).toBeFocused();
+    await expectSaved(page);
+
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await expect(lines.first()).toHaveCSS('text-align', 'center', { timeout: 60_000 });
+    await expect(marked).toHaveText(words);
+    await expect(lines.nth(1).locator('span[style*="color"]')).toHaveCSS('color', 'rgb(224, 49, 49)');
+
+    // A phone keeps the row short: the same choices are in one menu at its end.
+    await page.setViewportSize({ width: 390, height: 844 });
+    for (const name of ['Alignment', 'Text colour', 'Highlight']) {
+      await expect(page.getByRole('button', { name, exact: true })).toBeHidden();
+    }
+    await lines.first().click();
+    await settle(page);
+    await page.getByRole('button', { name: 'More formatting', exact: true }).click();
+    await page.getByRole('menuitemcheckbox', { name: 'Right' }).click();
+    await expect(lines.first()).toHaveCSS('text-align', 'right');
+    await page.getByRole('button', { name: 'More formatting', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Text colour' }).click();
+    await expect(page.getByRole('button', { name: 'Red', exact: true })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expectSaved(page);
+  });
 });

@@ -5,6 +5,9 @@ import Placeholder from '@tiptap/extension-placeholder';
 import Image from '@tiptap/extension-image';
 import Collaboration from '@tiptap/extension-collaboration';
 import { TableKit } from '@tiptap/extension-table';
+import TextAlign from '@tiptap/extension-text-align';
+import { Color, TextStyle } from '@tiptap/extension-text-style';
+import Highlight from '@tiptap/extension-highlight';
 import type * as Y from 'yjs';
 import { CommentMark, createCommentsStore, type CommentsStore } from '../comments';
 import { htmlIsOnlyPictures, imageFiles, importForeignImages, rewriteCopiedHtml } from './pastedImages';
@@ -66,6 +69,10 @@ export function createYjsTiptapEditor(options: CreateYjsTiptapEditorOptions): Yj
       // data: pictures are accepted on paste only to be stored as attachments at once.
       Image.configure({ inline: false, allowBase64: true }),
       TableKit.configure({ table: { resizable: options.canEdit } }),
+      TextAlign.configure({ types: ['heading', 'paragraph'] }),
+      TextStyle,
+      Color,
+      Highlight.configure({ multicolor: true }),
       CommentMark.configure({
         HTMLAttributes: {
           class: 'comment-highlight',

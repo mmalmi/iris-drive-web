@@ -109,6 +109,25 @@ function borderCss(value: string | undefined): string {
   return `${kind === 'k' ? 3 : kind === 'm' ? 2 : 1}px ${kind === 'd' ? 'dashed' : kind === 'o' ? 'dotted' : 'solid'} ${color}`;
 }
 
+/** A cell's looks as CSS for an HTML table cell. */
+export function cellCss(style: CellStyle): string {
+  return [
+    style.b ? 'font-weight:bold' : '',
+    style.i ? 'font-style:italic' : '',
+    style.s || style.u ? `text-decoration:${[style.s ? 'line-through' : '', style.u ? 'underline' : ''].join(' ').trim()}` : '',
+    style.c ? `color:${style.c}` : '',
+    style.bg ? `background-color:${style.bg}` : '',
+    style.a ? `text-align:${style.a === 'l' ? 'left' : style.a === 'r' ? 'right' : 'center'}` : '',
+    style.va ? `vertical-align:${style.va === 't' ? 'top' : style.va === 'm' ? 'middle' : 'bottom'}` : '',
+    style.fs ? `font-size:${style.fs}pt` : '',
+    style.w ? 'white-space:normal' : '',
+    style.bt ? `border-top:${borderCss(style.bt)}` : '',
+    style.bb ? `border-bottom:${borderCss(style.bb)}` : '',
+    style.bl ? `border-left:${borderCss(style.bl)}` : '',
+    style.br ? `border-right:${borderCss(style.br)}` : '',
+  ].filter(Boolean).join(';');
+}
+
 /**
  * What was just copied as an HTML table, so that word processors and other
  * spreadsheets receive it with its bold, colours, alignment, borders and
@@ -134,21 +153,7 @@ export function copiedHtml(ctl: SheetController, pictureHtml?: (object: CopiedCe
       // A number format a formula implies goes along as if it were the cell's own.
       const implied = source && at !== undefined && !cell?.style?.nf ? ctl.engine.formatAt(source, at, copied.rect.c1 + c) : undefined;
       const style: CellStyle = implied ? { ...cell?.style, nf: implied } : cell?.style ?? {};
-      const css = [
-        style.b ? 'font-weight:bold' : '',
-        style.i ? 'font-style:italic' : '',
-        style.s || style.u ? `text-decoration:${[style.s ? 'line-through' : '', style.u ? 'underline' : ''].join(' ').trim()}` : '',
-        style.c ? `color:${style.c}` : '',
-        style.bg ? `background-color:${style.bg}` : '',
-        style.a ? `text-align:${style.a === 'l' ? 'left' : style.a === 'r' ? 'right' : 'center'}` : '',
-        style.va ? `vertical-align:${style.va === 't' ? 'top' : style.va === 'm' ? 'middle' : 'bottom'}` : '',
-        style.fs ? `font-size:${style.fs}pt` : '',
-        style.w ? 'white-space:normal' : '',
-        style.bt ? `border-top:${borderCss(style.bt)}` : '',
-        style.bb ? `border-bottom:${borderCss(style.bb)}` : '',
-        style.bl ? `border-left:${borderCss(style.bl)}` : '',
-        style.br ? `border-right:${borderCss(style.br)}` : '',
-      ].filter(Boolean).join(';');
+      const css = cellCss(style);
       const span = spans.get(`${r}:${c}`);
       // The value itself, so another spreadsheet need not read it back from text written for one locale.
       const value = source && at !== undefined ? ctl.engine.valueAt(source, at, copied.rect.c1 + c) : decodeRaw(cell?.raw as CellRaw | undefined);
