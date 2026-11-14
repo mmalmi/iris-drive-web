@@ -1,7 +1,6 @@
 import { test, expect } from './fixtures';
 import type { Page } from '@playwright/test';
-import { setupPageErrorHandler, navigateToPublicFolder } from './test-utils.js';
-import { createAndEnterTree } from './explorer.helpers';
+import { createAndEnterFolder, goToTreeList, setupPageErrorHandler, navigateToPublicFolder } from './test-utils.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -46,7 +45,8 @@ test.describe('HTML file viewing', () => {
 </body>
 </html>`);
 
-      await createAndEnterTree(page, 'html-test');
+      await goToTreeList(page);
+      await createAndEnterFolder(page, 'html-test');
 
       const fileInput = page.getByTestId('upload-files-input');
       await fileInput.setInputFiles(cssPath);

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { marked, type Tokens } from 'marked';
   import { SvelteURLSearchParams } from 'svelte/reactivity';
-  import { routeStore } from '../../stores';
+  import { routeStore, treeRootStore } from '../../stores';
   import { settingsStore } from '../../stores/settings';
   import { DEFAULT_IMGPROXY_CONFIG } from '../../utils/imgproxy';
   import { renderMarkdownHtml, type RenderMarkdownOptions } from '../../lib/markdown';
@@ -107,6 +107,7 @@
           npub: route.npub,
           treeName: route.treeName,
           basePath: resolvedDir,
+          rootCid: $treeRootStore,
         }
       : undefined;
 

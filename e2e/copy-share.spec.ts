@@ -1,128 +1,25 @@
-import { test, expect } from './fixtures';
-import { disableOthersPool, ensureLoggedIn, waitForAppReady } from './test-utils.js';
+import { expect, test } from './fixtures';
+import { createDriveProfile, prepareFreshSession } from './documents.helpers';
+import { uploadFilesInput } from './test-utils';
 
-test.describe('Copy and Share functionality', () => {
-  // Grant clipboard permissions
-  test.use({
-    permissions: ['clipboard-read', 'clipboard-write'],
-  });
+// Opening the share dialog, copying its address and Escape are covered with
+// documents, files and presentations; this is the QR code and the other ways out.
+test('the share dialog shows a QR code and closes from its backdrop or its QR code', async ({ page, relayUrl }) => {
+  test.setTimeout(120_000);
+  await prepareFreshSession(page, relayUrl);
+  await createDriveProfile(page, 'Share Test');
+  await uploadFilesInput(page).setInputFiles({ name: 'note.txt', mimeType: 'text/plain', buffer: Buffer.from('share me') });
+  const share = page.getByTestId('viewer-share');
+  const modal = page.getByTestId('share-modal');
 
-  test.beforeEach(async ({ page }) => {
-    await page.goto('/');
-    await waitForAppReady(page);
-    await disableOthersPool(page); // Prevent WebRTC cross-talk from parallel tests
-    await ensureLoggedIn(page, 30000);
-  });
+  await share.click();
+  await expect(modal).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId('share-qr-code')).toHaveAttribute('src', /^data:image\/png/);
+  await page.getByTestId('share-modal-backdrop').click({ position: { x: 10, y: 10 } });
+  await expect(modal).toBeHidden();
 
-  // Helper to close any open modals
-  async function closeModals(page) {
-    // Try multiple times to close modals (some might open after others close)
-    for (let i = 0; i < 3; i++) {
-      const backdrop = page.locator('.fixed.inset-0');
-      if (await backdrop.first().isVisible({ timeout: 300 }).catch(() => false)) {
-        // Click the backdrop at edge to close
-        await backdrop.first().click({ position: { x: 5, y: 5 }, force: true });
-        await backdrop.first().waitFor({ state: 'hidden', timeout: 1000 }).catch(() => {});
-      } else {
-        break;
-      }
-    }
-  }
-
-  // The share button of the signed-in Drive's own folder, which shows once the folder holds something.
-  async function goToProfile(page) {
-    await closeModals(page);
-    await page.getByTestId('home-link').click();
-    await page.waitForFunction(() => (window as any).__testHelpers?.uploadSingleFile);
-    await page.evaluate(() => (window as any).__testHelpers.uploadSingleFile('note.txt', new TextEncoder().encode('share me')));
-    await expect(page.getByTitle('Share').filter({ visible: true }).first()).toBeVisible({ timeout: 30_000 });
-    await closeModals(page);
-  }
-
-  test.describe('ShareModal', () => {
-    test('should open share modal when clicking share button', async ({ page }) => {
-      await goToProfile(page);
-
-      // Click share button (use first() for desktop layout)
-      await page.getByTitle('Share').filter({ visible: true }).first().click();
-      await expect(page.getByTestId('share-modal')).toBeVisible();
-    });
-
-    test('should display QR code in share modal', async ({ page }) => {
-      await goToProfile(page);
-
-      await page.getByTitle('Share').filter({ visible: true }).first().click();
-      await expect(page.getByTestId('share-modal')).toBeVisible();
-
-      const qrCode = page.getByTestId('share-qr-code');
-      await expect(qrCode).toBeVisible();
-
-      // QR code should have a valid src
-      const src = await qrCode.getAttribute('src');
-      expect(src).toContain('data:image/png');
-    });
-
-    test('should show URL with copy button in share modal', async ({ page }) => {
-      await goToProfile(page);
-
-      await page.getByTitle('Share').filter({ visible: true }).first().click();
-      await expect(page.getByTestId('share-modal')).toBeVisible();
-
-      const copyUrl = page.getByTestId('share-copy-url');
-      await expect(copyUrl).toBeVisible();
-
-      // A Drive address: the folder's snapshot or its owner's tree
-      const text = await copyUrl.textContent();
-      expect(text).toMatch(/#\/(nhash|npub)1/);
-    });
-
-    test('should copy URL when clicking copy in share modal', async ({ page }) => {
-      await goToProfile(page);
-
-      await page.getByTitle('Share').filter({ visible: true }).first().click();
-      await expect(page.getByTestId('share-modal')).toBeVisible();
-
-      const copyUrl = page.getByTestId('share-copy-url');
-      await copyUrl.click();
-
-      // Should show check icon
-      await expect(copyUrl.locator('.i-lucide-check')).toBeVisible();
-    });
-
-    test('should close share modal when clicking backdrop', async ({ page }) => {
-      await goToProfile(page);
-
-      await page.getByTitle('Share').filter({ visible: true }).first().click();
-      await expect(page.getByTestId('share-modal')).toBeVisible();
-
-      await page.getByTestId('share-modal-backdrop').click({ position: { x: 10, y: 10 } });
-
-      // Modal should be closed
-      await expect(page.getByTestId('share-modal')).toBeHidden();
-    });
-
-    test('should close share modal when clicking QR code', async ({ page }) => {
-      await goToProfile(page);
-
-      await page.getByTitle('Share').filter({ visible: true }).first().click();
-      await expect(page.getByTestId('share-modal')).toBeVisible();
-
-      await page.getByTestId('share-qr-code').click();
-
-      // Modal should be closed
-      await expect(page.getByTestId('share-modal')).toBeHidden();
-    });
-
-    test('should close share modal with Escape key', async ({ page }) => {
-      await goToProfile(page);
-
-      await page.getByTitle('Share').filter({ visible: true }).first().click();
-      await expect(page.getByTestId('share-modal')).toBeVisible();
-
-      await page.keyboard.press('Escape');
-
-      // Modal should be closed
-      await expect(page.getByTestId('share-modal')).toBeHidden();
-    });
-  });
+  await share.click();
+  await expect(modal).toBeVisible();
+  await page.getByTestId('share-qr-code').click();
+  await expect(modal).toBeHidden();
 });

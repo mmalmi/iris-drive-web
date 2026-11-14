@@ -1,5 +1,5 @@
 import { expect } from '../fixtures';
-import { evaluateWithRetry, safeGoto, setupPageErrorHandler, waitForAppReady } from './core';
+import { evaluateWithRetry, safeGoto, saveTextFile, setupPageErrorHandler, waitForAppReady } from './core';
 import { waitForRelayConnected } from './network';
 
 /**
@@ -27,124 +27,49 @@ export async function ensureLoggedIn(page: any, timeoutMs: number = 15000) {
 }
 
 /**
- * Wait for new user setup to complete and navigate to public folder.
- * New users get three default folders created (public, link, private).
- * This function waits for setup, then clicks into the public folder.
+ * Opens the signed-in test account's "public" tree. In test mode a new account
+ * gets "public", "link" and "private" trees beside My Drive; the home link
+ * opens My Drive, so the tree is opened by its address.
  */
 export async function navigateToPublicFolder(
   page: any,
   options?: { timeoutMs?: number; requireRelay?: boolean }
 ) {
   const timeoutMs = options?.timeoutMs ?? 30000;
-  const requireRelay = options?.requireRelay ?? true;
-  const relayTimeoutMs = requireRelay ? timeoutMs : Math.min(timeoutMs, 3000);
-  const waitForRelay = () => requireRelay
-    ? waitForRelayConnected(page, relayTimeoutMs)
-    : waitForRelayConnected(page, relayTimeoutMs).catch(() => {});
-  const appPath = new URL(page.url()).pathname || '/';
-
-  // First wait for the app to be ready - look for the Iris header
   await waitForAppReady(page, timeoutMs);
   await ensureLoggedIn(page, timeoutMs);
-  await waitForRelay();
-
-  // If we're already inside public (auto-redirect), just wait for actions and return
-  const alreadyInPublic = await page.waitForFunction(() => {
-    return /^#\/npub[^/]+\/public\/?(?:\?.*)?$/.test(window.location.hash);
-  }, { timeout: 5000 }).then(() => true).catch(() => false);
-  if (alreadyInPublic) {
-    await expectFolderEditable(page, 10000);
-    return;
+  if (options?.requireRelay ?? true) {
+    await waitForRelayConnected(page, timeoutMs);
+  } else {
+    await waitForRelayConnected(page, Math.min(timeoutMs, 3000)).catch(() => {});
   }
+  const npub = await evaluateWithRetry(page, () => (window as any).__nostrStore?.getState?.().npub ?? null, undefined);
+  if (!npub) throw new Error('Failed to resolve logged-in npub for public folder navigation');
 
-  // Wait for the public folder link to appear in the tree list (indicates setup complete)
-  // This can take a while for new users since default folders are created async
-  // and published to Nostr fire-and-forget style
-  const publicLink = page.getByRole('link', { name: 'public' }).first();
-  const resolveLoggedInNpub = async () => {
-    const storeNpub = await evaluateWithRetry(page, () => {
-      const nostrStore = (window as any).__nostrStore;
-      return nostrStore?.getState?.().npub ?? null;
-    }, undefined).catch(() => null);
-    if (storeNpub) return storeNpub;
-
-    const publicHref = await publicLink.getAttribute('href').catch(() => null);
-    const publicNpub = publicHref?.match(/#\/(npub1[^/]+)/)?.[1] ?? null;
-    if (publicNpub) return publicNpub;
-
-    return page.url().match(/npub1[a-z0-9]+/)?.[0] ?? null;
-  };
-  let npub = await resolveLoggedInNpub();
-
-  if (!await publicLink.isVisible().catch(() => false)) {
-    const logoLink = page.getByTestId('home-link');
-    if (await logoLink.isVisible().catch(() => false)) {
-      await logoLink.click();
+  // The default trees are made in the background; make "public" only if they never come.
+  await page.evaluate(async (owner: string) => {
+    const { getLocalRootCache } = await import('/src/treeRootCache.ts');
+    const deadline = Date.now() + 10000;
+    while (!getLocalRootCache(owner, 'public') && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
     }
-    await page.evaluate(async (treeNpub) => {
-      const npub = treeNpub;
-      if (!npub) return;
-      const { getLocalRootCache } = await import('/src/treeRootCache.ts');
-      const { createTree } = await import('/src/actions/tree.ts');
-      const defaults: Array<{ name: string; visibility: 'public' | 'link-visible' | 'private' }> = [
-        { name: 'public', visibility: 'public' },
-        { name: 'link', visibility: 'link-visible' },
-        { name: 'private', visibility: 'private' },
-      ];
-      for (const { name, visibility } of defaults) {
-        if (!getLocalRootCache(npub, name)) {
-          await createTree(name, visibility, true);
-        }
-      }
-    }, npub).catch(() => {});
-  }
+    if (getLocalRootCache(owner, 'public')) return;
+    const { createTree } = await import('/src/actions/tree.ts');
+    await createTree('public', 'public', true);
+  }, npub);
 
-  for (let attempt = 0; attempt < 2 && !await publicLink.isVisible().catch(() => false); attempt++) {
-    await page.reload({ waitUntil: 'domcontentloaded' }).catch(() => {});
-    await waitForAppReady(page, timeoutMs);
-    await waitForRelay();
-    npub = npub ?? await resolveLoggedInNpub();
-  }
-
-  const publicHash = await publicLink.getAttribute('href').catch(() => null);
-  const npubFromLink = publicHash?.match(/#\/(npub1[^/]+)/)?.[1] ?? null;
-  let resolvedNpub = npub ?? npubFromLink;
-
-  for (let attempt = 0; attempt < 5 && !resolvedNpub; attempt++) {
-    await page.waitForTimeout(500);
-    resolvedNpub = await resolveLoggedInNpub();
-  }
-
-  if (!resolvedNpub) {
-    throw new Error('Failed to resolve logged-in npub for public folder navigation');
-  }
-
-  const targetHash = publicHash?.startsWith('#/') ? publicHash : `#/${resolvedNpub}/public`;
-  await page.evaluate((hash) => {
-    const nextHash = hash.startsWith('#') ? hash : `#${hash}`;
-    if (window.location.hash === nextHash) {
-      window.dispatchEvent(new HashChangeEvent('hashchange'));
-      return;
-    }
-    window.location.hash = nextHash;
-  }, targetHash).catch(() => {});
-  const navigatedByHash = await page.waitForFunction(
-    (hash) => window.location.hash === hash,
+  const appPath = new URL(page.url()).pathname || '/';
+  const targetHash = `#/${npub}/public`;
+  await page.evaluate((hash: string) => { window.location.hash = hash; }, targetHash);
+  const navigated = await page.waitForFunction(
+    (hash: string) => window.location.hash === hash,
     targetHash,
-    { timeout: 5000 }
+    { timeout: 5000 },
   ).then(() => true).catch(() => false);
-  if (!navigatedByHash) {
+  if (!navigated) {
     await safeGoto(page, `${appPath}${targetHash}`, { timeoutMs, retries: 3, delayMs: 500 });
+    await waitForAppReady(page, timeoutMs);
   }
-  await waitForAppReady(page, timeoutMs);
-  await waitForRelay();
-
-  // Wait for navigation to complete and folder actions to be visible
-  await page.waitForFunction(
-    () => /^#\/npub[^/]+\/public\/?(?:\?.*)?$/.test(window.location.hash),
-    undefined,
-    { timeout: timeoutMs }
-  );
   await expectFolderEditable(page, Math.max(20000, timeoutMs));
 }
 
@@ -243,6 +168,40 @@ export async function createFolder(page: any, folderName: string) {
   await expect(page.locator('.fixed.inset-0.bg-black')).not.toBeVisible({ timeout: 10000 });
 }
 
+/** Makes a folder in the open folder from the New menu and opens it. */
+export async function createAndEnterFolder(page: any, name: string) {
+  await chooseNew(page, 'Folder');
+  await page.getByPlaceholder('Folder name...').fill(name);
+  await page.getByPlaceholder('Folder name...').press('Enter');
+  const folderLink = page.getByTestId('file-list').getByRole('link', { name, exact: true });
+  await expect(folderLink).toBeVisible({ timeout: 30000 });
+  const folderHash = new URL((await folderLink.getAttribute('href'))!, page.url()).hash;
+  await folderLink.click();
+  await page.waitForURL((url: URL) => url.hash === folderHash, { timeout: 30000 });
+  await expect(page.getByText('Empty directory')).toBeVisible({ timeout: 30000 });
+}
+
+/**
+ * Makes a text file in the open folder from the New menu, writes and saves
+ * what is given, and goes back to the folder, where the file is listed.
+ */
+export async function createTextFile(page: any, name: string, content = '') {
+  await chooseNew(page, 'Text file');
+  await page.getByPlaceholder('File name...').fill(name);
+  await page.getByPlaceholder('File name...').press('Enter');
+  const editor = page.locator('textarea');
+  await expect(editor).toBeVisible({ timeout: 30000 });
+  if (content) {
+    await editor.fill(content);
+    await saveTextFile(page);
+  }
+  await page.getByRole('button', { name: 'Done' }).click();
+  await expect(editor).toBeHidden({ timeout: 30000 });
+  await page.getByTestId('viewer-back').click();
+  await expectFolderEditable(page);
+  await expect(page.getByTestId('file-list').getByRole('link', { name: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`) })).toBeVisible({ timeout: 30000 });
+}
+
 /**
  * Clear all browser storage (IndexedDB, localStorage, sessionStorage).
  * Use this to reset state between tests or create a fresh user.
@@ -302,38 +261,6 @@ export async function addFileViaTreeAPI(page: any, routePath: string[], filename
     autosaveIfOwn(newRootCid);
     return toHex(newRootCid.hash);
   }, { routePath, filename, content });
-}
-
-/**
- * Navigate into a folder by clicking its link in the file list.
- * Waits for the folder to appear and for navigation to complete.
- *
- * @param page - Playwright page
- * @param folderName - Name of the folder to navigate into
- */
-export async function navigateIntoFolder(page: any, folderName: string) {
-  const folderLink = page.locator('[data-testid="file-list"] a').filter({ hasText: folderName }).first();
-  await expect(folderLink).toBeVisible({ timeout: 15000 });
-  await folderLink.click();
-  await page.waitForURL(new RegExp(folderName), { timeout: 10000 });
-}
-
-/**
- * Get the current directory's nhash permalink.
- * This uses the app's bundled hashtree module to avoid msgpack resolution issues.
- */
-export async function getCurrentDirNhash(page: any): Promise<string | null> {
-  return page.evaluate(async () => {
-    const { currentDirCidStore } = await import('/src/stores/index.ts');
-    const { nhashEncode } = await import('/src/lib/nhash.ts');
-
-    let dirCid: { hash: Uint8Array; key?: Uint8Array } | null = null;
-    const unsub = currentDirCidStore.subscribe((v: { hash: Uint8Array; key?: Uint8Array } | null) => { dirCid = v; });
-    unsub();
-
-    if (!dirCid) return null;
-    return nhashEncode(dirCid);
-  });
 }
 
 /**

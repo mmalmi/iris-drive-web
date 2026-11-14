@@ -1,191 +1,36 @@
-import { test, expect } from './fixtures';
-import { setupPageErrorHandler, navigateToPublicFolder, goToTreeList, disableOthersPool, waitForAppReady, chooseNew, expectFolderEditable } from './test-utils.js';
+import { expect, test } from './fixtures';
+import { createDriveProfile, prepareFreshSession } from './documents.helpers';
+import { createAndEnterFolder, createFolder, createTextFile } from './test-utils';
 
-// Run keyboard tests serially - they depend on focus state which is unreliable under parallel execution
-test.describe.configure({ mode: 'serial' });
+test('the arrow keys and j/k step through a folder, and Enter opens a folder', async ({ page, relayUrl }) => {
+  test.setTimeout(120_000);
+  await prepareFreshSession(page, relayUrl);
+  await createDriveProfile(page, 'Keys Test');
+  await createAndEnterFolder(page, 'Keys');
+  await createFolder(page, 'Inner');
+  await createTextFile(page, 'alpha.txt', 'Alpha');
+  await createTextFile(page, 'beta.txt', 'Beta');
 
-// Helper to create tree and navigate into it
-async function createAndEnterTree(page: any, name: string) {
-  await goToTreeList(page);
-  await chooseNew(page, 'Folder', { timeoutMs: 10000 });
-  await page.locator('input[placeholder="Folder name..."]').fill(name);
-  await page.getByRole('button', { name: 'Create' }).click();
-  await expect(page.getByText('Empty directory')).toBeVisible({ timeout: 10000 });
-}
+  const list = page.getByTestId('file-list');
+  const shown = page.locator('pre');
+  await list.getByRole('link', { name: /^alpha\.txt/ }).click();
+  await expect(shown).toContainText('Alpha', { timeout: 30_000 });
 
-// Helper to create a file and return to parent folder
-async function createFile(page: any, name: string, content: string = '', treeName: string = '') {
-  await chooseNew(page, 'Text file');
-  await page.locator('input[placeholder="File name..."]').fill(name);
-  await page.getByRole('button', { name: 'Create' }).click();
-  await expect(page.getByRole('button', { name: 'Done' })).toBeVisible({ timeout: 5000 });
-  if (content) {
-    await page.locator('textarea').fill(content);
-  }
-  await page.getByRole('button', { name: 'Done' }).click();
-  const unsavedModal = page.locator('[data-modal-backdrop]');
-  if (await unsavedModal.isVisible()) {
-    await unsavedModal.getByRole('button', { name: 'Save', exact: true }).click();
-  }
-  await expect(page.getByRole('button', { name: 'Done' })).not.toBeVisible({ timeout: 10000 });
-  await expect(unsavedModal).toHaveCount(0);
+  await list.focus();
+  await page.keyboard.press('ArrowDown');
+  await expect(shown).toContainText('Beta');
+  await page.keyboard.press('k');
+  await expect(shown).toContainText('Alpha');
+  await page.keyboard.press('j');
+  await expect(shown).toContainText('Beta');
 
-  // Navigate back to the tree folder after file creation
-  if (treeName) {
-    await page.locator(`a:has-text("${treeName}")`).first().click();
-    await expect(page.getByTestId('file-list')).toBeVisible({ timeout: 5000 });
-  }
-}
-
-test.describe('Keyboard Navigation', () => {
-  test.setTimeout(60000);
-
-  test.beforeEach(async ({ page }) => {
-    setupPageErrorHandler(page);
-    await page.goto('/');
-    await disableOthersPool(page); // Prevent WebRTC cross-talk from parallel tests
-
-    // Clear storage for fresh state
-    await page.evaluate(async () => {
-      const dbs = await indexedDB.databases();
-      for (const db of dbs) {
-        if (db.name) indexedDB.deleteDatabase(db.name);
-      }
-      localStorage.clear();
-      sessionStorage.clear();
-    });
-
-    await page.reload();
-    await waitForAppReady(page); // Wait for page to load after reload
-    await disableOthersPool(page); // Re-apply after reload
-    await navigateToPublicFolder(page);
-  });
-
-  test('should navigate between files with arrow keys', async ({ page }) => {
-    // Create tree with multiple files
-    await createAndEnterTree(page, 'keyboard-test');
-    await createFile(page, 'file1.txt', 'Content 1', 'keyboard-test');
-    await createFile(page, 'file2.txt', 'Content 2', 'keyboard-test');
-    await createFile(page, 'file3.txt', 'Content 3', 'keyboard-test');
-
-    // Start from a deterministic selection
-    const file1Link = page.locator('[data-testid="file-list"] a').filter({ hasText: 'file1.txt' }).first();
-    await expect(file1Link).toBeVisible({ timeout: 10000 });
-    await file1Link.click();
-    await expect(page.locator('pre')).toContainText('Content 1', { timeout: 10000 });
-
-    // Focus the file list and navigate to next file
-    const fileList = page.getByTestId('file-list');
-    await fileList.click();
-    await fileList.focus();
-    await page.keyboard.press('ArrowDown');
-
-    // Should now show file2.txt
-    await expect(page.locator('pre')).toContainText('Content 2', { timeout: 10000 });
-  });
-
-  test('should navigate with vim keys (j/k)', async ({ page }) => {
-    await createAndEnterTree(page, 'vim-keys-test');
-    await createFile(page, 'alpha.txt', 'Alpha content', 'vim-keys-test');
-    await createFile(page, 'beta.txt', 'Beta content', 'vim-keys-test');
-
-    const alphaLink = page.locator('[data-testid="file-list"] a').filter({ hasText: 'alpha.txt' }).first();
-    await expect(alphaLink).toBeVisible({ timeout: 10000 });
-    await alphaLink.click();
-    await expect(page.locator('pre')).toContainText('Alpha content', { timeout: 10000 });
-
-    const fileList = page.getByTestId('file-list');
-    await expect(fileList).toBeVisible({ timeout: 10000 });
-    await fileList.click(); // Click to ensure focus
-    await fileList.focus();
-
-    const pressAndExpect = async (needle: string, key: string) => {
-      await expect(async () => {
-        await page.keyboard.press(key);
-        await expect(page.locator('pre')).toContainText(needle, { timeout: 1000 });
-      }).toPass({ timeout: 8000, intervals: [200, 400, 800, 1200] });
-    };
-
-    // Navigate down with j to beta
-    await pressAndExpect('Beta content', 'j');
-
-    // Navigate back up with k to alpha
-    await pressAndExpect('Alpha content', 'k');
-  });
-
-  test('should navigate into directories with Enter key', async ({ page }) => {
-    await createAndEnterTree(page, 'enter-nav-test');
-
-    // Create a subdirectory
-    await chooseNew(page, 'Folder');
-    await page.locator('input[placeholder="Folder name..."]').fill('subdir');
-    await page.getByRole('button', { name: 'Create' }).click();
-    await expect(page.getByText(/Drop or click to add|Empty directory/).first()).toBeVisible({ timeout: 10000 });
-
-    // Navigate back to parent
-    await page.locator('a:has-text("enter-nav-test")').first().click();
-    await expect(page.getByTestId('file-list')).toBeVisible({ timeout: 5000 });
-
-    const fileList = page.getByTestId('file-list');
-    await fileList.focus();
-
-    // Navigate to subdir (past '..' and '.')
-    await page.keyboard.press('ArrowDown'); // '..'
-    await page.keyboard.press('ArrowDown'); // '.'
-    await page.keyboard.press('ArrowDown'); // 'subdir'
-
-    // Press Enter to navigate into directory
-    await page.keyboard.press('Enter');
-
-    // Should now be in subdir - verify by checking URL or empty directory message
-    await expect(page.getByText(/Drop or click to add|Empty directory/).first()).toBeVisible({ timeout: 5000 });
-  });
-
-  test('should show focus ring on focused item', async ({ page }) => {
-    await createAndEnterTree(page, 'focus-ring-test');
-    await createFile(page, 'test.txt', 'Test content', 'focus-ring-test');
-
-    const fileList = page.getByTestId('file-list');
-    await fileList.focus();
-
-    // Navigate down to focus '..'
-    await page.keyboard.press('ArrowDown');
-
-    // Check that '..' row has focus ring class
-    const parentRow = page.locator('a:has-text("..")');
-    await expect(parentRow).toHaveClass(/ring-accent/);
-  });
-
-  test('should navigate tree list with arrow keys', async ({ page }) => {
-    // Create multiple trees
-    await goToTreeList(page);
-    await chooseNew(page, 'Folder', { timeoutMs: 10000 });
-    await page.locator('input[placeholder="Folder name..."]').fill('tree-a');
-    await page.getByRole('button', { name: 'Create' }).click();
-    await expect(page.getByText(/Drop or click to add|Empty directory/).first()).toBeVisible({ timeout: 10000 });
-
-    // Go back and create second tree
-    await page.locator('a:has-text("..")').first().click();
-    await chooseNew(page, 'Folder', { timeoutMs: 10000 });
-    await page.locator('input[placeholder="Folder name..."]').fill('tree-b');
-    await page.getByRole('button', { name: 'Create' }).click();
-    await expect(page.getByText(/Drop or click to add|Empty directory/).first()).toBeVisible({ timeout: 10000 });
-
-    // Go back to tree list
-    await page.locator('a:has-text("..")').first().click();
-    await expectFolderEditable(page, 10000);
-
-    // Use first() since profile page may have multiple file-list elements
-    const fileList = page.getByTestId('file-list').first();
-    await fileList.click(); // Click to ensure focus is on the element
-    await fileList.focus();
-
-    // Navigate down through tree items - retry to handle reactivity timing
-    await expect(async () => {
-      await page.keyboard.press('ArrowDown');
-      // Check focus ring is visible on a tree item
-      const focusedTree = page.locator('[data-testid="file-list"] a.ring-accent');
-      await expect(focusedTree).toBeVisible({ timeout: 1000 });
-    }).toPass({ timeout: 10000, intervals: [500, 1000, 2000] });
-  });
+  // Moving onto a folder only marks it; Enter opens it.
+  await page.keyboard.press('ArrowUp');
+  await expect(shown).toContainText('Alpha');
+  await page.keyboard.press('ArrowUp');
+  const inner = list.getByRole('link', { name: 'Inner', exact: true });
+  await expect(inner).toHaveClass(/ring-accent/);
+  await page.keyboard.press('Enter');
+  await expect(page).toHaveURL(/\/main\/Keys\/Inner$/);
+  await expect(page.getByText('Empty directory')).toBeVisible();
 });

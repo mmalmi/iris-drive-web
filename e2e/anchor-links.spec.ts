@@ -1,236 +1,60 @@
-import { saveTextFile, chooseNew, expectFolderEditable } from './test-utils.js';
-import type { Page } from '@playwright/test';
-import { test, expect } from './fixtures';
-import { navigateToPublicFolder, goToTreeList, setupFreshUser } from './test-utils.js';
+import { expect, test, type Page } from './fixtures';
+import { createDriveProfile, prepareFreshSession } from './documents.helpers';
+import { createTextFile } from './test-utils';
 
-async function createAndEnterTree(page: Page, name: string) {
-  await goToTreeList(page);
-  await chooseNew(page, 'Folder', { timeoutMs: 10000 });
-  await page.locator('input[placeholder="Folder name..."]').fill(name);
-  await page.getByRole('button', { name: 'Create' }).click();
-  const folderLink = page.locator('a').filter({ hasText: name }).first();
-  await expect(folderLink).toBeVisible({ timeout: 10000 });
-  await folderLink.click();
-  await expect(page).toHaveURL(new RegExp(`/${name}(?:[?#]|$)`), { timeout: 30000 });
-  await expectFolderEditable(page, 30000);
-  await expect(page.getByText('Empty directory')).toBeVisible({ timeout: 10000 });
+/** A new Drive with one text file written in it, open for viewing. */
+async function openNewFile(page: Page, relayUrl: string, name: string, content: string): Promise<void> {
+  await prepareFreshSession(page, relayUrl);
+  await createDriveProfile(page, 'Anchor Test');
+  await createTextFile(page, name, content);
+  await page.getByTestId('file-list').getByRole('link', { name: new RegExp(`^${name.replace('.', '\\.')}`) }).click();
 }
 
-async function createFile(page: Page, name: string, content: string = '') {
-  await chooseNew(page, 'Text file');
-  await page.locator('input[placeholder="File name..."]').fill(name);
-  await page.getByRole('button', { name: 'Create' }).click();
-  const doneButton = page.getByRole('button', { name: 'Done' });
-  const editorTextarea = page.locator('textarea').last();
-  await expect(doneButton).toBeVisible({ timeout: 5000 });
-  await expect(editorTextarea).toBeVisible({ timeout: 5000 });
-  if (content) {
-    await editorTextarea.fill(content);
-    await saveTextFile(page, 10_000);
-  }
-  await doneButton.click();
-  await expect(doneButton).not.toBeVisible({ timeout: 10000 });
-  await expect(editorTextarea).not.toBeVisible({ timeout: 10000 });
-}
+test.describe('links into a file', () => {
+  test.setTimeout(120_000);
 
-async function openCodeFileAndWaitForLine(
-  page: Page,
-  fileName: string,
-  lineNumber: number,
-  timeoutMs: number = 30000
-) {
-  await page.locator(`a:has-text("${fileName}")`).first().click();
-  await expect(page.locator(`[data-line="${lineNumber}"]`)).toBeVisible({ timeout: timeoutMs });
-}
+  test('markdown headings get ids and an anchor that puts them in the address', async ({ page, relayUrl }) => {
+    await openNewFile(page, relayUrl, 'notes.md', '# First Heading\n\nSome text.\n\n## Second Heading\n\n### Third-Level Heading\n\nMore.');
+    const markdown = page.locator('.markdown-content');
+    await expect(markdown.locator('#first-heading')).toBeVisible({ timeout: 30_000 });
+    await expect(markdown.locator('#second-heading')).toBeVisible();
+    await expect(markdown.locator('#third-level-heading')).toBeVisible();
 
-async function reopenTreeReadme(page: Page, treeName: string): Promise<void> {
-  await goToTreeList(page);
-  await page.locator('a').filter({ hasText: treeName }).first().click();
-  const readmeLink = page.getByRole('link', { name: /^README\.md/ }).first();
-  await expect(readmeLink).toBeVisible({ timeout: 30000 });
-  await readmeLink.click();
-  await expect(page.locator('.markdown-content')).toBeVisible({ timeout: 30000 });
-}
-
-test.describe('Anchor Links', () => {
-  test.setTimeout(120000);
-
-  test.beforeEach(async ({ page }) => {
-    await setupFreshUser(page);
-    await navigateToPublicFolder(page);
+    await markdown.locator('#second-heading').hover();
+    await markdown.locator('#second-heading a.heading-anchor').click();
+    await expect(page).toHaveURL(/[?&]anchor=second-heading/);
   });
 
-  test.describe('Markdown Heading Anchors', () => {
-    test('headings should have id attributes for anchor linking', async ({ page }) => {
-      await createAndEnterTree(page, 'anchor-md-test');
-      await createFile(page, 'README.md', '# First Heading\n\nSome text.\n\n## Second Heading\n\nMore text.\n\n### Third-Level Heading\n\nEven more.');
+  test('code lines are numbered and link to one line, to a range, and from the address', async ({ page, relayUrl }) => {
+    const lines = Array.from({ length: 100 }, (_, i) => `const line${i + 1} = ${i + 1};`).join('\n');
+    await openNewFile(page, relayUrl, 'long.ts', lines);
+    const line = (n: number) => page.locator(`[data-line="${n}"]`);
+    await expect(line(1)).toBeVisible({ timeout: 30_000 });
 
-      await reopenTreeReadme(page, 'anchor-md-test');
+    // The number and the text of a line sit on one row.
+    const row = await line(1).evaluate((el) => ({
+      height: el.getBoundingClientRect().height,
+      numberTop: el.querySelector('.line-number')!.getBoundingClientRect().top,
+      textTop: el.querySelector('.line-content')!.getBoundingClientRect().top,
+      text: el.querySelector('.line-content')!.textContent,
+    }));
+    expect(row.text).toBe('const line1 = 1;');
+    expect(Math.abs(row.numberTop - row.textTop)).toBeLessThan(4);
+    expect(row.height).toBeLessThan(40);
 
-      // Headings should have slugified id attributes
-      await expect(page.locator('#first-heading')).toBeVisible();
-      await expect(page.locator('#second-heading')).toBeVisible();
-      await expect(page.locator('#third-level-heading')).toBeVisible();
-    });
+    await line(3).locator('.line-number').click();
+    await expect(page).toHaveURL(/[?&]L=3($|&)/);
+    await expect(line(3)).toHaveClass(/line-highlighted/);
+    await line(5).locator('.line-number').click({ modifiers: ['Shift'] });
+    await expect(page).toHaveURL(/[?&]L=3-5/);
+    for (const n of [3, 4, 5]) await expect(line(n)).toHaveClass(/line-highlighted/);
+    for (const n of [2, 6]) await expect(line(n)).not.toHaveClass(/line-highlighted/);
 
-    test('heading anchors should have clickable link icons', async ({ page }) => {
-      await createAndEnterTree(page, 'anchor-link-test');
-      await createFile(page, 'README.md', '# Test Heading\n\nContent here.');
-
-      await reopenTreeReadme(page, 'anchor-link-test');
-
-      // Heading should have an anchor link
-      const heading = page.locator('#test-heading');
-      await expect(heading).toBeVisible();
-      const anchorLink = heading.locator('a.heading-anchor');
-      await expect(anchorLink).toBeVisible();
-    });
-
-    test('clicking heading anchor should update URL hash', async ({ page }) => {
-      await createAndEnterTree(page, 'anchor-url-test');
-      await createFile(page, 'README.md', '# My Section\n\nText.');
-
-      await reopenTreeReadme(page, 'anchor-url-test');
-      await expect(page.locator('#my-section')).toBeVisible({ timeout: 30000 });
-
-      // Hover to reveal anchor, then click
-      await page.locator('#my-section').hover();
-      await page.locator('#my-section a.heading-anchor').click({ force: true });
-      await expect(page).toHaveURL(/[?&]anchor=my-section/);
-    });
-  });
-
-  test.describe('Source Code Line Links', () => {
-    test('code viewer should display line numbers', async ({ page }) => {
-      await createAndEnterTree(page, 'line-num-test');
-      await createFile(page, 'test.ts', 'const a = 1;\nconst b = 2;\nconst c = 3;\nconst d = 4;\nconst e = 5;');
-
-      await openCodeFileAndWaitForLine(page, 'test.ts', 1);
-
-      // Line numbers should be visible
-      await expect(page.locator('[data-line="1"]')).toBeVisible();
-      await expect(page.locator('[data-line="5"]')).toBeVisible();
-    });
-
-    test('code viewer should keep source text on the same row as its line number', async ({ page }) => {
-      await createAndEnterTree(page, 'line-layout-test');
-      await createFile(page, 'Cargo.toml', '[workspace]\nmembers = ["crates/*"]');
-
-      await openCodeFileAndWaitForLine(page, 'Cargo.toml', 1);
-
-      const lineMetrics = await page.locator('[data-line="1"]').evaluate((el) => {
-        const line = el.getBoundingClientRect();
-        const lineNumber = el.querySelector('.line-number')?.getBoundingClientRect();
-        const lineContent = el.querySelector('.line-content')?.getBoundingClientRect();
-        return {
-          lineHeight: line.height,
-          lineNumberTop: lineNumber?.top ?? null,
-          lineContentTop: lineContent?.top ?? null,
-          textContent: el.querySelector('.line-content')?.textContent ?? null,
-        };
-      });
-
-      expect(lineMetrics.textContent).toBe('[workspace]');
-      expect(lineMetrics.lineNumberTop).not.toBeNull();
-      expect(lineMetrics.lineContentTop).not.toBeNull();
-      expect(Math.abs((lineMetrics.lineNumberTop ?? 0) - (lineMetrics.lineContentTop ?? 0))).toBeLessThan(4);
-      expect(lineMetrics.lineHeight).toBeLessThan(40);
-    });
-
-    test('clicking line number should update URL with line reference', async ({ page }) => {
-      await createAndEnterTree(page, 'line-click-test');
-      await createFile(page, 'code.js', 'line1\nline2\nline3\nline4\nline5');
-
-      await openCodeFileAndWaitForLine(page, 'code.js', 1);
-
-      // Click line 3
-      await page.locator('[data-line="3"] .line-number').click();
-      await expect(page).toHaveURL(/[?&]L=3/);
-    });
-
-    test('URL with line hash should highlight that line', async ({ page }) => {
-      await createAndEnterTree(page, 'line-highlight-test');
-      await createFile(page, 'src.py', 'a = 1\nb = 2\nc = 3\nd = 4\ne = 5');
-
-      await openCodeFileAndWaitForLine(page, 'src.py', 3);
-
-      // Click line 3 to add query param, then verify highlight
-      await page.locator('[data-line="3"] .line-number').click();
-      await expect(page).toHaveURL(/[?&]L=3/);
-      await expect(page.locator('[data-line="3"]')).toHaveClass(/line-highlighted/);
-    });
-
-    test('URL with line range should highlight multiple lines', async ({ page }) => {
-      await createAndEnterTree(page, 'line-range-test');
-      await createFile(page, 'range.rs', 'fn main() {\n    let x = 1;\n    let y = 2;\n    let z = 3;\n    println!("{}", x + y + z);\n}');
-
-      await openCodeFileAndWaitForLine(page, 'range.rs', 2);
-
-      // Click line 2, then shift-click line 4 to select range
-      await page.locator('[data-line="2"] .line-number').click();
-      await expect(page).toHaveURL(/[?&]L=2($|&)/);
-
-      // Wait for component to stabilize before shift-click
-      await expect(page.locator('[data-line="4"] .line-number')).toBeVisible();
-      await page.locator('[data-line="4"] .line-number').click({ modifiers: ['Shift'] });
-      await expect(page).toHaveURL(/[?&]L=2-4/);
-
-      // Lines 2-4 should be highlighted
-      await expect(page.locator('[data-line="2"]')).toHaveClass(/line-highlighted/);
-      await expect(page.locator('[data-line="3"]')).toHaveClass(/line-highlighted/);
-      await expect(page.locator('[data-line="4"]')).toHaveClass(/line-highlighted/);
-      // Line 1 and 5 should not be highlighted
-      await expect(page.locator('[data-line="1"]')).not.toHaveClass(/line-highlighted/);
-      await expect(page.locator('[data-line="5"]')).not.toHaveClass(/line-highlighted/);
-    });
-
-    test('shift-click should select line range', async ({ page }) => {
-      await createAndEnterTree(page, 'shift-click-test');
-      await createFile(page, 'multi.go', 'package main\n\nimport "fmt"\n\nfunc main() {\n    fmt.Println("hi")\n}');
-
-      await openCodeFileAndWaitForLine(page, 'multi.go', 3);
-
-      // Click line 3
-      await page.locator('[data-line="3"] .line-number').click();
-      await expect(page).toHaveURL(/[?&]L=3($|&)/);
-
-      // Wait for DOM to stabilize after hash change, then shift-click line 5
-      await expect(page.locator('[data-line="5"] .line-number')).toBeVisible();
-      await page.locator('[data-line="5"] .line-number').click({ modifiers: ['Shift'] });
-
-      await expect(page).toHaveURL(/[?&]L=3-5/);
-    });
-
-    test('opening URL with ?L= should scroll to and highlight that line', async ({ page }) => {
-      await createAndEnterTree(page, 'scroll-line-test');
-      // Generate enough lines to require scrolling
-      const lines = Array.from({ length: 100 }, (_, i) => `const line${i + 1} = ${i + 1};`).join('\n');
-      await createFile(page, 'long.ts', lines);
-
-      // Click on file first to get the URL pattern
-      await page.locator('a:has-text("long.ts")').first().click();
-      await expect(page.locator('pre.code-viewer')).toBeVisible({ timeout: 30000 });
-      await expect(page.locator('[data-line="1"]')).toBeVisible({ timeout: 30000 });
-
-      // Now open the same file as a real deep link with ?L=80
-      const currentUrl = page.url();
-      const hashIndex = currentUrl.indexOf('#');
-      const baseUrl = hashIndex >= 0 ? currentUrl.slice(0, hashIndex) : currentUrl;
-      const currentHash = await page.evaluate(() => window.location.hash);
-      const baseHash = currentHash.replace(/\?.*$/, '');
-      const deepLinkUrl = `${baseUrl}${baseHash}?L=80`;
-      await page.goto(deepLinkUrl);
-      await expect(page).toHaveURL(/\?L=80/);
-      await expect(page.locator('pre.code-viewer')).toBeVisible({ timeout: 30000 });
-      await expect(page.locator('[data-line="80"]')).toBeVisible({ timeout: 30000 });
-
-      // Line 80 should be highlighted and scrolled into viewport
-      await expect(page.locator('[data-line="80"]')).toHaveClass(/line-highlighted/, { timeout: 30000 });
-      const isInViewport = await page.locator('[data-line="80"]').evaluate((el: Element) => {
-        const rect = el.getBoundingClientRect();
-        return rect.top >= 0 && rect.bottom <= window.innerHeight;
-      });
-      expect(isInViewport).toBe(true);
-    });
+    // Opened from an address with a line, the line is highlighted and scrolled to.
+    const address = page.url().replace(/\?.*$/, '?L=80');
+    await page.goto(address);
+    await page.reload();
+    await expect(line(80)).toHaveClass(/line-highlighted/, { timeout: 30_000 });
+    await expect(line(80)).toBeInViewport();
   });
 });

@@ -1,13 +1,16 @@
 import DOMPurify from 'dompurify';
 import { marked, type Renderer, type Token, type Tokens } from 'marked';
 
-import { getNpubFileUrl } from './mediaUrl';
+import type { CID } from '@hashtree/core';
+import { getNpubFileUrl, getStablePathUrl, isNpubTreeScope } from './mediaUrl';
 import { generateProxyUrlAsync, type ImgProxyConfig } from '../utils/imgproxy';
 
 export interface MarkdownRouteContext {
   npub: string;
   treeName: string;
   basePath: string[];
+  /** The tree's root, which serves pictures of trees that are not npub trees. */
+  rootCid?: CID | null;
 }
 
 export interface RenderMarkdownOptions {
@@ -127,10 +130,10 @@ function rewriteRelativeReferences(
     const { suffix } = splitPathAndSuffix(href);
     const resolved = resolveRepoPath(repoBasePath, href);
     const mediaPath = resolved.map(decodePathSegment).join('/');
-    image.href = appendReferenceSuffix(
-      getNpubFileUrl(routeContext.npub, routeContext.treeName, mediaPath),
-      suffix,
-    );
+    const mediaUrl = isNpubTreeScope(routeContext.npub)
+      ? getNpubFileUrl(routeContext.npub, routeContext.treeName, mediaPath)
+      : getStablePathUrl({ rootCid: routeContext.rootCid, path: mediaPath });
+    if (mediaUrl) image.href = appendReferenceSuffix(mediaUrl, suffix);
   });
 }
 

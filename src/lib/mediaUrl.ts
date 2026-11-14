@@ -252,6 +252,15 @@ function buildImmutableMediaUrl(
 }
 
 /**
+ * Whether a route scope names a tree the worker can serve by its newest
+ * version: only npub trees. A Drive profile's id is not one, so its files are
+ * addressed by content (CID) instead.
+ */
+export function isNpubTreeScope(scope: string | null | undefined): scope is string {
+  return !!scope && /^npub1[a-z0-9]{58}$/.test(scope);
+}
+
+/**
  * Generate a file URL for npub-based access
  *
  * @param npub - The npub of the user

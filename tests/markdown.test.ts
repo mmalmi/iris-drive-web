@@ -2,13 +2,16 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { generateProxyUrlAsyncMock, getNpubFileUrlMock } = vi.hoisted(() => ({
+const { generateProxyUrlAsyncMock, getNpubFileUrlMock, getStablePathUrlMock } = vi.hoisted(() => ({
   generateProxyUrlAsyncMock: vi.fn(),
   getNpubFileUrlMock: vi.fn((npub: string, treeName: string, path: string) => {
     const encodedTreeName = encodeURIComponent(treeName);
     const encodedPath = path.split('/').filter(Boolean).map(encodeURIComponent).join('/');
     return `/htree/${npub}/${encodedTreeName}${encodedPath ? `/${encodedPath}` : ''}?htree_c=test-client`;
   }),
+  getStablePathUrlMock: vi.fn(({ rootCid, path }: { rootCid?: { label: string } | null; path: string }) => (
+    rootCid ? `/htree/nhash1${rootCid.label}/${path}?htree_c=test-client` : null
+  )),
 }));
 
 vi.mock('../src/utils/imgproxy', async () => {
@@ -21,6 +24,8 @@ vi.mock('../src/utils/imgproxy', async () => {
 
 vi.mock('../src/lib/mediaUrl', () => ({
   getNpubFileUrl: getNpubFileUrlMock,
+  getStablePathUrl: getStablePathUrlMock,
+  isNpubTreeScope: (scope: string | null | undefined) => !!scope?.startsWith('npub1'),
 }));
 
 import { renderMarkdownHtml } from '../src/lib/markdown';
@@ -69,6 +74,20 @@ describe('renderMarkdownHtml', () => {
     });
 
     expect(html).toContain('src="/htree/npub1example/repo/public/squirreldisk.png?htree_c=test-client"');
+  });
+
+  it('serves pictures in a Drive profile\'s folders from the tree root, which the worker can read', async () => {
+    const html = await renderMarkdownHtml('![Preview](../assets/preview.png)', {
+      routeContext: {
+        npub: '019ed693-4110-7352-8cc3-be90158ba91e',
+        treeName: 'main',
+        basePath: ['docs', 'guides'],
+        rootCid: { label: 'root' } as never,
+      },
+    });
+
+    expect(getNpubFileUrlMock).not.toHaveBeenCalled();
+    expect(html).toContain('src="/htree/nhash1root/docs/assets/preview.png?htree_c=test-client"');
   });
 
   it('resolves nested relative markdown images against the markdown file directory', async () => {

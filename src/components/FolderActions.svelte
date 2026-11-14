@@ -49,8 +49,9 @@
   let permalinkSnapshot = $derived($permalinkSnapshotStore);
   let userNpub = $derived($nostrStore.npub);
 
-  // Get user's own trees for fork name suggestions
-  let ownTreesStore = $derived(createTreesStore(userNpub));
+  // Get user's own trees for fork name suggestions. A Drive profile keeps its
+  // top-level folders, My Drive's own among them, under the profile's id.
+  let ownTreesStore = $derived(createTreesStore(activeNostrIdentityRootScope($nostrStore) ?? userNpub));
   let ownTrees = $state<Array<{ name: string }>>([]);
 
   $effect(() => {

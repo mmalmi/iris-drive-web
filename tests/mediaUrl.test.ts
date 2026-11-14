@@ -11,6 +11,7 @@ import {
   getThumbnailUrlFromCid,
   getStableThumbnailUrl,
   getStableVideoCandidateUrls,
+  isNpubTreeScope,
 } from '../src/lib/mediaUrl';
 
 afterEach(() => {
@@ -421,5 +422,13 @@ describe('mediaUrl thumbnail helpers', () => {
     ).toBe(
       '/htree/npub1example/videos%2FTest%20Clip/clips/demo%20reel/thumbnail?v=deadbeef&htree_c=test-media-client',
     );
+  });
+});
+
+describe('isNpubTreeScope', () => {
+  it('accepts npub trees, which the worker serves by path, and not Drive profile ids', () => {
+    expect(isNpubTreeScope('npub1xdhnr9mrv47kkrn95k6cwecearydeh8e895990n3acntwvmgk2dsdeeycm')).toBe(true);
+    expect(isNpubTreeScope('019ed693-4110-7352-8cc3-be90158ba91e')).toBe(false);
+    expect(isNpubTreeScope(null)).toBe(false);
   });
 });
