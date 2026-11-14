@@ -35,9 +35,17 @@ describe('who can open an item', () => {
 
   it('covers everything inside a folder I shared', () => {
     const records = [record({ join_links: [link] })];
-    expect(itemAccess({ ...mine, path: ['Plans'], records })?.kind).toBe('link');
-    expect(itemAccess({ ...mine, path: ['Plans', 'Budget.irissheet'], records })?.kind).toBe('link');
-    expect(itemAccess({ ...mine, path: ['Plans'], records: [record({})] })?.kind).toBe('people');
+    expect(itemAccess({ ...mine, path: ['Plans'], records })).toMatchObject({ kind: 'people', invite: true });
+    expect(itemAccess({ ...mine, path: ['Plans', 'Budget.irissheet'], records })).toMatchObject({ kind: 'people', invite: true });
+    expect(itemAccess({ ...mine, path: ['Plans'], records: [record({})] })).toEqual({ kind: 'people', people: 0 });
+  });
+
+  it('does not call a folder with an invite link open to anyone with the link', () => {
+    // Joining by invite takes an account and the owner's Drive letting them in.
+    const access = itemAccess({ ...mine, path: ['Plans'], records: [record({ join_links: [link] })] })!;
+    expect(access.kind).not.toBe('link');
+    expect(describeItemAccess(access).label).toBe('Shared');
+    expect(describeItemAccess(access).detail).not.toMatch(/anyone/i);
   });
 
   it('knows a folder someone shared with me', () => {
@@ -57,7 +65,8 @@ describe('who can open an item', () => {
     expect(describeItemAccess({ kind: 'private' }).label).toBe('Private');
     expect(describeItemAccess({ kind: 'people', people: 2 }).label).toBe('Shared with 2');
     expect(describeItemAccess({ kind: 'people', people: 0 }).label).toBe('Shared');
-    expect(describeItemAccess({ kind: 'link', people: 1 }).detail).toBe('Anyone with the link can open this. 1 person has joined.');
+    expect(describeItemAccess({ kind: 'people', people: 1, invite: true }).detail).toBe('Shared with 1 person. People with the invite link can join');
+    expect(describeItemAccess({ kind: 'link', people: 0 }).label).toBe('Anyone with the link');
     expect(describeItemAccess({ kind: 'public' }).label).toBe('Public');
   });
 });

@@ -131,3 +131,6 @@ if (typeof window !== 'undefined') {
 
 // Legacy compatibility alias
 export const useNostrStore = nostrStore;
+
+/** True once the stored account, if any, has been restored at startup. */
+export const sessionRestored = writable(false);

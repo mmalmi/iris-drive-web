@@ -11,9 +11,12 @@ import { ownedShareAtPath } from './sharePeople';
 export type ItemAccess =
   /** Only this person's own devices. */
   | { kind: 'private' }
-  /** People who were invited, and nobody else. `people` counts the others. */
-  | { kind: 'people'; people: number }
-  /** Anyone who has the link can open it; for a shared folder, join it. */
+  /**
+   * People who were added or joined, and nobody else. `people` counts the
+   * others; `invite` when an invite link lets more people join.
+   */
+  | { kind: 'people'; people: number; invite?: boolean }
+  /** Anyone who has the link can open it. */
   | { kind: 'link'; people: number }
   /** Anyone can find and open it. */
   | { kind: 'public' };
@@ -40,7 +43,9 @@ function sharedAccess(record: AcceptedShareRecord, appKeyPubkey: string | null |
   } catch {
     // A folder whose member list cannot be read is still a shared one.
   }
-  return { kind: record.join_links?.length ? 'link' : 'people', people };
+  // An invite link lets people join, which takes an account and the owner's
+  // Drive letting them in; it does not open the folder to anyone.
+  return { kind: 'people', people, ...(record.join_links?.length ? { invite: true } : {}) };
 }
 
 /** Null when it is not known, such as a snapshot opened from a link. */
@@ -66,15 +71,17 @@ export function itemAccess(options: ItemAccessOptions): ItemAccess | null {
 /** A word or two for a badge, and a sentence for its tooltip. */
 export function describeItemAccess(access: ItemAccess): { label: string; detail: string; icon: string } {
   const joined = (people: number) => (people === 1 ? '1 person has joined' : `${people} people have joined`);
+  const people = (count: number) => (count === 1 ? '1 person' : `${count} people`);
   switch (access.kind) {
     case 'private':
       return { label: 'Private', detail: 'Only you can open this', icon: 'i-lucide-lock' };
     case 'people':
       return {
         label: access.people > 0 ? `Shared with ${access.people}` : 'Shared',
-        detail: access.people > 0
-          ? `Shared with ${access.people === 1 ? '1 person' : `${access.people} people`}`
-          : 'Shared, nobody has joined yet',
+        detail: [
+          access.people > 0 ? `Shared with ${people(access.people)}` : 'Shared, nobody has joined yet',
+          ...(access.invite ? ['People with the invite link can join'] : []),
+        ].join('. '),
         icon: 'i-lucide-users',
       };
     case 'link':

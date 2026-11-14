@@ -6,6 +6,7 @@ import { restoreSession, initReadonlyBackend } from './nostr/auth';
 import { setAppType } from './appType';
 import { initHtreeApi } from './lib/htreeApi';
 import { waitForRelayConnection } from './lib/workerInit';
+import { sessionRestored } from './nostr/store';
 
 setAppType('files');
 
@@ -28,7 +29,8 @@ async function init() {
   // Restore the stored account before the backend starts, so the backend and
   // its peer network start once with that account's key. Started first, they
   // came up with a throwaway key and had to be torn down and started again.
-  const sessionPromise = restoreSession({ autoCreate: shouldAutoCreateTestSession() });
+  const sessionPromise = restoreSession({ autoCreate: shouldAutoCreateTestSession() })
+    .finally(() => sessionRestored.set(true));
   const backendPromise = initReadonlyBackend();
   await Promise.all([backendPromise, sessionPromise]);
   await htreePromise;

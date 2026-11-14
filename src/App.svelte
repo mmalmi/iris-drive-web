@@ -15,7 +15,7 @@
   import { nostrStore } from './nostr';
   import { activeDriveRootPath } from './drive/profileRoute';
   import { acceptedShares } from './drive/shareLibrary';
-  import { PENDING_JOIN_KEY } from './drive/sharePeople';
+  import { PENDING_JOIN_KEY, PENDING_OPEN_KEY } from './drive/sharePeople';
   import { navigate } from './lib/router.svelte';
 
   // Modal components
@@ -62,14 +62,16 @@
     };
   });
 
-  // A join link opened before signing in: go back to it once there is an account.
+  // A join link or shared folder opened before signing in: go back to it once there is an account.
   $effect(() => {
     if (homePath === '/' || $currentPath.startsWith('/share-join/') || $currentPath.startsWith('/users')) return;
     try {
-      const pending = sessionStorage.getItem(PENDING_JOIN_KEY);
-      if (!pending) return;
+      const pendingJoin = sessionStorage.getItem(PENDING_JOIN_KEY);
+      const pendingOpen = sessionStorage.getItem(PENDING_OPEN_KEY);
       sessionStorage.removeItem(PENDING_JOIN_KEY);
-      navigate(`/share-join/${pending}`);
+      sessionStorage.removeItem(PENDING_OPEN_KEY);
+      if (pendingJoin) navigate(`/share-join/${pendingJoin}`);
+      else if (pendingOpen && pendingOpen !== $currentPath) navigate(pendingOpen);
     } catch {
       // No session storage: the visitor opens the link again.
     }
