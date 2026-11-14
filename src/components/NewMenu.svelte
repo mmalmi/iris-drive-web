@@ -1,3 +1,19 @@
+<script lang="ts" module>
+  /** Where a right click asked for the menu, for the folder's name to open it there. */
+  let asked = $state<{ x: number; y: number } | null>(null);
+
+  /**
+   * A right click on a folder's list beside its items opens New there, as in
+   * Google Drive; the ones on items are theirs. Resolves whether it did.
+   */
+  export function openNewMenuBeside(event: MouseEvent): boolean {
+    if (!(event.target instanceof Element) || event.target.closest('[data-testid="file-row"], a, button, input')) return false;
+    event.preventDefault();
+    asked = { x: event.clientX, y: event.clientY };
+    return true;
+  }
+</script>
+
 <script lang="ts">
   /**
    * The one place to make or add something: a folder, a document, a
@@ -5,7 +21,8 @@
    * device. In the sidebar it is the big New button, a square + on its rail.
    * In a folder's header it is a small New button where there is no sidebar,
    * and on a phone a round button at the bottom whose menu rises from the
-   * bottom of the screen.
+   * bottom of the screen. The folder's name opens it too, and a right click
+   * beside the items of its list.
    */
   import Menu, { type MenuItem } from './ui/Menu.svelte';
   import { DOCUMENT_KINDS } from '../lib/documentNames';
@@ -14,20 +31,33 @@
   import { readFilesFromWebkitDirectory, supportsDirectoryUpload } from '@iris/hashtree-app/directory';
 
   interface Props {
-    /** `empty`: the button inside an empty folder's message. */
-    variant: 'sidebar' | 'rail' | 'folder' | 'empty';
+    /** `empty`: the button inside an empty folder's message; `name`: the folder's name in its header. */
+    variant: 'sidebar' | 'rail' | 'folder' | 'empty' | 'name';
+    /** The folder's name, for `name`. */
+    name?: string;
     /** A folder to open first, for when the page shown is not one to add to. */
     goTo?: string | null;
     class?: string;
   }
 
-  let { variant, goTo = null, class: className = '' }: Props = $props();
+  let { variant, name = '', goTo = null, class: className = '' }: Props = $props();
 
   const hasDirectorySupport = supportsDirectoryUpload();
 
   /** The button the menu was opened from, while it is open. */
   let opener = $state<HTMLElement | null>(null);
+  /** Where a right click opened it. */
+  let at = $state<{ x: number; y: number } | null>(null);
   let focusLast = $state(false);
+  let nameButton: HTMLButtonElement | undefined = $state();
+
+  $effect(() => {
+    if (variant !== 'name' || !asked || !nameButton) return;
+    at = asked;
+    asked = null;
+    focusLast = false;
+    opener = nameButton;
+  });
   let fabButton: HTMLButtonElement | undefined = $state();
   let filesInput: HTMLInputElement | undefined = $state();
   let folderInput: HTMLInputElement | undefined = $state();
@@ -73,11 +103,13 @@
   function closeMenu(returnFocus: boolean) {
     const from = opener;
     opener = null;
+    at = null;
     if (returnFocus) from?.focus();
   }
 
   function toggle(event: MouseEvent) {
     focusLast = false;
+    at = null;
     opener = opener ? null : event.currentTarget as HTMLElement;
   }
 
@@ -112,7 +144,18 @@
 
 <!-- On a phone the folder's New floats, so it takes no room in the header. -->
 <div class="{variant === 'folder' ? 'contents sm:relative sm:block md:hidden' : 'relative'} {className}">
-  {#if variant === 'empty'}
+  {#if variant === 'name'}
+    <button
+      bind:this={nameButton}
+      type="button"
+      class="flex min-w-0 max-w-full items-center gap-1 rounded-lg px-1.5 py-0.5 text-left hover:bg-surface-2 {opener ? 'bg-surface-2' : ''}"
+      {...trigger}
+      data-testid="folder-name-new"
+    >
+      <span class="truncate">{name}</span>
+      <span class="i-lucide-chevron-down shrink-0 text-base text-text-3"></span>
+    </button>
+  {:else if variant === 'empty'}
     <button type="button" class="btn-primary flex items-center gap-1.5" {...trigger} data-testid="empty-folder-new">
       <span class="i-lucide-plus text-lg"></span>
       New
@@ -150,6 +193,7 @@
     <Menu
       {items}
       label="New"
+      {at}
       sheet={opener === fabButton}
       align={variant === 'folder' ? 'right' : 'left'}
       width="w-60"

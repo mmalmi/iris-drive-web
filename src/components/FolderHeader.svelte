@@ -2,7 +2,7 @@
   /**
    * Where you are, above a folder's list, with sharing beside it: the way
    * back, the folders above, the folder's name and who can open it. New is
-   * in the sidebar, or here where there is none.
+   * in the sidebar, or here where there is none, and on the folder's name.
    */
   import type { CID, TreeVisibility } from '@hashtree/core';
   import { npubToPubkey } from '../nostr';
@@ -67,7 +67,10 @@
         <span class="i-lucide-chevron-right shrink-0 text-text-3"></span>
       {/each}
     </nav>
-    <h1 class="min-w-0 truncate text-base lg:text-xl font-medium text-text-1">{name}</h1>
+    <!-- Not clipped where its name opens New, so the menu below it shows whole. -->
+    <h1 class="min-w-0 {canEdit ? '' : 'truncate'} text-base lg:text-xl font-medium text-text-1">
+      {#if canEdit}<NewMenu variant="name" {name} class="min-w-0" />{:else}{name}{/if}
+    </h1>
     {#if access}
       <AccessBadge {access} label class="ml-1" />
     {:else}
