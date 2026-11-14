@@ -87,8 +87,13 @@ test.describe('writing a document', () => {
     const link = documentBody(page).locator('a');
     await expect(link).toHaveText('map');
     await expect(link).toHaveAttribute('href', 'https://example.com/map');
-    // The text goes on where it was, not inside the field.
+    // The text goes on where it was, not inside the field: after the link,
+    // neither replacing the linked words nor joining the link.
     await expect(documentBody(page)).toBeFocused();
+    await page.keyboard.type('s');
+    await expect(documentBody(page)).toContainText('Read the maps first');
+    await expect(link).toHaveText('map');
+    await page.keyboard.press('Backspace');
 
     // Clicking a link while writing puts the cursor in it and shows where it goes; it does not leave the page.
     let opened = 0;

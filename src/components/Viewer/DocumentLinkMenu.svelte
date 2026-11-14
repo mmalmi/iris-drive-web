@@ -7,6 +7,7 @@
    */
   import { untrack } from 'svelte';
   import type { Editor } from '@tiptap/core';
+  import { TextSelection } from '@tiptap/pm/state';
 
   interface Props {
     editor: Editor;
@@ -84,7 +85,17 @@
       const link = withScheme(text);
       chain.insertContent({ type: 'text', text, marks: [{ type: 'link', attrs: { href: link } }] }).unsetMark('link').run();
     } else {
-      chain.extendMarkRange('link').setLink({ href: withScheme(text) }).run();
+      // The cursor goes after the link, as in other editors, so what comes next
+      // follows it rather than replacing the linked words.
+      chain
+        .extendMarkRange('link')
+        .setLink({ href: withScheme(text) })
+        .command(({ tr }) => {
+          tr.setSelection(TextSelection.create(tr.doc, tr.selection.to));
+          return true;
+        })
+        .unsetMark('link')
+        .run();
     }
   }
 
