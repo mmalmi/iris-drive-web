@@ -21,6 +21,15 @@
     } catch {
       // The visitor can open the address again after signing in.
     }
+    return () => {
+      // Gone elsewhere without signing in: an account made later is not for this address.
+      if (nostrStore.getState().isLoggedIn || window.location.hash.startsWith('#/users')) return;
+      try {
+        sessionStorage.removeItem(PENDING_OPEN_KEY);
+      } catch {
+        // Nothing was kept.
+      }
+    };
   });
 </script>
 
