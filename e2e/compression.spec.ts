@@ -52,6 +52,12 @@ test.describe('forking and extracting', () => {
     await openFolderMenu(page);
     await page.getByRole('menuitem', { name: 'Fork' }).click();
     const dialog = page.locator('.fixed.inset-0').filter({ hasText: 'Fork as New Folder' });
+    await dialog.getByRole('button', { name: 'Fork', exact: true }).click();
+    const confirm = page.getByRole('dialog', { name: /Make .* public\?/ });
+    await expect(confirm.getByRole('button', { name: 'Cancel' })).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(confirm).toHaveCount(0);
+    await expect(dialog).toBeVisible();
     await dialog.getByRole('button', { name: 'link-visible' }).click();
     await dialog.getByRole('button', { name: 'Fork' }).click();
     await expect(dialog).toBeHidden();

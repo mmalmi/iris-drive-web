@@ -135,7 +135,7 @@ test.describe('anyone with the link can view', () => {
     }
   });
 
-  test('a document is shared publicly, opens as a document, and keeps its link once shared with people', async ({ page, browser, relayUrl }) => {
+  test('a document is shared publicly, opens as a document, and keeps its link once shared with people', async ({ page, browser, relayUrl }, testInfo) => {
     await prepareFreshSession(page, relayUrl);
     await createDriveProfile(page, 'Owner');
     await chooseNew(page, 'Document');
@@ -149,7 +149,27 @@ test.describe('anyone with the link can view', () => {
 
     await page.getByTestId('document-share').click();
     await expect(page.getByTestId('general-access')).toBeVisible({ timeout: 30_000 });
-    await page.getByTestId('general-access-select').selectOption('public');
+    const select = page.getByTestId('general-access-select');
+    const confirm = page.getByRole('dialog', { name: 'Make “Notes” public?', exact: true });
+    await select.selectOption('public');
+    await expect(confirm.getByRole('button', { name: 'Cancel' })).toBeFocused();
+    await expect(select).toHaveValue('off');
+    await expect(page.getByTestId('general-access-link')).toHaveCount(0);
+    await page.keyboard.press('Escape');
+    await expect(confirm).toHaveCount(0);
+    await expect(select).toBeVisible();
+    await select.selectOption('link');
+    const previousLink = await copiedLink(page);
+    await select.selectOption('public');
+    await confirm.getByRole('button', { name: 'Cancel' }).click();
+    await expect(select).toHaveValue('link');
+    expect(await copiedLink(page)).toBe(previousLink);
+    await select.selectOption('public');
+    await expect(confirm).toContainText('this document');
+    await expect(confirm).toContainText('versions already published');
+    await page.screenshot({ path: testInfo.outputPath('make-public.png') });
+    await confirm.getByRole('button', { name: 'Make public', exact: true }).click();
+    await expect(select).toHaveValue('public');
     await expect(page.getByTestId('general-access-link')).toBeVisible({ timeout: 30_000 });
     const link = await copiedLink(page);
     expect(link).toMatch(/^https:\/\/drive\.iris\.to\/#\/npub1[a-z0-9]+\/Notes\/Notes\.irisdoc$/);
@@ -176,6 +196,13 @@ test.describe('anyone with the link can view', () => {
       await typeInDocument(page, ' Bring water.');
       await expectSaved(page);
       await expectAfterReload(visitor, () => expect(visitor.getByTestId('document-content')).toContainText('Bring water.', { timeout: 10_000 }));
+      await page.getByTestId('document-share').click();
+      await select.selectOption('off');
+      await expect(page.getByTestId('general-access-link')).toHaveCount(0);
+      await select.selectOption('public');
+      await expect(confirm.getByRole('button', { name: 'Cancel' })).toBeFocused();
+      await page.keyboard.press('Enter');
+      await expect(select).toHaveValue('off');
     } finally {
       await visitorContext.close();
     }

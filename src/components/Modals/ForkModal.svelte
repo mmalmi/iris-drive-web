@@ -29,6 +29,8 @@
 <script lang="ts">
   import { forkTree } from '../../actions/tree';
   import VisibilityPicker from '@iris/hashtree-app/VisibilityPicker.svelte';
+  import MakePublicDialog from './MakePublicDialog.svelte';
+  let confirmation = $state<MakePublicDialog>();
 
   let isForking = $state(false);
   let error = $state('');
@@ -50,7 +52,13 @@
     }
   });
 
-  async function handleFork() {
+  function handleFork() {
+    if (isForking || !modalInput.trim()) return;
+    if (visibility === 'public') confirmation?.open();
+    else void createFork();
+  }
+
+  async function createFork() {
     const name = modalInput.trim();
     if (!forkTarget || !name) return;
 
@@ -138,4 +146,5 @@
       </div>
     </div>
   </div>
+  <MakePublicDialog bind:this={confirmation} name={modalInput.trim()} item="this folder and its contents" onconfirm={createFork} />
 {/if}

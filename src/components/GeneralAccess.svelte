@@ -5,6 +5,8 @@
    * whether the item opens by link, and nothing when it does not.
    */
   import CopyText from '@iris/svelte-ui/CopyText.svelte';
+  import MakePublicDialog from './Modals/MakePublicDialog.svelte';
+  import { documentKindInfo, documentTitle } from '../lib/documentNames';
   import { nostrStore } from '../nostr';
   import { activeNostrIdentityRootScope } from '../drive/profileRoute';
   import { acceptedShares } from '../drive/shareLibrary';
@@ -23,9 +25,13 @@
     target: LinkTarget;
     /** What a link to a whole shared folder is named after. */
     name?: string;
+    file?: boolean;
   }
 
-  let { target, name }: Props = $props();
+  let { target, name, file = false }: Props = $props();
+  let confirmation = $state<MakePublicDialog>();
+  let itemName = $derived(target.path.at(-1) || name || 'Shared folder');
+  let documentKind = $derived(file ? null : documentKindInfo(itemName));
 
   let profileId = $derived(activeNostrIdentityRootScope($nostrStore));
   let subject = $derived(linkSubjectAt(target, profileId, $acceptedShares));
@@ -55,14 +61,27 @@
   const STATE: Record<LinkAccess, string> = { link: 'Anyone with the link can view', public: 'Anyone can find it and view it' };
   const ICON: Record<LinkAccess | 'off', string> = { off: 'i-lucide-lock', link: 'i-lucide-link', public: 'i-lucide-globe' };
 
-  async function change(event: Event) {
-    if (!subject || busy) return;
-    const value = (event.currentTarget as HTMLSelectElement).value as LinkAccess | 'off';
+  function change(event: Event) {
+    const select = event.currentTarget as HTMLSelectElement;
+    const value = select.value as LinkAccess | 'off';
+    select.value = access;
+    if (value === 'public') {
+      select.focus();
+      confirmation?.open();
+    } else {
+      void apply(value);
+    }
+  }
+
+  async function apply(value: LinkAccess | 'off') {
+    if (!subject || !canChange || busy || value === access) return;
+    const selected = subject;
+    const selectedName = name;
     busy = true;
     error = '';
     try {
       const { setLinkAccess } = await import('../drive/linkShareSync');
-      await setLinkAccess(subject, value, name);
+      await setLinkAccess(selected, value, selectedName);
     } catch (cause) {
       error = cause instanceof Error ? cause.message : 'Could not change who can open it';
     } finally {
@@ -101,6 +120,14 @@
         <option value="link">Anyone with the link can view</option>
         <option value="public">Public</option>
       </select>
+      {#key JSON.stringify([profileId, target.scope, target.path])}
+        <MakePublicDialog
+          bind:this={confirmation}
+          name={file ? itemName : documentTitle(itemName)}
+          item={file ? 'this file' : documentKind ? `this ${documentKind.noun}` : 'this folder and its contents'}
+          onconfirm={() => void apply('public')}
+        />
+      {/key}
     </div>
     {#if through}
       {@render throughFolder()}

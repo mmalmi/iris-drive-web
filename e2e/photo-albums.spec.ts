@@ -53,11 +53,23 @@ test.describe('albums in Photos', () => {
     await expect(page).toHaveURL(new RegExp(`#/photos/album/${profileId}/Trip$`));
     await expect(page.getByTestId('album-title')).toHaveText('Trip');
     await expect(page.getByTestId('album-header-count')).toHaveText('2 photos');
+    const albumAccess = page.getByTestId('album-header').getByTestId('access-badge');
+    await expect(albumAccess).toHaveAttribute('data-access', 'private');
+    await expect(albumAccess).toHaveText('Private');
     await expect(tiles(page)).toHaveCount(2);
     await expect(page.getByTestId('album-open-folder')).toHaveAttribute('href', `#/${profileId}/main/Trip`);
     await shot(page, 'album-desktop-light');
+    await page.getByTestId('album-share').click();
+    await page.getByTestId('general-access-select').selectOption('public');
+    const confirm = page.getByRole('dialog', { name: 'Make “Trip” public?' });
+    await expect(confirm).toContainText('this folder and its contents');
+    await confirm.getByRole('button', { name: 'Make public', exact: true }).click();
+    await expect(albumAccess).toHaveAttribute('data-access', 'public');
+    await page.keyboard.press('Escape');
     await page.getByTestId('album-back').click();
     await expect(page).toHaveURL(/#\/photos\/albums$/);
+    await expect(card(page, 'Trip').getByTestId('access-icon')).toHaveAttribute('data-access', 'public');
+    await expect(card(page, 'Garden').getByTestId('access-icon')).toHaveCount(0);
     await shot(page, 'albums-desktop-light');
 
     // Two photos chosen in the timeline go into a new album.

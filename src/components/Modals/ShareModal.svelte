@@ -154,7 +154,7 @@
     if (!show) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
+      if (e.key === 'Escape' && !document.querySelector('dialog:modal')) {
         e.stopPropagation();
         (document.activeElement as HTMLElement)?.blur();
         close();
@@ -236,7 +236,7 @@
       {#if general}
         <div class="px-4 pt-1">
           {#await import('../GeneralAccess.svelte') then { default: GeneralAccess }}
-            <GeneralAccess target={general} />
+            <GeneralAccess target={general} file />
           {/await}
         </div>
       {/if}

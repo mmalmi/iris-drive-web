@@ -33,6 +33,8 @@
   import { createFile, createFolder, createTree, createDocument } from '../../actions';
   import { routeStore } from '../../stores';
   import VisibilityPicker from '@iris/hashtree-app/VisibilityPicker.svelte';
+  import MakePublicDialog from './MakePublicDialog.svelte';
+  let confirmation = $state<MakePublicDialog>();
 
   let route = $derived($routeStore);
 
@@ -70,8 +72,16 @@
           : 'File name...'
   );
 
-  async function handleSubmit(e?: Event) {
-    e?.preventDefault();
+  function handleSubmit(e: SubmitEvent) {
+    e.preventDefault();
+    if (isTree && treeVisibility === 'public' && modalInput.trim() && !isCreating) {
+      confirmation?.open();
+      return;
+    }
+    void create();
+  }
+
+  async function create() {
     const name = modalInput.trim();
     if (!name || isCreating) return;
 
@@ -103,7 +113,6 @@
 
   function handleKeyDown(e: KeyboardEvent) {
     if (e.key === 'Escape') close();
-    if (e.key === 'Enter') handleSubmit();
   }
 </script>
 
@@ -120,7 +129,7 @@
       onkeydown={handleKeyDown}
     >
       <h2 class="text-lg font-semibold mb-4">{title}</h2>
-      <form onsubmit={(e) => { e.preventDefault(); handleSubmit(); }}>
+      <form onsubmit={handleSubmit}>
         <input
           bind:this={inputRef}
           type="text"
@@ -145,4 +154,7 @@
       </form>
     </div>
   </div>
+  {#if isTree}
+    <MakePublicDialog bind:this={confirmation} name={modalInput.trim()} item="this folder and its contents" onconfirm={create} />
+  {/if}
 {/if}

@@ -363,7 +363,7 @@
           <h1 class="truncate text-base font-medium text-text-1 lg:text-xl" data-testid="album-title">{albumName}</h1>
           {#if albumPlace}
             {@const access = accessOf(albumPlace)}
-            {#if access && access.kind !== 'private'}<AccessBadge {access} class="text-sm text-text-3" />{/if}
+            <AccessBadge {access} label onclick={share} />
           {/if}
         </div>
         {#if album}<div class="text-xs text-text-2" data-testid="album-header-count">{countLabel(album.photos)}</div>{/if}
