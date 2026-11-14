@@ -88,6 +88,33 @@ test.describe('access to shared folders', () => {
     }
   });
 
+  test('a person is added from the search straight away, without making an invite link first', async ({ page, browser, relayUrl }) => {
+    const bobContext = await browser.newContext();
+    try {
+      const bob = await bobContext.newPage();
+      await prepareFreshSession(bob, relayUrl);
+      const bobAccount = await createDriveProfile(bob, 'Bob');
+
+      await prepareFreshSession(page, relayUrl);
+      await createDriveProfile(page, 'Alice');
+      await makeFolder(page, 'Garden');
+      await openShare(page);
+      await page.getByTestId('share-tab-people').click();
+      await expect(page.getByTestId('share-people-link')).toHaveCount(0);
+      await page.getByTestId('share-people-search').fill(bobAccount.npub);
+      await page.getByTestId('share-people-result').first().click({ timeout: 60_000 });
+
+      await expect(page.getByTestId('share-people-member')).toHaveCount(2, { timeout: 60_000 });
+      await page.keyboard.press('Escape');
+      await expect(page.getByTestId('access-badge')).toHaveText('Shared with 1', { timeout: 30_000 });
+
+      await bob.goto(`${new URL(bob.url()).origin}/#/shared-with-me`);
+      await expect(bob.getByTestId('shared-with-me-row').filter({ hasText: 'Garden' })).toBeVisible({ timeout: 60_000 });
+    } finally {
+      await bobContext.close();
+    }
+  });
+
   test('a read-only copy link says what it gives and opens without an account', async ({ page, browser, relayUrl }) => {
     await prepareFreshSession(page, relayUrl);
     await createDriveProfile(page, 'Owner');
