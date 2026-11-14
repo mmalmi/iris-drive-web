@@ -1,6 +1,7 @@
 // The list says when each item last changed and how big each file is, as
 // Google Drive does, and sorts by name, last change or size, folders first.
 // The order chosen is kept on this device.
+import { writeFile } from 'node:fs/promises';
 import { expect, test, type Page } from './fixtures';
 import { createDocument, createDriveProfile, expectSaved, prepareFreshSession, typeInDocument } from './documents.helpers';
 import { jpeg, picture } from './photos.helpers';
@@ -70,6 +71,56 @@ test.describe('the list of a folder', () => {
     await page.goBack();
     await page.getByRole('button', { name: 'List view', exact: true }).click();
     await expect(photo.locator('img')).toHaveCount(0);
+  });
+
+  test('List and Grid stay in place when the layout, scrollbars or selected items change', async ({ page, relayUrl }, testInfo) => {
+    await page.setViewportSize(DESKTOP);
+    await prepareFreshSession(page, relayUrl);
+    await createDriveProfile(page, 'Layout');
+    await expectFolderEditable(page);
+    await uploadIntoFolder(page, Array.from({ length: 10 }, (_, n) => sized(`Note ${n}.txt`, 10)));
+    const views = page.getByRole('group', { name: 'Folder view' });
+    const list = views.getByRole('button', { name: 'List view' });
+    const grid = views.getByRole('button', { name: 'Grid view' });
+    const folder = page.getByTestId('file-list');
+    await page.addStyleTag({ content: '[data-scroll-root]::-webkit-scrollbar { width: 16px; }' });
+    const box = async () => Promise.all([views, list, grid].map(element => element.boundingBox()));
+    const evidence: Record<string, unknown> = {};
+    for (const width of [1280, 850, 650, 350]) {
+      await page.setViewportSize({ width, height: 480 });
+      await list.click();
+      const start = await box();
+      expect(start.every(Boolean)).toBe(true);
+      const still = async (step: string) => {
+        const actual = await box();
+        evidence[`${width} ${step}`] = actual;
+        expect(actual, `${width}px: ${step}`).toEqual(start);
+      };
+      await grid.focus();
+      await grid.press('Enter');
+      await expect(folder).toHaveAttribute('data-layout', 'grid');
+      await still('keyboard grid');
+      for (const n of [0, 1]) {
+        const row = fileRow(page, `Note ${n}.txt`);
+        await row.getByRole('link').click({ modifiers: ['ControlOrMeta'] });
+        await expect(page.getByTestId('selection-count')).toHaveText(`${n + 1} selected`);
+        await still(`${n + 1} selected`);
+      }
+      await list.click();
+      await expect(folder).toHaveAttribute('data-layout', 'list');
+      await still('list with selection');
+      await folder.evaluate(node => { node.scrollTop = node.scrollHeight; });
+      expect(await folder.evaluate(node => node.scrollTop)).toBeGreaterThan(0);
+      await still('scrolled');
+      await folder.evaluate(node => { node.style.overflowY = 'hidden'; });
+      await still('scrollbar removed');
+      await folder.evaluate(node => { node.style.removeProperty('overflow-y'); });
+      await page.getByRole('button', { name: 'Clear selection' }).click();
+      await still('cleared');
+    }
+    const path = testInfo.outputPath('toolbar-positions.json');
+    await writeFile(path, JSON.stringify(evidence, null, 2));
+    await testInfo.attach('toolbar-positions', { path, contentType: 'application/json' });
   });
 
   test('shows when each item changed and how big each file is, on a phone in a second line', async ({ page, relayUrl }) => {

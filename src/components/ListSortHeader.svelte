@@ -71,7 +71,6 @@
         onClose={(returnFocus) => { open = false; if (returnFocus) button?.focus(); }}
       />
     {/if}
-    <FolderViewSwitch bind:grid />
   </div>
   {#if !grid}
     <button type="button" class="{column} w-32" onclick={() => sortBy('modified')}>
@@ -81,6 +80,8 @@
       {#if sort.by === 'size'}<span class="{arrow} text-sm"></span>{/if}File size
     </button>
   {/if}
-  <!-- Where the rows have their ⋮. -->
-  <span class="shrink-0 {grid ? 'w-0' : 'hidden sm:block w-[34px] lg:w-[40px]'}"></span>
+  <!-- The last column is fixed in both layouts. It holds row actions below. -->
+  <div class="flex w-[var(--folder-actions-width)] shrink-0 justify-end pr-2">
+    <FolderViewSwitch bind:grid />
+  </div>
 </div>

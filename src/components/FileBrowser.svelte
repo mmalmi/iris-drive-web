@@ -635,7 +635,7 @@
   }
 </script>
 
-<div class="flex-1 flex flex-col min-h-0 bg-surface-0">
+<div class="flex-1 flex flex-col min-h-0 bg-surface-0 [--folder-actions-width:5.5rem]">
   {#if knownShare && !sharedFolder}
     <div class="flex-1 flex items-center justify-center text-text-3 text-sm" role="status">You no longer have access to this folder.</div>
   {:else if !rootCid && currentTreeName && !isOwnTrees && !isProtectedTreeWithoutAccess}
@@ -775,7 +775,7 @@
             <!-- svelte-ignore a11y_no_static_element_interactions -->
             <div
               class:folder-tile={showGrid && isFolder}
-              class="group relative flex items-center {showGrid ? 'rounded-xl bg-surface-1' : 'border-b border-surface-2'} hover:bg-surface-2/50 {selectedEntry?.name === entry.name && focusedIndex < 0 ? 'bg-surface-2' : ''} {checked ? 'bg-accent/20 hover:bg-accent/25' : ''} {menuOpen ? 'bg-surface-2/70' : ''} {focusedIndex === idx + specialItemCount ? 'ring-2 ring-inset ring-accent' : ''} {recentlyChanged.has(entry.name) && selectedEntry?.name !== entry.name ? 'animate-pulse-live' : ''} {dragging?.includes(entry.name) ? 'opacity-50' : ''} {dropTargetDir === entry.name ? 'bg-accent/20 ring-2 ring-inset ring-accent' : ''}"
+              class="group relative flex items-center {showGrid || compact ? '' : 'sm:grid sm:grid-cols-[minmax(0,1fr)_var(--folder-actions-width)]'} {showGrid ? 'rounded-xl bg-surface-1' : 'border-b border-surface-2'} hover:bg-surface-2/50 {selectedEntry?.name === entry.name && focusedIndex < 0 ? 'bg-surface-2' : ''} {checked ? 'bg-accent/20 hover:bg-accent/25' : ''} {menuOpen ? 'bg-surface-2/70' : ''} {focusedIndex === idx + specialItemCount ? 'ring-2 ring-inset ring-accent' : ''} {recentlyChanged.has(entry.name) && selectedEntry?.name !== entry.name ? 'animate-pulse-live' : ''} {dragging?.includes(entry.name) ? 'opacity-50' : ''} {dropTargetDir === entry.name ? 'bg-accent/20 ring-2 ring-inset ring-accent' : ''}"
               data-testid="file-row"
               data-entry-name={entry.name}
               data-changed={recentlyChanged.has(entry.name) ? '' : undefined}
@@ -809,7 +809,7 @@
               </a>
               <button
                 type="button"
-                class="btn-circle shrink-0 mr-1.5 {showDirectoryNavigationRows ? '' : 'lg:mr-3'} b-0 bg-transparent cursor-pointer text-text-3 hover:text-text-1 hover:bg-surface-3 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 {menuOpen ? 'sm:opacity-100 bg-surface-3' : ''}"
+                class="btn-circle shrink-0 justify-self-end mr-1.5 {showDirectoryNavigationRows ? '' : 'lg:mr-3'} b-0 bg-transparent cursor-pointer text-text-3 hover:text-text-1 hover:bg-surface-3 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 {menuOpen ? 'sm:opacity-100 bg-surface-3' : ''}"
                 title="More actions"
                 aria-label="More actions for {title}"
                 aria-haspopup="menu"

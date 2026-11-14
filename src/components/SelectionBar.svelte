@@ -94,7 +94,7 @@
 {/snippet}
 
 <div
-  class="folder-selection-bar shrink-0 flex items-center gap-1 px-1.5 py-2 {compact ? '' : 'lg:px-3 lg:py-3'} border-b border-surface-2 bg-accent/10"
+  class="folder-selection-bar shrink-0 flex items-center gap-1 px-1.5 py-2 {compact ? '' : 'h-14 lg:h-16 lg:px-3 lg:py-3'} border-b border-surface-2 bg-accent/10"
   data-testid="selection-bar"
 >
   <button
