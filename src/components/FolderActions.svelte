@@ -6,6 +6,7 @@
   import { nhashEncode, toHex } from '@hashtree/core';
   import type { CID } from '@hashtree/core';
   import { open as openRenameModal } from './Modals/RenameModal.svelte';
+  import { open as openMoveModal } from './Modals/MoveModal.svelte';
   import { open as openForkModal } from './Modals/ForkModal.svelte';
   import ShareButton from './ShareButton.svelte';
   import { open as openBlossomPushModal } from './Modals/BlossomPushModal.svelte';
@@ -371,6 +372,10 @@
               <button onclick={() => openRenameModal(currentDirName!)} class={itemClass} title="Rename">
                 <span class="i-lucide-pencil text-base text-text-2"></span>
                 Rename
+              </button>
+              <button onclick={() => openMoveModal(currentDirName!, route.path.slice(0, -1))} class={itemClass} title="Move" data-testid="move-folder-btn">
+                <span class="i-lucide-folder-input text-base text-text-2"></span>
+                Move
               </button>
             {/if}
 

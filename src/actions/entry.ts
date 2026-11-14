@@ -215,3 +215,33 @@ export async function moveToParent(sourceName: string) {
     navigate(url);
   }
 }
+
+/**
+ * Move an entry of the open tree from the folder at `parentPath` into the
+ * folder at `targetPath`. What was open inside it stays open where it went.
+ */
+export async function moveEntryTo(parentPath: string[], name: string, targetPath: string[]): Promise<void> {
+  const rootCid = getCurrentRootCid();
+  if (!rootCid) throw new Error('Nothing is open');
+  const tree = getTree();
+  const target = targetPath.length === 0
+    ? { cid: rootCid, type: LinkType.Dir }
+    : await tree.resolvePath(rootCid, pathString(targetPath));
+  if (target?.type !== LinkType.Dir) throw new Error('That folder is no longer there');
+  if ((await tree.listDirectory(target.cid)).some((entry) => entry.name === name)) {
+    throw new Error(`There is already something called “${name}” there`);
+  }
+
+  const from = [...parentPath, name];
+  const to = [...targetPath, name];
+  const newRootCid = isProfileDriveMutation()
+    ? await mutateProfileDriveRoot(tree, rootCid, { type: 'rename', from: pathString(from), to: pathString(to) })
+    : await tree.moveEntry(rootCid, parentPath, name, targetPath);
+  autosaveIfOwn(newRootCid);
+  followInRecents(from, to);
+
+  const route = parseRoute();
+  if (from.every((part, index) => route.path[index] === part)) {
+    navigate(buildRouteUrl(route.npub, route.treeName, [...to, ...route.path.slice(from.length)], undefined, route.params.get('k')));
+  }
+}

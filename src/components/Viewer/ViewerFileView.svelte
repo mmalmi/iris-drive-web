@@ -13,6 +13,7 @@
   import { getQueryParamsFromHash } from '../../lib/router.svelte';
   import { open as openBlossomPushModal } from '../Modals/BlossomPushModal.svelte';
   import { open as openRenameModal } from '../Modals/RenameModal.svelte';
+  import { open as openMoveModal } from '../Modals/MoveModal.svelte';
   import { open as openShareModal } from '../Modals/ShareModal.svelte';
   import { createDriveShareLinkVariants } from '../../lib/shareUrls';
   import { TreeRow } from '../ui';
@@ -462,6 +463,7 @@
             {/if}
             {#if canEdit}
               <button onclick={() => openRenameModal(entry.name)} class="btn-ghost" data-testid="viewer-rename">Rename</button>
+              <button onclick={() => openMoveModal(entry.name, routePath.slice(0, -1))} class="btn-ghost" data-testid="viewer-move">Move</button>
               {#if isTextFile}
                 <button onclick={enterEditMode} class="btn-ghost" disabled={loading || fileContent === null} data-testid="viewer-edit">Edit</button>
               {/if}

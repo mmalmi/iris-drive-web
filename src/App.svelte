@@ -21,6 +21,7 @@
   // Modal components
   import CreateModal from './components/Modals/CreateModal.svelte';
   import RenameModal from './components/Modals/RenameModal.svelte';
+  import MoveModal from './components/Modals/MoveModal.svelte';
   import ForkModal from './components/Modals/ForkModal.svelte';
   import ExtractModal from './components/Modals/ExtractModal.svelte';
   import GitignoreModal from './components/Modals/GitignoreModal.svelte';
@@ -148,6 +149,7 @@
   <!-- Modals -->
   <CreateModal />
   <RenameModal />
+  <MoveModal />
   <ForkModal />
   <ExtractModal />
   <GitignoreModal />
