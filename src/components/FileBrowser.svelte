@@ -485,8 +485,8 @@
     }
 
     if ((key === 'delete' || key === 'backspace') && canEdit) {
-      const entryIndex = focusedIndex - specialItemCount;
-      const targetEntry = entryIndex >= 0 ? entries[entryIndex] : selectedEntry;
+      // The focused row, or the open file when no row is focused; never the open file from "..".
+      const targetEntry = chosenEntry();
       if (targetEntry) {
         e.preventDefault();
         if (confirm(`Delete ${targetEntry.name}?`)) {
