@@ -159,14 +159,22 @@ const appFiles = appFileUrls(manifest, self.registration.scope);
 let keepingAppFiles: Promise<void> | null = null;
 
 self.addEventListener('message', (event: ExtendableMessageEvent) => {
-  if ((event.data as { type?: unknown } | null)?.type !== 'keep-app-files' || !precacheEnabled) return;
-  keepingAppFiles ??= caches.open(APP_FILES_CACHE)
-    .then(cache => keepAppFiles(cache, appFiles))
-    .catch(() => undefined)
-    .finally(() => {
-      keepingAppFiles = null;
-    });
-  event.waitUntil(keepingAppFiles);
+  const data = event.data as { type?: unknown; urls?: unknown } | null;
+  if (data?.type !== 'keep-app-files' || !precacheEnabled) return;
+  // `urls`: the files a page already loaded, kept at once; without it, all of them.
+  const wanted = Array.isArray(data.urls)
+    ? new Set(data.urls.filter((url): url is string => typeof url === 'string' && appFiles.has(url)))
+    : appFiles;
+  // One request at a time, in the order asked.
+  const keeping = (keepingAppFiles ?? Promise.resolve())
+    .then(() => caches.open(APP_FILES_CACHE))
+    .then(cache => keepAppFiles(cache, wanted))
+    .catch(() => undefined);
+  keepingAppFiles = keeping;
+  void keeping.finally(() => {
+    if (keepingAppFiles === keeping) keepingAppFiles = null;
+  });
+  event.waitUntil(keeping);
 });
 
 self.addEventListener('fetch', (event: FetchEvent) => {

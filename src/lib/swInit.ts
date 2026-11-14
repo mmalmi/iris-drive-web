@@ -190,14 +190,19 @@ export async function initServiceWorker(options: InitOptions = {}): Promise<void
 }
 
 /**
- * Has the service worker fetch the rest of the app for offline use, a little
- * after the page has started, so that what the page needs first goes first.
+ * Has the service worker keep the app for offline use: at once, the files this
+ * page has already loaded (on a first visit they came before the worker did,
+ * and are still in the browser's cache); a little later, all the rest, so that
+ * what the page needs first goes first.
  */
 export function keepAppForOffline(delayMs = 5000): void {
   if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
-  setTimeout(() => {
-    void navigator.serviceWorker.getRegistration()
-      .then(registration => registration?.active?.postMessage({ type: 'keep-app-files' }))
-      .catch(() => undefined);
-  }, delayMs);
+  const ask = (message: { type: 'keep-app-files'; urls?: string[] }) => navigator.serviceWorker.ready
+    .then(registration => registration.active?.postMessage(message))
+    .catch(() => undefined);
+  const loaded = performance.getEntriesByType('resource')
+    .map(entry => entry.name)
+    .filter(url => url.startsWith(location.origin));
+  void ask({ type: 'keep-app-files', urls: loaded });
+  setTimeout(() => void ask({ type: 'keep-app-files' }), delayMs);
 }
