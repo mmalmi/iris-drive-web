@@ -10,7 +10,7 @@
 import { LinkType, type CID, type HashTree, type TreeEntry } from '@hashtree/core';
 import { documentKind, type DocumentKind } from '../documentNames';
 
-/** More folders than this are not walked looking for a moved document. */
+/** More folders than this are not looked through for a moved document. */
 const MAX_FOLDERS = 2000;
 const METADATA_DIRECTORY = '.hashtree';
 
@@ -25,42 +25,35 @@ export interface MovedDocumentSearch {
 }
 
 /**
- * The path of the document folder of the same kind that shares the most saved
- * batches with this copy, other than `from`, or null when none shares any.
- * Folders beside the old place are looked at first, then the whole Drive.
+ * The path of the document folder of the same kind, other than `from`, that
+ * shares the most saved batches with this copy, or null when none shares
+ * any. The folder the document was in is looked through first, so of two
+ * that share as much, the one beside the old place wins.
  */
 export async function findMovedDocument(search: MovedDocumentSearch): Promise<string[] | null> {
-  const parent = search.from.slice(0, -1);
-  const parentFolder = parent.length === 0
-    ? { cid: search.root, type: LinkType.Dir }
-    : await search.tree.resolvePath(search.root, parent.join('/'));
-  if (parentFolder?.type === LinkType.Dir) {
-    const nearby = await best(search, [{ path: parent, cid: parentFolder.cid }], false);
-    if (nearby) return nearby;
-  }
-  return best(search, [{ path: [], cid: search.root }], true);
-}
-
-async function best(
-  search: MovedDocumentSearch,
-  start: Array<{ path: string[]; cid: CID }>,
-  deep: boolean,
-): Promise<string[] | null> {
   const from = search.from.join('/');
+  const queue: Array<{ path: string[]; cid: CID }> = [];
+  const parent = search.from.slice(0, -1);
+  const parentFolder = parent.length > 0 ? await search.tree.resolvePath(search.root, parent) : null;
+  if (parentFolder?.type === LinkType.Dir) queue.push({ path: parent, cid: parentFolder.cid });
+  queue.push({ path: [], cid: search.root });
+
+  const listed = new Set<string>();
   let found: { path: string[]; known: number } | null = null;
-  const queue = [...start];
-  let walked = 0;
-  while (queue.length > 0 && walked < MAX_FOLDERS) {
+  while (queue.length > 0 && listed.size < MAX_FOLDERS) {
     const folder = queue.shift()!;
-    walked += 1;
+    const key = folder.path.join('/');
+    if (listed.has(key)) continue;
+    listed.add(key);
     for (const entry of await search.tree.listDirectory(folder.cid)) {
       if (entry.type !== LinkType.Dir || (folder.path.length === 0 && entry.name === METADATA_DIRECTORY)) continue;
       const path = [...folder.path, entry.name];
-      if (documentKind(entry.name) === null) {
-        if (deep) queue.push({ path, cid: entry.cid });
+      const kind = documentKind(entry.name);
+      if (kind === null) {
+        queue.push({ path, cid: entry.cid });
         continue;
       }
-      if (documentKind(entry.name) !== search.kind || path.join('/') === from) continue;
+      if (kind !== search.kind || path.join('/') === from) continue;
       const known = await search.known(await search.tree.listDirectory(entry.cid));
       if (known > 0 && (!found || known > found.known)) found = { path, known };
     }

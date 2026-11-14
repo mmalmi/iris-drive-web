@@ -56,6 +56,12 @@ describe('finding where a renamed or moved document went', () => {
       Archive: await dir({ Old: await dir({ 'Plan.irisdoc': await documentFolder([one, two]) }) }),
     });
     expect(await findMovedDocument({ ...search, root: moved })).toEqual(['Archive', 'Old', 'Plan.irisdoc']);
+    // An older copy beside the old place does not win over where it was moved.
+    const movedBesideCopy = await dir({
+      Notes: await dir({ 'Copy made earlier.irisdoc': await documentFolder([one]) }),
+      Archive: await dir({ 'Plan.irisdoc': await documentFolder([one, two, three]) }),
+    });
+    expect(await findMovedDocument({ ...search, root: movedBesideCopy })).toEqual(['Archive', 'Plan.irisdoc']);
 
     // Deleted: nothing holds any of it, and the folder at the old place itself does not count.
     const deleted = await dir({
