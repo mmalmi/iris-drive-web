@@ -36,10 +36,28 @@ test('a second browser of the same kind is numbered on both devices', async ({ p
     const approvalUrl = await requestLink(second);
     expect(approvalUrl).toMatch(/approve-device/);
 
-    await page.goto(`${new URL(page.url()).origin}/#/settings/user`);
-    await expect(page.getByTestId('device-approval-input')).toBeVisible({ timeout: 30_000 });
-    await page.getByTestId('device-approval-input').fill(approvalUrl);
-    await page.getByTestId('approve-device-request').click();
+    const origin = new URL(page.url()).origin;
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin });
+    const pasteRequest = async () => {
+      await page.bringToFront();
+      await page.getByRole('textbox', { name: 'Search Drive' }).click();
+      await page.evaluate((url) => navigator.clipboard.writeText(url), approvalUrl);
+      await page.keyboard.press('ControlOrMeta+v');
+    };
+    await pasteRequest();
+    const review = page.getByTestId('device-approval-route');
+    await expect(review).toContainText('Chrome on macOS');
+    await expect(review.getByRole('button', { name: 'Add device' })).toBeEnabled();
+    await expect(page.getByRole('textbox', { name: 'Search Drive' })).toHaveValue('');
+    await page.screenshot({ path: testInfo.outputPath('device-confirmation.png') });
+    await review.getByRole('button', { name: 'Cancel' }).click();
+    await page.goto(origin + '/#/settings/user');
+    await expect(page.getByTestId('user-key-row')).toHaveCount(1);
+
+    // Opening the native HTTPS path directly requires the same explicit choice.
+    await page.goto(origin + new URL(approvalUrl).pathname);
+    await expect(review).toContainText('Chrome on macOS');
+    await review.getByRole('button', { name: 'Add device' }).click();
     await expect(page.getByTestId('user-key-row')).toHaveCount(2, { timeout: 60_000 });
 
     const first = await deviceNames(page);

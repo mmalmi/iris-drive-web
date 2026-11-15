@@ -1,68 +1,59 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { parseDeviceApprovalBootstrap } from '@iris/identity';
-  import {
-    approveDriveDeviceApprovalBootstrap,
-    getCurrentNostrIdentitySession,
-    restoreSession,
-  } from '../nostr';
+  import { onDestroy } from 'svelte';
+  import { DEVICE_APPROVAL_BOOTSTRAP_PREFIX, parseDeviceApprovalBootstrap } from '@iris/identity';
+  import { approveDriveDeviceApprovalBootstrap, nostrStore, sessionRestored } from '../nostr';
+  import { activeDriveRootPath, activeNostrIdentityRootScope } from '../drive/profileRoute';
   import { navigate } from '../utils/navigate';
 
-  interface Props {
-    payload: string;
-  }
-
-  let { payload }: Props = $props();
-  let status = $state('Approving device');
+  let { payload }: { payload: string } = $props();
+  let bootstrap = $derived(parseDeviceApprovalBootstrap(DEVICE_APPROVAL_BOOTSTRAP_PREFIX + payload));
+  let signedIn = $derived(activeNostrIdentityRootScope($nostrStore));
+  let busy = $state(false);
   let error = $state('');
-  let approvalUrl = $derived(`https://drive.iris.to/approve-device/${payload}`);
+  let closed = false;
+  onDestroy(() => { closed = true; });
 
-  onMount(() => {
-    void approve();
-  });
-
-  async function approve(): Promise<void> {
-    const bootstrap = parseDeviceApprovalBootstrap(approvalUrl);
-    if (!bootstrap) {
-      error = 'Invalid device approval request';
-      return;
-    }
+  async function approve() {
+    if (!bootstrap || !signedIn || busy) return;
+    busy = true;
+    error = '';
     try {
-      if (!getCurrentNostrIdentitySession()) {
-        await restoreSession({ autoCreate: false });
-      }
-      if (!getCurrentNostrIdentitySession()) {
-        error = 'Sign in to approve this device';
-        return;
-      }
       await approveDriveDeviceApprovalBootstrap(bootstrap);
-      status = 'Device approved';
-      navigate('/settings/user');
-    } catch (approvalError) {
-      error = approvalError instanceof Error ? approvalError.message : 'Could not approve device';
+      if (!closed) navigate('/settings/user');
+    } catch (cause) {
+      error = cause instanceof Error ? cause.message : 'Could not add the device';
+    } finally {
+      busy = false;
     }
   }
 </script>
 
 <div class="flex flex-1 items-center justify-center bg-surface-0 px-4 py-8">
-  <section class="w-full max-w-sm rounded-lg bg-surface-1 p-4 space-y-3" data-testid="device-approval-route">
-    <h1 class="text-lg font-semibold text-text-1">{error ? 'Approval failed' : status}</h1>
-    {#if error}
-      <p class="text-sm text-danger" data-testid="device-approval-route-error">{error}</p>
-      <button
-        type="button"
-        class="btn-primary flex w-full items-center justify-center gap-2"
-        onclick={approve}
-        data-testid="device-approval-route-retry"
-      >
-        <span class="i-lucide-refresh-cw"></span>
-        <span>Retry</span>
-      </button>
-    {:else}
-      <div class="flex items-center gap-2 text-sm text-text-3">
-        <span class="i-lucide-loader-2 animate-spin"></span>
-        <span>Waiting for Drive</span>
-      </div>
+  <section class="w-full max-w-sm rounded-lg bg-surface-1 p-5 space-y-4" data-testid="device-approval-route">
+    <h1 class="text-lg font-semibold text-text-1">{bootstrap ? 'Add a device?' : 'Invalid device request'}</h1>
+    {#if bootstrap}
+      <p class="text-sm text-text-2">
+        Allow <strong class="break-words">{bootstrap.label || 'this device'}</strong> to read and change files in your Drive?
+      </p>
+      {#if !bootstrap.label}
+        <p class="break-all text-xs font-mono text-text-3">{bootstrap.deviceAppKeyNpub}</p>
+      {/if}
+      {#if $sessionRestored && !signedIn}
+        <p class="text-sm text-text-2">Open this link on a device where you’re signed in to Drive.</p>
+      {/if}
     {/if}
+    {#if error}
+      <p class="text-sm text-danger" role="alert">{error}</p>
+    {/if}
+    <div class="flex justify-end gap-2">
+      <button type="button" class="btn-ghost" disabled={busy} onclick={() => navigate(activeDriveRootPath($nostrStore))}>
+        {bootstrap ? 'Cancel' : 'Close'}
+      </button>
+      {#if bootstrap}
+        <button type="button" class="btn-primary" disabled={busy || !signedIn || !$sessionRestored} onclick={approve}>
+          {busy ? 'Adding…' : 'Add device'}
+        </button>
+      {/if}
+    </div>
   </section>
 </div>
