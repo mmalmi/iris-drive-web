@@ -91,6 +91,11 @@ export class WorkerAdapterNostr extends WorkerAdapterStorage {
     } finally { signal?.removeEventListener('abort', cancel); }
   }
 
+  /** Keep events that arrived outside any subscription, so this device holds them too. */
+  async ingestEvents(events: SignedEvent[]): Promise<void> {
+    await this.request({ type: 'ingestEvents', id: generateRequestId(), events });
+  }
+
   async publish(event: SignedEvent): Promise<RuntimePublishResult | undefined> {
     if (!isValidSignedNostrEvent(event)) throw new Error('Worker publication requires a valid signed Nostr event');
     const id = generateRequestId();

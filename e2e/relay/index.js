@@ -23,7 +23,26 @@ const PORT = process.env.RELAY_PORT || 4736
 const HANDSHAKE_DELAY_MS = Number(process.env.RELAY_HANDSHAKE_DELAY_MS || 0)
 const CLEAR_EVENTS_INTERVAL_MS = Number(process.env.RELAY_CLEAR_EVENTS_INTERVAL_MS || 300_000)
 
+// A test can make its namespace go silent, as a relay that never answers:
+// GET /__silence?ns=/<namespace> (all messages) or &kinds=30078 (only those
+// kinds are neither stored nor served); add &off=1 to answer again.
+const silenced = new Map()
+const silentFor = (ns, kind) => {
+  const rule = silenced.get(ns)
+  return rule === 'all' || (rule instanceof Set && rule.has(kind))
+}
+
 const server = http.createServer((req, res) => {
+  if (req.url?.startsWith('/__silence')) {
+    const query = new URL(req.url, 'http://relay').searchParams
+    const ns = getNamespace(query.get('ns') ?? '/')
+    const kinds = query.get('kinds')
+    if (query.get('off')) silenced.delete(ns)
+    else silenced.set(ns, kinds ? new Set(kinds.split(',').map(Number)) : 'all')
+    res.writeHead(200, { 'Access-Control-Allow-Origin': '*' })
+    res.end('ok')
+    return
+  }
   if (req.url === '/' && req.headers.accept === 'application/nostr+json') {
     res.writeHead(200, {
       'Content-Type': 'application/nostr+json',
@@ -110,6 +129,7 @@ wss.on('connection', (socket, req) => {
   }
 
   const makecb = (lsubid, filters, gsubid) => event => {
+    if (silentFor(ns, event.kind)) return
     const matches = matchFilters(filters, event)
     if (matches) {
       log(`[relay] MATCH sub=${lsubid} event.kind=${event.kind} id=${event.id?.slice(0,8)}`)
@@ -120,9 +140,11 @@ wss.on('connection', (socket, req) => {
   socket.on('message', msg => {
     try {
       const message = JSON.parse(msg)
+      if (silenced.get(ns) === 'all') return
 
       if (message[0] === 'EVENT') {
         const event = message[1]
+        if (silentFor(ns, event?.kind)) return
         log(`[relay] EVENT kind=${event.kind} pubkey=${event.pubkey?.slice(0,8)} tags=${JSON.stringify(event.tags?.slice(0,3))}`)
 
         events.set(event.id, event)
@@ -148,6 +170,7 @@ wss.on('connection', (socket, req) => {
 
         let matchedExisting = 0
         for (const event of events.values()) {
+          if (silentFor(ns, event.kind)) continue
           if (matchFilters(filters, event)) {
             log(`[relay] EXISTING MATCH sub=${lsubid} event.kind=${event.kind} pubkey=${event.pubkey?.slice(0,8)}`)
             send(['EVENT', lsubid, event])
