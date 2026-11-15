@@ -4,7 +4,8 @@
       {
         "appIDs": [
           "J8PPJKD7TA.to.iris.drive.macos",
-          "J8PPJKD7TA.to.iris.drive.ios"
+          "J8PPJKD7TA.to.iris.drive.ios",
+          "8G9P8AN75D.fi.siriusbusiness.drive"
         ],
         "components": [
           {
@@ -17,7 +18,8 @@
   "webcredentials": {
     "apps": [
       "J8PPJKD7TA.to.iris.drive.macos",
-      "J8PPJKD7TA.to.iris.drive.ios"
+      "J8PPJKD7TA.to.iris.drive.ios",
+      "8G9P8AN75D.fi.siriusbusiness.drive"
     ]
   }
 }
