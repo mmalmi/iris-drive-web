@@ -112,8 +112,8 @@ test.describe('the list of a folder', () => {
       await list.click();
       await expect(folder).toHaveAttribute('data-layout', 'list');
       await still('list with selection');
-      await folder.evaluate(node => { node.scrollTop = node.scrollHeight; });
-      expect(await folder.evaluate(node => node.scrollTop)).toBeGreaterThan(0);
+      // The rows of the list may still be arriving after the switch from the grid.
+      await expect.poll(() => folder.evaluate(node => { node.scrollTop = node.scrollHeight; return node.scrollTop; })).toBeGreaterThan(0);
       await still('scrolled');
       await folder.evaluate(node => { node.style.overflowY = 'hidden'; });
       await still('scrollbar removed');

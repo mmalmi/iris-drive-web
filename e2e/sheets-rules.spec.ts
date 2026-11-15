@@ -181,8 +181,11 @@ test.describe('in a dark theme', () => {
     // The settings scrolled the chart into view beside them; back to the start of the table.
     await page.locator('[data-testid="sheet-grid"] [data-scrollable]').evaluate((element) => element.scrollTo(0, 0));
     await expect.poll(() => page.locator('[data-testid="sheet-grid"] [data-scrollable]').evaluate(element => element.scrollLeft)).toBe(0);
-    await clickCell(page, 'A3');
-    await expect(page.getByTestId('comment-card')).toBeVisible();
+    // The grid may still be settling after the scroll, so the click is repeated until it lands on the cell.
+    await expect(async () => {
+      await clickCell(page, 'A3');
+      await expect(page.getByTestId('comment-card')).toBeVisible({ timeout: 2_000 });
+    }).toPass({ timeout: 20_000 });
     await page.screenshot({ path: shotPath(testInfo, 'dark-everything.png') });
     await expectCell(page, 'C2', 'TRUE');
   });
