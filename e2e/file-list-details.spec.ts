@@ -46,7 +46,10 @@ test.describe('the list of a folder', () => {
     await photo.getByTestId('row-menu-btn').click();
     await expect(page.getByRole('menuitem', { name: 'Rename' })).toBeVisible();
     await page.keyboard.press('Escape');
+    // A mouse on ⋮ chose the photo; its checkbox drops it and chooses it again.
     await photo.hover();
+    await photo.getByRole('checkbox').click();
+    await expect(page.getByTestId('selection-count')).toHaveCount(0);
     await photo.getByRole('checkbox').click();
     await expect(page.getByTestId('selection-count')).toHaveText('1 selected');
     await page.getByRole('button', { name: 'Clear selection' }).click();

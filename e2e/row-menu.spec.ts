@@ -169,6 +169,8 @@ test.describe('the menu of a row', () => {
     await page.mouse.click(PHONE.width / 2, 100);
     await expect(menu(page)).toBeHidden();
     expect(page.url()).toBe(folderUrl);
+    // The test's ⋮ click was a mouse's, which chooses the row as on a desktop.
+    await page.getByTestId('selection-bar').getByRole('button', { name: 'Clear selection' }).click();
 
     // A finger that moves is scrolling, not pressing.
     await link.dispatchEvent('pointerdown', at);
