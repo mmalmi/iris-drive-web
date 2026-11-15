@@ -74,8 +74,10 @@ test.describe('forking and extracting', () => {
     });
     await expect(page.getByText('Extract Archive?')).toBeVisible({ timeout: 30_000 });
     await page.locator('input[name="extract-location"]').last().check();
-    await page.getByRole('button', { name: 'Extract Files' }).click();
-    await expect(page.getByText('writing...', { exact: false })).toBeVisible({ timeout: 15_000 });
+    await Promise.all([
+      expect(page.getByRole('progressbar', { name: 'Upload progress' })).toBeVisible({ timeout: 15_000 }),
+      page.getByRole('button', { name: 'Extract Files' }).click(),
+    ]);
     await expect(page.getByTestId('file-list').getByRole('link').filter({ hasNotText: 'dosgame.zip' }).first()).toBeVisible({ timeout: 30_000 });
   });
 });

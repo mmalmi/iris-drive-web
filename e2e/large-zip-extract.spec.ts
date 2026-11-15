@@ -60,14 +60,17 @@ test.describe('Large ZIP extraction', () => {
     // Click "Extract Files" button
     console.log('Starting extraction...');
     const startTime = Date.now();
-    await page.getByRole('button', { name: 'Extract Files' }).click();
+    const progress = page.getByRole('progressbar', { name: 'Upload progress' });
+    await Promise.all([
+      expect(progress).toBeVisible({ timeout: 30_000 }),
+      page.getByRole('button', { name: 'Extract Files' }).click(),
+    ]);
 
     // Modal should close and progress should show
     // Give it more time for the extraction to start
     await expect(page.locator('text="Extract Archive?"')).not.toBeVisible({ timeout: 60000 });
 
     // Progress toast should appear - this confirms extraction started successfully
-    await expect(page.getByText('Extracting archive...')).toBeVisible({ timeout: 30000 });
     console.log('Progress indicator visible - extraction started!');
 
     let sawFileProgress = false;
@@ -75,10 +78,9 @@ test.describe('Large ZIP extraction', () => {
       // Wait for extraction to complete or timeout
       // The sync extraction of 200MB takes ~1-2 seconds, but processing 1236 files takes longer
       for (let i = 0; i < 180; i++) { // Up to 3 minutes
-        // Check for file progress (e.g., "50/1236")
-        const progressText = await page.locator('.fixed.bottom-4').textContent().catch(() => '');
+        const progressText = (await page.getByText(/^Uploading \d+ of \d+$/).allTextContents())[0];
         if (progressText) {
-          const match = progressText.match(/(\d+)\s*\/\s*(\d+)/);
+          const match = progressText.match(/Uploading (\d+) of (\d+)/);
           if (match) {
             const current = parseInt(match[1]);
             const total = parseInt(match[2]);
@@ -96,9 +98,7 @@ test.describe('Large ZIP extraction', () => {
         }
 
         // Check if extraction completed
-        const extractingVisible = await page.getByText('Extracting archive...').isVisible().catch(() => false);
-        const writingVisible = await page.getByText('writing...').isVisible().catch(() => false);
-        if (!extractingVisible && !writingVisible && sawFileProgress) {
+        if (!(await progress.isVisible()) && sawFileProgress) {
           console.log('Extraction completed!');
           break;
         }
