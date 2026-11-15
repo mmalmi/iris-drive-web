@@ -6,16 +6,18 @@
     loginWithExtension,
     loginWithNsec,
     generateNewKey,
-    logout,
   } from '../nostr';
   import { isFilesApp } from '../appType';
   import { Avatar } from './User';
+  import LogoutDialog from './Modals/LogoutDialog.svelte';
 
   let showNsec = $state(false);
   let nsecInput = $state('');
   let error = $state('');
   let menuOpen = $state(false);
   let menuRoot: HTMLDivElement | undefined = $state();
+  let menuButton: HTMLButtonElement;
+  let logoutDialog: LogoutDialog;
 
   let isLoggedIn = $derived($nostrStore.isLoggedIn);
   let pubkey = $derived($nostrStore.pubkey);
@@ -42,8 +44,8 @@
 
   function handleLogout() {
     menuOpen = false;
-    logout();
-    navigate('/');
+    menuButton.focus();
+    logoutDialog.open();
   }
 
   async function handleExtensionLogin() {
@@ -78,6 +80,7 @@
 {#if isLoggedIn && pubkey}
   <div class="relative" bind:this={menuRoot}>
     <button
+      bind:this={menuButton}
       onclick={() => (menuOpen = !menuOpen)}
       class="bg-transparent border-none cursor-pointer p-0"
       title="Account menu"
@@ -125,6 +128,7 @@
         </button>
       </div>
     {/if}
+    <LogoutDialog bind:this={logoutDialog} />
   </div>
 {:else if isFilesApp()}
   <button
