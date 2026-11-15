@@ -65,7 +65,7 @@ test.describe('Offline Upload', () => {
     // service worker's cache; the dev server cannot send it once offline, so
     // open a file while online first.
     await page.getByTestId('upload-files-input').setInputFiles({ name: 'online.txt', mimeType: 'text/plain', buffer: Buffer.from('online') });
-    await page.locator('[data-testid="file-list"] a').filter({ hasText: 'online.txt' }).first().click();
+    await page.locator('[data-testid="file-list"] a').filter({ hasText: 'online.txt' }).first().dblclick();
     await expect(page.getByTestId('viewer-header')).toContainText('online.txt', { timeout: 30000 });
     await page.getByTestId('viewer-back').click();
 
@@ -85,7 +85,7 @@ test.describe('Offline Upload', () => {
     console.log('Video appears in file list');
 
     // Click on the video to view it
-    await videoLink.click();
+    await videoLink.dblclick();
     await page.waitForTimeout(1000);
 
     // Confirm the video element exists and is pointed at the uploaded file

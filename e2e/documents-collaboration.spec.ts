@@ -184,7 +184,7 @@ test.describe('documents edited by several people and devices', () => {
       logDocumentErrors(danPage, 'dan');
       await openProfile(danPage, dirs.dan, relayUrl);
       await acceptAndOpen(danPage, invites.dan);
-      await danPage.getByTestId('document-entry').filter({ hasText: 'Itinerary' }).first().click();
+      await danPage.getByTestId('document-entry').filter({ hasText: 'Itinerary' }).first().dblclick();
       await expect(documentBody(danPage)).toContainText('Day one: arrive by train.', { timeout: 90_000 });
       await typeInDocument(danPage, ' Day two: hike.');
       await expectSaved(danPage);

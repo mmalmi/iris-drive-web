@@ -29,7 +29,7 @@ test('uploading a folder with a .gitignore can skip the ignored files', async ({
   await page.getByRole('button', { name: 'Skip Ignored' }).click();
 
   const list = page.getByTestId('file-list');
-  await list.getByRole('link', { name: 'project', exact: true }).click();
+  await list.getByRole('link', { name: 'project', exact: true }).dblclick();
   await expect(list.getByRole('link', { name: /README\.md/ })).toBeVisible({ timeout: 30_000 });
   await expect(list.getByRole('link', { name: 'src', exact: true })).toBeVisible();
   await expect(list.getByRole('link', { name: /\.gitignore/ })).toBeVisible();

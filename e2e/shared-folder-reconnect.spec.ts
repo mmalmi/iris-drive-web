@@ -95,7 +95,7 @@ test('trip collaborators add, rename and delete files while a reader reconnects 
     await waitForRelayConnected(readerPage);
     await expect(readerPage.getByRole('link', { name: /^Packing final\.txt\b/ })).toBeVisible({ timeout: 30_000 });
     await expect(readerPage.getByRole('link', { name: /^Packing café\.txt\b/ })).toHaveCount(0);
-    await readerPage.getByRole('link', { name: /^Packing final\.txt\b/ }).click();
+    await readerPage.getByRole('link', { name: /^Packing final\.txt\b/ }).dblclick();
     await expect(readerPage.getByText(bytes.toString(), { exact: true })).toBeVisible();
     await readerPage.setViewportSize({ width: 390, height: 844 });
     await readerPage.screenshot({ path: testInfo.outputPath('reconnected-reader-mobile.png') });

@@ -10,7 +10,7 @@ test.describe('addresses opened directly', () => {
     await createDriveProfile(page, 'Address Test');
     await createAndEnterFolder(page, 'Direct');
     await createTextFile(page, 'readme.txt', 'Hello Direct Nav');
-    await page.getByTestId('file-list').getByRole('link', { name: /^readme\.txt/ }).click();
+    await page.getByTestId('file-list').getByRole('link', { name: /^readme\.txt/ }).dblclick();
     await expect(page.locator('pre')).toContainText('Hello Direct Nav', { timeout: 30_000 });
     const fileUrl = page.url();
 

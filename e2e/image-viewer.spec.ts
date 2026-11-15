@@ -13,7 +13,7 @@ test('an uploaded picture is shown from the app\'s own address, without an error
 
   const image = page.getByTestId('image-viewer');
   const error = page.getByText('Unable to display file content');
-  await page.getByTestId('file-list').getByRole('link', { name: /red\.png/ }).click();
+  await page.getByTestId('file-list').getByRole('link', { name: /red\.png/ }).dblclick();
   await expect(image.or(error)).toBeVisible({ timeout: 30_000 });
   await expect(error).toHaveCount(0);
   await expect(image).toHaveAttribute('src', /\/htree\/nhash1/);

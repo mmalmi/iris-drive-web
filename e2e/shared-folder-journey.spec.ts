@@ -41,7 +41,7 @@ test('reader and editor join short native invites, edit across apps, reload and 
     await acceptAndOpen(readerPage, reader.invite);
     await expect(readerPage.getByText('Private.txt', { exact: true })).toHaveCount(0);
     await expect(readerPage.getByRole('button', { name: 'New', exact: true })).toHaveCount(0);
-    await readerPage.getByRole('link', { name: /^Plan\.txt\b/ }).click();
+    await readerPage.getByRole('link', { name: /^Plan\.txt\b/ }).dblclick();
     await expect(readerPage.getByText('Meet at noon.', { exact: true })).toBeVisible();
     const readerMenu = await openFileMenu(readerPage);
     await expect(readerMenu.getByTestId('viewer-edit')).toHaveCount(0);
@@ -55,7 +55,7 @@ test('reader and editor join short native invites, edit across apps, reload and 
     await expect(readerPage.getByText('Meet at noon.', { exact: true })).toBeVisible();
     await openProfile(page, dirs.bob!, relayUrl);
     await acceptAndOpen(page, editor.invite);
-    await page.getByRole('link', { name: /^Plan\.txt\b/ }).click();
+    await page.getByRole('link', { name: /^Plan\.txt\b/ }).dblclick();
     await chooseFileAction(page, 'viewer-edit');
     await page.locator('textarea').fill('Bob updated the picnic plan.');
     await saveTextFile(page, 30_000);

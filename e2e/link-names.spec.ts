@@ -69,6 +69,15 @@ test.describe('names and places of pages', () => {
 
     await page.goto(`${new URL(page.url()).origin}/#/9f2c4e1a-7b3d-4c5e-8f6a-1d2e3f4a5b6c/main`);
     await expect(page.getByTestId('no-access')).toContainText('You need access', { timeout: 30_000 });
+    // The address of a file or a document in someone else's Drive, copied from their address
+    // bar, says the same: no empty viewer, no endless loading.
+    for (const inside of ['Trip/photo.png', 'Trip/Plan.irisdoc', 'notes.txt?fullscreen=1']) {
+      await page.goto(`${new URL(page.url()).origin}/#/9f2c4e1a-7b3d-4c5e-8f6a-1d2e3f4a5b6c/main/${inside}`);
+      await expect(page.getByTestId('no-access')).toContainText('You need access');
+      await expect(page.getByRole('link', { name: 'Go to My Drive' })).toBeVisible();
+      await expect(page.getByTestId('viewer-header')).toHaveCount(0);
+      await expect(page.getByText(/Loading|File not found/)).toHaveCount(0);
+    }
     await expect(sidebar.locator('[aria-current="page"]')).toHaveCount(0);
 
     await page.setViewportSize({ width: 390, height: 844 });

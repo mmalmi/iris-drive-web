@@ -129,7 +129,7 @@ test.describe('the menu of a row', () => {
     // A copy of a file, as of a folder: beside it, the same inside.
     await (await openRowMenu(page, 'notes.txt')).getByRole('menuitem', { name: 'Make a copy' }).click();
     await expect(fileRow(page, 'Copy of notes.txt')).toBeVisible({ timeout: 30_000 });
-    await fileRow(page, 'Copy of notes.txt').getByRole('link').click();
+    await fileRow(page, 'Copy of notes.txt').getByRole('link').dblclick();
     await expect(page.locator('pre')).toContainText('Buy bread', { timeout: 30_000 });
   });
 

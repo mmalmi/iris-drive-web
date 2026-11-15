@@ -188,7 +188,7 @@ test.describe('sharing from the browser', () => {
       await expectSaved(guest);
 
       // Opening the document from the owner's own Drive leads to the shared one.
-      await page.getByTestId('document-entry').filter({ hasText: 'Minutes' }).first().click();
+      await page.getByTestId('document-entry').filter({ hasText: 'Minutes' }).first().dblclick();
       await expect(page).not.toHaveURL(new RegExp(`#/${owner.profileId}/`), { timeout: 30_000 });
       await expect(documentBody(page)).toContainText('Guest item.', { timeout: 90_000 });
     } finally {
@@ -202,7 +202,7 @@ test.describe('sharing from the browser', () => {
     await chooseNew(page, 'Folder');
     await page.getByPlaceholder('Folder name...').fill('Trip');
     await page.getByPlaceholder('Folder name...').press('Enter');
-    await page.getByRole('link', { name: /^Trip\b/ }).first().click();
+    await page.getByRole('link', { name: /^Trip\b/ }).first().dblclick();
     await expect(page).toHaveURL(/\/main\/Trip$/, { timeout: 30_000 });
     await createDocument(page, 'Packing');
     await typeInDocument(page, 'Tent and maps.');
@@ -224,7 +224,7 @@ test.describe('sharing from the browser', () => {
       await createDriveProfile(guest, 'Reader');
 
       await expect(guest.getByTestId('document-entry').filter({ hasText: 'Packing' }).first()).toBeVisible({ timeout: 90_000 });
-      await guest.getByTestId('document-entry').filter({ hasText: 'Packing' }).first().click();
+      await guest.getByTestId('document-entry').filter({ hasText: 'Packing' }).first().dblclick();
       await expect(documentBody(guest)).toContainText('Tent and maps.', { timeout: 90_000 });
       await expect(guest.getByText('View only')).toBeVisible();
       await expect(guest.getByTestId('document-toolbar')).toHaveCount(0);

@@ -27,8 +27,8 @@ test('a file page shows Download, Share and ⋮, in one row on a phone', async (
   await expect(header.getByRole('button', { name: 'Download' })).toBeVisible();
   await expect(header.getByRole('button', { name: 'Share' })).toBeVisible();
   await expect(header.getByRole('button', { name: 'More actions' })).toBeVisible();
-  // Back, Download, Share and ⋮: nothing else, and no jargon.
-  expect(await (await visibleButtons(page)).count()).toBe(4);
+  // Back, the two steps through the folder's files, Download, Share and ⋮: nothing else, and no jargon.
+  expect(await (await visibleButtons(page)).count()).toBe(6);
   await expect(header).not.toContainText('Snapshot');
   await expect(header).not.toContainText('Push');
 

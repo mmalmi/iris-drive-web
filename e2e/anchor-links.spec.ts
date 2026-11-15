@@ -7,7 +7,7 @@ async function openNewFile(page: Page, relayUrl: string, name: string, content: 
   await prepareFreshSession(page, relayUrl);
   await createDriveProfile(page, 'Anchor Test');
   await createTextFile(page, name, content);
-  await page.getByTestId('file-list').getByRole('link', { name: new RegExp(`^${name.replace('.', '\\.')}`) }).click();
+  await page.getByTestId('file-list').getByRole('link', { name: new RegExp(`^${name.replace('.', '\\.')}`) }).dblclick();
 }
 
 test.describe('links into a file', () => {

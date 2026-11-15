@@ -8,7 +8,7 @@ async function makeFolder(page: Page, name: string): Promise<void> {
   await chooseNew(page, 'Folder');
   await page.getByPlaceholder('Folder name...').fill(name);
   await page.getByPlaceholder('Folder name...').press('Enter');
-  await page.getByTestId('file-list').getByRole('link', { name: new RegExp(`^${name}\\b`) }).first().click();
+  await page.getByTestId('file-list').getByRole('link', { name: new RegExp(`^${name}\\b`) }).first().dblclick();
   await expect(page).toHaveURL(new RegExp(`/main/${name}$`), { timeout: 30_000 });
 }
 
@@ -148,7 +148,7 @@ test.describe('access to shared folders', () => {
       // Nothing asks the visitor to sign up first.
       await expect(visitor.getByTestId('drive-setup')).toHaveCount(0);
       await expect(visitor.getByTestId('no-access')).toHaveCount(0);
-      await visitor.getByRole('link', { name: /^caption\.txt\b/ }).first().click();
+      await visitor.getByRole('link', { name: /^caption\.txt\b/ }).first().dblclick();
       await expect(visitor.getByText('Sunset at the lake.')).toBeVisible({ timeout: 60_000 });
     } finally {
       await visitorContext.close();

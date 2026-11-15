@@ -118,7 +118,7 @@ test.describe('basic file-sharing journeys', () => {
     await chooseNew(page, 'Folder');
     await page.getByPlaceholder('Folder name...').fill('Weekend picnic');
     await page.getByRole('button', { name: 'Create', exact: true }).click();
-    await page.getByRole('link', { name: 'Weekend picnic', exact: true }).click();
+    await page.getByRole('link', { name: 'Weekend picnic', exact: true }).dblclick();
     await expect(page.getByTestId('empty-folder')).toBeVisible();
     await upload(page, 'Plan.txt', Buffer.from('Meet by the lake at noon.'));
     await page.getByTestId('viewer-back').click();
@@ -136,7 +136,7 @@ test.describe('basic file-sharing journeys', () => {
       await expect(guest.getByText('private-notes.txt')).toHaveCount(0);
       await expect(guest.locator('[data-testid="new-menu"]:visible')).toHaveCount(0);
       await expect(guest.getByRole('button', { name: 'Delete', exact: true })).toHaveCount(0);
-      await guest.getByRole('link', { name: /Plan.txt/ }).click();
+      await guest.getByRole('link', { name: /Plan.txt/ }).dblclick();
       await expect(guest.getByText('Meet by the lake at noon.', { exact: true })).toBeVisible();
       // The copy's address already has a query: its folder's name.
       await guest.goto(`${guest.url()}${guest.url().includes('?') ? '&' : '?'}edit=1`);

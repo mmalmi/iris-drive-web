@@ -66,7 +66,7 @@ test.describe('the list of a folder', () => {
     await expect(photo.locator('img')).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath('folder-grid-mobile.png') });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-    await fileRow(page, 'Albums').getByRole('link').click();
+    await fileRow(page, 'Albums').getByRole('link').dblclick();
     await expect(page.getByTestId('folder-header').getByRole('heading')).toHaveText('Albums');
     await page.goBack();
     await page.getByRole('button', { name: 'List view', exact: true }).click();
@@ -154,7 +154,7 @@ test.describe('the list of a folder', () => {
     await expect(plans.getByTestId('row-modified')).toHaveText(TIME, { timeout: 30_000 });
     const made = await modifiedAt(page, plans);
     await page.waitForTimeout(1_100);
-    await plans.getByRole('link').click();
+    await plans.getByRole('link').dblclick();
     await typeInDocument(page, 'Bring the tent');
     await expectSaved(page);
     await page.evaluate((profileId) => { window.location.hash = `/${profileId}/main`; }, owner.profileId);

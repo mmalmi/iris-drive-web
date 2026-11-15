@@ -11,7 +11,7 @@ test.describe('Recent', () => {
     await createAndEnterFolder(page, 'Trip');
     // Going back from the new file to its folder must not list the folder as a file.
     await createTextFile(page, 'plan.txt', 'Pack the tent');
-    await page.getByTestId('file-list').getByRole('link', { name: /^plan\.txt/ }).click();
+    await page.getByTestId('file-list').getByRole('link', { name: /^plan\.txt/ }).dblclick();
     await expect(page.locator('pre')).toContainText('Pack the tent', { timeout: 30_000 });
 
     const recent = page.getByTestId('drive-sidebar').getByRole('link', { name: 'Recent' });

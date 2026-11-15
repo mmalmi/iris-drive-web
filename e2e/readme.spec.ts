@@ -19,7 +19,7 @@ ${INSTALL}
 const WIDE_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="2200" height="1000" viewBox="0 0 2200 1000"><rect width="2200" height="1000" fill="#203044"/><circle cx="640" cy="500" r="310" fill="#47d16c"/></svg>';
 
 function openFile(page: Page, name: string) {
-  return page.getByTestId('file-list').getByRole('link', { name: new RegExp(`^${name.replace('.', '\\.')}`) }).click();
+  return page.getByTestId('file-list').getByRole('link', { name: new RegExp(`^${name.replace('.', '\\.')}`) }).dblclick();
 }
 
 test.describe('markdown files', () => {

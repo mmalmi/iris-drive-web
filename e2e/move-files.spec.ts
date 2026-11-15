@@ -14,7 +14,7 @@ async function makeFolder(page: Page, name: string): Promise<void> {
 }
 
 async function openFolder(page: Page, name: string): Promise<void> {
-  await row(page, name).click();
+  await row(page, name).dblclick();
   await expect(page).toHaveURL(new RegExp(`/${name}$`), { timeout: 30_000 });
   await expect(row(page, name)).toHaveCount(0, { timeout: 30_000 });
 }

@@ -76,7 +76,7 @@ test.describe('layout at different window sizes', () => {
     await chooseNew(page, 'Folder');
     await page.getByPlaceholder('Folder name...').fill(folderName);
     await page.getByPlaceholder('Folder name...').press('Enter');
-    await page.getByTestId('file-list').getByRole('link', { name: folderName }).click();
+    await page.getByTestId('file-list').getByRole('link', { name: folderName }).dblclick();
     await expect(page.getByTestId('folder-header').getByRole('heading', { name: folderName })).toBeVisible();
     await atEachSize(page, 'subfolder', (width) => expectFolderHeaderFits(page, folderName, width));
     await page.getByRole('navigation', { name: 'Folder path' }).getByRole('link', { name: 'My Drive' }).click();

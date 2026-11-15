@@ -28,9 +28,9 @@ test.describe('the share dialog', () => {
     await prepareFreshSession(page, relayUrl);
     const { profileId } = await createDriveProfile(page);
     await createFolder(page, 'Projects');
-    await page.getByRole('link', { name: /^Projects\b/ }).first().click();
+    await page.getByRole('link', { name: /^Projects\b/ }).first().dblclick();
     await createFolder(page, 'Trip');
-    await page.getByRole('link', { name: /^Trip\b/ }).first().click();
+    await page.getByRole('link', { name: /^Trip\b/ }).first().dblclick();
     await expect(page).toHaveURL(/\/main\/Projects\/Trip$/, { timeout: 30_000 });
 
     await page.locator('button[title="Share"]').filter({ visible: true }).first().click();

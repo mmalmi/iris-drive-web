@@ -66,10 +66,11 @@ test.describe('choosing several items', () => {
     await uploadIntoFolder(page, [text('a.txt'), text('b.txt'), text('c.txt'), text('d.txt')]);
     const folderUrl = page.url();
 
-    // Ctrl/⌘+click chooses one without opening it, and the bar takes the header's place.
+    // Ctrl/⌘+click chooses one without opening it, and the bar takes the column header's place.
     await link(page, 'a.txt').click({ modifiers: ['ControlOrMeta'] });
     await expect(count(page)).toHaveText('1 selected');
-    await expect(page.getByTestId('folder-header')).toBeHidden();
+    await expect(page.getByTestId('folder-header')).toBeVisible();
+    await expect(page.getByTestId('sort-menu-btn')).toBeHidden();
     await expectSelected(page, ['a.txt'], ['b.txt', 'c.txt', 'd.txt']);
     await expect(page.getByRole('status').filter({ hasText: '1 selected' })).toBeAttached();
 
@@ -138,20 +139,36 @@ test.describe('choosing several items', () => {
     await expect(fileRow(page, 'd.txt')).toHaveCount(0);
     await expect(bar(page)).toBeHidden();
 
-    // A plain click still opens a row, and lets go of what was chosen.
+    // A plain click chooses just that row; a double click opens it.
     await link(page, 'Archive').click();
+    await expectSelected(page, ['Archive'], []);
+    expect(page.url()).toBe(folderUrl);
+    await link(page, 'Archive').dblclick();
     await expect(page).toHaveURL(/\/Trip\/Archive$/, { timeout: 30_000 });
     for (const name of ['a.txt', 'b.txt', 'c.txt', 'd.txt']) await expect(fileRow(page, name)).toBeVisible({ timeout: 30_000 });
     await link(page, 'a.txt').click({ modifiers: ['ControlOrMeta'] });
     await expect(count(page)).toHaveText('1 selected');
     await link(page, 'b.txt').click();
+    await expectSelected(page, ['b.txt'], ['a.txt', 'c.txt', 'd.txt']);
+    await expect(page).toHaveURL(/\/Trip\/Archive$/);
+    // The open file takes the folder's place; closing it returns to the list, on that file.
+    await link(page, 'b.txt').dblclick();
     await expect(page.getByTestId('viewer-header')).toContainText('b.txt', { timeout: 30_000 });
-    await expect(bar(page)).toBeHidden();
+    await expect(page.getByTestId('file-list')).toBeHidden();
+    await page.keyboard.press('ArrowRight');
+    await expect(page.getByTestId('viewer-header')).toContainText('c.txt', { timeout: 30_000 });
+    await page.keyboard.press('Escape');
+    await expect(page).toHaveURL(/\/Trip\/Archive$/, { timeout: 30_000 });
+    await expect(page.getByTestId('file-list')).toBeFocused();
+    await expectSelected(page, ['c.txt'], ['a.txt', 'b.txt', 'd.txt']);
+    // Enter opens what is chosen.
+    await page.keyboard.press('Enter');
+    await expect(page.getByTestId('viewer-header')).toContainText('c.txt', { timeout: 30_000 });
     await page.getByTestId('viewer-back').click();
     await expect(page).toHaveURL(/\/Trip\/Archive$/, { timeout: 30_000 });
 
     // Delete: everything in Archive at once, saying so.
-    await page.getByTestId('file-list').focus();
+    await expect(page.getByTestId('file-list')).toBeFocused();
     await page.keyboard.press('ControlOrMeta+a');
     await expect(count(page)).toHaveText('4 selected');
     await bar(page).getByRole('button', { name: 'Delete' }).click();
@@ -162,12 +179,10 @@ test.describe('choosing several items', () => {
     expect(newPages).toHaveLength(0);
   });
 
-  test('file icons stay visible on hover and toggle selection beside an open preview', async ({ page, relayUrl }, testInfo) => {
+  test('file icons stay visible on hover and toggle selection', async ({ page, relayUrl }, testInfo) => {
     await page.setViewportSize(DESKTOP);
     await startInMyDrive(page, relayUrl);
     await uploadIntoFolder(page, [text('Preview.txt'), text('Notes.txt')]);
-    await link(page, 'Preview.txt').click();
-    await expect(page.getByTestId('viewer-header')).toContainText('Preview.txt');
     const previewUrl = page.url();
     const notes = fileRow(page, 'Notes.txt');
     const control = notes.getByRole('checkbox', { name: 'Select Notes.txt' });
@@ -224,7 +239,6 @@ test.describe('choosing several items', () => {
     // An arrow moves to a row and chooses just it.
     await list.focus();
     await page.keyboard.press('ArrowDown');
-    await focused('Inner');
     await expect(count(page)).toHaveText('1 selected');
     await expectSelected(page, ['Inner'], ['x.txt', 'y.txt']);
     await expect(list).toBeFocused();
@@ -239,11 +253,10 @@ test.describe('choosing several items', () => {
 
     // A plain arrow chooses just where it goes.
     await page.keyboard.press('ArrowDown');
-    await focused('y.txt');
     await expect(count(page)).toHaveText('1 selected');
     await expectSelected(page, ['y.txt'], ['Inner', 'x.txt']);
 
-    // Ctrl/⌘+arrow only moves; Space then chooses there, and again lets go.
+    // Ctrl/⌘+arrow only moves, a ring showing where; Space then chooses there, and again lets go.
     await page.keyboard.press('ControlOrMeta+ArrowUp');
     await focused('x.txt');
     await expect(count(page)).toHaveText('1 selected');

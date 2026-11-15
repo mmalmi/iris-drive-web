@@ -64,7 +64,7 @@ test.describe('the New menu', () => {
       await page.goto(`/#/${owner.profileId}/main`);
       await chooseNew(page, 'Folder');
       await nameIt(page, 'Folder name...', `In ${name}`);
-      await listed(page, new RegExp(`^In ${name}`)).first().click();
+      await listed(page, new RegExp(`^In ${name}`)).first().dblclick();
       await expect(page).toHaveURL(new RegExp(`/main/In(%20| )${name}$`), { timeout: 30_000 });
       await expect(page.getByTestId('empty-folder')).toBeVisible({ timeout: 30_000 });
       await button().click();
@@ -99,7 +99,7 @@ test.describe('the New menu', () => {
     await startInMyDrive(page, relayUrl);
     await chooseNew(page, 'Folder');
     await nameIt(page, 'Folder name...', 'Trip');
-    await listed(page, 'Trip').click({ timeout: 30_000 });
+    await listed(page, 'Trip').dblclick({ timeout: 30_000 });
     await expect(page).toHaveURL(/\/main\/Trip$/, { timeout: 30_000 });
     await uploadFilesInput(page).setInputFiles({ name: 'plan.txt', mimeType: 'text/plain', buffer: Buffer.from('Day one') });
     await expect(listed(page, /^plan\.txt/)).toBeVisible({ timeout: 30_000 });
@@ -294,7 +294,7 @@ test.describe('the New menu', () => {
     await expectFolderEditable(page);
     await chooseNew(page, 'Folder');
     await nameIt(page, 'Folder name...', 'Shared example');
-    await listed(page, 'Shared example').click();
+    await listed(page, 'Shared example').dblclick();
     await expect(page).toHaveURL(/Shared%20example$/);
     await uploadFilesInput(page).setInputFiles({ name: 'shared.txt', mimeType: 'text/plain', buffer: Buffer.from('hi') });
     await expect(listed(page, /shared\.txt/)).toBeVisible({ timeout: 30_000 });

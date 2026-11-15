@@ -18,7 +18,7 @@
 
 <script lang="ts">
   /**
-   * In place of a folder's header while items of its list are chosen: how
+   * In place of a list's columns while items of it are chosen: how
    * many, and Move, Download (one ZIP for several) and Delete for them all,
    * by the same actions as a row's menu. Changes to the Drive are made one at
    * a time, each from the latest Drive.
@@ -32,8 +32,6 @@
     /** The folder they are in. */
     path: string[];
     canEdit: boolean;
-    /** Beside an open file there is room for icons only. */
-    compact: boolean;
     /** What a ZIP of several is called. */
     zipName: string;
     /** Lets go of them all, and gives the keyboard back to the list. */
@@ -42,7 +40,7 @@
     list: HTMLElement | undefined;
   }
 
-  let { entries, path, canEdit, compact, zipName, onClear, list }: Props = $props();
+  let { entries, path, canEdit, zipName, onClear, list }: Props = $props();
 
   /** Documents are opened, not downloaded. */
   let downloadable = $derived(entries.filter((entry) => !isDocument(entry)));
@@ -81,7 +79,7 @@
 {#snippet action(label: string, icon: string, testid: string, run: (e: MouseEvent) => void, disabled = false, danger = false)}
   <button
     type="button"
-    class="shrink-0 flex items-center gap-2 h-9 px-2.5 rounded-full b-0 bg-transparent cursor-pointer hover:bg-surface-3 disabled:opacity-50 disabled:cursor-not-allowed {danger ? 'text-danger' : 'text-text-1'}"
+    class="shrink-0 flex items-center gap-2 h-8 px-2.5 rounded-full b-0 bg-transparent cursor-pointer hover:bg-surface-3 disabled:opacity-50 disabled:cursor-not-allowed {danger ? 'text-danger' : 'text-text-1'}"
     title={label}
     aria-label={label}
     data-testid={testid}
@@ -89,17 +87,17 @@
     onclick={run}
   >
     <span class="{icon} text-lg"></span>
-    <span class="{compact ? 'hidden' : 'hidden md:inline'} text-sm font-medium">{label}</span>
+    <span class="hidden md:inline text-sm font-medium">{label}</span>
   </button>
 {/snippet}
 
 <div
-  class="folder-selection-bar shrink-0 flex items-center gap-1 px-1.5 py-2 {compact ? '' : 'h-14 lg:h-16 lg:px-3 lg:py-3'} border-b border-surface-2 bg-accent/10"
+  class="folder-selection-bar flex flex-1 min-w-0 items-center gap-1 px-1.5 lg:px-3 text-base"
   data-testid="selection-bar"
 >
   <button
     type="button"
-    class="btn-circle shrink-0 b-0 bg-transparent cursor-pointer text-text-2 hover:text-text-1 hover:bg-surface-3"
+    class="btn-circle h-8 w-8 min-h-8 min-w-8 shrink-0 b-0 bg-transparent cursor-pointer text-text-2 hover:text-text-1 hover:bg-surface-3"
     title="Clear selection (Esc)"
     aria-label="Clear selection"
     data-testid="selection-clear"

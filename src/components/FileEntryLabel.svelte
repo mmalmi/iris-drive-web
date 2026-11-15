@@ -15,11 +15,10 @@
     access?: ItemAccess | null;
     detailsId?: string;
     grid: boolean;
-    compact: boolean;
     mediaReady: boolean;
   }
 
-  let { entry, title, icon, isFolder, checked, access, detailsId, grid, compact, mediaReady }: Props = $props();
+  let { entry, title, icon, isFolder, checked, access, detailsId, grid, mediaReady }: Props = $props();
 </script>
 
 {#if checked}
@@ -38,9 +37,9 @@
     {/if}
   </span>
   {#if grid}
-    <span class="sr-only"><RowDetails {entry} part="line" compact id={detailsId} /></span>
+    <span class="sr-only"><RowDetails {entry} part="line" always id={detailsId} /></span>
   {:else}
-    <RowDetails {entry} part="line" {compact} id={detailsId} />
+    <RowDetails {entry} part="line" id={detailsId} />
   {/if}
 </span>
 {#if grid && !isFolder}
@@ -53,7 +52,7 @@
     {/if}
   </span>
 {:else if !grid}
-  <RowDetails {entry} part="columns" {compact} />
+  <RowDetails {entry} part="columns" />
 {/if}
 
 <style>

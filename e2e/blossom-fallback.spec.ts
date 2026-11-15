@@ -131,7 +131,7 @@ test.describe('Blossom Fallback Behavior', () => {
       const videoLink = page.locator('[data-testid="file-list"] a')
         .filter({ hasText: 'Big_Buck_Bunny_360_10s_1MB.mp4' })
         .first();
-      await videoLink.click();
+      await videoLink.dblclick();
       console.log('Clicked to view file');
     }
 

@@ -63,7 +63,7 @@ test.describe('Viewer Actions', () => {
   test('shows file actions, icon, snapshot, and both share URL forms', async ({ page }) => {
     await waitForWritableTree(page);
     await createFile(page, 'actions.js', 'console.log("actions")');
-    await page.locator('a:has-text("actions.js")').first().click();
+    await page.locator('a:has-text("actions.js")').first().dblclick();
     await expect(page.getByTestId('viewer-header').locator('.i-lucide-file-code')).toBeVisible();
     const backButton = page.getByTestId('viewer-back');
     await expect(backButton).toBeVisible();
@@ -84,7 +84,7 @@ test.describe('Viewer Actions', () => {
     await expect(menu).toBeHidden();
     await backButton.click();
     await expectFolderEditable(page);
-    await page.locator('a:has-text("actions.js")').first().click();
+    await page.locator('a:has-text("actions.js")').first().dblclick();
 
     const shareButton = page.getByTestId('viewer-share');
     await expect(shareButton).toBeVisible();

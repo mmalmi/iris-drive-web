@@ -60,7 +60,7 @@ test.describe('renaming from the title', () => {
     await expect(page.getByTestId('document-title')).toHaveText('Totals');
     await expect(page).toHaveURL(/Totals\.irissheet/);
     await page.getByRole('link', { name: 'Back to folder' }).click();
-    await page.getByTestId('file-list').getByText('Numbers', { exact: true }).click();
+    await page.getByTestId('file-list').getByText('Numbers', { exact: true }).dblclick();
     await waitForGrid(page);
     await renameTo(page, 'Numbers', 'Stock');
     await expect(page.getByTestId('document-title')).toHaveText('Stock');

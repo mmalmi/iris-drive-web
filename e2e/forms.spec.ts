@@ -125,7 +125,7 @@ test.describe('forms', () => {
     await expect(page.getByTestId('file-list')).not.toContainText('.iris-forms');
 
     // Closed, the form says so instead of taking answers.
-    await page.getByTestId('file-list').getByText('Party').click();
+    await page.getByTestId('file-list').getByText('Party').dblclick();
     await page.getByTestId('form-tab-responses').click();
     await page.getByTestId('form-taking-responses').uncheck();
     await page.getByTestId('form-preview').click();

@@ -55,7 +55,7 @@ test.describe('anyone with the link can view', () => {
     await chooseNew(page, 'Folder');
     await page.getByPlaceholder('Folder name...').fill('Trip');
     await page.getByPlaceholder('Folder name...').press('Enter');
-    await row(page, 'Trip').click();
+    await row(page, 'Trip').dblclick();
     await expect(page).toHaveURL(/\/main\/Trip$/, { timeout: 30_000 });
     await page.getByTestId('upload-files-input').setInputFiles({ name: 'plan.txt', mimeType: 'text/plain', buffer: Buffer.from('Day one') });
     await expect(row(page, 'plan.txt')).toBeVisible({ timeout: 30_000 });
@@ -92,7 +92,7 @@ test.describe('anyone with the link can view', () => {
         await visitor.reload();
         await expect(row(visitor, 'tickets.txt')).toBeVisible({ timeout: 5_000 });
       }).toPass({ timeout: 60_000 });
-      await row(visitor, 'tickets.txt').click();
+      await row(visitor, 'tickets.txt').dblclick();
       await expect(visitor.getByText('Seat 12')).toBeVisible({ timeout: 60_000 });
       // A visitor can look, not change anything.
       await expect(visitor.getByTestId('upload-files-input')).toHaveCount(0);
@@ -214,7 +214,7 @@ test.describe('anyone with the link can view', () => {
     await chooseNew(page, 'Folder');
     await page.getByPlaceholder('Folder name...').fill('Trip');
     await page.getByPlaceholder('Folder name...').press('Enter');
-    await row(page, 'Trip').click();
+    await row(page, 'Trip').dblclick();
     await expect(page).toHaveURL(/\/main\/Trip$/, { timeout: 30_000 });
     await page.getByTestId('upload-files-input').setInputFiles({ name: 'plan.txt', mimeType: 'text/plain', buffer: Buffer.from('Day one') });
     await expect(row(page, 'plan.txt')).toBeVisible({ timeout: 30_000 });
@@ -267,7 +267,7 @@ test.describe('anyone with the link can view', () => {
       await expect(row(guest, 'tickets.txt')).toBeVisible({ timeout: 30_000 });
       await expectAfterReload(visitor, () => expect(row(visitor, 'tickets.txt')).toBeVisible({ timeout: 5_000 }));
       await page.goto(sharedFolderUrl);
-      await row(visitor, 'tickets.txt').click();
+      await row(visitor, 'tickets.txt').dblclick();
       await expect(visitor.getByText('Seat 12')).toBeVisible({ timeout: 60_000 });
       await visitor.screenshot({ path: testInfo.outputPath('visitor-sees-member-file.png') });
 
@@ -325,7 +325,7 @@ test.describe('anyone with the link can view', () => {
     await chooseNew(page, 'Folder');
     await page.getByPlaceholder('Folder name...').fill('Trip');
     await page.getByPlaceholder('Folder name...').press('Enter');
-    await row(page, 'Trip').click();
+    await row(page, 'Trip').dblclick();
     await expect(page).toHaveURL(/\/main\/Trip$/, { timeout: 30_000 });
     await page.getByTestId('upload-files-input').setInputFiles({ name: 'plan.txt', mimeType: 'text/plain', buffer: Buffer.from('Day one') });
     await expect(row(page, 'plan.txt')).toBeVisible({ timeout: 30_000 });
@@ -392,14 +392,14 @@ test.describe('anyone with the link can view', () => {
 
     // The file's own page shares the same link, and turns it off.
     await openListedFile(page, 'plan.txt');
-    await expect(page.getByTestId('access-badge')).toHaveAttribute('data-access', 'link');
+    await expect(page.getByTestId('viewer-header').getByTestId('access-badge')).toHaveAttribute('data-access', 'link');
     await page.getByTestId('viewer-share').click();
     await expect(page.getByTestId('general-access-select')).toHaveValue('link', { timeout: 30_000 });
     expect(await copiedLink(page)).toBe(link);
     await page.getByTestId('general-access-select').selectOption('off');
     await expect(page.getByTestId('general-access-link')).toHaveCount(0);
     await page.keyboard.press('Escape');
-    await expect(page.getByTestId('access-badge')).toHaveAttribute('data-access', 'private');
+    await expect(page.getByTestId('viewer-header').getByTestId('access-badge')).toHaveAttribute('data-access', 'private');
 
     const laterContext = await browser.newContext();
     try {

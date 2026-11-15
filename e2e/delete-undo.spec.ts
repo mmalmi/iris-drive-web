@@ -43,7 +43,7 @@ test.describe('deleting', () => {
     await expect(fileRow(page, 'Trip')).toHaveCount(0, { timeout: 30_000 });
     await undo(page).click();
     await expect(fileRow(page, 'Trip')).toBeVisible({ timeout: 30_000 });
-    await fileRow(page, 'Trip').getByRole('link').click();
+    await fileRow(page, 'Trip').getByRole('link').dblclick();
     await expect(fileRow(page, 'plan.txt')).toBeVisible({ timeout: 30_000 });
     expect(prompts).toEqual([]);
 
@@ -71,7 +71,7 @@ test.describe('deleting', () => {
     await (await openRowMenu(page, 'Trip')).getByRole('menuitem', { name: 'Delete' }).click();
     await expect(fileRow(page, 'Trip')).toHaveCount(0, { timeout: 30_000 });
     await undo(page).click();
-    await fileRow(page, 'Trip').getByRole('link').click({ timeout: 30_000 });
+    await fileRow(page, 'Trip').getByRole('link').dblclick({ timeout: 30_000 });
     await expect(page.getByTestId('access-badge')).toHaveAttribute('data-access', 'link', { timeout: 30_000 });
 
     const visitorContext = await browser.newContext();

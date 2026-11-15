@@ -65,7 +65,7 @@ async function makeCopy(page: Page, title: string): Promise<void> {
 
 async function openFromFolder(page: Page, title: string): Promise<void> {
   await page.getByRole('link', { name: 'Back to folder' }).click();
-  await page.getByTestId('file-list').getByText(title, { exact: true }).click();
+  await page.getByTestId('file-list').getByText(title, { exact: true }).dblclick();
   await expect(page.getByTestId('document-title')).toHaveText(title, { timeout: 30_000 });
 }
 

@@ -36,7 +36,7 @@ test.describe('a first look at Drive', () => {
     await expect(page.getByTestId('share-modal')).toHaveCount(0);
 
     // From the open folder's own Share button.
-    await fileRow(page, 'Team').getByRole('link').click();
+    await fileRow(page, 'Team').getByRole('link').dblclick();
     await expect(page.getByTestId('folder-header').getByRole('heading', { name: 'Team' })).toBeVisible();
     await page.getByTestId('folder-header').getByRole('button', { name: 'Share' }).click();
     await expect(dialog(page)).toHaveAccessibleName('Share “Team”');

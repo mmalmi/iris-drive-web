@@ -5,10 +5,9 @@ import { describe, expect, it } from 'vitest';
 const appRoot = path.resolve(__dirname, '..');
 
 describe('Drive UI identity labels', () => {
-  it('renders a human-friendly identity name instead of a profile UUID', () => {
+  it('never renders a profile UUID', () => {
     const browser = fs.readFileSync(path.join(appRoot, 'src/components/FileBrowser.svelte'), 'utf8');
     for (const source of [browser]) {
-      expect(source).toContain('<IdentityName');
       expect(source).not.toContain('{viewedNostrIdentityId}</span>');
       expect(source).not.toContain('title={viewedNostrIdentityId}');
     }

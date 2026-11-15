@@ -3,8 +3,10 @@
    * Above a folder's list: how it is sorted, from a small menu of Name, Last
    * modified and Size, and the names of its columns, which sort by them too.
    * Choosing how it already is sorted turns the order around. The choice is
-   * kept on this device.
+   * kept on this device. While items are chosen, what acts on them (its
+   * children) takes the columns' place; the view switch stays where it is.
    */
+  import type { Snippet } from 'svelte';
   import FolderViewSwitch from './FolderViewSwitch.svelte';
   import Menu, { type MenuItem } from './ui/Menu.svelte';
   import { saveSort, type ListSort, type SortKey } from '../lib/fileListSort';
@@ -12,9 +14,11 @@
   interface Props {
     sort: ListSort;
     grid: boolean;
+    selecting: boolean;
+    children: Snippet;
   }
 
-  let { sort = $bindable(), grid = $bindable() }: Props = $props();
+  let { sort = $bindable(), grid = $bindable(), selecting, children }: Props = $props();
 
   const LABELS: Record<SortKey, string> = { name: 'Name', modified: 'Last modified', size: 'Size' };
   const ICONS: Record<SortKey, string> = { name: 'i-lucide-case-sensitive', modified: 'i-lucide-clock', size: 'i-lucide-hard-drive' };
@@ -44,41 +48,45 @@
   const column = 'hidden sm:flex shrink-0 h-8 items-center gap-1 p-0 b-0 bg-transparent cursor-pointer text-text-3 hover:text-text-1';
 </script>
 
-<div class="shrink-0 flex items-center gap-3 h-10 border-b border-surface-2 bg-surface-0 text-sm text-text-3" data-testid="list-header">
-  <div class="relative flex flex-1 items-center justify-between min-w-0 pl-1 lg:pl-3">
-    <button
-      bind:this={button}
-      type="button"
-      class="flex items-center gap-1 h-8 px-2 rounded-full b-0 bg-transparent cursor-pointer text-text-2 hover:text-text-1 hover:bg-surface-2"
-      aria-haspopup="menu"
-      aria-expanded={open}
-      aria-label="Sort by {LABELS[sort.by]}, {WAYS[sort.by][Number(sort.descending)]}"
-      data-testid="sort-menu-btn"
-      onclick={() => { open = !open; }}
-    >
-      {LABELS[sort.by]}<span class="{arrow} text-sm"></span>
-    </button>
-    {#if open}
-      <Menu
-        {items}
-        label="Sort by"
-        heading="Sort by"
-        align="left"
-        width="w-48"
-        sheet={window.innerWidth < 640}
-        inside={[button]}
-        testid="sort-menu"
-        onClose={(returnFocus) => { open = false; if (returnFocus) button?.focus(); }}
-      />
+<div class="shrink-0 flex items-center gap-3 h-10 border-b border-surface-2 {selecting ? 'bg-accent/10' : 'bg-surface-0'} text-sm text-text-3" data-testid="list-header">
+  {#if selecting}
+    {@render children()}
+  {:else}
+    <div class="relative flex flex-1 items-center justify-between min-w-0 pl-1 lg:pl-3">
+      <button
+        bind:this={button}
+        type="button"
+        class="flex items-center gap-1 h-8 px-2 rounded-full b-0 bg-transparent cursor-pointer text-text-2 hover:text-text-1 hover:bg-surface-2"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label="Sort by {LABELS[sort.by]}, {WAYS[sort.by][Number(sort.descending)]}"
+        data-testid="sort-menu-btn"
+        onclick={() => { open = !open; }}
+      >
+        {LABELS[sort.by]}<span class="{arrow} text-sm"></span>
+      </button>
+      {#if open}
+        <Menu
+          {items}
+          label="Sort by"
+          heading="Sort by"
+          align="left"
+          width="w-48"
+          sheet={window.innerWidth < 640}
+          inside={[button]}
+          testid="sort-menu"
+          onClose={(returnFocus) => { open = false; if (returnFocus) button?.focus(); }}
+        />
+      {/if}
+    </div>
+    {#if !grid}
+      <button type="button" class="{column} w-32" onclick={() => sortBy('modified')}>
+        Last modified{#if sort.by === 'modified'}<span class="{arrow} text-sm"></span>{/if}
+      </button>
+      <button type="button" class="{column} w-20 justify-end" onclick={() => sortBy('size')}>
+        {#if sort.by === 'size'}<span class="{arrow} text-sm"></span>{/if}File size
+      </button>
     {/if}
-  </div>
-  {#if !grid}
-    <button type="button" class="{column} w-32" onclick={() => sortBy('modified')}>
-      Last modified{#if sort.by === 'modified'}<span class="{arrow} text-sm"></span>{/if}
-    </button>
-    <button type="button" class="{column} w-20 justify-end" onclick={() => sortBy('size')}>
-      {#if sort.by === 'size'}<span class="{arrow} text-sm"></span>{/if}File size
-    </button>
   {/if}
   <!-- The last column is fixed in both layouts. It holds row actions below. -->
   <div class="flex w-[var(--folder-actions-width)] shrink-0 justify-end pr-2">

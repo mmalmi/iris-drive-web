@@ -18,14 +18,15 @@ function row(page: Page, name: string | RegExp) {
 }
 
 async function copy(page: Page, name: string, said: string): Promise<void> {
-  await row(page, name).click();
+  await row(page, name).dblclick();
   await expect(page.getByTestId('viewer-header')).toContainText(name, { timeout: 30_000 });
   await page.keyboard.press('ControlOrMeta+c');
   await expect(page.getByText(said).last()).toBeVisible({ timeout: 15_000 });
+  await page.getByTestId('viewer-back').click();
 }
 
 async function pasteInto(page: Page, folder: string): Promise<void> {
-  await row(page, folder).click();
+  await row(page, folder).dblclick();
   await expect(page).toHaveURL(new RegExp(`/${folder}$`), { timeout: 30_000 });
   // The folder is open once the list no longer shows the one it is in.
   await expect(row(page, folder)).toHaveCount(0, { timeout: 30_000 });
@@ -75,11 +76,12 @@ test.describe('copying files between folders', () => {
     await fileList(page).focus();
     await page.keyboard.press('ControlOrMeta+v');
     await expect(row(page, 'notes (2).txt')).toBeVisible({ timeout: 30_000 });
-    await row(page, 'notes (2).txt').click();
+    await row(page, 'notes (2).txt').dblclick();
     await expect(page.getByText('Remember the milk')).toBeVisible({ timeout: 30_000 });
     await expect(row(page, /^Pasted /)).toHaveCount(0);
 
     // Text copied anywhere else still pastes as a new text file.
+    await page.getByTestId('viewer-back').click();
     await page.evaluate(() => navigator.clipboard.writeText('Something else'));
     await fileList(page).focus();
     await page.keyboard.press('ControlOrMeta+v');

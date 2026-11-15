@@ -113,7 +113,7 @@ test.describe('the system clipboard and drag and drop in a Drive folder', () => 
     await expect(page.getByText(/Saved as Pasted image/)).toBeVisible();
     // The folder stays open; opened, it is the picture that was pasted.
     await expect(page.getByTestId('viewer-back')).toHaveCount(0);
-    await row(page, /^Pasted image /).click();
+    await row(page, /^Pasted image /).dblclick();
     await expect(page.getByTestId('image-viewer')).toHaveJSProperty('naturalWidth', 30, { timeout: 30_000 });
     await page.screenshot({ path: test.info().outputPath('clipboard-pasted-screenshot.png') });
 
@@ -122,7 +122,7 @@ test.describe('the system clipboard and drag and drop in a Drive folder', () => 
     await fileList(page).focus();
     await page.keyboard.press('ControlOrMeta+v');
     await expect(row(page, /^Pasted text .*\.txt$/)).toBeVisible({ timeout: 30_000 });
-    await row(page, /^Pasted text .*\.txt$/).click();
+    await row(page, /^Pasted text .*\.txt$/).dblclick();
     await expect(page.getByText('Shopping list:')).toBeVisible({ timeout: 30_000 });
 
     // Pasting into the name of a new folder is pasting a name, not a file.
@@ -154,9 +154,9 @@ test.describe('the system clipboard and drag and drop in a Drive folder', () => 
     await expect(row(page, 'loose.txt')).toBeVisible({ timeout: 30_000 });
     await expect(page.getByText('Added 2 folders')).toBeVisible();
 
-    await row(page, 'Trip').click();
+    await row(page, 'Trip').dblclick();
     await expect(row(page, 'plan.txt')).toBeVisible({ timeout: 30_000 });
-    await row(page, 'Day 2').click();
+    await row(page, 'Day 2').dblclick();
     await expect(row(page, 'notes.txt')).toBeVisible({ timeout: 30_000 });
 
     // Dropped onto the row of a folder: into that folder, and the row shows where it goes.
@@ -180,7 +180,7 @@ test.describe('the system clipboard and drag and drop in a Drive folder', () => 
     });
     await expect(page.getByText('Added 2 files to Recipes')).toBeVisible({ timeout: 30_000 });
     await expect(row(page, 'bread.txt')).toHaveCount(0);
-    await row(page, 'Recipes').click();
+    await row(page, 'Recipes').dblclick();
     await expect(row(page, 'bread.txt')).toBeVisible({ timeout: 30_000 });
     await expect(row(page, 'cake.txt')).toBeVisible();
     await expect(row(page, 'soup.txt')).toBeVisible();
@@ -210,21 +210,23 @@ test.describe('the system clipboard and drag and drop in a Drive folder', () => 
     ]);
 
     // Picked in the list, copied with the keys.
-    await row(page, 'square.png').click();
+    await row(page, 'square.png').dblclick();
     await expect(page.getByTestId('image-viewer')).toBeVisible({ timeout: 30_000 });
     await page.keyboard.press('ControlOrMeta+c');
     await expect.poll(() => clipboardPicture(page), { timeout: 15_000 }).toMatchObject({ types: ['image/png'], width: 24, height: 16 });
     await expect(page.getByText('Copied the picture square.png')).toBeVisible();
 
     // The open text file, copied from its ⋮ menu.
-    await row(page, 'notes.txt').click();
+    await backToFolder(page);
+    await row(page, 'notes.txt').dblclick();
     await expect(page.getByTestId('viewer-header')).toContainText('notes.txt', { timeout: 30_000 });
     await expect((await openFileMenu(page)).getByTestId('viewer-copy')).toHaveText('Copy text');
     await chooseFileAction(page, 'viewer-copy');
     await expect.poll(() => page.evaluate(() => navigator.clipboard.readText()), { timeout: 15_000 }).toBe('Remember the milk');
 
     // Anything else goes as a link that opens it.
-    await row(page, 'report.pdf').click();
+    await backToFolder(page);
+    await row(page, 'report.pdf').dblclick();
     await expect(page.getByTestId('viewer-header')).toContainText('report.pdf', { timeout: 30_000 });
     await expect((await openFileMenu(page)).getByTestId('viewer-copy')).toHaveText('Copy link');
     await chooseFileAction(page, 'viewer-copy');

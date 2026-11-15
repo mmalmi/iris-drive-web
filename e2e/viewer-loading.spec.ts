@@ -16,7 +16,7 @@ test('a small file opens without a loading message flashing up first', async ({ 
       if (document.querySelector('[data-testid="loading-indicator"]')) seen.count += 1;
     }).observe(document.body, { childList: true, subtree: true });
   });
-  await page.getByTestId('file-list').getByRole('link', { name: /^quick\.txt/ }).click();
+  await page.getByTestId('file-list').getByRole('link', { name: /^quick\.txt/ }).dblclick();
   await expect(page.locator('pre')).toContainText('Quick content', { timeout: 30_000 });
   expect(await page.evaluate(() => (window as unknown as { __loadingSeen: { count: number } }).__loadingSeen.count)).toBe(0);
 });

@@ -1,12 +1,11 @@
 /**
  * Route helper functions for actions
  */
-import { get } from 'svelte/store';
 import { navigate } from '../utils/navigate';
 import { parseRoute } from '../utils/route';
 import type { CID } from '@hashtree/core';
 import { getTreeRootSync } from '../stores/treeRoot';
-import { isViewingFileStore } from '../stores/currentDirHash';
+import { isFilePath } from '../stores/currentDirHash';
 
 // Helper to get current rootCid from route via resolver cache
 export function getCurrentRootCid(): CID | null {
@@ -46,9 +45,7 @@ export function getCurrentPathFromUrl(): string[] {
     return urlPath.slice(0, -1);
   }
 
-  // Use actual isDirectory check from store
-  const isViewingFile = get(isViewingFileStore);
-  return isViewingFile ? urlPath.slice(0, -1) : urlPath;
+  return isFilePath(urlPath) ? urlPath.slice(0, -1) : urlPath;
 }
 
 // Update URL to reflect current state

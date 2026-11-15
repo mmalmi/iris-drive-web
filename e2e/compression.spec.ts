@@ -33,7 +33,7 @@ test.describe('forking and extracting', () => {
       await expect(listed(name).first()).toBeVisible({ timeout: 30_000 });
     }
     // The copy holds what the folder held, and changes apart from it.
-    await listed('Copy of Plans').first().click();
+    await listed('Copy of Plans').first().dblclick();
     await expect(listed('goals.txt').first()).toBeVisible({ timeout: 30_000 });
     await uploadFilesInput(page).setInputFiles({ name: 'extra.txt', mimeType: 'text/plain', buffer: Buffer.from('only here') });
     await expect(listed('extra.txt')).toBeVisible({ timeout: 30_000 });

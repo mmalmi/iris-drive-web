@@ -36,14 +36,4 @@ describe('what is chosen in a folder list', () => {
     selection.band(['d.txt']);
     expect(chosen(selection)).toEqual(['a.txt', 'd.txt']);
   });
-
-  it('lets go only when another folder is shown', () => {
-    const selection = new ListSelection();
-    selection.showFolder('Trip');
-    selection.selectAll(order);
-    selection.showFolder('Trip');
-    expect(chosen(selection)).toEqual(order);
-    selection.showFolder('Trip/Archive');
-    expect(chosen(selection)).toEqual([]);
-  });
 });

@@ -177,7 +177,7 @@ export async function createAndEnterFolder(page: any, name: string) {
   const folderLink = page.getByTestId('file-list').getByRole('link', { name, exact: true });
   await expect(folderLink).toBeVisible({ timeout: 30000 });
   const folderHash = new URL((await folderLink.getAttribute('href'))!, page.url()).hash;
-  await folderLink.click();
+  await folderLink.dblclick();
   await page.waitForURL((url: URL) => url.hash === folderHash, { timeout: 30000 });
   await expect(page.getByTestId('empty-folder')).toBeVisible({ timeout: 30000 });
 }
@@ -324,7 +324,7 @@ export async function uploadIntoFolder(page: any, files: UploadedFile | Uploaded
 
 /** Opens a file listed in the open folder and waits for its page. */
 export async function openListedFile(page: any, name: string) {
-  await fileRow(page, name).getByRole('link').click();
+  await fileRow(page, name).getByRole('link').dblclick();
   await expect(page.getByTestId('viewer-header')).toContainText(name, { timeout: 30000 });
 }
 

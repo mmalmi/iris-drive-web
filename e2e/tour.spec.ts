@@ -106,7 +106,7 @@ test.describe('a walk through the app', () => {
     });
 
     await step('text file', async () => {
-      await page.getByTestId('file-list').getByRole('link', { name: /packing list\.txt/ }).click();
+      await page.getByTestId('file-list').getByRole('link', { name: /packing list\.txt/ }).dblclick();
       await expect(page.getByTestId('viewer-header')).toContainText('packing list.txt', { timeout: 30_000 });
       await shot(page, '08-file-text');
       await chooseFileAction(page, 'viewer-edit');
@@ -114,19 +114,19 @@ test.describe('a walk through the app', () => {
       await page.goto(`${origin}/#/${owner.profileId}/main`);
     });
     await step('markdown file', async () => {
-      await page.getByTestId('file-list').getByRole('link', { name: /notes\.md/ }).click();
+      await page.getByTestId('file-list').getByRole('link', { name: /notes\.md/ }).dblclick();
       await expect(page.getByTestId('viewer-header')).toContainText('notes.md', { timeout: 30_000 });
       await shot(page, '10-file-markdown');
       await page.goto(`${origin}/#/${owner.profileId}/main`);
     });
     await step('image file', async () => {
-      await page.getByTestId('file-list').getByRole('link', { name: /pixel\.png/ }).click();
+      await page.getByTestId('file-list').getByRole('link', { name: /pixel\.png/ }).dblclick();
       await expect(page.getByTestId('viewer-header')).toContainText('pixel.png', { timeout: 30_000 });
       await shot(page, '11-file-image');
       await page.goto(`${origin}/#/${owner.profileId}/main`);
     });
     await step('subfolder', async () => {
-      await page.getByTestId('file-list').getByRole('link', { name: 'Trip photos' }).click();
+      await page.getByTestId('file-list').getByRole('link', { name: 'Trip photos' }).dblclick();
       await expect(page.getByTestId('folder-header').getByRole('heading', { name: 'Trip photos' })).toBeVisible();
       await shot(page, '12-subfolder-empty');
       await page.goto(`${origin}/#/${owner.profileId}/main`);
@@ -184,7 +184,7 @@ test.describe('a walk through the app', () => {
     let link = '';
     await step('share document', async () => {
       await page.goto(`${origin}/#/${owner.profileId}/main`);
-      await page.getByTestId('document-entry').filter({ visible: true }).first().click();
+      await page.getByTestId('document-entry').filter({ visible: true }).first().dblclick();
       await expect(page.getByTestId('document-title')).toHaveText('Trip plan', { timeout: 30_000 });
       await page.getByTestId('document-share').click();
       link = await inviteLink(page);
@@ -224,7 +224,7 @@ test.describe('a walk through the app', () => {
         await page.goto(`${origin}/#/shared-with-me`);
         await expect(page.getByTestId('shared-with-me-row')).toHaveCount(0);
         await page.goto(`${origin}/#/${owner.profileId}/main`);
-        await page.getByTestId('document-entry').filter({ visible: true }).first().click();
+        await page.getByTestId('document-entry').filter({ visible: true }).first().dblclick();
         await expect(page.getByTestId('document-title')).toHaveText('Trip plan', { timeout: 30_000 });
         await shot(page, '26-owner-shared-document');
       });

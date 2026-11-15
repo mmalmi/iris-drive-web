@@ -7,7 +7,9 @@ function row(page: Page, name: string) {
 }
 
 async function openFile(page: Page, name: string): Promise<void> {
-  await row(page, name).click();
+  const back = page.getByTestId('viewer-back');
+  if (await back.isVisible()) await back.click();
+  await row(page, name).dblclick();
   await expect(page.getByTestId('viewer-header')).toContainText(name, { timeout: 30_000 });
 }
 
@@ -32,7 +34,7 @@ test.describe('Recent', () => {
     await chooseFileAction(page, 'viewer-rename');
     await page.getByPlaceholder('New name...').fill('shopping.txt');
     await page.getByPlaceholder('New name...').press('Enter');
-    await expect(row(page, 'shopping.txt')).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId('viewer-header')).toContainText('shopping.txt', { timeout: 30_000 });
 
     await page.getByRole('link', { name: 'Recent' }).first().click();
     const recent = page.getByTestId('recents-view');

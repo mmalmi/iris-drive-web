@@ -65,7 +65,7 @@ test.describe('HTML file viewing', () => {
       await expect(directoryOpenSite).toHaveAttribute('href', /html-test\/index\.html\?reload=1$/);
       const directoryHref = await directoryOpenSite.getAttribute('href');
 
-      await page.locator('[data-testid="file-list"] a:has-text("index.html")').click();
+      await page.locator('[data-testid="file-list"] a:has-text("index.html")').dblclick();
 
       await expect(page.getByTestId('viewer-header')).toContainText('index.html', { timeout: 10000 });
       const viewerOpenSite = (await openFileMenu(page)).getByTestId('viewer-open-site');

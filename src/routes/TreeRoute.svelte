@@ -41,11 +41,7 @@
   // A document folder shows the editor, also on a narrow screen.
   let isYjsDocument = $derived(!!routeDocumentFolderName(route));
 
-  // On mobile, show viewer for Yjs docs or when a file is selected
-  let hasFileSelected = $derived(isViewingFile || isYjsDocument);
-  let showViewerPane = $derived(
-    hasFileSelected || isFullscreen
-  );
+  let showViewerPane = $derived(isViewingFile || isYjsDocument || isFullscreen);
 
   // A Drive or shared folder is only reached through this account's own
   // profile or a share record it holds. Without either, no relay answer could
@@ -211,15 +207,13 @@
 {#if noAccess}
   <NoAccessNotice />
 {:else}
-<!-- Desktop file sidebar. A document takes the whole width; its header leads back to the folder. -->
-{#if !isFullscreen && !isYjsDocument}
-  <div class={hasFileSelected
-      ? 'hidden lg:flex lg:w-72 xl:w-80 shrink-0 flex-col min-h-0'
-      : 'flex flex-1 shrink-0 flex-col min-h-0'}>
-    <FileBrowser compact={showViewerPane} />
+<!-- An open file takes the folder's place, as in Google Drive. The list stays as it was
+     underneath, so closing the file returns to the same rows. -->
+{#if !isYjsDocument}
+  <div class={showViewerPane ? 'hidden' : 'flex flex-1 flex-col min-h-0'}>
+    <FileBrowser />
   </div>
 {/if}
-<!-- Right panel (Viewer) - shown on mobile when a file is selected -->
 <div class={showViewerPane
   ? 'flex flex-1 flex-col min-w-0 min-h-0'
   : 'hidden'}>

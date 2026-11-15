@@ -32,6 +32,8 @@ let lastPeerCount = 0;
 let pathRetryTimer: ReturnType<typeof setTimeout> | null = null;
 let pathRetryAttempts = 0;
 let forceRetry = false;
+// The last address resolved: closing a file returns to its folder, which is then known already.
+let resolved: { rootHash: string; path: string[]; isFile: boolean } | null = null;
 const PATH_RETRY_DELAY_MS = 1500;
 // Snapshot permalinks may need extra time for the signed event snapshot, root CID,
 // and path entry to all become locally readable under suite load.
@@ -85,6 +87,18 @@ async function updateCurrentDirCid() {
   prevRootHash = rootHash;
   prevRootKey = rootKey;
   prevPathKey = pathKey;
+  // A late answer about an address the page has since left is dropped. One about the same
+  // address under an older root still counts until the newer root's arrives.
+  const overtaken = () => pathKey !== prevPathKey;
+
+  // Back from a file to the folder it is in: nothing to look up, so nothing flickers.
+  if (resolved?.isFile && resolved.rootHash === rootHash && urlPath.length > 0 && pathKey === resolved.path.slice(0, -1).join('/')) {
+    resolved = { rootHash, path: urlPath, isFile: false };
+    isViewingFileStore.set(false);
+    resolvingPathStore.set(false);
+    return;
+  }
+  resolved = null;
 
   // If we have path segments but no root CID, we're waiting for tree to load
   if (!rootCid || !rootHash) {
@@ -124,6 +138,7 @@ async function updateCurrentDirCid() {
 
   // Wait for worker to be ready before resolving paths
   const workerReady = await waitForWorker();
+  if (overtaken()) return;
   if (!workerReady) {
     console.warn('[currentDirHash] Worker not ready after timeout, cannot resolve path');
     resolvingPathStore.set(false);
@@ -142,6 +157,7 @@ async function updateCurrentDirCid() {
     const route = get(routeStore);
     if (route.isPermalink && urlPath.length === 1) {
       const isDir = await tree.isDirectory(rootCid);
+      if (overtaken()) return;
       if (!isDir) {
         // rootCid points to a file - path is just a filename hint for MIME type
         currentDirCidStore.set(null);
@@ -155,6 +171,7 @@ async function updateCurrentDirCid() {
 
     // Resolve full path first - returns { cid, type } with LinkType
     const result = await tree.resolvePath(rootCid, urlPath);
+    if (overtaken()) return;
     if (!result) {
       // Keep resolvingPath=true - root might be stale and updating
       // The currentDirCid stays null but we don't mark as "resolved" yet
@@ -183,11 +200,14 @@ async function updateCurrentDirCid() {
         // Resolve parent directory
         const parentPath = urlPath.slice(0, -1);
         const parentResult = await tree.resolvePath(rootCid, parentPath);
+        if (overtaken()) return;
         currentDirCidStore.set(parentResult?.cid ?? null);
       }
     }
+    resolved = { rootHash, path: urlPath, isFile: !isDir };
     resolvingPathStore.set(false);
   } catch {
+    if (overtaken()) return;
     if (!isRootOnlyChange) {
       currentDirCidStore.set(null);
       isViewingFileStore.set(false);
@@ -266,6 +286,14 @@ export { currentDirCidStore };
  * Store for whether current URL path points to a file (not a directory)
  */
 export { isViewingFileStore };
+
+/**
+ * Whether `path` is known to lead to a file. An address that has only just changed is
+ * not known yet: what was true of the one before it says nothing about it.
+ */
+export function isFilePath(path: string[]): boolean {
+  return get(isViewingFileStore) && path.join('/') === prevPathKey;
+}
 
 /**
  * Store for whether path resolution is in progress

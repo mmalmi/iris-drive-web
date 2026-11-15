@@ -226,12 +226,13 @@
         }
         return;
       }
-      if ((key === 'j' || key === 'arrowdown' || key === 'l' || key === 'arrowright') && nextFile) {
+      // Left and right step through the folder's files; up and down scroll the one shown.
+      if ((key === 'j' || key === 'l' || key === 'arrowright') && nextFile) {
         e.preventDefault();
         navigateToFile(nextFile.name);
         return;
       }
-      if ((key === 'k' || key === 'arrowup' || key === 'h' || key === 'arrowleft') && prevFile) {
+      if ((key === 'k' || key === 'h' || key === 'arrowleft') && prevFile) {
         e.preventDefault();
         navigateToFile(prevFile.name);
       }
@@ -411,8 +412,17 @@
       <!-- One row on a phone too: the name, Download, Share, and the rest behind ⋮. -->
       <div class="shrink-0 px-2 sm:px-3 py-2 border-b border-surface-2 flex items-center gap-1 sm:gap-2" data-testid="viewer-header">
         <a href={backUrl} class="btn-circle btn-ghost h-8 w-8 min-h-8 min-w-8 shrink-0 no-underline" title="Back to folder" aria-label="Back to folder" data-testid="viewer-back">
-          <span class="i-lucide-chevron-left text-lg"></span>
+          <span class="i-lucide-arrow-left text-lg"></span>
         </a>
+        <!-- Before the name, so they stay put from file to file; on a phone they are behind ⋮. -->
+        {#if filesCount > 1 && prevFile && nextFile}
+          <button onclick={() => navigateToFile(prevFile.name)} class="btn-circle btn-ghost h-8 w-8 min-h-8 min-w-8 shrink-0 max-sm:hidden" title={`Previous: ${prevFile.name}`} aria-label={`Previous: ${prevFile.name}`} data-testid="viewer-previous">
+            <span class="i-lucide-chevron-left text-base"></span>
+          </button>
+          <button onclick={() => navigateToFile(nextFile.name)} class="btn-circle btn-ghost h-8 w-8 min-h-8 min-w-8 shrink-0 max-sm:hidden" title={`Next: ${nextFile.name}`} aria-label={`Next: ${nextFile.name}`} data-testid="viewer-next">
+            <span class="i-lucide-chevron-right text-base"></span>
+          </button>
+        {/if}
         <div class="min-w-0 flex-1 flex items-center gap-2">
           <TreeRow
             name={entry.name}
@@ -436,15 +446,6 @@
           <a href={latestVersionUrl} class="btn-ghost shrink-0 no-underline flex items-center gap-1.5 max-sm:w-9 max-sm:px-0 max-sm:justify-center" title="See latest version" data-testid="viewer-latest-version">
             <span class="i-lucide-history text-base"></span><span class="max-sm:hidden">See latest version</span>
           </a>
-        {/if}
-        <!-- Beside the list there is no need; on a phone they are behind ⋮, so the name has room. -->
-        {#if filesCount > 1 && prevFile && nextFile}
-          <button onclick={() => navigateToFile(prevFile.name)} class="btn-circle btn-ghost h-8 w-8 min-h-8 min-w-8 shrink-0 max-sm:hidden lg:hidden" title={`Previous: ${prevFile.name}`} aria-label={`Previous: ${prevFile.name}`}>
-            <span class="i-lucide-chevron-left text-base"></span>
-          </button>
-          <button onclick={() => navigateToFile(nextFile.name)} class="btn-circle btn-ghost h-8 w-8 min-h-8 min-w-8 shrink-0 max-sm:hidden lg:hidden" title={`Next: ${nextFile.name}`} aria-label={`Next: ${nextFile.name}`}>
-            <span class="i-lucide-chevron-right text-base"></span>
-          </button>
         {/if}
         <button
           onclick={handleDownload}

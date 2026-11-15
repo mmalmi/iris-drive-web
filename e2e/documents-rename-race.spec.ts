@@ -212,7 +212,7 @@ test.describe('renaming or deleting a document that another device is typing in'
     await chooseNew(page, 'Folder');
     await page.getByPlaceholder('Folder name...').fill('Team');
     await page.getByPlaceholder('Folder name...').press('Enter');
-    await page.getByRole('link', { name: /^Team\b/ }).first().click();
+    await page.getByRole('link', { name: /^Team\b/ }).first().dblclick();
     await expect(page).toHaveURL(/\/main\/Team$/, { timeout: 30_000 });
     await createDocument(page, 'Notes');
     await typeInDocument(page, 'Written first.');
@@ -229,7 +229,7 @@ test.describe('renaming or deleting a document that another device is typing in'
     await guest.goto(`${new URL(guest.url()).origin}/#${link.split('#')[1]}`);
     const entry = guest.getByTestId('document-entry').filter({ hasText: 'Notes' }).first();
     await expect(entry).toBeVisible({ timeout: 90_000 });
-    await entry.click();
+    await entry.dblclick();
     await expect(documentBody(guest)).toContainText('Written first.', { timeout: 90_000 });
     await expect(guest.getByTestId('document-toolbar')).toBeVisible({ timeout: 30_000 });
     // Both work in the shared folder's own Drive.

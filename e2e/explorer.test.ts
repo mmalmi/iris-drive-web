@@ -20,11 +20,12 @@ test.describe('files and folders in My Drive', () => {
     await createTextFile(page, 'empty.txt');
     await createTextFile(page, 'hello.txt', 'Hello, World!');
 
-    await listed(page, 'empty.txt').click();
+    await listed(page, 'empty.txt').dblclick();
     await expect(page.getByTestId('viewer-header')).toContainText('empty.txt', { timeout: 30_000 });
     await expect(page.locator('pre')).toHaveCount(1);
 
-    await listed(page, 'hello.txt').click();
+    await page.getByTestId('viewer-back').click();
+    await listed(page, 'hello.txt').dblclick();
     await expect(page.locator('pre')).toContainText('Hello, World!', { timeout: 30_000 });
     await chooseFileAction(page, 'viewer-edit');
     await expect(page.locator('textarea')).toHaveValue('Hello, World!');
@@ -74,13 +75,16 @@ test.describe('files and folders in My Drive', () => {
     await expect(page).toHaveURL(folderUrl);
 
     // A file's own buttons rename and delete it.
-    await listed(page, 'old-name.txt').click();
+    await listed(page, 'old-name.txt').dblclick();
     await chooseFileAction(page, 'viewer-rename');
     await page.getByPlaceholder('New name...').fill('new-name.txt');
     await page.getByPlaceholder('New name...').press('Enter');
-    await expect(listed(page, 'new-name.txt')).toBeVisible({ timeout: 30_000 });
-    await listed(page, 'to-delete.txt').click();
+    await expect(page.getByTestId('viewer-header')).toContainText('new-name.txt', { timeout: 30_000 });
+    await page.getByTestId('viewer-back').click();
+    await listed(page, 'to-delete.txt').dblclick();
     await chooseFileAction(page, 'viewer-delete');
+    // The list is hidden under the open file, so wait for the delete itself to be told.
+    await expect(page.getByText('Deleted “to-delete.txt”')).toBeVisible({ timeout: 30_000 });
     await expect(listed(page, 'to-delete.txt')).toHaveCount(0);
 
     await page.goto(folderUrl);

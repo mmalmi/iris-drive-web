@@ -28,15 +28,13 @@
     dirCid: CID | null;
     /** The folder's actions, where it can be acted on. */
     showActions: boolean;
-    /** Out of sight while items are chosen: the bar for them is there instead. */
-    hidden: boolean;
   }
 
-  let { parentHref, ownerNpub, crumbs, name, access, visibility, canEdit, dirCid, showActions, hidden }: Props = $props();
+  let { parentHref, ownerNpub, crumbs, name, access, visibility, canEdit, dirCid, showActions }: Props = $props();
 </script>
 
 <div
-  class="shrink-0 h-14 lg:h-16 {hidden ? 'hidden' : 'flex'} items-center gap-2 sm:gap-3 px-3 py-2 lg:px-5 lg:py-3 border-b border-surface-2 bg-surface-0"
+  class="shrink-0 h-14 lg:h-16 flex items-center gap-2 sm:gap-3 px-3 py-2 lg:px-5 lg:py-3 border-b border-surface-2 bg-surface-0"
   data-testid="folder-header"
 >
   <div class="min-w-0 flex-1 flex items-center gap-1.5 min-h-9">

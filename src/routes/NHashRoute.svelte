@@ -7,7 +7,6 @@
   import { routeDocumentFolderName } from '../lib/documentNames';
   import { nhashDecode } from '@hashtree/core';
   import { getQueryParamsFromHash } from '../lib/router.svelte';
-  import { shouldShowNhashFileBrowser } from '../lib/nhashRouteLayout';
 
   interface Props {
     nhash: string;
@@ -20,16 +19,7 @@
   let isViewingFile = $derived($isViewingFileStore || !!routeDocumentFolderName($routeStore));
   let isValid = $state(true);
 
-  let showViewer = $derived(isViewingFile);
-
-  // Check if fullscreen mode from URL
-  let isFullscreen = $derived.by(() => {
-    return getQueryParamsFromHash(hash).get('fullscreen') === '1';
-  });
-  let showFileBrowser = $derived(shouldShowNhashFileBrowser({
-    isFullscreen,
-    isViewingFile,
-  }));
+  let showViewer = $derived(isViewingFile || getQueryParamsFromHash(hash).get('fullscreen') === '1');
 
   onMount(() => {
     nostrStore.setSelectedTree(null);
@@ -44,16 +34,11 @@
 </script>
 
 {#if isValid}
-  <!-- Direct root files have no parent directory to browse. -->
-  {#if showFileBrowser}
-    <div class="flex flex-1 shrink-0 flex-col min-h-0">
-      <FileBrowser />
-    </div>
-  {/if}
-  <!-- Viewer - shown in single-column when viewing a file -->
-  <div class={showViewer || isFullscreen
-    ? 'flex flex-1 flex-col min-w-0 min-h-0 bg-surface-1/30'
-    : 'hidden'}>
+  <!-- An open file takes the folder's place; the list stays as it was underneath. -->
+  <div class={showViewer ? 'hidden' : 'flex flex-1 flex-col min-h-0'}>
+    <FileBrowser />
+  </div>
+  <div class={showViewer ? 'flex flex-1 flex-col min-w-0 min-h-0 bg-surface-1/30' : 'hidden'}>
     <Viewer />
   </div>
 {:else}
