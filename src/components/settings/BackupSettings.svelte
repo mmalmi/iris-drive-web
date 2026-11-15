@@ -66,7 +66,7 @@
   <section>
     <h3 class="text-xs font-medium text-muted uppercase tracking-wide mb-1">Backups</h3>
     <p class="text-sm text-text-2 mb-3">
-      Places that keep a copy of your Drive. They get it locked: only your account can open it.
+      Encrypted copies of your Drive. The places that keep them cannot read them; only your account can.
     </p>
     {#if !runsHere}
       <p class="mb-3 rounded bg-surface-2 p-3 text-sm text-text-2">Backups for this app are set up in its Backups tab.</p>
@@ -166,10 +166,9 @@
           <span>You have no recovery phrase yet. <a href="#/settings/account/recovery" class="text-accent">Create recovery phrase</a></span>
         </p>
       {/if}
-      <p>Sign in on another device with your recovery phrase. Your folders and files come back from the file servers above, also when every other device is lost.</p>
-      <p>A file server you added yourself: add it there too, here under Backup.</p>
+      <p>Sign in on a new device with your recovery phrase and your files come back from the file servers above. If you added a file server of your own, add it on the new device too.</p>
       {#if hasFolder}
-        <p>A copy in a folder is kept locked as well; Drive cannot read one back yet.</p>
+        <p>A copy in a folder is encrypted as well; Drive cannot read one back yet.</p>
       {/if}
       <a href="#/users/existing" class="inline-block text-accent">Sign in on another device</a>
     </div>
