@@ -11,6 +11,10 @@ import {
 } from '../src/drive/deviceStorageReport';
 import { forgetHolding, measureHolding, type HoldingParts } from '../src/workers/driveHolding';
 import { folderLines, holdersSentence, holdingLabel, spaceLabel, syncState } from '../src/lib/deviceStorageView';
+import { hexToBytes } from '@noble/hashes/utils.js';
+// Built by native Iris Drive (`crates/iris-drive-core/src/device_storage`, test
+// `a_report_built_here_has_the_web_shape_and_opens_for_the_web_device` with NATIVE_EVENT_OUT).
+import nativeEvent from './fixtures/native-device-storage-event.json';
 
 const PROFILE = '0f'.repeat(32);
 const BIG = 2 * 1024 * 1024 + 1000;
@@ -48,6 +52,13 @@ describe('a device storage report', () => {
     expect(await openDeviceStorageEvent(event, PROFILE, sender)).toEqual(report());
     expect(await openDeviceStorageEvent(event, PROFILE, stranger)).toBeNull();
     expect(await openDeviceStorageEvent(event, 'aa'.repeat(32), other)).toBeNull();
+  });
+
+  it('opens a report built by native Iris Drive', async () => {
+    const event = nativeEvent.event as Event;
+    expect(event.tags).toEqual([['d', deviceStorageDTag(nativeEvent.profile_id)]]);
+    expect(await openDeviceStorageEvent(event, nativeEvent.profile_id, hexToBytes(nativeEvent.web_secret))).toEqual(nativeEvent.report);
+    expect(await openDeviceStorageEvent(event, nativeEvent.profile_id, generateSecretKey())).toBeNull();
   });
 
   it('is refused when changed after signing', async () => {

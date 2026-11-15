@@ -1,0 +1,47 @@
+{
+  "event": {
+    "content": "{\"v\":1,\"key_wraps\":{\"1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f\":\"AqoD4WUdQAeH8PZdo97FUN5TB6z96FoRGvk7gmVFanD/aAiDJfegU3iBMCRbEcOySrXr9yhza7gv+yhO4l9caaiE38GLViAt2J8pOhejOCiczJ2o9ooIXyXUvV5YuVHHkAx23S1Oy3mtynzP+tL8rfPI6pY7CMW9nePvzWens+yeFvM=\",\"4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766\":\"AiM/txd7dUc+JNmyTwwk04OwcDgOAxJYG3E98KRIk5GH4vTDRjZ6Cme99UhOJpmrQcgfDvxqNYf0qnKxZyLQlLNnsv9eDRhYi0qGCQntdEK3ygXXFj4waPXC9FP1zpo7xR8pgGl4SBppLgB/sHhXgHpE0SNxIbUBJzENitibSsWCZ64=\"},\"data\":\"M-2s7XnrCaqY7CCf.mWCYb1kbbuPyXg2yBVkJYWwaK2N-8sRpCLCAoXJQw9s3UWrYN1f4FydER_jbtgzvvAiLFJPjhDPkixs8tbsUjUO-WmVvPbtb-vXgcTp9RITJ9CxzqDQy1sYl7LHy74lrDQA7tUAzNG449HROfP9thX2x9ISoxRPYw7EcXbuBGUIiEaWj_JFqUcIlKEpoywURXq5WYEgOYBNkKJ0KJ4smmEWT3xEeKpCCP3WxbLlPwXRztgbiG-hdn4BXFYzY4qqN0cWJiRsN7nvh98SZSg_VG41m9US1hazSvcIY4EU3PK586Uty-CCEDM9EmQTwADnjNi0C8WfLeDhF08VSYgOZo0mbHkgp8YV3kCv07dQgTXm7selX2H7fgxg_suN1L1PVLsmx_TBhURZ91JKT-vwe9l50SFaxx6SZlfb-nbmUzhIM87vS7cRPGfqlcMqGxj212qJZBi4t7hvyeJVSuwyhfkfbxRI_My7ph_7W05B9f23-10gydvcm6ACVN0pRPy7bP4c7-lpulv6mCITh1vi_8DnlKdNuimkvG2oN\"}",
+    "created_at": 1763200010,
+    "id": "3add0537d4af06c45f9b730b6bacd431ac37f3f84b807d4f2634a7fcc9e39df6",
+    "kind": 30078,
+    "pubkey": "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+    "sig": "6134ecc34f1dd7eb0a86c511d7c521303ce5d3a76ad1d4146d481a0a0b90841b97b6e80a7615e4dabc4365d4d7bbf01d1c918674f4fff543cf23ef42848851c1",
+    "tags": [
+      [
+        "d",
+        "0714ec763c34d1adf51f206f08d5e9e83e9351b735f6dc46494f988f1323d902"
+      ]
+    ]
+  },
+  "profile_id": "0b6f2d4e-8a51-4c3b-9d27-5e1f6a7b8c90",
+  "report": {
+    "app": "macos",
+    "capacity_bytes": 10000,
+    "file_bytes": 3000,
+    "files": 3,
+    "folders": [
+      {
+        "bytes": 2000,
+        "held": 0,
+        "path": [
+          "Docs"
+        ]
+      }
+    ],
+    "held_bytes": 1000,
+    "held_files": 1,
+    "loose": {
+      "bytes": 10,
+      "files": 1,
+      "held": 10
+    },
+    "measured_at": 1700000000,
+    "root": "abababababababababababababababababababababababababababababababab",
+    "seen": {
+      "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f": 3
+    },
+    "stored_bytes": 5000,
+    "v": 1
+  },
+  "web_secret": "0101010101010101010101010101010101010101010101010101010101010101"
+}
