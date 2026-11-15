@@ -1,10 +1,11 @@
 <script lang="ts">
   /**
    * Where Drive keeps your files: on this device, in plain words, and how
-   * much room it may take; then the backups that keep it besides. Nothing
-   * here is about how it is kept.
+   * much room it may take; how much of it each of your devices holds; then
+   * the backups that keep it besides. Nothing here is about how it is kept.
    */
   import BackupSettings from './BackupSettings.svelte';
+  import DeviceStorage from './DeviceStorage.svelte';
   import { appStore, formatBytes, updateStorageStats } from '../../store';
   import { settingsStore, DEFAULT_STORAGE_SETTINGS } from '../../stores/settings';
 
@@ -67,5 +68,6 @@
       </button>
     {/if}
   </section>
+  <DeviceStorage />
   <BackupSettings />
 </div>

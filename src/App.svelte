@@ -62,6 +62,8 @@
     initRouter();
     // Backups that were going when the app closed go on; nothing waits for it.
     void import('./lib/backup/backups').then(({ startBackups }) => startBackups());
+    // Tells the account's other devices how much of the Drive is here.
+    void import('./lib/deviceStorage').then(({ startDeviceStorage }) => startDeviceStorage());
     // A file dropped where nothing takes it would otherwise open in place of the app.
     const keepPage = (event: DragEvent) => {
       if (event.defaultPrevented || !event.dataTransfer?.types.includes('Files')) return;

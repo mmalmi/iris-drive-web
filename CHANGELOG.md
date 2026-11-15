@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Open drive.iris.to links in the Iris Drive iPhone app when it is installed.
+- Show under Storage how much of your Drive each of your devices holds, and in which folders, whether it is in sync and connected, and how much room it has.
 
 ## 0.1.23 - 2026-10-04
 

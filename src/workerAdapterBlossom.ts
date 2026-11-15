@@ -5,6 +5,7 @@ import type {
 } from '@hashtree/core';
 import { WorkerAdapterCore, type ExtendedWorkerRequest } from './workerAdapterCore';
 import type { DriveBackupRequest, DriveBackupResult } from './workers/driveBackup';
+import type { DriveHolding } from './workers/driveHolding';
 
 const DRIVE_BACKUP_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 
@@ -123,6 +124,22 @@ export class WorkerAdapterBlossom extends WorkerAdapterCore {
       id: generateRequestId(),
       request,
     } as ExtendedWorkerRequest, undefined, DRIVE_BACKUP_TIMEOUT_MS);
+  }
+
+  /**
+   * How much of the Drive at `root` this device holds, measured in the worker.
+   * Folders it lacks are fetched; file content never is. What was counted
+   * for a folder in the last `maxAgeMs` is used again.
+   */
+  async measureDriveHolding(root: { hash: Uint8Array; key?: Uint8Array }, maxAgeMs?: number): Promise<DriveHolding> {
+    const response = await this.request<{ holding?: DriveHolding; error?: string }>({
+      type: 'driveHolding',
+      id: generateRequestId(),
+      root,
+      maxAgeMs,
+    } as ExtendedWorkerRequest, undefined, DRIVE_BACKUP_TIMEOUT_MS);
+    if (response.error || !response.holding) throw new Error(response.error ?? 'Drive storage did not answer');
+    return response.holding;
   }
 
   /** Stop a backup or check of one place. */

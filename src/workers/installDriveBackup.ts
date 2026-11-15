@@ -22,6 +22,7 @@ import {
   type DriveParts,
   type UnsignedAuth,
 } from './driveBackup';
+import { forgetHolding, measureHolding, type HoldingParts } from './driveHolding';
 
 interface Message { type?: string; id?: string; [field: string]: unknown }
 interface WorkerScope {
@@ -151,6 +152,27 @@ async function run(id: string, request: DriveBackupRequest): Promise<void> {
   post({ type: 'result', id, ...result });
 }
 
+// One measurement at a time; a newer one replaces one still going.
+let measuring: AbortController | null = null;
+
+async function measure(id: string, root: { hash: Uint8Array; key?: Uint8Array }, maxAgeMs: number | undefined): Promise<void> {
+  measuring?.abort();
+  const controller = new AbortController();
+  measuring = controller;
+  const holdingParts: HoldingParts = {
+    async has(hash) { return (await ask({ type: 'has', hash })).value === true; },
+    node: driveParts.node,
+  };
+  try {
+    const holding = await measureHolding(root.key ? { hash: root.hash, key: root.key } : { hash: root.hash }, holdingParts, { signal: controller.signal, maxAgeMs });
+    post({ type: 'result', id, holding });
+  } catch (error) {
+    post({ type: 'result', id, error: controller.signal.aborted ? 'stopped' : error instanceof Error ? error.message : String(error) });
+  } finally {
+    if (measuring === controller) measuring = null;
+  }
+}
+
 scope.addEventListener('message', (event) => {
   const message = event.data;
   switch (message?.type) {
@@ -159,6 +181,7 @@ scope.addEventListener('message', (event) => {
       return;
     case 'setIdentity':
       secretKey = keyFromHex(message.nsec);
+      forgetHolding();
       return;
     case 'signed': {
       const reply = typeof message.id === 'string' ? signatures.get(message.id) : undefined;
@@ -175,6 +198,10 @@ scope.addEventListener('message', (event) => {
     case 'driveBackupStop':
       event.stopImmediatePropagation();
       running.get(String(message.target))?.abort();
+      return;
+    case 'driveHolding':
+      event.stopImmediatePropagation();
+      void measure(String(message.id), message.root as { hash: Uint8Array; key?: Uint8Array }, typeof message.maxAgeMs === 'number' ? message.maxAgeMs : undefined);
       return;
   }
 });

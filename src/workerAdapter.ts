@@ -14,7 +14,8 @@ import type { WorkerAdapterConfig, WorkerConstructor } from './workerAdapterCore
 
 export class WorkerAdapter extends WorkerAdapterSocial {}
 
-export type BackendAdapter = Omit<WorkerAdapter, 'setP2PProvider' | 'setNostrSource' | 'queryEvents' | 'onIdentityChange' | 'refreshSocialGraph' | 'runDriveBackup' | 'stopDriveBackup' | 'onDriveBackupProgress'> & {
+export type BackendAdapter = Omit<WorkerAdapter, 'setP2PProvider' | 'setNostrSource' | 'queryEvents' | 'onIdentityChange' | 'refreshSocialGraph' | 'runDriveBackup' | 'stopDriveBackup' | 'onDriveBackupProgress' | 'measureDriveHolding'> & {
+  measureDriveHolding?: WorkerAdapter['measureDriveHolding'];
   runDriveBackup?: WorkerAdapter['runDriveBackup'];
   stopDriveBackup?: WorkerAdapter['stopDriveBackup'];
   onDriveBackupProgress?: WorkerAdapter['onDriveBackupProgress'];

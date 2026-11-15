@@ -213,6 +213,16 @@ export class ProfileDriveProjection {
       }]));
   }
 
+  /** The newest version of each device this one holds: its sequence number and when it was published (unix seconds). */
+  heldVersions(
+    rootScopeId: string,
+    driveId: string,
+    authorizedAppKeys: ReadonlySet<string>,
+  ): Record<string, { seq: number; publishedAt: number }> {
+    return Object.fromEntries(this.authorizedRoots(rootScopeId, driveId, authorizedAppKeys)
+      .map(({ event, parsed }) => [event.pubkey, { seq: parsed.app_key_seq, publishedAt: parsed.published_at }]));
+  }
+
   contributionRoot(
     rootScopeId: string,
     driveId: string,
