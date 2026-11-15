@@ -730,7 +730,7 @@
                 use:longPress={() => selection.add(entry.name)}
                 data-testid={isDocument ? 'document-entry' : undefined}
               >
-                <FileEntryLabel {entry} {title} {icon} {isFolder} {checked} {detailsId} {mediaReady} {grid}
+                <FileEntryLabel documentKind={documentInfo?.kind ?? null} {entry} {title} {icon} {isFolder} {checked} {detailsId} {mediaReady} {grid}
                   access={entryAccess?.kind !== 'private' && entryAccess?.kind !== currentAccess?.kind ? entryAccess : null} />
               </a>
               <button

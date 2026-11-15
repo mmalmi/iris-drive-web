@@ -1,9 +1,10 @@
 <script lang="ts">
-  import { LinkType, toHex, type TreeEntry } from '@hashtree/core';
+  import { LinkType, type TreeEntry } from '@hashtree/core';
   import type { ItemAccess } from '../drive/itemAccess';
   import { isPhotoName, isVideoName } from '../lib/photos';
   import AccessBadge from './AccessBadge.svelte';
-  import PhotoImage from './PhotoImage.svelte';
+  import GridThumbnail from './GridThumbnail.svelte';
+  import type { DocumentKind } from '../lib/documentNames';
   import RowDetails from './RowDetails.svelte';
 
   interface Props {
@@ -14,11 +15,12 @@
     checked: boolean;
     access?: ItemAccess | null;
     detailsId?: string;
+    documentKind: DocumentKind | null;
     grid: boolean;
     mediaReady: boolean;
   }
 
-  let { entry, title, icon, isFolder, checked, access, detailsId, grid, mediaReady }: Props = $props();
+  let { entry, title, icon, isFolder, checked, access, detailsId, grid, mediaReady, documentKind }: Props = $props();
 </script>
 
 {#if checked}
@@ -45,10 +47,8 @@
 {#if grid && !isFolder}
   <span class="tile-preview" aria-hidden="true">
     <span class="{icon} text-4xl text-text-3"></span>
-    {#if entry.type !== LinkType.Dir && isPhotoName(entry.name) && mediaReady}
-      {#key toHex(entry.cid.hash)}
-        <PhotoImage photo={{ cid: entry.cid, name: entry.name, hash: toHex(entry.cid.hash), video: isVideoName(entry.name) }} ready={mediaReady} />
-      {/key}
+    {#if mediaReady && (documentKind || (entry.type !== LinkType.Dir && isPhotoName(entry.name)))}
+      <GridThumbnail cid={entry.cid} name={entry.name} kind={documentKind ?? (isVideoName(entry.name) ? 'video' : 'image')} ready={mediaReady} />
     {/if}
   </span>
 {:else if !grid}

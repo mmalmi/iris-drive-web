@@ -1,5 +1,7 @@
 import { expect, test } from './fixtures';
-import { flushPendingPublishes } from './test-utils';
+import { createSpreadsheet, typeTable } from './sheets.helpers';
+import { createPresentation } from './slides.helpers';
+import { chooseNew, fileRow, flushPendingPublishes } from './test-utils';
 import {
   createDocument,
   createDriveProfile,
@@ -34,6 +36,70 @@ test.describe('documents in a Drive', () => {
     await page.getByRole('link', { name: 'Back to folder' }).click();
     await expect(page.getByRole('link', { name: /^Trip plan\b/ }).first()).toBeVisible({ timeout: 30_000 });
     await page.screenshot({ path: testInfo.outputPath('document-in-folder.png') });
+  });
+
+
+  test('the folder grid previews saved pages, cells, questions and the first slide', async ({ page, relayUrl }, testInfo) => {
+    await prepareFreshSession(page, relayUrl);
+    await createDriveProfile(page);
+    const back = page.getByRole('link', { name: 'Back to folder' });
+    await createDocument(page, 'Field notes');
+    await typeInDocument(page, 'Herons at the marsh');
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('The flock returned just before sunrise.');
+    await expectSaved(page);
+    await back.click();
+
+    await createSpreadsheet(page, 'Bird count');
+    await typeTable(page, 'A1', [['Species', 'Morning', 'Evening'], ['Heron', '7', '12'], ['Mallard', '23', '16']]);
+    await expectSaved(page);
+    await back.click();
+
+    await chooseNew(page, 'Form');
+    await page.getByPlaceholder('Form name...').fill('Volunteer survey');
+    await page.getByPlaceholder('Form name...').press('Enter');
+    await page.getByTestId('question-title').first().fill('Which day can you join?');
+    await page.getByTestId('question-option').first().fill('Saturday');
+    await expectSaved(page);
+    await back.click();
+
+    await createPresentation(page, 'Wetland survey');
+    await page.keyboard.type('Wetland survey');
+    await page.keyboard.press('Tab');
+    await page.keyboard.type('Observations from the south shore');
+    await page.keyboard.press('Escape');
+    await expectSaved(page);
+    await back.click();
+    await page.getByRole('button', { name: 'Grid view' }).click();
+
+    const images = ['Field notes.irisdoc', 'Bird count.irissheet', 'Volunteer survey.irisform', 'Wetland survey.irisslides']
+      .map(name => fileRow(page, name).locator('img'));
+    for (const img of images) {
+      await expect(img).toHaveJSProperty('naturalWidth', 480);
+      await expect(img).toHaveAttribute('src', /^blob:/);
+    }
+    await page.screenshot({ path: testInfo.outputPath('folder-grid.png') });
+
+    // Leaving the grid releases each object URL. Editing the document gives its tile new pixels.
+    const original = await images[0].getAttribute('src');
+    const pixels = () => images[0].evaluate((img: HTMLImageElement) => {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      canvas.getContext('2d')!.drawImage(img, 0, 0);
+      return canvas.toDataURL();
+    });
+    const before = await pixels();
+    await page.getByRole('button', { name: 'List view' }).click();
+    await expect(images[0]).toHaveCount(0);
+    expect(await page.evaluate(url => fetch(url!).then(() => true, () => false), original)).toBe(false);
+    await fileRow(page, 'Field notes.irisdoc').getByRole('link').dblclick();
+    await typeInDocument(page, ' And again at dusk.');
+    await expectSaved(page);
+    await back.click();
+    await page.getByRole('button', { name: 'Grid view' }).click();
+    await expect(images[0]).toHaveJSProperty('naturalWidth', 480);
+    expect(await pixels()).not.toBe(before);
   });
 
   test('a name typed into New Document right after coming back to the folder goes into the dialog', async ({ page, relayUrl }) => {

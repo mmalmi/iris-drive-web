@@ -6,7 +6,7 @@
    */
   import type { Photo } from '../lib/photos';
   import { longPress } from '../lib/longPress';
-  import PhotoImage from './PhotoImage.svelte';
+  import GridThumbnail from './GridThumbnail.svelte';
 
   interface Props {
     photo: Photo;
@@ -46,7 +46,7 @@
     data-selected={selected ? '' : undefined}
   >
     <span class="absolute block overflow-hidden bg-surface-2 transition-all duration-150 {selected ? 'inset-[8%] rounded-lg' : 'inset-0'}">
-      <PhotoImage {photo} {ready} />
+      <GridThumbnail cid={photo.cid} name={photo.name} kind={photo.video ? 'video' : 'image'} {ready} fallback />
     </span>
     {#if photo.video}
       <span class="pointer-events-none absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-black/55 text-white">

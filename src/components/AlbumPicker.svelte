@@ -1,7 +1,7 @@
 <script lang="ts">
   /** Where chosen photos go: a new album, named here, or one there is. */
   import Modal from './ui/Modal.svelte';
-  import PhotoImage from './PhotoImage.svelte';
+  import GridThumbnail from './GridThumbnail.svelte';
   import { countLabel, validAlbumName, type Album } from '../lib/photos';
 
   interface Props {
@@ -70,7 +70,7 @@
     {#each albums as album (album.key)}
       <button type="button" class="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left hover:bg-surface-2" onclick={() => onpick(album)} data-testid="album-choice">
         <span class="relative h-11 w-11 shrink-0 overflow-hidden rounded-lg bg-surface-2">
-          {#if album.photos[0]}<PhotoImage photo={album.photos[0]} {ready} />{:else}<span class="absolute inset-0 m-auto i-lucide-images text-lg text-text-3"></span>{/if}
+          {#if album.photos[0]}<GridThumbnail cid={album.photos[0].cid} name={album.photos[0].name} kind={album.photos[0].video ? 'video' : 'image'} {ready} fallback />{:else}<span class="absolute inset-0 m-auto i-lucide-images text-lg text-text-3"></span>{/if}
         </span>
         <span class="min-w-0">
           <span class="block truncate text-sm font-medium text-text-1">{album.name}</span>

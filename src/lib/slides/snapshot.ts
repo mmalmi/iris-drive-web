@@ -9,6 +9,7 @@ import { SLIDE_HEIGHT, SLIDE_WIDTH } from './model';
 import { dataUrlAt } from './clipboardMedia';
 
 export interface SnapshotOptions {
+  signal?: AbortSignal;
   /** The ids of the elements to draw; the whole slide when absent. */
   keep?: string[];
   /** The part of the slide to draw, in slide units; the whole slide when absent. */
@@ -59,10 +60,11 @@ export async function snapshotPng(surface: HTMLElement, options: SnapshotOptions
   // Hints in empty boxes are for the person editing, not part of the slide.
   for (const hint of [...clone.querySelectorAll('.el-hint')]) hint.remove();
   await Promise.all([...clone.querySelectorAll('img')].map(async (image) => {
-    const data = await dataUrlAt(image.src);
+    const data = await dataUrlAt(image.src, options.signal);
     if (data) image.setAttribute('src', data);
     else image.remove();
   }));
+  options.signal?.throwIfAborted();
   const holder = document.createElement('div');
   holder.setAttribute('xmlns', 'http://www.w3.org/1999/xhtml');
   holder.style.cssText = `position:relative;width:${box.w}px;height:${box.h}px;overflow:hidden;`;
