@@ -2,14 +2,21 @@
  * How much of the Drive each of the account's devices holds, how much room
  * it has, and which versions of the Drive it has taken in.
  *
- * This device measures what it holds a while after the Drive changes, when
- * the Storage page opens and every few hours, and tells the account's other
- * devices in a report (`src/drive/deviceStorageReport.ts`) when the numbers
- * moved. Which versions it has taken in is sent within seconds of taking one
- * in, with the last numbers: nothing else tells another device that this one
- * has its changes, as a device that only reads publishes no new versions. Their reports come through the Nostr runtime, which keeps them on
- * this device, so the page shows the last ones at once; nothing waits for a
- * relay.
+ * This device measures what it holds when the Storage page opens, and
+ * otherwise seldom: at most once an hour after the Drive changed, once a day
+ * anyway, and only while the app is in view. A measurement counts again only
+ * the folders that changed, and each of the others at most once a day. It
+ * tells the account's other devices in a report
+ * (`src/drive/deviceStorageReport.ts`) when the numbers moved.
+ *
+ * Which versions of the Drive it has taken in is sent within seconds of
+ * taking one in, with the last numbers and without measuring: nothing else
+ * tells another device that this one has its changes, as a device that only
+ * reads publishes no new versions.
+ *
+ * The other devices' reports come through the Nostr runtime, which keeps
+ * them on this device, so the page shows the last ones at once; nothing waits
+ * for a relay.
  */
 import { get, writable } from 'svelte/store';
 import { toHex } from '@hashtree/core';
@@ -51,18 +58,22 @@ const blank = (profile: string | null = null, device: string | null = null): Dev
 
 export const deviceStorage = writable<DeviceStorageState>(blank());
 
-/** After the Drive changes, it is measured once this long has passed… */
-const AFTER_CHANGE_MS = 60_000;
-/** …and the versions taken in are sent after this long, so at most this often while another device keeps editing. */
+const MINUTE = 60_000;
+const HOUR = 60 * MINUTE;
+/** The versions taken in are sent this long after taking one in, so at most this often while another device keeps editing. */
 const SEEN_AFTER_MS = 15_000;
-/** Starting the app has enough to do; the Storage page measures at once. */
-const AT_START_MS = 60_000;
-/** Every so often everything is counted again, for content fetched or removed since. */
-const RECOUNT_EVERY_MS = 6 * 60 * 60 * 1000;
+/** Measured in the background this long after the Drive changed… */
+const AFTER_CHANGE_MS = 10 * MINUTE;
+/** …and at most this often. */
+const BACKGROUND_GAP_MS = HOUR;
+/** Starting the app has enough to do. */
+const AT_START_MS = 2 * MINUTE;
+/** A folder counted longer ago than this is counted again in the background, for content fetched or removed since. */
+const BACKGROUND_MAX_AGE_MS = 24 * HOUR;
 /** Opening the Storage page counts again what was counted longer ago than this. */
-const ON_OPEN_MAX_AGE_MS = 10 * 60 * 1000;
-/** A report is sent again after this long even when nothing moved. */
-const RESEND_AFTER_MS = 24 * 60 * 60 * 1000;
+const ON_OPEN_MAX_AGE_MS = 10 * MINUTE;
+/** A report is measured and sent again after this long even when nothing moved. */
+const RESEND_AFTER_MS = 24 * HOUR;
 const ADAPTER_WAIT_MS = 30_000;
 const SENT_KEY = 'iris-drive.device-storage.sent';
 
@@ -126,16 +137,19 @@ export function reportMoved(last: DeviceStorageReport, next: DeviceStorageReport
   return (next.folders ?? []).some((folder, index) => moved(folder.held, last.folders?.[index]?.held));
 }
 
-/** The most this browser may keep: the limit set under Storage, or less when the browser allows less. */
-async function capacity(stored: number): Promise<number> {
+/**
+ * What Drive keeps in this browser, and the most it may: the limit set under
+ * Storage, or less when the browser allows less. From the browser's own
+ * estimate, which costs nothing; adding up the store reads all of it.
+ */
+async function space(): Promise<{ stored: number; capacity: number }> {
   const limit = get(settingsStore).storage.maxBytes;
   try {
     const estimate = await navigator.storage?.estimate?.();
-    if (estimate?.quota) return Math.min(limit, stored + Math.max(0, estimate.quota - (estimate.usage ?? 0)));
+    return { stored: estimate?.usage ?? 0, capacity: estimate?.quota ? Math.min(limit, estimate.quota) : limit };
   } catch {
-    // The limit alone.
+    return { stored: 0, capacity: limit };
   }
-  return limit;
 }
 
 let started = false;
@@ -144,14 +158,31 @@ let subscription: { stop: () => void } | null = null;
 let timer: ReturnType<typeof setTimeout> | null = null;
 let timerAt = 0;
 let pendingMaxAge = Infinity;
+let lastMeasuredAt = 0;
+/** The Drive's version this device last measured or reported, hex. */
+let measuredRoot: string | null = null;
 let seenTimer: ReturnType<typeof setTimeout> | null = null;
 /** A measurement asked for before the Drive was known, with its `maxAgeMs`. */
 let awaitingRoot: number | null = null;
 let active = 0;
 const newest = new Map<string, number>();
 
-/** Measure in `delayMs`, or sooner when asked sooner; `maxAgeMs` as for `measureDriveHolding`. */
-function measureSoon(delayMs: number, maxAgeMs = Infinity): void {
+/** Runs `run` now, or once the app is in view again. */
+function whenVisible(run: () => void): void {
+  if (typeof document === 'undefined' || !document.hidden) {
+    run();
+    return;
+  }
+  const shown = () => {
+    if (document.hidden) return;
+    document.removeEventListener('visibilitychange', shown);
+    run();
+  };
+  document.addEventListener('visibilitychange', shown);
+}
+
+/** Measure in `delayMs`, or sooner when asked sooner, while the app is in view; `maxAgeMs` as for `measureDriveHolding`. */
+function measureSoon(delayMs: number, maxAgeMs: number): void {
   if (!current) return;
   pendingMaxAge = Math.min(pendingMaxAge, maxAgeMs);
   const at = Date.now() + delayMs;
@@ -160,10 +191,24 @@ function measureSoon(delayMs: number, maxAgeMs = Infinity): void {
   timerAt = at;
   timer = setTimeout(() => {
     timer = null;
-    const maxAge = pendingMaxAge;
-    pendingMaxAge = Infinity;
-    void measure(maxAge);
+    whenVisible(() => {
+      const maxAge = pendingMaxAge;
+      pendingMaxAge = Infinity;
+      void measure(maxAge);
+    });
   }, delayMs);
+}
+
+/** A background measurement: a while after a change, at most once an hour. */
+function measureLater(): void {
+  const at = Math.max(Date.now() + AFTER_CHANGE_MS, lastMeasuredAt + BACKGROUND_GAP_MS);
+  measureSoon(at - Date.now(), BACKGROUND_MAX_AGE_MS);
+}
+
+/** Once a day the numbers are measured and sent again, also when nothing seemed to change. */
+function measureIfStale(delayMs: number): void {
+  const sent = current ? readSent(current.split('|')[0]) : null;
+  if (!sent || Date.now() - sent.at > RESEND_AFTER_MS) measureSoon(delayMs, BACKGROUND_MAX_AGE_MS);
 }
 
 async function measure(maxAgeMs: number): Promise<void> {
@@ -178,11 +223,13 @@ async function measure(maxAgeMs: number): Promise<void> {
   awaitingRoot = null;
   const adapter = await waitForWorkerAdapter(ADAPTER_WAIT_MS);
   if (!adapter?.measureDriveHolding) return;
+  lastMeasuredAt = Date.now();
+  measuredRoot = toHex(root.hash);
   active += 1;
   deviceStorage.update((state) => ({ ...state, measuring: true }));
   try {
     const holding = await adapter.measureDriveHolding({ hash: root.hash, key: root.key }, Number.isFinite(maxAgeMs) ? maxAgeMs : undefined);
-    const stored = (await adapter.getStorageStats().catch(() => ({ bytes: 0 }))).bytes;
+    const { stored, capacity } = await space();
     const report: DeviceStorageReport = {
       v: 1,
       measured_at: Math.floor(Date.now() / 1000),
@@ -193,7 +240,7 @@ async function measure(maxAgeMs: number): Promise<void> {
       held_files: holding.heldFiles,
       held_bytes: holding.heldBytes,
       stored_bytes: stored,
-      capacity_bytes: await capacity(stored),
+      capacity_bytes: capacity,
       ...(holding.unreadFolders ? { unread_folders: holding.unreadFolders } : {}),
       seen: seenBy(me),
       loose: { files: holding.loose.files, bytes: holding.loose.bytes, held: holding.loose.heldBytes },
@@ -276,13 +323,15 @@ function follow(): void {
   if (seenTimer) clearTimeout(seenTimer);
   seenTimer = null;
   awaitingRoot = null;
+  measuredRoot = null;
+  lastMeasuredAt = 0;
   newest.clear();
   deviceStorage.set(blank(me?.profile ?? null, me?.pubkey ?? null));
   if (!me) return;
   const sub = nostr.subscribe(deviceStorageFilter(me.profile), { closeAfterHistory: false });
   sub.on('event', (event: Event) => { void receive(event); });
   subscription = sub;
-  measureSoon(AT_START_MS);
+  measureIfStale(AT_START_MS);
 }
 
 /**
@@ -301,8 +350,15 @@ function driveChanged(): void {
   if (!me || accountKey(me) !== current) return;
   const versions = profileDriveProjection.heldVersions(me.profile, DRIVE_ROOT_NAME, new Set(me.devices));
   deviceStorage.update((state) => ({ ...state, versions }));
-  if (awaitingRoot !== null && getTreeRootSync(me.profile, DRIVE_ROOT_NAME)?.key) measureSoon(0, awaitingRoot);
-  else measureSoon(AFTER_CHANGE_MS);
+  const root = getTreeRootSync(me.profile, DRIVE_ROOT_NAME);
+  if (awaitingRoot !== null && root?.key) {
+    measureSoon(0, awaitingRoot);
+  } else if (root?.key) {
+    // The first version seen after opening is a change only if it is not the one last reported.
+    const version = toHex(root.hash);
+    if (measuredRoot === null) measuredRoot = readSent(me.profile)?.report.root ?? '';
+    if (version !== measuredRoot) measureLater();
+  }
   if (seenTimer) return;
   seenTimer = setTimeout(() => {
     seenTimer = null;
@@ -330,7 +386,7 @@ export function startDeviceStorage(): void {
     unwatch = profile ? treeRootRegistry.subscribe(profile, DRIVE_ROOT_NAME, driveChanged) : () => {};
     if (profile) driveChanged();
   });
-  setInterval(() => measureSoon(0, 0), RECOUNT_EVERY_MS);
+  setInterval(() => measureIfStale(0), HOUR);
 }
 
 /**

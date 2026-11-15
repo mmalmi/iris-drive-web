@@ -143,7 +143,11 @@
                   <span class="block h-full bg-accent" style="width: {width(report.held_bytes, scale)}"></span>
                 </span>
                 <span class="flex flex-wrap justify-between gap-x-3 text-xs text-text-3">
-                  <span data-testid="device-storage-space" title="Everything Drive keeps on that device, and the most it may keep">{spaceLabel(report, formatBytes)}</span>
+                  {#if row.current}
+                    <span></span>
+                  {:else}
+                    <span data-testid="device-storage-space" title="Everything Drive keeps on that device, and the most it may keep">{spaceLabel(report, formatBytes)}</span>
+                  {/if}
                   <span>{row.current && held.measuring ? 'Measuring…' : ageLabel(row.current ? report.measured_at : held.heard[row.pubkey] ?? report.measured_at, now)}</span>
                 </span>
               {:else if row.current}
