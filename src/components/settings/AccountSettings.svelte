@@ -13,7 +13,7 @@
   import RecoveryPhraseSettings from './RecoveryPhraseSettings.svelte';
   import LogoutDialog from '../Modals/LogoutDialog.svelte';
 
-  let logoutDialog: LogoutDialog;
+  let logoutDialog = $state<LogoutDialog>();
   let recoverySection = $state<HTMLElement | null>(null);
   // Backup links straight to the recovery phrase.
   $effect(() => {
@@ -110,7 +110,7 @@
         </button>
         <button
           class="btn-ghost flex w-full items-center justify-start gap-2 text-sm text-danger hover:bg-danger/10"
-          onclick={() => logoutDialog.open()}
+          onclick={() => logoutDialog?.open()}
           data-testid="settings-logout"
         >
           <span class="i-lucide-log-out"></span>

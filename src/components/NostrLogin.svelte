@@ -16,8 +16,8 @@
   let error = $state('');
   let menuOpen = $state(false);
   let menuRoot: HTMLDivElement | undefined = $state();
-  let menuButton: HTMLButtonElement;
-  let logoutDialog: LogoutDialog;
+  let menuButton = $state<HTMLButtonElement>();
+  let logoutDialog = $state<LogoutDialog>();
 
   let isLoggedIn = $derived($nostrStore.isLoggedIn);
   let pubkey = $derived($nostrStore.pubkey);
@@ -44,8 +44,8 @@
 
   function handleLogout() {
     menuOpen = false;
-    menuButton.focus();
-    logoutDialog.open();
+    menuButton?.focus();
+    logoutDialog?.open();
   }
 
   async function handleExtensionLogin() {
