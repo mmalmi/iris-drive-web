@@ -179,6 +179,27 @@ test.describe('choosing several items', () => {
     expect(newPages).toHaveLength(0);
   });
 
+  for (const layout of ['List', 'Grid']) {
+    test(`deleting and undoing a file keeps the other ${layout.toLowerCase()} rows mounted`, async ({ page, relayUrl }, testInfo) => {
+      await startInMyDrive(page, relayUrl);
+      if (layout === 'Grid') await createAndEnterFolder(page, 'Trip');
+      await uploadIntoFolder(page, [text('keep.txt'), text('remove.txt')]);
+      await expect(fileRow(page, 'remove.txt')).toBeVisible();
+      await page.getByRole('button', { name: `${layout} view`, exact: true }).click();
+      const original = await fileRow(page, 'keep.txt').elementHandle();
+      await fileRow(page, 'remove.txt').getByTestId('row-menu-btn').click();
+      await page.getByRole('menuitem', { name: 'Delete', exact: true }).click();
+      await expect(fileRow(page, 'remove.txt')).toHaveCount(0);
+      await expect(page.getByText('Deleted “remove.txt”')).toBeVisible();
+      await expect(fileRow(page, 'keep.txt')).toBeVisible();
+      expect(await original!.evaluate(el => el.isConnected)).toBe(true);
+      await page.screenshot({ path: testInfo.outputPath('after-delete.png') });
+      await page.getByRole('button', { name: 'Undo', exact: true }).click();
+      await expect(fileRow(page, 'remove.txt')).toBeVisible();
+      expect(await original!.evaluate(el => el.isConnected)).toBe(true);
+    });
+  }
+
   test('a right click chooses the row its menu is for, and My Drive itself cannot be deleted', async ({ page, relayUrl }) => {
     await page.setViewportSize(DESKTOP);
     await startInMyDrive(page, relayUrl);

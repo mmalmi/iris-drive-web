@@ -25,6 +25,24 @@ const menu = (page: Page) => page.getByTestId('row-menu');
 test.describe('the menu of a row', () => {
   test.setTimeout(180_000);
 
+  test('rename selects the last-extension stem for files and the entire folder name', async ({ page, relayUrl }, testInfo) => {
+    await startInMyDrive(page, relayUrl);
+    await createFolder(page, 'Trip.v2');
+    await uploadIntoFolder(page, ['photo.edited.jpg', 'README', '.env'].map(name => ({
+      name, mimeType: 'text/plain', buffer: Buffer.from(name),
+    })));
+    const selections = { 'photo.edited.jpg': 'photo.edited', 'Trip.v2': 'Trip.v2', README: 'README', '.env': '.env' };
+    for (const [name, selected] of Object.entries(selections)) {
+      const rowMenu = await openRowMenu(page, name);
+      await rowMenu.getByRole('menuitem', { name: 'Rename' }).click();
+      const field = page.getByPlaceholder('New name...');
+      await expect(field).toBeFocused();
+      expect(await field.evaluate((el: HTMLInputElement) => el.value.slice(el.selectionStart!, el.selectionEnd!))).toBe(selected);
+      if (name === 'photo.edited.jpg') await page.screenshot({ path: testInfo.outputPath('rename-selection.png') });
+      await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+    }
+  });
+
   test('opens from ⋮, a right click and the keyboard, and does what it says', async ({ page, relayUrl }, testInfo) => {
     await page.setViewportSize(DESKTOP);
     await startInMyDrive(page, relayUrl);
@@ -53,8 +71,12 @@ test.describe('the menu of a row', () => {
 
     opened = await openRowMenu(page, 'notes.txt');
     await opened.getByRole('menuitem', { name: 'Rename' }).click();
-    await page.getByPlaceholder('New name...').fill('packing.txt');
-    await page.getByPlaceholder('New name...').press('Enter');
+    const renameField = page.getByPlaceholder('New name...');
+    await expect(renameField).toBeFocused();
+    expect(await renameField.evaluate((field: HTMLInputElement) => field.value.slice(field.selectionStart!, field.selectionEnd!))).toBe('notes');
+    await page.keyboard.type('packing');
+    await expect(renameField).toHaveValue('packing.txt');
+    await renameField.press('Enter');
     await expect(fileRow(page, 'packing.txt')).toBeVisible({ timeout: 30_000 });
     await expect(fileRow(page, 'notes.txt')).toHaveCount(0);
     expect(page.url()).toBe(folderUrl);

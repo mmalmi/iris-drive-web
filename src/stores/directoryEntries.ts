@@ -48,6 +48,7 @@ function createGlobalDirectoryEntriesStore() {
     loadedHashKey: null,
   });
 
+  let loadVersion = 0;
   let prevHashKey: string | null = null;
   let prevEncKey: string | null = null;
   let prevEntryCids: Map<string, string> = new Map();
@@ -85,6 +86,7 @@ function createGlobalDirectoryEntriesStore() {
     forceRetry = false;
 
     if (!shouldForce && !hasChanged) return;
+    const version = ++loadVersion;
     prevHashKey = hashKey;
     prevEncKey = encKey;
 
@@ -105,6 +107,7 @@ function createGlobalDirectoryEntriesStore() {
         newEntries = await tree.listDirectory(location);
       } else {
         const isDir = await tree.isDirectory(location);
+        if (version !== loadVersion) return;
         if (isDir) {
           newEntries = await tree.listDirectory(location);
         } else {
@@ -114,6 +117,7 @@ function createGlobalDirectoryEntriesStore() {
           return;
         }
       }
+      if (version !== loadVersion) return;
       newEntries = filterVisibleDirectoryEntries(newEntries);
 
       // Detect changed files
@@ -153,6 +157,7 @@ function createGlobalDirectoryEntriesStore() {
         scheduleEntryRetry();
       }
     } catch {
+      if (version !== loadVersion) return;
       state.set({ entries: [], loading: false, isDirectory: false, loadedHashKey: null });
       prevEntryCids.clear();
       scheduleEntryRetry();
