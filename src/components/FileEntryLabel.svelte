@@ -23,13 +23,15 @@
   let { entry, title, icon, isFolder, checked, access, detailsId, grid, mediaReady, documentKind }: Props = $props();
 </script>
 
-{#if checked}
-  <span class="shrink-0 w-4 h-4 inline-grid place-items-center rounded-full bg-accent text-surface-0" aria-hidden="true" data-testid="selection-mark">
-    <span class="i-lucide-check text-xs"></span>
-  </span>
-{:else}
-  <span class="shrink-0 {icon}" aria-hidden="true" data-testid="entry-icon"></span>
-{/if}
+<span class="shrink-0 w-5 h-5 inline-grid place-items-center" aria-hidden="true">
+  {#if checked}
+    <span class="w-4 h-4 inline-grid place-items-center rounded-full bg-accent text-surface-0" data-testid="selection-mark">
+      <span class="i-lucide-check text-xs"></span>
+    </span>
+  {:else}
+    <span class={icon} data-testid="entry-icon"></span>
+  {/if}
+</span>
 <span class="min-w-0 flex-1 flex flex-col">
   <span class="min-w-0 flex items-center gap-3">
     <span class="truncate min-w-0" title={entry.name}>{title}</span>
