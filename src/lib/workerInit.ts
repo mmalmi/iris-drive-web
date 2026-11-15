@@ -167,6 +167,8 @@ function startFipsForAdapter(
         profileId: identity.profileId,
         authorizedAppKeyPubkeys,
         routeAppKeyPubkeys,
+        storedEvents: async (filters) => (await adapter.queryEvents?.(filters, { cache: 'cache-only' }))?.events ?? [],
+        keepEvents: async (events) => { await adapter.ingestEvents?.(events); },
         log: isTestMode,
       });
       if (version !== fipsSyncVersion || getWorkerAdapter() !== adapter) {

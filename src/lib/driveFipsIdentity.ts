@@ -40,9 +40,9 @@ export interface DriveFipsRosterAuthorizationOptions {
     previous: { confirmedAt: number | null; maxAgeMs: number },
   ) => Promise<DriveFipsRosterCheck>;
   now?: () => number;
-  /** How long a roster confirmed by a relay is trusted when no relay answers. */
+  /** Passed to the relay check; how old a relay's confirmation may be. */
   maxAgeMs?: number;
-  /** When a confirmed roster is checked again in the background (default: half its age). */
+  /** When an answered check is repeated in the background (default: half of maxAgeMs). */
   refreshAfterMs?: number;
   refreshTimeoutMs?: number;
   /** How long until relays that did not answer, or a failed check, are asked again; doubles each time. */
@@ -52,17 +52,15 @@ export interface DriveFipsRosterAuthorizationOptions {
 
 /**
  * Which of the account's own devices may exchange Drive events with this one
- * directly. Nothing waits for the relays while a confirmed roster is held: the
- * answer comes from the roster this device holds, and the relays are asked in
- * the background.
+ * directly: the devices in the roster this device holds. Nothing waits for
+ * relays, and no relay has to answer for devices to sync over FIPS.
  *
- * - The first relay that answers the roster query completely confirms it; every
- *   operation from every relay, and from the live roster subscription that
- *   keeps the session current, is merged with what is held, so a revocation
- *   from any of them removes its device at once.
+ * - The relays are asked in the background; every operation from every relay,
+ *   from the live roster subscription and from the other devices over FIPS is
+ *   merged into the held roster, so a revocation from any of them removes its
+ *   device at once.
  * - Relays that did not answer, and failed checks, are asked again later and
- *   later. A confirmed roster is checked again once `refreshAfterMs` old.
- * - With no relay answering for `maxAgeMs`, no device is admitted.
+ *   later. An answered check is repeated once `refreshAfterMs` old.
  * Standard Hashtree block serving is independent of this.
  */
 export function createDriveFipsRosterAuthorizationSource(
@@ -74,98 +72,42 @@ export function createDriveFipsRosterAuthorizationSource(
   const refreshTimeoutMs = options.refreshTimeoutMs ?? 2_000;
   const retryMs = options.failedRetryMs ?? 30_000;
   const ownKey = options.identity.appKeyPubkey;
-  let snapshot: {
-    fingerprint: string;
-    pubkeys: string[];
-    confirmedAt: number;
-    refreshAt: number;
-  } | null = null;
-  let failure: { fingerprint: string; retryAt: number; waitMs: number } | null = null;
+  let confirmedAt: number | null = null;
+  let next: { fingerprint: string; at: number } | null = null;
   let retryWaitMs = retryMs;
-  let pending: { fingerprint: string; promise: Promise<string[]> } | null = null;
-  const trusted = () => snapshot !== null && now() < snapshot.confirmedAt + maxAgeMs;
-  const admitted = (pubkeys: string[]) => (pubkeys.includes(ownKey) ? [...pubkeys] : []);
-  const nextWait = () => {
+  let pending = false;
+  const later = () => {
     const wait = retryWaitMs;
     retryWaitMs = Math.min(retryWaitMs * 2, refreshAfterMs);
-    return wait;
+    return now() + wait;
   };
 
-  const refresh = (fingerprint: string): Promise<string[]> => {
-    if (pending?.fingerprint === fingerprint) return pending.promise;
-    const promise = (async (): Promise<string[]> => {
-      try {
-        const check = await options.refreshRosterOps(options.identity.profileId, refreshTimeoutMs, {
-          confirmedAt: snapshot?.confirmedAt ?? null,
-          maxAgeMs,
-        });
-        // The check merged what the relays sent into the session; a revocation
-        // that arrived meanwhile is in the session too.
-        const current = matchingRosterSession(options);
-        const pubkeys = current
-          ? admitted(authorizedDriveFipsAppKeyPubkeys(current.profileId, current.rosterOps))
-          : [];
-        if (!current || check.status === 'unconfirmed' || check.confirmedAt === null || pubkeys.length === 0) {
-          throw new Error('No relay confirmed the Drive roster');
-        }
-        failure = null;
-        const allAnswered = check.status === 'confirmed' && check.unanswered.length === 0;
-        if (allAnswered) retryWaitMs = retryMs;
-        // Relays that did not answer are asked again soon; otherwise in a while.
-        snapshot = {
-          fingerprint: rosterFingerprint(current.rosterOps),
-          pubkeys,
-          confirmedAt: check.confirmedAt,
-          refreshAt: now() + (allAnswered ? refreshAfterMs : nextWait()),
-        };
-        return [...pubkeys];
-      } catch (error) {
-        options.onRefreshError?.(error);
-        if (trusted()) {
-          // Keep answering from what is held until the confirmation is too old.
-          snapshot!.refreshAt = now() + nextWait();
-          return [...snapshot!.pubkeys];
-        }
-        snapshot = null;
-        const waitMs = failure?.fingerprint === fingerprint
-          ? Math.min(failure.waitMs * 2, maxAgeMs)
-          : retryMs;
-        failure = { fingerprint, retryAt: now() + waitMs, waitMs };
-        return [];
-      }
-    })();
-    const pendingRefresh = { fingerprint, promise };
-    pending = pendingRefresh;
-    void promise.finally(() => {
-      if (pending === pendingRefresh) pending = null;
-    });
-    return promise;
+  const refresh = async (fingerprint: string): Promise<void> => {
+    if (pending) return;
+    pending = true;
+    try {
+      const check = await options.refreshRosterOps(options.identity.profileId, refreshTimeoutMs, { confirmedAt, maxAgeMs });
+      if (check.status === 'unconfirmed' || check.confirmedAt === null) throw new Error('No relay confirmed the Drive roster');
+      confirmedAt = check.confirmedAt;
+      const allAnswered = check.status === 'confirmed' && check.unanswered.length === 0;
+      if (allAnswered) retryWaitMs = retryMs;
+      next = { fingerprint, at: allAnswered ? now() + refreshAfterMs : later() };
+    } catch (error) {
+      options.onRefreshError?.(error);
+      next = { fingerprint, at: later() };
+    } finally {
+      pending = false;
+    }
   };
 
   return async (): Promise<string[]> => {
     const session = matchingRosterSession(options);
-    if (!session) {
-      snapshot = null;
-      return [];
-    }
+    if (!session) return [];
     const fingerprint = rosterFingerprint(session.rosterOps);
-    if (trusted()) {
-      if (snapshot!.fingerprint !== fingerprint) {
-        // The live roster changed: a revoked device leaves and an approved one
-        // joins now, and the relays are asked in the background.
-        snapshot = {
-          ...snapshot!,
-          fingerprint,
-          pubkeys: admitted(authorizedDriveFipsAppKeyPubkeys(session.profileId, session.rosterOps)),
-        };
-        void refresh(fingerprint);
-      } else if (now() >= snapshot!.refreshAt) {
-        void refresh(fingerprint);
-      }
-      return [...snapshot!.pubkeys];
-    }
-    if (failure?.fingerprint === fingerprint && now() < failure.retryAt) return [];
-    return [...await refresh(fingerprint)];
+    // A changed roster is checked with the relays behind, never waited for.
+    if (!next || next.fingerprint !== fingerprint || now() >= next.at) void refresh(fingerprint);
+    const pubkeys = authorizedDriveFipsAppKeyPubkeys(session.profileId, session.rosterOps);
+    return pubkeys.includes(ownKey) ? pubkeys : [];
   };
 }
 

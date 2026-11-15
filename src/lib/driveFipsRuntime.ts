@@ -1,4 +1,10 @@
-import type { RuntimeSource } from 'nostr-pubsub';
+import {
+  localIndexSource,
+  type NostrEvent,
+  type NostrFilter,
+  type PublicPeerFeedSource,
+  type RuntimeSource,
+} from 'nostr-pubsub';
 import { DexieStore } from '@hashtree/dexie';
 import { BLOB_DEFAULT_HTL } from '@hashtree/core';
 import {
@@ -34,6 +40,12 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 8_000;
 // Peer events and roster changes refresh admission when they happen; this only
 // keeps the relay-checked roster from going stale while nothing happens.
 const AUTHORIZATION_REFRESH_MS = 3 * 60_000;
+// The kinds @hashtree/fips-transport opens its peer feed with.
+const PUBLIC_FEED_KINDS = [0, 1, 3, 5, 6, 7, 16, 20, 1111, 30023, 30064];
+// The account's device roster (7368), and Drive's roots, notes and device
+// reports (30078).
+const DRIVE_EVENT_KINDS = [7368, 30078];
+const KEEP_BATCH = 64;
 
 export type DriveFipsAuthorizedAppKeySource = (
   () => readonly string[] | Promise<readonly string[]>
@@ -57,6 +69,10 @@ export interface DriveFipsRuntimeOptions {
    * blocks. Reading blocks never waits for the relay check of the roster.
    */
   routeAppKeyPubkeys?: () => readonly string[];
+  /** Events this device holds, so it can pass them to the account's other devices. */
+  storedEvents?: (filters: NostrFilter[]) => Promise<NostrEvent[]>;
+  /** Keep events the account's other devices sent here. */
+  keepEvents?: (events: NostrEvent[]) => Promise<void>;
   log?: boolean;
 }
 
@@ -139,6 +155,12 @@ export class DriveFipsPeerPolicy {
       })));
   }
 
+  /** This account's devices, this one included, as the roster held here says. */
+  ownDevices(): string[] {
+    if (!this.routeAppKeyPubkeys) return [this.localAppKeyPubkey];
+    return [...new Set([this.localAppKeyPubkey, ...normalizedAppKeys(this.routeAppKeyPubkeys())])].sort();
+  }
+
   async nostrPeers(connectedPeerIds: readonly string[]): Promise<string[]> {
     const authorized = await this.authorizedAppKeys();
     return connectedPeerIds.filter((peerId) => {
@@ -219,6 +241,11 @@ export class DriveFipsRuntime {
   private authorizationRefreshTimer: ReturnType<typeof setInterval> | null = null;
   private readonly peerStats = new Map<string, MutablePeerStats>();
   private readonly unsubs: Array<() => void> = [];
+  /** Drive events already handed to the peer feed or received from it. */
+  private readonly passedEventIds = new Set<string>();
+  private passDue = true;
+  private keptEvents: NostrEvent[] = [];
+  private keepTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(options: DriveFipsRuntimeOptions) {
     this.options = options;
@@ -271,6 +298,7 @@ export class DriveFipsRuntime {
     this.provider = provider;
     this.localStore = localStore;
     this.authorizationRefreshTimer = setInterval(() => {
+      this.passDue = true;
       void this.refreshNostrPeerAuthorization();
     }, AUTHORIZATION_REFRESH_MS);
     this.unsubs.push(
@@ -284,6 +312,10 @@ export class DriveFipsRuntime {
         }
       }),
     );
+    // Blocks still move over FIPS if the event feed cannot open.
+    await this.openDriveEventFeed(provider).catch((error: unknown) => {
+      console.warn('[drive-fips] Drive event feed did not open:', error);
+    });
     // A bootstrap link may already be connected before node.start returns.
     for (const peerId of provider.listConnectedPeerIds()) {
       const normalized = normalizeCompressedPeerId(peerId);
@@ -305,6 +337,11 @@ export class DriveFipsRuntime {
     }
     if (this.authorizationRefreshTimer) clearInterval(this.authorizationRefreshTimer);
     this.authorizationRefreshTimer = null;
+    if (this.keepTimer) clearTimeout(this.keepTimer);
+    this.keepTimer = null;
+    void this.flushKeptEvents();
+    this.passedEventIds.clear();
+    this.passDue = true;
     this.localStore?.close();
     this.localStore = null;
     this.peerStats.clear();
@@ -368,11 +405,63 @@ export class DriveFipsRuntime {
       policy.providerRoutes().catch(() => []),
     ]);
     if (generation !== this.authorizationRefreshGeneration || provider !== this.provider) return;
+    // Before a device of this account is admitted, the feed holds what this
+    // device has stored, so Negentropy sends each side only what it lacks.
+    if (this.passDue || peers.some((peer) => !this.nostrPeerIds.includes(peer))) {
+      this.passDue = false;
+      await this.passStoredDriveEvents(provider, policy.ownDevices());
+      if (generation !== this.authorizationRefreshGeneration || provider !== this.provider) return;
+    }
     this.nostrPeerIds = peers;
     // This account's other devices are dialed before strangers and redialed
     // soon after a failure, so they find each other directly.
     provider.webRtcTransport.setPreferredAutoConnectPeers(ownDevices.map((route) => route.peerId));
     provider.refreshNostrPeers();
+  }
+
+  /**
+   * Drive's own events travel over the FIPS peer feed too. Its event peers
+   * are this account's devices only, so a device that cannot reach relays
+   * still gets the other devices' roots and reports.
+   */
+  private async openDriveEventFeed(provider: BrowserHashtreeNostrProvider): Promise<void> {
+    const feed = provider.nostrSource as RuntimeSource & Partial<PublicPeerFeedSource>;
+    if (!feed.replaceFeed || !feed.subscribe) return;
+    await feed.replaceFeed([
+      { type: 'latest', kinds: PUBLIC_FEED_KINDS },
+      { type: 'latest', kinds: DRIVE_EVENT_KINDS },
+    ]);
+    const subscription = await feed.subscribe([{ kinds: DRIVE_EVENT_KINDS }], ({ event }) => {
+      if (this.provider !== provider || this.passedEventIds.has(event.id)) return;
+      this.passedEventIds.add(event.id);
+      this.keptEvents.push(event);
+      this.keepTimer ??= setTimeout(() => void this.flushKeptEvents(), 50);
+    });
+    this.unsubs.push(() => subscription.close());
+  }
+
+  /** Received events are stored even when nothing on the page asked for them. */
+  private async flushKeptEvents(): Promise<void> {
+    this.keepTimer = null;
+    const events = this.keptEvents.splice(0);
+    for (let index = 0; index < events.length; index += KEEP_BATCH) {
+      await this.options.keepEvents?.(events.slice(index, index + KEEP_BATCH)).catch((error: unknown) => {
+        if (this.options.log === true) console.warn('[drive-fips] could not keep events', error);
+      });
+    }
+  }
+
+  private async passStoredDriveEvents(provider: BrowserHashtreeNostrProvider, authors: string[]): Promise<void> {
+    const source = provider.nostrSource;
+    if (!this.options.storedEvents || !source.publish || authors.length === 0) return;
+    const events = await this.options.storedEvents([{ kinds: DRIVE_EVENT_KINDS, authors }]).catch(() => []);
+    const origin = localIndexSource('drive-stored-events');
+    await Promise.allSettled(events.flatMap((event) => {
+      if (this.passedEventIds.has(event.id)) return [];
+      this.passedEventIds.add(event.id);
+      // With no device admitted yet this only fills the feed's inventory.
+      return [source.publish!(event, origin)];
+    }));
   }
 
   private handleSessionEvent(event: SessionEvent): void {
