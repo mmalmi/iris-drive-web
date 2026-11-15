@@ -55,7 +55,8 @@ export const deviceStorage = writable<DeviceStorageState>(blank());
 const AFTER_CHANGE_MS = 60_000;
 /** …and the versions taken in are sent after this long, so at most this often while another device keeps editing. */
 const SEEN_AFTER_MS = 15_000;
-const AT_START_MS = 5_000;
+/** Starting the app has enough to do; the Storage page measures at once. */
+const AT_START_MS = 60_000;
 /** Every so often everything is counted again, for content fetched or removed since. */
 const RECOUNT_EVERY_MS = 6 * 60 * 60 * 1000;
 /** Opening the Storage page counts again what was counted longer ago than this. */
@@ -326,22 +327,21 @@ export function startDeviceStorage(): void {
     if ((profile ?? '') === watched) return;
     watched = profile ?? '';
     unwatch();
-    unwatch = () => {};
-    if (!profile) return;
-    // Keeps the Drive's newest version known whatever page is open, as on opening Storage directly.
-    const stopResolving = subscribeToTreeRoot(profile, DRIVE_ROOT_NAME, () => {});
-    const stopWatching = treeRootRegistry.subscribe(profile, DRIVE_ROOT_NAME, driveChanged);
-    unwatch = () => {
-      stopResolving();
-      stopWatching();
-    };
-    driveChanged();
+    unwatch = profile ? treeRootRegistry.subscribe(profile, DRIVE_ROOT_NAME, driveChanged) : () => {};
+    if (profile) driveChanged();
   });
   setInterval(() => measureSoon(0, 0), RECOUNT_EVERY_MS);
 }
 
-/** For the Storage page: this device's numbers, brought up to date. */
-export function measureDeviceStorageNow(): void {
+/**
+ * For the Storage page while it is open: this device's numbers, brought up
+ * to date, and the Drive's newest version followed, which the Drive's own
+ * pages do otherwise, as when the app was opened on Storage. Returns the
+ * function that stops following it.
+ */
+export function followDeviceStorage(): () => void {
   startDeviceStorage();
   measureSoon(0, ON_OPEN_MAX_AGE_MS);
+  const profile = get(deviceStorage).profile;
+  return profile ? subscribeToTreeRoot(profile, DRIVE_ROOT_NAME, () => {}) : () => {};
 }

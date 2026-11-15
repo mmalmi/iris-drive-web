@@ -12,7 +12,7 @@
   import { getCurrentNostrIdentitySession, loadDriveDeviceLabels, nostrStore } from '../../nostr';
   import { projectNostrIdentityRoster } from '../../drive/protocol';
   import { currentBrowserDeviceLabel, distinctDeviceLabels } from '../../drive/deviceLabels';
-  import { deviceStorage, measureDeviceStorageNow } from '../../lib/deviceStorage';
+  import { deviceStorage, followDeviceStorage } from '../../lib/deviceStorage';
   import {
     ageLabel,
     appIcon,
@@ -67,7 +67,7 @@
   const width = (bytes: number, of: number) => `${Math.min(100, (bytes / Math.max(1, of)) * 100)}%`;
 
   onMount(() => {
-    measureDeviceStorageNow();
+    const stopFollowing = followDeviceStorage();
     void (async () => {
       try {
         // Names this device already holds are shown at once; relays only add to them.
@@ -78,7 +78,10 @@
       }
     })();
     const tick = setInterval(() => { now = Date.now(); }, 30_000);
-    return () => clearInterval(tick);
+    return () => {
+      clearInterval(tick);
+      stopFollowing();
+    };
   });
 </script>
 
