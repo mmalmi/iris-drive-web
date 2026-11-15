@@ -37,6 +37,17 @@ html {
   background: rgb(var(--surface-0));
 }
 
+/* Keep the page still behind open modals and full-screen overlays (iOS scrolls it otherwise). */
+html:has(dialog:modal),
+html:has([data-scroll-lock]) {
+  overflow: hidden;
+}
+
+dialog,
+[data-scroll-lock] {
+  overscroll-behavior: contain;
+}
+
 body {
   font-family: system-ui, -apple-system, sans-serif;
   background: rgb(var(--surface-0));

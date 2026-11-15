@@ -48,6 +48,7 @@
   <div
     class={backdropClass}
     data-modal-backdrop
+    data-scroll-lock
     role="dialog"
     tabindex="-1"
     aria-modal="true"

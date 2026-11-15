@@ -76,6 +76,28 @@ test.describe('the list of a folder', () => {
     await expect(photo.locator('img')).toHaveCount(0);
   });
 
+  test('selecting a file keeps its name in place in list and grid views', async ({ page, relayUrl }, testInfo) => {
+    await prepareFreshSession(page, relayUrl);
+    await createDriveProfile(page, 'Selection');
+    await expectFolderEditable(page);
+    await uploadIntoFolder(page, sized('Notes.txt', 12));
+    const row = fileRow(page, 'Notes.txt');
+    const name = row.getByText('Notes.txt', { exact: true });
+    const checkbox = row.getByRole('checkbox');
+    for (const view of ['List', 'Grid']) {
+      await page.getByRole('button', { name: view + ' view', exact: true }).click();
+      await expect(name).toBeVisible();
+      const before = await name.boundingBox();
+      await checkbox.check();
+      await expect(row.getByTestId('selection-mark')).toBeVisible();
+      expect(await name.boundingBox()).toEqual(before);
+      await row.screenshot({ path: testInfo.outputPath(view + '-selected.png') });
+      await checkbox.uncheck();
+      await expect(row.getByTestId('entry-icon')).toBeVisible();
+      expect(await name.boundingBox()).toEqual(before);
+    }
+  });
+
   test('List and Grid stay in place when the layout, scrollbars or selected items change', async ({ page, relayUrl }, testInfo) => {
     await page.setViewportSize(DESKTOP);
     await prepareFreshSession(page, relayUrl);

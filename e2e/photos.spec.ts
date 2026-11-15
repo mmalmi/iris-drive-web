@@ -88,6 +88,10 @@ test.describe('Photos', () => {
     await tiles(page).first().click();
     await expect(viewer(page)).toBeVisible();
     await expect(viewerName(page)).toHaveText('meadow.jpg');
+    // The page behind stays still while it is open.
+    const htmlOverflow = () => page.evaluate(() => getComputedStyle(document.documentElement).overflow);
+    expect(await htmlOverflow()).toBe('hidden');
+    expect(await viewer(page).evaluate((el) => getComputedStyle(el).overscrollBehavior)).toBe('contain');
     await page.keyboard.press('ArrowRight');
     await expect(viewerName(page)).toHaveText('sunset.jpg');
     await page.getByTestId('photo-viewer-next').click();
@@ -101,6 +105,7 @@ test.describe('Photos', () => {
     await expect(viewer(page)).toHaveCount(0);
     await expect(page).toHaveURL(/#\/photos$/);
     await expect(tiles(page).nth(1)).toBeFocused();
+    expect(await htmlOverflow()).not.toBe('hidden');
 
     await tiles(page).nth(2).click();
     await expect(viewerName(page)).toHaveText('lake.jpg');
@@ -127,7 +132,17 @@ test.describe('Photos', () => {
     await page.getByTestId('photos-upload-input').setInputFiles({ name: 'clip.webm', mimeType: 'video/webm', buffer: Buffer.from(await video(page)) });
     await expect(tiles(page)).toHaveCount(4, { timeout: 30_000 });
     const clip = page.getByTestId('photos-view').getByRole('link', { name: 'clip.webm', exact: true });
-    await expect.poll(() => clip.locator('video').evaluate((element: HTMLVideoElement) => element.readyState), { timeout: 30_000 }).toBeGreaterThanOrEqual(2);
+    await expectShown(page, 'clip.webm');
+    await expect(clip.locator('video')).toHaveCount(0);
+    const poster = await clip.locator('img').evaluate((img: HTMLImageElement) => {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d')!;
+      ctx.drawImage(img, 0, 0);
+      return { url: img.src, width: img.naturalWidth, green: ctx.getImageData(5, 5, 1, 1).data[1] };
+    });
+    expect(poster.url).toMatch(/^blob:/);
+    expect(poster.width).toBe(320);
+    expect(poster.green).toBeGreaterThan(75);
     await shot(page, 'desktop-video');
     await clip.click();
     await expect(viewerName(page)).toHaveText('clip.webm');
@@ -135,6 +150,36 @@ test.describe('Photos', () => {
     await shot(page, 'viewer-video');
     await page.keyboard.press('Escape');
     await expect(viewer(page)).toHaveCount(0);
+
+    // A fresh page can show the stored poster without opening the video again.
+    await page.reload();
+    await expectShown(page, 'clip.webm');
+    expect(await page.evaluate(() => performance.getEntriesByType('resource')
+      .filter(entry => entry.name.includes('/htree/') && entry.name.includes('clip.webm')).length)).toBe(0);
+  });
+
+
+  test('scrolling the folder grid releases a panorama and restores its bounded thumbnail', async ({ page, relayUrl }) => {
+    await page.setViewportSize({ width: 860, height: 460 });
+    await prepareFreshSession(page, relayUrl);
+    await createDriveProfile(page);
+    const name = '01-panorama.jpg';
+    const photo = jpeg(name, await picture(page, '#7ab8df', '#487150', 6400, 400));
+    const filler = Array.from({ length: 36 }, (_, i) => ({
+      name: 'note-' + i + '.txt', mimeType: 'text/plain', buffer: Buffer.from('note'),
+    }));
+    await uploadIntoFolder(page, [photo, ...filler]);
+    await page.getByRole('button', { name: 'Grid view' }).click();
+    const grid = page.getByTestId('file-list');
+    const image = fileRow(page, name).locator('img');
+    await expect(image).toHaveJSProperty('naturalWidth', 640);
+    await expect(image).toHaveJSProperty('naturalHeight', 320);
+    const src = await image.getAttribute('src');
+    await grid.evaluate(el => el.scrollTo(0, el.scrollHeight));
+    await expect(image).toHaveCount(0);
+    expect(await page.evaluate(url => fetch(url!).then(() => true, () => false), src)).toBe(false);
+    await grid.evaluate(el => el.scrollTo(0, 0));
+    await expect(image).toHaveJSProperty('naturalWidth', 640);
   });
 
   test('on a phone, Photos is a tab and a swipe steps', async ({ page, relayUrl }) => {

@@ -122,7 +122,7 @@
 
 <div
   bind:this={dialog}
-  class="fixed inset-0 z-50 flex flex-col bg-black text-white outline-none"
+  class="fixed inset-0 z-50 flex flex-col bg-black text-white outline-none" data-scroll-lock
   role="dialog"
   aria-modal="true"
   aria-label={photo.name}

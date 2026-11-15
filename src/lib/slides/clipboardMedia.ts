@@ -102,9 +102,9 @@ export async function imageFromSource(src: string): Promise<File | null> {
 }
 
 /** Reads the picture at `url` into a data URL, so its bytes travel with what is copied; null when it cannot be read or is too large. */
-export async function dataUrlAt(url: string): Promise<string | null> {
+export async function dataUrlAt(url: string, signal?: AbortSignal): Promise<string | null> {
   try {
-    const blob = await (await fetch(url)).blob();
+    const blob = await (await fetch(url, { signal })).blob();
     return blob.size > 12 * 1024 * 1024 ? null : await dataUrlOf(blob);
   } catch {
     return null;

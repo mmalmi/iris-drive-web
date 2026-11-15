@@ -77,26 +77,33 @@ function folderKey(writer: string, generation: number): string {
   return `${writer}\n${generation}`;
 }
 
-/** Every update file of a document folder, with when it was saved. */
-export async function listStoredFiles(tree: Pick<HashTree, 'listDirectory'>, folder: CID): Promise<StoredFile[]> {
-  const updates = (await tree.listDirectory(folder)).find(entry => entry.name === UPDATES_DIRECTORY && entry.type === LinkType.Dir);
+type DocumentUpdateFile = StoredFile & { size: number };
+
+/** Every saved update, including legacy files directly under updates/. */
+export async function listDocumentUpdates(tree: Pick<HashTree, 'listDirectory'>, folder: CID, signal?: AbortSignal): Promise<DocumentUpdateFile[]> {
+  const updates = (await tree.listDirectory(folder, signal)).find(entry => entry.name === UPDATES_DIRECTORY && entry.type === LinkType.Dir);
   if (!updates) return [];
-  const listed = await tree.listDirectory(updates.cid);
-  const nested = await mapLimited(listed, READ_CONCURRENCY, async (entry): Promise<StoredFile[]> => {
+  const listed = await tree.listDirectory(updates.cid, signal);
+  const nested = await mapLimited(listed, READ_CONCURRENCY, async (entry): Promise<DocumentUpdateFile[]> => {
     if (entry.type !== LinkType.Dir) {
-      return [{ cid: entry.cid, writer: '', generation: 0, base: false, ...describe(entry.name) }];
+      return [{ cid: entry.cid, size: entry.size, writer: '', generation: 0, base: false, ...describe(entry.name) }];
     }
     const match = /^(.+)-(\d+)$/.exec(entry.name);
     const writer = match ? match[1] : entry.name;
     const generation = match ? Number(match[2]) : 0;
-    return (await tree.listDirectory(entry.cid))
+    return (await tree.listDirectory(entry.cid, signal))
       .filter(file => file.type !== LinkType.Dir)
       .map(file => {
         const base = file.name === BASE_FILE;
-        return { cid: file.cid, writer, generation, base, ...(base ? { time: null } : describe(file.name)) };
+        return { cid: file.cid, size: file.size, writer, generation, base, ...(base ? { time: null } : describe(file.name)) };
       });
   });
-  return placeBases(nested.flat());
+  return nested.flat();
+}
+
+/** Every update file of a document folder, with when it was saved. */
+export async function listStoredFiles(tree: Pick<HashTree, 'listDirectory'>, folder: CID): Promise<StoredFile[]> {
+  return placeBases(await listDocumentUpdates(tree, folder));
 }
 
 /** Gives each base the time of the fold that wrote it, as near as its neighbours tell. */

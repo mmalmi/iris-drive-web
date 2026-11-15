@@ -110,7 +110,7 @@
   }
 </script>
 
-<div class="fixed inset-0 bg-black/90 flex items-center justify-center z-[1010]">
+<div class="fixed inset-0 bg-black/90 flex items-center justify-center z-[1010]" data-scroll-lock>
   <div class="relative w-full max-w-md mx-4">
     <!-- Close button -->
     <button
