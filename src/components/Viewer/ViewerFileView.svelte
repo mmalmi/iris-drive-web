@@ -11,6 +11,7 @@
   import { linkShares, linkTargetAt } from '../../drive/linkShares';
   import AccessBadge from '../AccessBadge.svelte';
   import { getNhashFileUrl } from '../../lib/mediaUrl';
+  import { swipe } from '../../lib/swipe';
   import { getQueryParamsFromHash } from '../../lib/router.svelte';
   import { open as openBlossomPushModal } from '../Modals/BlossomPushModal.svelte';
   import { open as openRenameModal } from '../Modals/RenameModal.svelte';
@@ -494,7 +495,7 @@
       </div>
     {/if}
 
-    <div class="flex-1 flex flex-col min-h-0">
+    <div class="flex-1 flex flex-col min-h-0" use:swipe={(step) => { const file = step > 0 ? nextFile : prevFile; if (file && filesCount > 1) navigateToFile(file.name); }}>
       {#if isVideo && entry?.cid}
         {#key urlFileName}
           <MediaPlayer cid={entry.cid} fileName={urlFileName} type="video" npub={targetNpub ?? undefined} treeName={effectiveMediaTree.treeName ?? undefined} path={effectiveMediaTree.path} />

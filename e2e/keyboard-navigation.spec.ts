@@ -39,6 +39,22 @@ test('arrows and j/k move through a folder without opening anything; Enter opens
   await page.getByTestId('viewer-previous').click();
   await expect(shown).toContainText('Alpha');
 
+  // A finger's quick flick sideways steps too, as on a phone; a slow drag or a vertical one does not.
+  const flick = (dx: number, dy = 0, ms = 80) => shown.evaluate(async (node, { dx, dy, ms }) => {
+    const box = node.getBoundingClientRect();
+    const touch = (x: number, y: number) => new Touch({ identifier: 1, target: node, clientX: x, clientY: y });
+    const x = box.left + 200, y = box.top + 10;
+    node.dispatchEvent(new TouchEvent('touchstart', { bubbles: true, touches: [touch(x, y)], changedTouches: [touch(x, y)] }));
+    await new Promise((done) => setTimeout(done, ms));
+    node.dispatchEvent(new TouchEvent('touchend', { bubbles: true, touches: [], changedTouches: [touch(x + dx, y + dy)] }));
+  }, { dx, dy, ms });
+  await flick(-120);
+  await expect(shown).toContainText('Beta');
+  await flick(-120, 200);
+  await flick(-120, 0, 900);
+  await flick(120);
+  await expect(shown).toContainText('Alpha');
+
   // Escape closes it, back on that file in the list.
   await page.keyboard.press('Escape');
   await expect(page).toHaveURL(folderUrl);
