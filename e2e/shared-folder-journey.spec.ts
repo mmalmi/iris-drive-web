@@ -40,7 +40,8 @@ test('reader and editor join short native invites, edit across apps, reload and 
     await openProfile(readerPage, dirs.cara!, relayUrl);
     await acceptAndOpen(readerPage, reader.invite);
     await expect(readerPage.getByText('Private.txt', { exact: true })).toHaveCount(0);
-    await expect(readerPage.getByRole('button', { name: 'New', exact: true })).toHaveCount(0);
+    // New stays available on shared pages: what a reader makes is saved in their own My Drive.
+    await expect(readerPage.getByRole('button', { name: 'New', exact: true })).toBeVisible();
     await readerPage.getByRole('link', { name: /^Plan\.txt\b/ }).dblclick();
     await expect(readerPage.getByText('Meet at noon.', { exact: true })).toBeVisible();
     const readerMenu = await openFileMenu(readerPage);
