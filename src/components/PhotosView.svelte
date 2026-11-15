@@ -330,16 +330,18 @@
 
   async function upload(place: { scope: string; path: string[] }, files: File[]) {
     if (files.length === 0) return;
-    const names = await namesIn(place.scope, place.path);
-    const named = files.map((file) => {
-      const name = freeName(file.name, names);
-      names.add(name);
-      return name === file.name ? file : new File([file], name, { type: file.type, lastModified: file.lastModified });
-    });
     try {
       await uploadFilesWithPaths(
-        named.map((file) => ({ file, relativePath: [...place.path, file.name].join('/') })),
+        files.map(file => ({ file, relativePath: file.name })),
         { drive: { scope: place.scope, treeName: DRIVE_TREE_NAME }, dirPath: [] },
+        async (entries) => {
+          const names = await namesIn(place.scope, place.path);
+          return entries.map(({ file }) => {
+            const name = freeName(file.name, names);
+            names.add(name);
+            return { file, relativePath: [...place.path, name].join('/') };
+          });
+        },
       );
     } catch {
       toast.error(files.length === 1 ? `Could not upload ${files[0]!.name}` : 'Could not upload the photos');

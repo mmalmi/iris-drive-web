@@ -48,6 +48,43 @@ const viewerName = (page: Page) => page.getByTestId('photo-viewer-name');
 test.describe('Photos', () => {
   test.setTimeout(180_000);
 
+  test('shows progress for the whole selected batch while individual photos arrive', async ({ page, relayUrl }, testInfo) => {
+    await prepareFreshSession(page, relayUrl);
+    await createDriveProfile(page, 'Photo uploads');
+    await page.getByTestId('drive-sidebar').getByRole('link', { name: 'Photos' }).click();
+    await expect(page.getByTestId('photos-empty')).toBeVisible();
+
+    // Pause only the second file read. The first is visible while the other nine are pending.
+    await page.evaluate(() => {
+      const original = File.prototype.stream;
+      File.prototype.stream = function () {
+        const stream = original.call(this);
+        if (this.name !== 'photo-2.jpg') return stream;
+        File.prototype.stream = original;
+        const released = new Promise<void>(resolve => window.addEventListener('resume-photo-read', () => resolve(), { once: true }));
+        return stream.pipeThrough(new TransformStream({
+          async transform(chunk, controller) { await released; controller.enqueue(chunk); },
+        }));
+      };
+    });
+    const photo = await picture(page, '#93c5fd', '#065f46', 1200, 900);
+    const files = Array.from({ length: 10 }, (_, i) => {
+      const bytes = Buffer.alloc(1024 * 1024, i);
+      bytes.set(photo);
+      return jpeg(`photo-${i + 1}.jpg`, bytes);
+    });
+    await page.getByTestId('photos-upload-input').setInputFiles(files);
+    const progress = page.getByRole('progressbar', { name: 'Upload progress' });
+    await expect(progress).toHaveAttribute('aria-valuenow', '10');
+    await expect(page.getByText('Uploading 2 of 10')).toBeVisible();
+    await expect(tiles(page)).toHaveCount(1);
+    await page.screenshot({ path: testInfo.outputPath('batch-progress.png') });
+    await page.evaluate(() => window.dispatchEvent(new Event('resume-photo-read')));
+    await expect(page.getByText('Uploaded 10 files', { exact: true })).toBeVisible();
+    await expect(tiles(page)).toHaveCount(10);
+    await expect(progress).toHaveCount(0);
+  });
+
   test('shows the pictures in the Drive newest first, and opens them one at a time', async ({ page, relayUrl }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await prepareFreshSession(page, relayUrl);

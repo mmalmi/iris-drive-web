@@ -21,7 +21,7 @@
   };
 
   let percent = $derived(
-    $uploadProgress?.totalBytes
+    $uploadProgress?.status === 'preparing' ? 0 : $uploadProgress?.totalBytes
       ? Math.round(($uploadProgress.bytes || 0) / $uploadProgress.totalBytes * 100)
       : $uploadProgress ? Math.round(($uploadProgress.current / $uploadProgress.total) * 100) : 0
   );
@@ -79,7 +79,9 @@
         </div>
 
         <!-- Progress bar -->
-        <div class="w-full h-1.5 bg-surface-3 rounded-full overflow-hidden mb-1">
+        <div class="w-full h-1.5 bg-surface-3 rounded-full overflow-hidden mb-1"
+          role="progressbar" aria-label={$uploadProgress.status === 'zipping' ? 'ZIP progress' : 'Upload progress'}
+          aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}>
           <div
             class="h-full bg-accent transition-all duration-150"
             style="width: {percent}%"
@@ -88,8 +90,14 @@
 
         <!-- Status and count -->
         <div class="flex items-center justify-between text-xs text-text-3">
-          <span class="capitalize">{$uploadProgress.status || 'uploading'}...</span>
-          <span>{$uploadProgress.current} / {$uploadProgress.total}</span>
+          {#if $uploadProgress.status === 'preparing'}
+            <span>Preparing {$uploadProgress.total === 1 ? '1 file' : `${$uploadProgress.total} files`}…</span>
+          {:else if $uploadProgress.status === 'zipping'}
+            <span>Zipping {$uploadProgress.current} of {$uploadProgress.total}</span>
+          {:else}
+            <span>Uploading {$uploadProgress.current} of {$uploadProgress.total}</span>
+          {/if}
+          <span>{percent}%</span>
         </div>
       </div>
     {/if}
