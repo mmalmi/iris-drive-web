@@ -413,6 +413,46 @@ describe('document storage in a Drive folder', { timeout: 30_000 }, () => {
     expect(typist.text.toString()).toBe(reader.text.toString());
   });
 
+  it('a device that got the words live, and read no stored file, still finds the renamed folder', async () => {
+    const drive = new SimulatedDrive();
+    const [renamer, typist] = [await drive.addDevice(), await drive.addDevice()];
+    renamer.type('first ');
+    // Shown on the typist from the live connection; the save that stores it never reaches it under the old name.
+    Y.applyUpdate(typist.ydoc, Y.encodeStateAsUpdate(renamer.ydoc), 'live');
+    await renamer.session.save();
+    await renamer.mutate({ type: 'rename', from: DOCUMENT, to: RENAMED });
+    renamer.path = RENAMED;
+    typist.type('late ');
+    await typist.session.save();
+    await typist.sync();
+    expect(await drive.tree.resolvePath(typist.view, DOCUMENT)).not.toBeNull();
+
+    const search = {
+      tree: drive.tree,
+      root: typist.view,
+      from: DOCUMENT.split('/'),
+      kind: 'document' as const,
+      known: (entries: TreeEntry[]) => typist.session.filesKnown(entries),
+    };
+    // Nothing it read is in the renamed folder: the Drive's record of what the rename took says where it went.
+    expect(await findMovedDocument(search)).toBeNull();
+    const taken = new Set(drive.projection.deletedBelow(PROFILE_ID, 'main', DOCUMENT.split('/')));
+    expect(await findMovedDocument({ ...search, taken })).toEqual(RENAMED.split('/'));
+    // What left the place before the document was opened there is not this document.
+    const deletedAt = drive.projection.deletedAt(PROFILE_ID, 'main', DOCUMENT.split('/')) ?? 0;
+    expect(drive.projection.deletedBelow(PROFILE_ID, 'main', DOCUMENT.split('/'), deletedAt)).toEqual([]);
+
+    typist.path = RENAMED;
+    typist.leftover = DOCUMENT;
+    expect(await typist.session.moveTo(await typist.documentEntries())).toBe(true);
+    expect(await typist.session.save()).toBe(true);
+    const reader = await drive.addDevice();
+    reader.path = RENAMED;
+    await reader.sync();
+    expect(await drive.tree.resolvePath(await drive.merged(), DOCUMENT)).toBeNull();
+    for (const word of ['first ', 'late ']) expect(reader.text.toString()).toContain(word);
+  });
+
   it('following a rename stores nothing when the new folder already holds all this copy has', async () => {
     const drive = new SimulatedDrive();
     const [renamer, viewer] = [await drive.addDevice(), await drive.addDevice()];

@@ -726,6 +726,8 @@ export class DriveDocument {
       from: path,
       kind: this.kind.kind,
       known: entries => session.filesKnown(entries),
+      // Only what left since the document was opened here: an earlier one at this place is another document.
+      taken: drive ? new Set(profileDriveProjection.deletedBelow(drive.scope, drive.treeName, path, this.#deletedSeen ?? 0)) : undefined,
     });
     if (this.#leaving || this.#destroyed) return;
     if (to) {

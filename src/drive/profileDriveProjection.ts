@@ -151,6 +151,20 @@ export class ProfileDriveProjection {
   }
 
   /**
+   * What the view merged last records as deleted or renamed away from below
+   * `path` after `since`, as paths from `path` on. A rename marks every file
+   * it took along, so these name the files a renamed folder now holds.
+   */
+  deletedBelow(rootScopeId: string, driveId: string, path: readonly string[], since = 0): string[] {
+    const merged = this.deletions.get(projectionKey(rootScopeId, driveId));
+    if (!merged || path.length === 0) return [];
+    const prefix = `${path.join('/')}/`;
+    return [...merged.at]
+      .filter(([deleted, at]) => at > since && deleted.startsWith(prefix))
+      .map(([deleted]) => deleted.slice(prefix.length));
+  }
+
+  /**
    * Drop cached contributions that no longer belong to an authorized AppKey.
    * A later relay backfill can add a key again if a subsequent roster permits it.
    */
