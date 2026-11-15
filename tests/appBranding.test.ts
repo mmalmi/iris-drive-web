@@ -58,5 +58,8 @@ describe('iris-files app branding', () => {
 
     expect(association.applinks.details[0].appIDs).toContain('J8PPJKD7TA.to.iris.drive.macos');
     expect(association.applinks.details[0].appIDs).toContain('J8PPJKD7TA.to.iris.drive.ios');
+    // The App Store/TestFlight iOS build (ios/project.yml in iris-drive).
+    expect(association.applinks.details[0].appIDs).toContain('8G9P8AN75D.fi.siriusbusiness.drive');
+    expect(association.webcredentials.apps).toContain('8G9P8AN75D.fi.siriusbusiness.drive');
   });
 });

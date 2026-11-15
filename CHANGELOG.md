@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Open drive.iris.to links in the Iris Drive iPhone app when it is installed.
+
 ## 0.1.23 - 2026-10-04
 
 - Keep the first file added to a new profile while its private folder finishes loading.
