@@ -101,6 +101,7 @@ test.describe('account navigation and logout', () => {
     await expect(confirmation.getByRole('button', { name: 'Cancel' })).toBeFocused();
     await confirmation.getByRole('button', { name: 'Cancel' }).click();
     await expect(confirmation).toBeHidden();
+    await expect(page.locator('[aria-modal="true"]')).toHaveCount(0);
     await expect(settingsLogout).toBeFocused();
     await expect(page).toHaveURL(/#\/settings$/);
     expect(await page.evaluate(() => JSON.parse(localStorage.getItem('iris:identity:session')!).profileId)).toBe(firstProfile.id);

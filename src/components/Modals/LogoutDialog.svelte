@@ -3,10 +3,14 @@
   import { navigate } from '../../utils/navigate';
 
   let dialog: HTMLDialogElement;
+  let modalOpen = $state(false);
   const id = $props.id();
 
   export function open() {
-    if (!dialog.open) dialog.showModal();
+    if (!dialog.open) {
+      dialog.showModal();
+      modalOpen = true;
+    }
   }
 
   function confirmLogout() {
@@ -18,10 +22,11 @@
 
 <dialog
   bind:this={dialog}
-  aria-modal="true"
+  aria-modal={modalOpen || undefined}
   aria-labelledby="{id}-title"
   aria-describedby="{id}-detail"
   onkeydown={(event) => event.stopPropagation()}
+  onclose={() => { modalOpen = dialog.open; }}
   class="fixed inset-0 m-auto w-96 max-w-[calc(100%-2rem)] rounded-lg border border-surface-3 bg-surface-1 p-5 text-text-1 shadow-lg"
 >
   <h2 id="{id}-title" class="text-lg font-semibold">Log out of Drive?</h2>
