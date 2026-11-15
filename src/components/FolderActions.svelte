@@ -267,7 +267,10 @@
           { label: 'Move', icon: 'i-lucide-folder-input', testid: 'move-folder-btn', run: () => openMoveModal(name, route.path.slice(0, -1)) },
         );
       }
-      items.push({ label: 'Delete', icon: 'i-lucide-trash-2', testid: 'delete-folder-btn', run: () => void handleDelete(), danger: true });
+      // My Drive itself stays, as in Google Drive.
+      if (name || dirName !== 'My Drive') {
+        items.push({ label: 'Delete', icon: 'i-lucide-trash-2', testid: 'delete-folder-btn', run: () => void handleDelete(), danger: true });
+      }
     }
     return items;
   });

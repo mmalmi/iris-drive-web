@@ -179,6 +179,29 @@ test.describe('choosing several items', () => {
     expect(newPages).toHaveLength(0);
   });
 
+  test('a right click chooses the row its menu is for, and My Drive itself cannot be deleted', async ({ page, relayUrl }) => {
+    await page.setViewportSize(DESKTOP);
+    await startInMyDrive(page, relayUrl);
+    for (const name of ['a.txt', 'b.txt', 'c.txt']) await uploadIntoFolder(page, text(name));
+
+    await link(page, 'a.txt').click();
+    await link(page, 'b.txt').click({ button: 'right' });
+    await expect(page.getByRole('menu')).toBeVisible();
+    await expectSelected(page, ['b.txt'], ['a.txt', 'c.txt']);
+    await page.keyboard.press('Escape');
+
+    // The menu of a row among those chosen leaves the others chosen.
+    await link(page, 'c.txt').click({ modifiers: ['ControlOrMeta'] });
+    await link(page, 'c.txt').click({ button: 'right' });
+    await expect(page.getByRole('menu')).toBeVisible();
+    await expectSelected(page, ['b.txt', 'c.txt'], ['a.txt']);
+    await page.keyboard.press('Escape');
+
+    await page.getByTestId('folder-header').getByRole('button', { name: 'More actions' }).click();
+    await expect(page.getByRole('menuitem', { name: 'Download ZIP' })).toBeVisible();
+    await expect(page.getByTestId('delete-folder-btn')).toHaveCount(0);
+  });
+
   test('file icons stay visible on hover and toggle selection', async ({ page, relayUrl }, testInfo) => {
     await page.setViewportSize(DESKTOP);
     await startInMyDrive(page, relayUrl);

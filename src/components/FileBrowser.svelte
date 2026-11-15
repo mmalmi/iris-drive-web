@@ -418,6 +418,13 @@
     if (returnFocus) opener?.focus();
   }
 
+  /** As in Google Drive, a mouse asking for the menu of a row not chosen chooses just that row. */
+  function chooseForMenu(entry: FileEntry) {
+    if (lastPointer !== 'mouse' || selection.has(entry.name)) return;
+    cursor = entry.name;
+    selection.only(entry.name);
+  }
+
   function handleMenuButton(e: MouseEvent, entry: FileEntry) {
     e.preventDefault();
     e.stopPropagation();
@@ -425,6 +432,7 @@
       closeEntryMenu(false);
       return;
     }
+    chooseForMenu(entry);
     const button = e.currentTarget as HTMLElement;
     const box = button.getBoundingClientRect();
     openEntryMenu(entry, { x: box.right - 224, y: box.bottom + 4, opener: button });
@@ -434,6 +442,7 @@
   function handleRowContextMenu(e: MouseEvent, entry: FileEntry) {
     e.preventDefault();
     e.stopPropagation();
+    chooseForMenu(entry);
     openEntryMenu(entry, { x: e.clientX, y: e.clientY, opener: e.currentTarget as HTMLElement });
   }
 
@@ -512,6 +521,8 @@
     cursor = entry.name;
     // Cancelling a checkbox click rolls back the browser's checked state after this handler.
     if (!onCheckbox) e.preventDefault();
+    // The keys then belong to the list, so no focus outline stays behind on the row clicked.
+    if (byMouse && !onCheckbox) fileListRef?.focus();
     if (!adding) selection.only(entry.name);
     else if (e.shiftKey) selection.extendTo(entries.map((item) => item.name), entry.name);
     else selection.toggle(entry.name);
@@ -651,6 +662,7 @@
       aria-multiselectable="true"
       onkeydown={handleKeyDown}
       onpointerdowncapture={(e) => { lastPointer = e.pointerType; }}
+      onclick={(e) => { if (!selecting && !(e.target as Element).closest('[data-entry-name]')) cursor = null; }}
       oncontextmenu={(e) => { if (entryMenu) e.preventDefault(); else if (canEdit) openNewMenuBeside(e); }}
       ondragover={handleFileDragOver}
       ondragleave={handleFileDragLeave}

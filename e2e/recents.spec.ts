@@ -18,7 +18,7 @@ test.describe('Recent', () => {
     const rows = page.getByTestId('recents-view').getByRole('link');
     await recent.click();
     await expect(rows.first()).toContainText('plan.txt');
-    await expect(rows.filter({ hasText: 'My Drive' })).toHaveCount(1);
+    await expect(rows.filter({ hasText: 'My Drive' })).toHaveCount(0);
     await expect(rows.filter({ hasText: 'Trip' })).toHaveCount(0);
 
     await page.reload();

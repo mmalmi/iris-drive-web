@@ -10,8 +10,9 @@
   import { activeNostrIdentityRootScope } from '../drive/profileRoute';
   import { recentDisplay, recentHref, timeAgo } from '../lib/recentDisplay';
 
-  let recents = $derived($recentsStore);
   let ownProfileId = $derived(activeNostrIdentityRootScope($nostrStore));
+  // My Drive is always one click away in the sidebar; Recent is for what is inside it.
+  let recents = $derived($recentsStore.filter((item) => !(item.type === 'tree' && item.treeName === 'main' && item.npub === ownProfileId)));
 
   function npubToPubkey(npub: string): string | null {
     try {
