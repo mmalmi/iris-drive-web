@@ -62,7 +62,7 @@
 {#if show && target}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onclick={close} data-modal-backdrop>
+  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50" data-scroll-lock onclick={close} data-modal-backdrop>
     <div class="bg-surface-1 rounded-lg shadow-lg p-6 w-full max-w-md mx-4" onclick={(e) => e.stopPropagation()}>
       <h2 class="text-lg font-semibold mb-2">Unsaved Changes</h2>
       <p class="text-text-2 mb-4">

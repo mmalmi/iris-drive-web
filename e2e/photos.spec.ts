@@ -88,6 +88,10 @@ test.describe('Photos', () => {
     await tiles(page).first().click();
     await expect(viewer(page)).toBeVisible();
     await expect(viewerName(page)).toHaveText('meadow.jpg');
+    // The page behind stays still while it is open.
+    const htmlOverflow = () => page.evaluate(() => getComputedStyle(document.documentElement).overflow);
+    expect(await htmlOverflow()).toBe('hidden');
+    expect(await viewer(page).evaluate((el) => getComputedStyle(el).overscrollBehavior)).toBe('contain');
     await page.keyboard.press('ArrowRight');
     await expect(viewerName(page)).toHaveText('sunset.jpg');
     await page.getByTestId('photo-viewer-next').click();
@@ -101,6 +105,7 @@ test.describe('Photos', () => {
     await expect(viewer(page)).toHaveCount(0);
     await expect(page).toHaveURL(/#\/photos$/);
     await expect(tiles(page).nth(1)).toBeFocused();
+    expect(await htmlOverflow()).not.toBe('hidden');
 
     await tiles(page).nth(2).click();
     await expect(viewerName(page)).toHaveText('lake.jpg');

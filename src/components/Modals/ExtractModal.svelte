@@ -93,7 +93,7 @@
 {#if show && target}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onclick={close}>
+  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/70" data-scroll-lock onclick={close}>
     <div
       class="bg-surface-1 rounded-lg shadow-lg p-6 w-full max-w-md mx-4 max-h-[80vh] flex flex-col"
       onclick={(e) => e.stopPropagation()}

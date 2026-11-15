@@ -151,7 +151,7 @@
   <!-- A tap beside the sheet only closes it. -->
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div bind:this={backdropRef} class="fixed inset-0 z-40 bg-black/40" onclick={() => onClose(false)}></div>
+  <div bind:this={backdropRef} class="fixed inset-0 z-40 bg-black/40" data-scroll-lock onclick={() => onClose(false)}></div>
 {/if}
 <div
   bind:this={menuRef}
