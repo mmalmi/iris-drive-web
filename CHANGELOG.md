@@ -1,6 +1,9 @@
 # Changelog
 
-## Unreleased
+## 0.1.28 - 2026-11-16
+
+- Keep a file deleted after another device republishes an older copy of the same folder.
+- Find desktop Drive devices on the web and begin listening for device approvals as soon as a sign-in link opens.
 
 - Open drive.iris.to links in the Iris Drive iPhone app when it is installed.
 - Your devices send each other their Drive changes and device list directly over FIPS too, and catch up with Negentropy when they reconnect, so they stay in sync when relays do not answer.

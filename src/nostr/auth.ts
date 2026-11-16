@@ -807,7 +807,11 @@ export function watchDriveDeviceApproval(
   let stopped = false;
   let activating = false;
   let checkQueued = false;
-  let approval: { receipt: NostrIdentityDeviceApprovalReceipt; event: NostrToolsEvent } | null = null;
+  let approval: {
+    receipt: NostrIdentityDeviceApprovalReceipt;
+    event: NostrToolsEvent;
+    rosterOp: SignedNostrIdentityRosterOp;
+  } | null = null;
   let listening: { stop(): void } | null = null;
   const rosterOps = new Map<string, SignedNostrIdentityRosterOp>();
 
@@ -823,9 +827,11 @@ export function watchDriveDeviceApproval(
     if (stopped || activating || !approval) return;
     const found = approval;
     let anchored: ReturnType<typeof projectDriveRosterFromApprovalReceipt>;
-    let receiptRosterOp: SignedNostrIdentityRosterOp;
+    const receiptRosterOp = found.rosterOp;
+    // The receipt identifies the exact parent operations. Replaying an incomplete
+    // roster for each arriving event cannot authorize this device.
+    if (!(receiptRosterOp.content.parents ?? []).every((id) => rosterOps.has(id))) return;
     try {
-      receiptRosterOp = parseDeviceApprovalReceiptRosterOp(found.receipt);
       anchored = projectDriveRosterFromApprovalReceipt(
         found.receipt.profileId,
         receiptRosterOp,
@@ -861,16 +867,14 @@ export function watchDriveDeviceApproval(
       try {
         if (!verifyEvent(raw)) return;
         if (!approval) {
-          approval = {
-            receipt: parseDeviceApprovalReceiptEvent(raw, { requestSecretKey, bootstrap: pendingApproval.bootstrap }),
-            event: raw,
-          };
+          const receipt = parseDeviceApprovalReceiptEvent(raw, { requestSecretKey, bootstrap: pendingApproval.bootstrap });
+          approval = { receipt, event: raw, rosterOp: parseDeviceApprovalReceiptRosterOp(receipt) };
           // Now that the Drive is known, listen for its device list instead.
           listen();
           return;
         }
         const signed = parseNostrIdentityRosterOpEvent(raw);
-        if (signed.content.profile_id !== approval.receipt.profileId) return;
+        if (signed.content.profile_id !== approval.receipt.profileId || rosterOps.has(signed.op_id)) return;
         rosterOps.set(signed.op_id, signed);
       } catch {
         // Other events can carry the same tags; they prove nothing and are ignored.
@@ -886,7 +890,8 @@ export function watchDriveDeviceApproval(
   };
 
   const askAgain = setInterval(listen, DEVICE_APPROVAL_ASK_AGAIN_MS);
-  void waitForWorkerAdapter(2000).catch(() => null).then(listen);
+  // The subscription binds as soon as the event backend is installed, including on cold starts.
+  listen();
   return stop;
 }
 

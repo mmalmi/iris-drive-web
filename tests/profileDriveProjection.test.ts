@@ -8,6 +8,7 @@ import {
 } from '@hashtree/core';
 import { generateSecretKey, getPublicKey, type Event } from 'nostr-tools';
 import {
+  isDriveRootEventNewer,
   buildDriveRootEvent,
   parseDriveRootEventForDevice,
 } from '../src/drive/protocol';
@@ -343,6 +344,29 @@ describe('profile Drive projection', () => {
     )));
     expect(contents.sort()).toEqual(['newer concurrent bytes', 'older concurrent bytes']);
     expect((await tree.listDirectory(result!.root)).map((entry) => entry.name)).not.toContain('.hashtree');
+  });
+
+  it('keeps a deletion when a writer republishes identical bytes after observing an older copy of its tombstone root', async () => {
+    const tree = new HashTree({ store: new MemoryStore() });
+    const reader = generateSecretKey();
+    const readerPubkey = getPublicKey(reader);
+    const writer = generateSecretKey();
+    const remover = generateSecretKey();
+    const writerKey = getPublicKey(writer);
+    const removerKey = getPublicKey(remover);
+    const fileRoot = await rootWithFile(tree, 'trip.txt', 'old bytes');
+    const deletedRoot = await rootWithTombstone(tree, 'trip.txt', 100);
+    const copied = driveRoot({ signer: writer, readerPubkey, root: fileRoot, sequence: 39, publishedAt: 300,
+      observed: { [removerKey]: { app_key_seq: 1, root_cid: toHex(deletedRoot.hash) } } });
+    const removed = driveRoot({ signer: remover, readerPubkey, root: deletedRoot, sequence: 2, publishedAt: 200,
+      observed: { [writerKey]: { app_key_seq: 39, root_cid: toHex(fileRoot.hash) } } });
+
+    expect(isDriveRootEventNewer(removed, copied)).toBe(true);
+    expect(isDriveRootEventNewer(copied, removed)).toBe(false);
+    const projection = new ProfileDriveProjection();
+    for (const event of [removed, copied]) projection.add(event, parseDriveRootEventForDevice(event, reader));
+    const merged = await projection.materialize(tree, PROFILE_ID, 'main', new Set([writerKey, removerKey]));
+    expect((await tree.listDirectory(merged!.root)).map((entry) => entry.name)).toEqual([]);
   });
 
   it('keeps a concurrent write as a conflict copy when a delete wins', async () => {

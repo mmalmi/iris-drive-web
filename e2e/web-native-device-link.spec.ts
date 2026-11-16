@@ -3,7 +3,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { generateSecretKey, getPublicKey, nip19, verifyEvent } from 'nostr-tools';
-import { expect, test, type Page } from './fixtures';
+import { expect, type Page } from './fixtures';
+import { fipsTest as test } from './fips-devices';
 import {
   addFileViaTreeAPI,
   clearAllStorage,
@@ -54,11 +55,12 @@ function nativeLinkInvite(profileId: string, adminAppKeyPubkey: string): string 
   return `https://drive.iris.to/invite/${Buffer.from(JSON.stringify(payload)).toString('base64url')}`;
 }
 
-async function prepareJoiningBrowser(page: Page, relayUrl: string): Promise<void> {
+async function prepareJoiningBrowser(page: Page, relayUrl: string, seedUrl?: string): Promise<void> {
   setupPageErrorHandler(page);
-  await page.addInitScript(() => {
+  await page.addInitScript((seedUrl?: string) => {
+    if (seedUrl) (window as any).__testFipsWebSocketSeedUrls = [seedUrl];
     localStorage.setItem('hashtree:disableTestAutoCreate', '1');
-  });
+  }, seedUrl);
   await page.goto('/', { waitUntil: 'domcontentloaded' });
   await clearAllStorage(page);
   await page.evaluate(() => localStorage.setItem('hashtree:disableTestAutoCreate', '1'));
@@ -423,7 +425,9 @@ test('native owner and restarted web device link quickly through a large roster 
     for (let index = 0; index < LARGE_ROSTER_ROTATIONS; index += 1) {
       runIdriveJson(nativeConfig, ['rotate-dck']);
     }
-    const existingFileName = 'present-before-web-link.txt';
+    const existingFileName = 'travel (2).txt';
+    const otherCopyName = 'travel (2) (2).txt';
+    const otherCopyContent = 'independent native copy';
     const existingFileContent = 'native content that predates browser approval';
     const directoryReplacementPath = 'native-folder-replaced-by-web-file';
     const directoryChildPath = `${directoryReplacementPath}/old.txt`;
@@ -434,6 +438,7 @@ test('native owner and restarted web device link quickly through a large roster 
     const unrelatedWebPath = 'unrelated-after-web-kind-replacements.txt';
     const unrelatedWebContent = 'an unrelated Web edit keeps both replacement roles';
     fs.writeFileSync(path.join(nativeFiles, existingFileName), existingFileContent);
+    fs.writeFileSync(path.join(nativeFiles, otherCopyName), otherCopyContent);
     fs.mkdirSync(path.join(nativeFiles, directoryReplacementPath));
     fs.writeFileSync(path.join(nativeFiles, directoryChildPath), directoryChildContent);
     fs.writeFileSync(path.join(nativeFiles, fileReplacementPath), fileReplacementContent);
@@ -476,6 +481,7 @@ test('native owner and restarted web device link quickly through a large roster 
     expect(approval.published_approval_events).toBeGreaterThan(LARGE_ROSTER_ROTATIONS);
     expect(activated.profileId).toBe(native.profile_id);
     expect(activated.rosterOpCount).toBeGreaterThan(LARGE_ROSTER_ROTATIONS);
+    await testInfo.attach('approval-to-activation-ms', { body: String(approvalToActivationMs), contentType: 'text/plain' });
     expect(approvalToActivationMs).toBeLessThan(10_000);
 
     await expectProfileFile(
@@ -666,6 +672,22 @@ test('native owner and restarted web device link quickly through a large roster 
       new Set([firstAcks[0].approvalEventId]),
     );
 
+    // Deleting files from either writer on the web must remove them from the native provider.
+    await page.goto(`/#/${native.profile_id}/main`, { waitUntil: 'domcontentloaded' });
+    for (const name of [webFileName, existingFileName]) {
+      const file = page.getByTestId('file-list').getByText(name, { exact: true });
+      await expect(file).toBeVisible();
+      await file.click({ button: 'right' });
+      await page.getByTestId('row-menu-delete').click();
+      await expect(file).toHaveCount(0);
+    }
+    await expect.poll(() => {
+      runIdriveJson(nativeConfig, ['sync', '--relay', relayUrl, '--timeout', '3']);
+      return (runIdriveJson<{ files: { path: string }[] }>(nativeConfig, ['list'])).files
+        .map((entry) => entry.path).filter((name) => name === webFileName || name === existingFileName);
+    }, { timeout: 30_000 }).toEqual([]);
+    await expectNativeProfileFile(nativeConfig, relayUrl, nativeFiles, otherCopyName, otherCopyContent);
+
     // Every CLI invocation reloads native state, so this also covers owner restart recovery.
     runIdriveJson(nativeConfig, ['sync', '--relay', relayUrl, '--timeout', '3']);
     const status = runIdriveJson<any>(nativeConfig, ['status']);
@@ -682,13 +704,15 @@ test('native owner and restarted web device link quickly through a large roster 
 test('web owner approves a native device that durably activates and acknowledges', async ({
   page,
   relayUrl,
+  fipsSeedUrl,
 }) => {
   test.skip(!irisDriveAvailable(), 'iris-drive repo not available');
   test.setTimeout(180_000);
 
   const nativeConfig = fs.mkdtempSync(path.join(os.tmpdir(), 'iris-drive-native-link-web-'));
+  let daemon: ReturnType<typeof spawn> | null = null;
   try {
-    await prepareJoiningBrowser(page, relayUrl);
+    await prepareJoiningBrowser(page, relayUrl, fipsSeedUrl);
     const owner = await page.evaluate(async () => {
       const { createDriveProfile, getCurrentNostrIdentitySession } = await import('/src/nostr');
       const created = await createDriveProfile({ name: 'Web owner' });
@@ -752,7 +776,22 @@ test('web owner approves a native device that durably activates and acknowledges
         deviceAppKeyPubkey: nativePubkey,
       }),
     ]);
+    daemon = spawn(idriveBin(), ['daemon', '--relay', relayUrl, '--no-gateway'], {
+      env: {
+        ...process.env, IRIS_DRIVE_CONFIG_DIR: nativeConfig,
+        IRIS_DRIVE_FIPS_ENABLE_WEBRTC: '1', IRIS_FIPS_WEBSOCKET_SEED_URLS: fipsSeedUrl,
+      },
+      stdio: 'ignore',
+    });
+    const nativeRow = page.getByTestId('user-key-row').filter({ hasText: 'Native device' });
+    await expect.poll(async () => {
+      const status = runIdriveJson<{ peers: { app_key_pubkey: string; fips_direct_online: boolean }[] }>(nativeConfig, ['status']);
+      const nativeSeesBrowser = !!status.peers.find((p) => p.app_key_pubkey === owner.appKeyPubkey)?.fips_direct_online;
+      const browserSeesNative = await nativeRow.getByLabel('Online', { exact: true }).isVisible();
+      return { nativeSeesBrowser, browserSeesNative };
+    }, { timeout: 55_000, intervals: [300, 600, 1500] }).toEqual({ nativeSeesBrowser: true, browserSeesNative: true });
   } finally {
+    await stopNativeDaemon(daemon);
     fs.rmSync(nativeConfig, { recursive: true, force: true });
   }
 });

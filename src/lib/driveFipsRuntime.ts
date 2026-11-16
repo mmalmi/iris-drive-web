@@ -24,6 +24,7 @@ import {
   type PeerEvent,
   type SessionEvent,
 } from '@fips/core';
+import { followDriveRosterPeers } from './driveFipsRosterDiscovery';
 import { decodeDriveFipsSecretKey } from './driveFipsIdentity';
 import { registerDriveFipsRuntimeGetter } from './driveFipsRuntimeRef';
 
@@ -233,6 +234,7 @@ export class DriveFipsRuntime {
   private readonly discoveryScope: string;
   private readonly relays: string[];
   private provider: BrowserHashtreeNostrProvider | null = null;
+  private closeRosterDiscovery?: () => Promise<void>;
   private localStore: DexieStore | null = null;
   private localIdentity: FipsIdentity | null = null;
   private peerPolicy: DriveFipsPeerPolicy | null = null;
@@ -312,6 +314,17 @@ export class DriveFipsRuntime {
         }
       }),
     );
+    if (this.options.profileId) {
+      try {
+        this.closeRosterDiscovery = await followDriveRosterPeers(
+          this.options.profileId, identity, provider, this.relays,
+          [...(this.options.stunServers ?? DEFAULT_STUN_SERVERS)], () => peerPolicy.ownDevices(),
+        );
+      } catch (error) {
+        await this.stop();
+        throw error;
+      }
+    }
     // Blocks still move over FIPS if the event feed cannot open.
     await this.openDriveEventFeed(provider).catch((error: unknown) => {
       console.warn('[drive-fips] Drive event feed did not open:', error);
@@ -332,6 +345,8 @@ export class DriveFipsRuntime {
     for (const unsub of this.unsubs.splice(0)) {
       unsub();
     }
+    await this.closeRosterDiscovery?.();
+    this.closeRosterDiscovery = undefined;
     if (provider) {
       await provider.stop().catch(() => undefined);
     }
