@@ -110,13 +110,15 @@
           >
             <span class="{appIcon(report?.app ?? '')} mt-0.5 shrink-0 text-lg text-text-3"></span>
             <span class="min-w-0 flex-1 space-y-1.5">
-              <span class="flex items-baseline justify-between gap-3">
+              <span class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
                 <span class="min-w-0 truncate text-sm font-medium text-text-1">
                   {row.name}{#if row.current}<span class="ml-2 text-xs font-normal text-text-3">This device</span>{/if}
                 </span>
-                <span class="shrink-0 text-sm {report && holdsAll(report) && report.files > 0 ? 'text-success' : 'text-text-2'}" data-testid="device-storage-held">
-                  {#if report}{holdingLabel(report, formatBytes)}{:else}No report yet{/if}
-                </span>
+                {#if report || !row.current}
+                  <span class="text-sm {report && holdsAll(report) && report.files > 0 ? 'text-success' : 'text-text-2'}" data-testid="device-storage-held">
+                    {#if report}{holdingLabel(report, formatBytes)}{:else}No report yet{/if}
+                  </span>
+                {/if}
               </span>
               {#if !row.current}
                 {@const sync = syncState(row.pubkey, report, held.versions, deviceKeys)}
