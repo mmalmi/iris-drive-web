@@ -30,6 +30,8 @@
 
   let open = $state(false);
   let button: HTMLButtonElement | undefined = $state();
+  let direction = $derived(WAYS[sort.by][Number(sort.descending)]);
+  let reverseLabel = $derived(`Sort ${WAYS[sort.by][Number(!sort.descending)]}`);
   let arrow = $derived(sort.descending ? 'i-lucide-arrow-down' : 'i-lucide-arrow-up');
 
   /** The other way round when it already is sorted so, else newest or largest first, names A to Z. */
@@ -52,19 +54,30 @@
   {#if selecting}
     {@render children()}
   {:else}
-    <div class="relative flex flex-1 items-center justify-between min-w-0 pl-1 lg:pl-3">
+    <div class="relative flex flex-1 items-center gap-1 min-w-0 pl-1 lg:pl-3">
       <button
         bind:this={button}
         type="button"
         class="flex items-center gap-1 h-8 px-2 rounded-full b-0 bg-transparent cursor-pointer text-text-2 hover:text-text-1 hover:bg-surface-2"
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label="Sort by {LABELS[sort.by]}, {WAYS[sort.by][Number(sort.descending)]}"
+        aria-label="Sort by {LABELS[sort.by]}, {direction}"
         data-testid="sort-menu-btn"
         onclick={() => { open = !open; }}
       >
-        {LABELS[sort.by]}<span class="{arrow} text-sm"></span>
+        {LABELS[sort.by]}<span class="{grid ? 'i-lucide-chevron-down' : arrow} text-sm"></span>
       </button>
+      {#if grid}
+        <button
+          type="button"
+          class="flex items-center gap-1 h-8 px-2 rounded-full b-0 bg-transparent cursor-pointer text-text-2 hover:bg-surface-2"
+          aria-label={reverseLabel}
+          title={reverseLabel}
+          onclick={() => sortBy(sort.by)}
+        >
+          <span class="{arrow} text-sm"></span><span class="first-letter:uppercase">{direction}</span>
+        </button>
+      {/if}
       {#if open}
         <Menu
           {items}

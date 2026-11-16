@@ -280,16 +280,16 @@ function fipsPeers(): PeerInfo[] {
   const stats = getLoadedDriveFipsRuntime()?.getStats();
   if (!stats) return [];
   return stats.peers.map((peer) => ({
-    id: `fips:webrtc:${peer.peerId}`,
+    id: `fips:${peer.peerId}`,
     peerId: peer.peerId,
     pubkey: peer.xOnlyPubkey,
-    state: peer.connected ? 'connected' : 'disconnected',
+    state: peer.connected || peer.routedOnline ? 'connected' : 'disconnected',
     pool: 'others',
     bytesSent: 0,
     bytesReceived: 0,
-    transport: 'fips-webrtc',
+    transport: peer.routedOnline ? 'fips-mesh' : 'fips-webrtc',
     source: 'worker',
-    signalPaths: ['nostr'],
+    signalPaths: peer.routedOnline ? ['fips'] : ['nostr'],
   }));
 }
 

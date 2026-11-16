@@ -39,15 +39,14 @@ export interface UploadProgress {
   fileName: string;
   bytes?: number;
   totalBytes?: number;
-  status?: 'reading' | 'writing' | 'finalizing' | 'zipping';
+  status?: 'preparing' | 'reading' | 'writing' | 'finalizing' | 'zipping';
   cancel?: () => void;
 }
 
 // Svelte store for upload progress
 export const uploadProgress = writable<UploadProgress | null>(null);
 
-// Cancellation flag
-let uploadCancelled = false;
+let uploadGeneration = 0;
 
 export function setUploadProgress(progress: UploadProgress | null) {
   uploadProgress.set(progress);
@@ -61,25 +60,18 @@ export function getUploadProgress() {
  * Cancel any in-progress upload
  */
 export function cancelUpload() {
-  uploadCancelled = true;
+  uploadGeneration++;
   setUploadProgress(null);
   releaseRunningUpload?.();
 }
 
-/**
- * Check if upload was cancelled and reset flag
- */
-function checkCancelled(): boolean {
-  if (uploadCancelled) {
-    uploadCancelled = false;
-    return true;
-  }
-  return false;
-}
-
-let uploadGeneration = 0;
-
-function beginUpload(mayWriteAtStart: () => boolean) {
+function beginUpload(files: File[], mayWriteAtStart: () => boolean) {
+  let totalBytes = 0;
+  const offsets = files.map(file => {
+    const start = totalBytes;
+    totalBytes += file.size;
+    return start;
+  });
   const generation = ++uploadGeneration;
   let routeIsCurrent = mayWriteAtStart;
   const isCurrent = () => {
@@ -90,8 +82,14 @@ function beginUpload(mayWriteAtStart: () => boolean) {
   };
   return {
     isCurrent,
-    setProgress(progress: UploadProgress | null) {
-      if (isCurrent()) setUploadProgress(progress);
+    progress(index: number, fileName: string, bytes: number, status: UploadProgress['status']) {
+      if (isCurrent()) setUploadProgress({
+        current: index + 1, total: files.length, fileName, status,
+        bytes: offsets[index]! + bytes, totalBytes,
+      });
+    },
+    clear() {
+      if (isCurrent()) setUploadProgress(null);
     },
     // Virtual-tree creation intentionally changes the selected tree.
     retainSelection() {
@@ -161,12 +159,28 @@ function afterOtherUploads(upload: () => Promise<void>): Promise<void> {
   });
 }
 
+type UploadBatch = ReturnType<typeof beginUpload>;
+
+function runUploadBatch(files: File[], target: UploadTarget, work: (batch: UploadBatch, origin: UploadOrigin) => Promise<void>) {
+  const origin = uploadOrigin(target);
+  return afterOtherUploads(async () => {
+    const batch = beginUpload(files, origin.mayWrite);
+    if (!batch.isCurrent()) return;
+    batch.progress(0, files[0]!.name, 0, 'preparing');
+    try {
+      await work(batch, origin);
+    } finally {
+      batch.clear();
+    }
+  });
+}
+
 /**
  * Puts what was uploaded in its place and saves, on top of whatever was saved
  * since the upload began. Null when the upload no longer belongs here.
  */
 function saveEntry(
-  upload: ReturnType<typeof beginUpload>,
+  upload: UploadBatch,
   origin: UploadOrigin,
   root: CID,
   parentPath: string[],
@@ -191,17 +205,10 @@ export function uploadFiles(files: FileList | File[], target: UploadTarget = {})
   if (!files.length) return Promise.resolve();
   // A FileList empties when its input is reset: copied now.
   const filesArray = Array.from(files);
-  const origin = uploadOrigin(target);
-  return afterOtherUploads(() => uploadFilesNow(filesArray, target, origin));
+  return runUploadBatch(filesArray, target, (upload, origin) => uploadFilesNow(filesArray, target, origin, upload));
 }
 
-async function uploadFilesNow(filesArray: File[], target: UploadTarget, origin: UploadOrigin): Promise<void> {
-  const upload = beginUpload(origin.mayWrite);
-
-  // Reset cancellation flag at start
-  uploadCancelled = false;
-
-  const total = filesArray.length;
+async function uploadFilesNow(filesArray: File[], target: UploadTarget, origin: UploadOrigin, upload: UploadBatch): Promise<void> {
   const uploadedFileNames: string[] = [];
   const tree = getTree();
   const { route, dirPath } = origin;
@@ -219,19 +226,11 @@ async function uploadFilesNow(filesArray: File[], target: UploadTarget, origin: 
   for (let i = 0; i < filesArray.length; i++) {
     // Check for cancellation at start of each file
     if (!upload.isCurrent()) return;
-    if (checkCancelled()) return;
 
     const file = filesArray[i];
     if (!file) continue;
-    const totalBytes = file.size;
 
-    upload.setProgress({
-      current: i + 1,
-      total,
-      fileName: file.name,
-      bytes: 0,
-      totalBytes,
-    });
+    upload.progress(i, file.name, 0, 'reading');
 
     let fileCid: CID;
     let size: number;
@@ -244,14 +243,7 @@ async function uploadFilesNow(filesArray: File[], target: UploadTarget, origin: 
       const reader = file.stream().getReader();
 
       while (true) {
-        upload.setProgress({
-          current: i + 1,
-          total,
-          fileName: file.name,
-          bytes: bytesRead,
-          totalBytes,
-          status: 'reading',
-        });
+        upload.progress(i, file.name, bytesRead, 'reading');
         const readResult = await withStallDetection(
           reader.read(),
           `Reading ${file.name} is taking longer than expected...`
@@ -274,7 +266,7 @@ async function uploadFilesNow(filesArray: File[], target: UploadTarget, origin: 
         const { getArchiveFileList } = await import('../utils/compression');
         const archiveInfo = getArchiveFileList(data);
         if (archiveInfo.files.length > 0) {
-          upload.setProgress(null);
+          upload.clear();
           // Pass archive data for extraction later (one file at a time)
           // Include commonRoot so modal knows if files already have a root folder
           if (!upload.isCurrent()) return;
@@ -288,14 +280,7 @@ async function uploadFilesNow(filesArray: File[], target: UploadTarget, origin: 
       }
 
       // Use encrypted file storage (default)
-      upload.setProgress({
-        current: i + 1,
-        total,
-        fileName: file.name,
-        bytes: bytesRead,
-        totalBytes,
-        status: 'writing',
-      });
+      upload.progress(i, file.name, bytesRead, 'writing');
       const result = await withStallDetection(
         tree.putFile(data),
         `Writing ${file.name} is taking longer than expected...`
@@ -325,14 +310,7 @@ async function uploadFilesNow(filesArray: File[], target: UploadTarget, origin: 
             `Reading ${file.name} is taking longer than expected...`
           ),
           onProgress: (progress) => {
-            upload.setProgress({
-              current: i + 1,
-              total,
-              fileName: file.name,
-              bytes: progress.bytesProcessed,
-              totalBytes,
-              status: progress.phase,
-            });
+            upload.progress(i, file.name, progress.bytesProcessed, progress.phase);
           },
         }
       );
@@ -389,8 +367,6 @@ async function uploadFilesNow(filesArray: File[], target: UploadTarget, origin: 
   // Note: autosaveIfOwn is called after each file for instant UI updates
   // No need for final autosave since we save progressively
 
-  upload.setProgress(null);
-
   if (!upload.isCurrent()) return;
 
   // The folder stays open, as it does for many files: the new row is
@@ -398,7 +374,9 @@ async function uploadFilesNow(filesArray: File[], target: UploadTarget, origin: 
   if (uploadedFileNames.length === 1 && !target.dirPath) {
     const fileName = uploadedFileNames[0]!;
     revealFile.set(fileName);
-    if (!target.quiet) toast.success(`Uploaded ${fileName}`);
+  }
+  if (!target.quiet && (uploadedFileNames.length > 1 || !target.dirPath)) {
+    toast.success(uploadedFileNames.length === 1 ? `Uploaded ${uploadedFileNames[0]}` : `Uploaded ${uploadedFileNames.length} files`);
   }
 }
 
@@ -407,20 +385,25 @@ async function uploadFilesNow(filesArray: File[], target: UploadTarget, origin: 
  * Files are uploaded with their relative paths preserved in the tree structure
  */
 
-export function uploadFilesWithPaths(filesWithPaths: FileWithPath[], target: UploadTarget = {}): Promise<void> {
-  if (!filesWithPaths.length) return Promise.resolve();
-  const origin = uploadOrigin(target);
-  return afterOtherUploads(() => uploadFilesWithPathsNow(filesWithPaths, origin));
+export function uploadFilesWithPaths(
+  entries: FileWithPath[], target: UploadTarget = {},
+  prepare?: (entries: FileWithPath[]) => Promise<FileWithPath[]>,
+): Promise<void> {
+  if (!entries.length) return Promise.resolve();
+  return runUploadBatch(entries.map(entry => entry.file), target, async (upload, origin) => {
+    // Photos chooses unused names in its album. Look them up in queue order,
+    // with progress visible, so earlier batches already own their names.
+    const files = prepare ? await prepare(entries) : entries;
+    if (!upload.isCurrent()) return;
+    const saved = await uploadFilesWithPathsNow(files, origin, upload);
+    if (saved && !target.quiet && upload.isCurrent()) {
+      toast.success(saved === 1 ? 'Uploaded 1 file' : `Uploaded ${saved} files`);
+    }
+  });
 }
 
-async function uploadFilesWithPathsNow(filesWithPaths: FileWithPath[], origin: UploadOrigin): Promise<void> {
-  const upload = beginUpload(origin.mayWrite);
-
-  // Reset cancellation flag at start
-  uploadCancelled = false;
-
-  const total = filesWithPaths.length;
-  const uploadedFileNames: string[] = [];
+async function uploadFilesWithPathsNow(filesWithPaths: FileWithPath[], origin: UploadOrigin, upload: UploadBatch): Promise<number | undefined> {
+  let saved = 0;
   const tree = getTree();
   const { route, dirPath } = origin;
 
@@ -523,27 +506,17 @@ async function uploadFilesWithPathsNow(filesWithPaths: FileWithPath[], origin: U
   // Create all directories first
   for (const dir of sortedDirs) {
     if (!upload.isCurrent()) return;
-    if (checkCancelled()) return;
     await ensureDir(dir);
   }
 
   for (let i = 0; i < filesWithPaths.length; i++) {
     // Check for cancellation at start of each file
     if (!upload.isCurrent()) return;
-    if (checkCancelled()) return;
 
     const { file, relativePath } = filesWithPaths[i];
     if (!file) continue;
-    const totalBytes = file.size;
 
-    upload.setProgress({
-      current: i + 1,
-      total,
-      fileName: relativePath,
-      bytes: 0,
-      totalBytes,
-      status: 'reading',
-    });
+    upload.progress(i, relativePath, 0, 'reading');
 
     // Stream upload - no buffering needed
     // Use videoChunker for video files (smaller first chunk for faster playback start)
@@ -567,14 +540,7 @@ async function uploadFilesWithPathsNow(filesWithPaths: FileWithPath[], origin: U
           `Reading ${relativePath} is taking longer than expected...`
         ),
         onProgress: (progress) => {
-          upload.setProgress({
-            current: i + 1,
-            total,
-            fileName: relativePath,
-            bytes: progress.bytesProcessed,
-            totalBytes,
-            status: progress.phase,
-          });
+          upload.progress(i, relativePath, progress.bytesProcessed, progress.phase);
         },
       }
     );
@@ -589,8 +555,6 @@ async function uploadFilesWithPathsNow(filesWithPaths: FileWithPath[], origin: U
     // Combine with current directory path
     const fullDirPath = [...dirPath, ...fileDirPath];
 
-    uploadedFileNames.push(relativePath);
-
     // Add file to tree (directories already exist)
     try {
       if (currentRootCid?.hash) {
@@ -598,6 +562,7 @@ async function uploadFilesWithPathsNow(filesWithPaths: FileWithPath[], origin: U
         if (!newRootCid) return;
         currentRootCid = newRootCid;
 
+        saved++;
         // Mark this file as changed for pulse effect (use just filename for display in current dir)
         if (fileDirPath.length === 0) {
           markFilesChanged(new Set([fileName]));
@@ -612,7 +577,7 @@ async function uploadFilesWithPathsNow(filesWithPaths: FileWithPath[], origin: U
 
   // Note: autosaveIfOwn is called after each file for instant UI updates
 
-  upload.setProgress(null);
+  return saved;
 }
 
 /**

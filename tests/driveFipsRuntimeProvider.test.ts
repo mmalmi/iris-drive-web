@@ -4,6 +4,10 @@ import { getPublicKey } from 'nostr-tools';
 
 const browserProviderFactory = vi.hoisted(() => vi.fn());
 
+vi.mock('../src/lib/driveFipsRosterDiscovery', () => ({
+  followDriveRosterPeers: async () => async () => {},
+}));
+
 vi.mock('@hashtree/dexie', () => ({
   DexieStore: class {
     close(): void {}
@@ -192,6 +196,35 @@ describe('Drive FIPS provider authorization', () => {
     expect(fake.close).not.toHaveBeenCalled();
     await expect(runtime.getP2PProvider().listPeerIds()).resolves.toContain(unrelatedPeer);
     await expect(runtime.getP2PProvider().fetch('ab'.repeat(32))).resolves.toEqual(new Uint8Array([7, 8, 9]));
+    await runtime.stop();
+  });
+
+  test('expires authenticated routed presence while keeping direct and roster authorization separate', async () => {
+    vi.useFakeTimers();
+    const local = secretKey(31);
+    const peer = `02${getPublicKey(secretKey(56))}`;
+    const fake = installBrowserProviderFake();
+    const runtime = new DriveFipsRuntime({
+      relays: ['wss://relay.example'], deviceSecretKey: local,
+      authorizedAppKeyPubkeys: () => [peer.slice(2)],
+    });
+    await runtime.start();
+    fake.emit('session', { remotePubkey: peer, state: 'established' });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(runtime.getStats().connectedPeerIds).toEqual([]);
+    expect(runtime.getStats().nostrPeerIds).toEqual([peer]);
+    expect(runtime.getStats().peers[0].routedOnline).toBe(true);
+    await vi.advanceTimersByTimeAsync(20_000);
+    fake.emit('datagram', { src: peer });
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(runtime.getStats().peers[0].routedOnline).toBe(true);
+    await vi.advanceTimersByTimeAsync(10_001);
+    expect(runtime.getStats().peers[0].routedOnline).toBe(false);
+    fake.emit('datagram', { src: peer });
+    fake.emit('session', { remotePubkey: peer, state: 'closed' });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(runtime.getStats().peers[0].routedOnline).toBe(false);
+    expect(runtime.getStats().nostrPeerIds).toEqual([]);
     await runtime.stop();
   });
 

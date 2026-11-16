@@ -22,7 +22,7 @@ const mime = new Map([
   ['.wasm', 'application/wasm'],
 ]);
 
-export async function startGraphBrowserFixture(distDir) {
+export async function startGraphBrowserFixture(distDir, publishers) {
   const events = new Map();
   const frames = [];
   const channels = new Map();
@@ -47,6 +47,9 @@ export async function startGraphBrowserFixture(distDir) {
       if (!file.startsWith(path.resolve(distDir) + path.sep)) throw new Error('Outside build output');
       let body = await readFile(file);
       if (workerRelayScope && /^hashtree\.worker-.*\.js$/.test(path.basename(file))) {
+        // Substitute only the fixture authority. The actual worker verifies the
+        // Nostr signature, directory CHKs and manifest file digests as shipped.
+        if (publishers) body = Buffer.from(body.toString().replaceAll(publishers.production, publishers.fixture));
         const module = ts.createSourceFile('worker.js', body.toString(), ts.ScriptTarget.ESNext, false, ts.ScriptKind.JS);
         if (module.statements.some(statement => ts.isImportDeclaration(statement)
           || (ts.isExportDeclaration(statement) && statement.moduleSpecifier))) {

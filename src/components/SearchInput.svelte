@@ -3,7 +3,7 @@
    * Search this Drive: names of files, folders and documents in My Drive and
    * shared folders, and the items opened recently. A pasted Drive link opens.
    */
-  import { nhashEncode, isNHash, isNPath } from '@hashtree/core';
+  import { driveSearchHash } from '../lib/driveSearchLink';
   import { nostrStore } from '../nostr';
   import { acceptedShares } from '../drive/shareLibrary';
   import { activeNostrIdentityRootScope } from '../drive/profileRoute';
@@ -28,8 +28,6 @@
     detail: string;
   }
 
-  // Match 64 hex chars optionally followed by /filename
-  const HASH_PATTERN = /^([a-f0-9]{64})(\/.*)?$/i;
   const SHOWN = 12;
 
   let inputRef: HTMLInputElement | undefined = $state();
@@ -128,6 +126,7 @@
   function finish() {
     value = '';
     found = [];
+    searching = false;
     showDropdown = false;
     inputRef?.blur();
     onSelect?.();
@@ -135,18 +134,7 @@
 
   /** A pasted Drive link or content address opens at once. */
   function navigateTo(input: string): boolean {
-    const trimmed = input.trim();
-    let hash: string | null = null;
-    try {
-      const url = new URL(trimmed);
-      if (url.hash.startsWith('#/')) hash = url.hash;
-    } catch {
-      // Not a URL
-    }
-    if (!hash && trimmed.startsWith('#/')) hash = trimmed;
-    if (!hash && (isNHash(trimmed) || isNPath(trimmed))) hash = `#/${trimmed}`;
-    const hashMatch = hash ? null : trimmed.match(HASH_PATTERN);
-    if (hashMatch) hash = `#/${nhashEncode(hashMatch[1]!)}${hashMatch[2] || ''}`;
+    const hash = driveSearchHash(input, window.location.origin);
     if (!hash) return false;
     window.location.hash = hash;
     finish();
@@ -160,13 +148,22 @@
 
   function handleInput(e: Event) {
     const text = (e.target as HTMLInputElement).value;
-    if (navigateTo(text)) return;
+    const edit = e as InputEvent;
+    if ((edit.inputType === 'insertFromPaste' || (edit.data === text && text.length > 1)) && navigateTo(text)) {
+      // A paste can open a link before the value ever reached Svelte state.
+      (e.target as HTMLInputElement).value = '';
+      return;
+    }
     value = text;
     showDropdown = true;
     refresh();
   }
 
   function handleKeyDown(e: KeyboardEvent) {
+    if (e.key === 'Enter' && !e.isComposing && navigateTo(value)) {
+      e.preventDefault();
+      return;
+    }
     if (showDropdown && results.length > 0) {
       if (e.key === 'ArrowDown') {
         e.preventDefault();
@@ -183,9 +180,6 @@
         open(results[selectedIndex]);
         return;
       }
-    }
-    if (e.key === 'Enter') {
-      navigateTo(value);
     }
     if (e.key === 'Escape') {
       showDropdown = false;

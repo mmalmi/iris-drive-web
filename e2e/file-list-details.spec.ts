@@ -62,10 +62,15 @@ test.describe('the list of a folder', () => {
     await expect(photo.getByRole('checkbox')).toBeChecked();
     await expect(fileRow(page, 'Notes.txt').getByRole('checkbox')).not.toBeChecked();
     await page.getByRole('button', { name: 'Clear selection' }).click();
+    await page.getByRole('button', { name: 'Sort Z to A', exact: true }).click();
+    await expect.poll(() => listed(page)).toEqual(['Albums', 'Notes.txt', 'Meadow.jpg']);
+    await expect(page.getByRole('button', { name: 'Sort A to Z', exact: true })).toHaveText('Z to A');
     await page.screenshot({ path: testInfo.outputPath('folder-grid-desktop.png') });
     await page.reload();
     await expect(grid).toHaveAttribute('aria-pressed', 'true');
     await page.setViewportSize(PHONE);
+    await page.getByRole('button', { name: 'Sort A to Z', exact: true }).click();
+    await expect.poll(() => listed(page)).toEqual(['Albums', 'Meadow.jpg', 'Notes.txt']);
     await expect(photo.locator('img')).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath('folder-grid-mobile.png') });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);

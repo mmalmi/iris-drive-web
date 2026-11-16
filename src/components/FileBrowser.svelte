@@ -57,7 +57,10 @@
   let isViewingFile = $derived($isViewingFileStore);
   let resolvingPath = $derived($resolvingPathStore);
   let dirEntries = $derived($directoryEntriesStore);
-  const folderKey = (path: string[]) => [route.npub ?? (route.cid && toHex(route.cid.hash)), route.treeName, ...path].join('/');
+  const folderKey = (path: string[]) => JSON.stringify([
+    $nostrStore.pubkey, route.npub ?? (route.cid && toHex(route.cid.hash)), route.treeName,
+    route.params.get('k'), route.cid?.key && toHex(route.cid.key), ...path,
+  ]);
   /** The folder whose rows are shown, once its address has resolved. */
   let shownFolder = $state<string | null>(null);
   /** A file of that folder is being opened: the list knows before its address has resolved, so nothing moves. */
@@ -148,6 +151,11 @@
     currentDirHashKey !== null && dirEntries.loadedHashKey !== currentDirHashKey
   );
   let loadingEntries = $derived(dirEntries.loading || entriesAreStale);
+  // A new revision of the open folder can update its keyed rows in place.
+  // On navigation, wait for the destination before showing any rows.
+  let waitingForFolder = $derived(loadingEntries && (
+    !dirEntries.loadedHashKey || !entries.length || shownFolder !== folderKey(currentPath)
+  ));
 
   let isDraggingOver = $state(false);
   let fileListRef: HTMLDivElement | undefined = $state();
@@ -459,7 +467,7 @@
   // Another folder starts at its top with nothing chosen, once it is known which folder is open.
   // Opening a file changes neither.
   $effect(() => {
-    if (resolvingPath) return;
+    if (resolvingPath || loadingEntries) return;
     const folder = folderKey(currentPath);
     untrack(() => {
       if (folder === shownFolder) return;
@@ -636,7 +644,7 @@
       showActions={(!!currentDirCid || canEdit) && !isProtectedTreeWithoutAccess}
     />
 
-    {#if entries.length > 0 && !isProtectedTreeWithoutAccess}
+    {#if entries.length > 0 && !waitingForFolder && (!resolvingPath || opensFile) && !isProtectedTreeWithoutAccess}
       <!-- As in Google Drive, what acts on the chosen items takes the columns' place; the rest stays put. -->
       <ListSortHeader bind:sort bind:grid {selecting}>
         <SelectionBar
@@ -680,7 +688,7 @@
       {:else}
         {#if isProtectedTreeWithoutAccess}
           <ProtectedTreeNotice visibility={effectiveTree?.visibility} {linkKey} />
-        {:else if loadingEntries}
+        {:else if waitingForFolder}
           <div class="p-4 pl-6"></div>
         {:else if entries.length === 0}
           <EmptyFolder {canEdit} draggingOver={isDraggingOver} />

@@ -2,6 +2,7 @@
  * Simple hash router for Svelte 5 using stores for reliable reactivity
  */
 import { writable } from 'svelte/store';
+import { directPathIsRoutable } from './driveEntryPath.js';
 
 // Get initial path from hash (without query string)
 function getHashPath(): string {
@@ -22,12 +23,6 @@ function getFullHash(): string {
     return `${window.location.pathname}${window.location.search}`;
   }
   return window.location.hash.slice(1) || '/';
-}
-
-function directPathIsRoutable(pathname: string): boolean {
-  return pathname === '/share'
-    || pathname.startsWith('/approve-device/')
-    || pathname.startsWith('/share-invite/');
 }
 
 function safeDecodeURIComponent(value: string): string {

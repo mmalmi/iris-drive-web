@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { get } from 'svelte/store';
 import {
   buildShareDialogRequest,
   parseShareDialogPath,
@@ -89,11 +90,18 @@ describe('share dialog route', () => {
     expect(actions).not.toContain('app_key:');
   });
 
-  it('keeps direct drive.iris.to share paths routable on first load', () => {
-    const routerStore = fs.readFileSync(path.join(appRoot, 'src/lib/router.svelte.ts'), 'utf8');
-
-    expect(routerStore).toContain("pathname === '/share'");
-    expect(routerStore).toContain("pathname.startsWith('/share-invite/')");
-    expect(routerStore).toContain('return `${window.location.pathname}${window.location.search}`;');
+  it.each([
+    ['/share?path=My%20Drive%2FPhotos&name=Trip', '/share'],
+    ['/share-invite/Invite_123', '/share-invite/Invite_123'],
+  ])('opens the direct URL %s on first load and preserves its parameters', async (input, expectedPath) => {
+    vi.resetModules();
+    vi.stubGlobal('window', { location: new URL(input, 'https://drive.iris.to') });
+    try {
+      const { currentPath, currentFullHash } = await import('../src/lib/router.svelte');
+      expect(get(currentPath)).toBe(expectedPath);
+      expect(get(currentFullHash)).toBe(input);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

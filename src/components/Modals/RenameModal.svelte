@@ -8,10 +8,14 @@
   let show = $state(false);
   let originalName = $state('');
   let modalInput = $state('');
+  let selectUntil = $state(0);
 
-  export function open(name: string) {
+  export function open(name: string, isFolder = false) {
     originalName = name;
-    modalInput = documentKind(name) ? documentTitle(name) : name;
+    modalInput = documentTitle(name);
+    const dot = modalInput.lastIndexOf('.');
+    const hasExtension = !isFolder && modalInput === name && dot > 0 && dot < name.length - 1;
+    selectUntil = hasExtension ? dot : modalInput.length;
     show = true;
   }
 
@@ -31,7 +35,7 @@
   $effect(() => {
     if (show && inputRef) {
       inputRef.focus();
-      inputRef.select();
+      inputRef.setSelectionRange(0, selectUntil);
     }
   });
 

@@ -21,6 +21,7 @@ export const releaseProfiles = {
       ['node', './scripts/smoke-files-iris-portable.mjs'],
       ['node', './scripts/check-graph-bootstrap-browser.mjs'],
       ['pnpm', 'run', 'test:e2e:release'],
+      ['pnpm', 'run', 'test:e2e:native-release'],
     ],
   },
   files: {
@@ -41,6 +42,7 @@ export const releaseProfiles = {
       ['node', './scripts/smoke-files-iris-portable.mjs'],
       ['node', './scripts/check-graph-bootstrap-browser.mjs'],
       ['pnpm', 'run', 'test:e2e:release'],
+      ['pnpm', 'run', 'test:e2e:native-release'],
     ],
   },
 };

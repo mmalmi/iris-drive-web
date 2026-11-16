@@ -263,7 +263,7 @@
       const name = isSubdir ? currentDirName : null;
       if (name) {
         items.push(
-          { label: 'Rename', icon: 'i-lucide-pencil', testid: 'rename-folder-btn', run: () => openRenameModal(name) },
+          { label: 'Rename', icon: 'i-lucide-pencil', testid: 'rename-folder-btn', run: () => openRenameModal(name, true) },
           { label: 'Move', icon: 'i-lucide-folder-input', testid: 'move-folder-btn', run: () => openMoveModal(name, route.path.slice(0, -1)) },
         );
       }

@@ -300,31 +300,38 @@ function driveRootObserves(newer: ComparableDriveRoot, candidate: ComparableDriv
     return true;
   }
 
+  const coversCandidate = (reference: RootParent | RootObservation) =>
+    rootReferenceCovers(reference, candidate.preview.device_seq, candidate.rootHash, candidate.rootCid);
   for (const parent of newer.parents) {
     const parentAppKey = parent.app_key_pubkey ?? parent.device_id;
-    if (parentAppKey === candidate.preview.app_key_pubkey_hex && rootReferenceCovers(parent, candidate)) {
+    if (parentAppKey === candidate.preview.app_key_pubkey_hex && coversCandidate(parent)) {
       return true;
     }
   }
 
   const observed = newer.observed[candidate.preview.app_key_pubkey_hex];
-  return !!observed && rootReferenceCovers(observed, candidate);
+  return !!observed && coversCandidate(observed);
 }
 
 function sameDriveRootIdentity(left: ComparableDriveRoot, right: ComparableDriveRoot): boolean {
-  if (left.rootCid && right.rootCid && left.rootCid === right.rootCid) return true;
-  return !!left.rootHash && !!right.rootHash && left.rootHash === right.rootHash;
+  if (left.preview.device_seq > 0 && right.preview.device_seq > 0) {
+    if (left.preview.device_seq !== right.preview.device_seq) return false;
+    if (left.preview.app_key_pubkey_hex !== right.preview.app_key_pubkey_hex) return false;
+  }
+  return Boolean((left.rootCid && left.rootCid === right.rootCid) || (left.rootHash && left.rootHash === right.rootHash));
 }
 
-function rootReferenceCovers(
+/** A newer signed observation can reuse exactly the same tree as an earlier one. */
+export function rootReferenceCovers(
   reference: Pick<RootParent, 'root_cid' | 'app_key_seq' | 'device_seq'>,
-  candidate: ComparableDriveRoot,
+  sequence: number,
+  hash: string | undefined,
+  cid?: string,
 ): boolean {
-  if (candidate.rootCid && reference.root_cid === candidate.rootCid) return true;
-  const referenceHash = rootHashFromWireCid(reference.root_cid);
-  if (referenceHash && candidate.rootHash && referenceHash === candidate.rootHash) return true;
-  const referenceSeq = reference.app_key_seq ?? reference.device_seq ?? 0;
-  return candidate.preview.device_seq > 0 && referenceSeq > candidate.preview.device_seq;
+  const observed = reference.app_key_seq ?? reference.device_seq ?? 0;
+  if (sequence > 0 && observed > 0 && observed !== sequence) return observed > sequence;
+  if (cid && reference.root_cid === cid) return true;
+  return !!hash && rootHashFromWireCid(reference.root_cid)?.toLowerCase() === hash.toLowerCase();
 }
 
 function rootHashFromWireCid(rootCid: string | undefined): string | undefined {

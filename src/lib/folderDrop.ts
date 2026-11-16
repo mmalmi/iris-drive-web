@@ -34,13 +34,13 @@ export async function addDropped(data: DataTransfer, { currentPath, taken, dirNa
       return;
     }
     const rootDirName = dropped.entries.find(entry => entry.isDirectory)?.name ?? null;
-    await uploadDirectory({ files: found, hasGitignore: findGitignoreFile(found, rootDirName) !== null, gitignorePatterns: null, rootDirName }, target);
+    await uploadDirectory({ files: found, hasGitignore: findGitignoreFile(found, rootDirName) !== null, gitignorePatterns: null, rootDirName }, { ...target, quiet: true });
     const folders = dropped.entries.filter(entry => entry.isDirectory).map(entry => entry.name);
     if (!dirName) markFilesChanged(new Set(folders));
     toast.success(`Added ${folders.length === 1 ? `the folder ${folders[0]}` : `${folders.length} folders`}${where}`);
   } else if (files.length > 0 || dropped.files.length > 0) {
     const added = files.length > 0 ? files : dropped.files;
-    await uploadFiles(added, target);
+    await uploadFiles(added, { ...target, quiet: !!dirName || added.length > 1 });
     // One file in the open folder is said by the upload itself.
     if (dirName || added.length > 1) toast.success(`Added ${added.length === 1 ? added[0]!.name : `${added.length} files`}${where}`);
   } else if (pictureUrl) {

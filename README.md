@@ -70,9 +70,10 @@ pnpm run test:e2e:device-link
 
 The native lanes use `../iris-drive` by default. Set `IRIS_DRIVE_REPO` or
 `IRIS_DRIVE_BIN` when testing another checkout or prebuilt `idrive` binary.
-They are intentionally separate from the standalone web deploy gate; the
-deploy gate still runs the shared protocol unit coverage, while coordinated
-native/web releases should run the full device-link matrix.
+Web releases require the shared-folder, native linking and file-sync suites before publication.
+Run them with `pnpm run test:e2e:native-release`. The gate builds the native
+checkout with its lockfile or uses the supplied binary, and prints the binary’s
+SHA-256. Set `IRIS_DRIVE_BIN_SHA256` to verify a packaged candidate’s digest.
 
 The Docker wrapper builds `scripts/Dockerfile.e2e-linux`, mounts the repo into `/workspace`, and keeps Linux-only `node_modules`, the pnpm store, and Rust build caches in Docker volumes. Pass a custom command to the wrapper when you want a narrower run, for example:
 

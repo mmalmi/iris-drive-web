@@ -95,8 +95,18 @@ test.describe('account navigation and logout', () => {
 
     await openAccountMenu(page);
     await page.getByTestId('account-menu-settings').click();
-    await expect(page.getByTestId('settings-logout')).toBeVisible();
-    await page.getByTestId('settings-logout').click();
+    const settingsLogout = page.getByTestId('settings-logout');
+    const confirmation = page.getByRole('dialog', { name: 'Log out of Drive?' });
+    await settingsLogout.click();
+    await expect(confirmation.getByRole('button', { name: 'Cancel' })).toBeFocused();
+    await confirmation.getByRole('button', { name: 'Cancel' }).click();
+    await expect(confirmation).toBeHidden();
+    await expect(page.locator('[aria-modal="true"]')).toHaveCount(0);
+    await expect(settingsLogout).toBeFocused();
+    await expect(page).toHaveURL(/#\/settings$/);
+    expect(await page.evaluate(() => JSON.parse(localStorage.getItem('iris:identity:session')!).profileId)).toBe(firstProfile.id);
+    await settingsLogout.click();
+    await confirmation.getByRole('button', { name: 'Log out' }).click();
     await expect(page).toHaveURL(/#\/$/);
     await expect(page.getByTestId('drive-setup')).toBeVisible();
     await expect(page.getByTestId('header-user-avatar')).toHaveCount(0);
@@ -144,8 +154,17 @@ test.describe('account navigation and logout', () => {
     await createProfile(page);
     await uploadTextFile(page, 'after-same-page-login.txt', 'worker restarted safely');
 
+    const signedInUrl = page.url();
     await openAccountMenu(page);
     await page.getByTestId('account-menu-logout').click();
+    await expect(confirmation.getByRole('button', { name: 'Cancel' })).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(confirmation).toBeHidden();
+    await expect(page).toHaveURL(signedInUrl);
+    await expect(page.getByTestId('header-user-avatar')).toBeFocused();
+    await openAccountMenu(page);
+    await page.getByTestId('account-menu-logout').click();
+    await confirmation.getByRole('button', { name: 'Log out' }).click();
     await expect(page.getByTestId('drive-setup')).toBeVisible();
 
     await page.reload({ waitUntil: 'domcontentloaded' });

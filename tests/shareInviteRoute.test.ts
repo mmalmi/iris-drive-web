@@ -27,7 +27,6 @@ describe('share invite route', () => {
     const routerStore = fs.readFileSync(path.join(appRoot, 'src/lib/router.svelte.ts'), 'utf8');
 
     expect(routerStore).toContain('directPathIsRoutable(window.location.pathname)');
-    expect(routerStore).toContain("pathname.startsWith('/share-invite/')");
     expect(routerStore).toContain('return `${window.location.pathname}${window.location.search}`;');
   });
 

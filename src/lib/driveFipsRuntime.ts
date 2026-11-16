@@ -20,15 +20,19 @@ import {
   npubFromHex,
   toHex,
   type FipsIdentity,
+  type DatagramEvent,
   type Logger,
   type PeerEvent,
   type SessionEvent,
 } from '@fips/core';
+import { followDriveRosterPeers } from './driveFipsRosterDiscovery';
 import { decodeDriveFipsSecretKey } from './driveFipsIdentity';
 import { registerDriveFipsRuntimeGetter } from './driveFipsRuntimeRef';
 
 export const IRIS_DRIVE_FIPS_DISCOVERY_SCOPE = DEFAULT_FIPS_DISCOVERY_APP;
 
+// A retained session or relay event alone cannot keep a device online.
+const ROUTED_PRESENCE_MS = 30_000;
 const DEFAULT_STUN_SERVERS = [
   'stun:stun.l.google.com:19302',
   'stun:stun.cloudflare.com:3478',
@@ -83,6 +87,8 @@ export interface DriveFipsPeerStats {
   connected: boolean;
   lastStateAt: number;
   sessionsEstablished: number;
+  lastAuthenticatedAt?: number;
+  routedOnline: boolean;
   lastSessionAt?: number;
 }
 
@@ -99,7 +105,7 @@ export interface DriveFipsRuntimeStats {
   peers: DriveFipsPeerStats[];
 }
 
-type MutablePeerStats = DriveFipsPeerStats;
+type MutablePeerStats = Omit<DriveFipsPeerStats, 'routedOnline'>;
 
 let activeRuntime: DriveFipsRuntime | null = null;
 let runtimeGeneration = 0;
@@ -233,6 +239,7 @@ export class DriveFipsRuntime {
   private readonly discoveryScope: string;
   private readonly relays: string[];
   private provider: BrowserHashtreeNostrProvider | null = null;
+  private closeRosterDiscovery?: () => Promise<void>;
   private localStore: DexieStore | null = null;
   private localIdentity: FipsIdentity | null = null;
   private peerPolicy: DriveFipsPeerPolicy | null = null;
@@ -306,12 +313,24 @@ export class DriveFipsRuntime {
         void this.handlePeerEvent(event as PeerEvent);
       }),
       provider.node.on('session', (event) => this.handleSessionEvent(event as SessionEvent)),
+      provider.node.on('datagram', (event) => this.recordAuthenticatedActivity((event as DatagramEvent).src)),
       provider.node.on('error', (event) => {
         if (this.options.log === true) {
           console.warn('[drive-fips] node error', event);
         }
       }),
     );
+    if (this.options.profileId) {
+      try {
+        this.closeRosterDiscovery = await followDriveRosterPeers(
+          this.options.profileId, identity, provider, this.relays,
+          [...(this.options.stunServers ?? DEFAULT_STUN_SERVERS)], () => peerPolicy.ownDevices(),
+        );
+      } catch (error) {
+        await this.stop();
+        throw error;
+      }
+    }
     // Blocks still move over FIPS if the event feed cannot open.
     await this.openDriveEventFeed(provider).catch((error: unknown) => {
       console.warn('[drive-fips] Drive event feed did not open:', error);
@@ -332,6 +351,8 @@ export class DriveFipsRuntime {
     for (const unsub of this.unsubs.splice(0)) {
       unsub();
     }
+    await this.closeRosterDiscovery?.();
+    this.closeRosterDiscovery = undefined;
     if (provider) {
       await provider.stop().catch(() => undefined);
     }
@@ -370,7 +391,11 @@ export class DriveFipsRuntime {
     const identity = this.localIdentity;
     const localPeerId = identity ? toHex(identity.publicKey) : '';
     const localXOnlyPubkey = identity ? toHex(identity.xOnlyPubkey) : '';
-    const peers = Array.from(this.peerStats.values())
+    const now = Date.now();
+    const peers = Array.from(this.peerStats.values(), (peer) => ({
+      ...peer,
+      routedOnline: !peer.connected && peer.lastAuthenticatedAt !== undefined && now - peer.lastAuthenticatedAt < ROUTED_PRESENCE_MS,
+    }))
       .sort((left, right) => left.peerId.localeCompare(right.peerId));
     return {
       active: this.provider !== null,
@@ -401,7 +426,8 @@ export class DriveFipsRuntime {
     if (!policy || !provider) return;
     const generation = ++this.authorizationRefreshGeneration;
     const [peers, ownDevices] = await Promise.all([
-      policy.nostrPeers(this.getStats().connectedPeerIds).catch(() => []),
+      policy.nostrPeers(this.getStats().peers
+        .filter((peer) => peer.connected || peer.routedOnline).map((peer) => peer.peerId)).catch(() => []),
       policy.providerRoutes().catch(() => []),
     ]);
     if (generation !== this.authorizationRefreshGeneration || provider !== this.provider) return;
@@ -466,10 +492,32 @@ export class DriveFipsRuntime {
 
   private handleSessionEvent(event: SessionEvent): void {
     const remotePubkey = normalizeCompressedPeerId(event.remotePubkey);
-    if (!remotePubkey || event.state !== 'established') return;
-    const stats = this.ensurePeerStats(remotePubkey);
-    stats.sessionsEstablished += 1;
-    stats.lastSessionAt = Date.now();
+    if (!remotePubkey) return;
+    if (event.state === 'closed') {
+      const peer = this.peerStats.get(remotePubkey);
+      if (peer) {
+        peer.lastAuthenticatedAt = undefined;
+        void this.refreshNostrPeerAuthorization();
+      }
+    } else if (event.state === 'established') {
+      const stats = this.ensurePeerStats(remotePubkey);
+      stats.sessionsEstablished += 1;
+      stats.lastSessionAt = Date.now();
+      this.recordAuthenticatedActivity(remotePubkey);
+    }
+  }
+
+  private recordAuthenticatedActivity(remotePubkey: string): void {
+    let peer = this.peerStats.get(remotePubkey);
+    if (!peer) {
+      const pubkey = fipsPeerAppKeyPubkey(remotePubkey);
+      if (!pubkey || !this.peerPolicy?.ownDevices().includes(pubkey)) return;
+      peer = this.ensurePeerStats(remotePubkey);
+    }
+    const now = Date.now();
+    const wasReachable = peer.connected || (peer.lastAuthenticatedAt !== undefined && now - peer.lastAuthenticatedAt < ROUTED_PRESENCE_MS);
+    peer.lastAuthenticatedAt = now;
+    if (!wasReachable) void this.refreshNostrPeerAuthorization();
   }
 
   private ensurePeerStats(peerId: string): MutablePeerStats {

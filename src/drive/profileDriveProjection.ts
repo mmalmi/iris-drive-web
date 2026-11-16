@@ -10,8 +10,8 @@ import {
   isDriveRootEventNewer,
   type ParsedDriveRootEvent,
   type RootObservation,
-  type RootParent,
 } from './protocol';
+import { rootReferenceCovers } from './protocolRoots';
 import { recoverSuppressedPathKindCandidates } from './profileDrivePathKindRecovery';
 import {
   decodePathKindReplacements,
@@ -846,7 +846,9 @@ function rootRelation(
   left: ProfileDriveRootCandidate,
   right: ProfileDriveRootCandidate,
 ): RootRelation {
-  if (toHex(left.parsed.root.hash) === toHex(right.parsed.root.hash)) return 'same';
+  const sameVersion = left.event.pubkey === right.event.pubkey && left.parsed.app_key_seq === right.parsed.app_key_seq;
+  const unversioned = left.parsed.app_key_seq === 0 || right.parsed.app_key_seq === 0;
+  if ((sameVersion || unversioned) && toHex(left.parsed.root.hash) === toHex(right.parsed.root.hash)) return 'same';
   const leftDescends = rootObserves(left, right);
   const rightDescends = rootObserves(right, left);
   if (leftDescends && !rightDescends) return 'left-descends';
@@ -858,7 +860,6 @@ function rootObserves(
   newer: ProfileDriveRootCandidate,
   candidate: ProfileDriveRootCandidate,
 ): boolean {
-  if (toHex(newer.parsed.root.hash) === toHex(candidate.parsed.root.hash)) return true;
   if (
     newer.event.pubkey === candidate.event.pubkey
     && newer.parsed.app_key_seq > 0
@@ -868,24 +869,15 @@ function rootObserves(
     return true;
   }
 
+  const hash = toHex(candidate.parsed.root.hash);
   if (newer.parsed.rootRef.parents.some((parent) => (
     (parent.app_key_pubkey ?? parent.device_id) === candidate.event.pubkey
-    && rootReferenceCovers(parent, candidate)
+    && rootReferenceCovers(parent, candidate.parsed.app_key_seq, hash)
   ))) {
     return true;
   }
   const observed = newer.parsed.rootRef.observed[candidate.event.pubkey];
-  return !!observed && rootReferenceCovers(observed, candidate);
-}
-
-function rootReferenceCovers(
-  reference: Pick<RootParent, 'root_cid' | 'app_key_seq' | 'device_seq'>,
-  candidate: ProfileDriveRootCandidate,
-): boolean {
-  const referenceHash = reference.root_cid.split(':', 1)[0]?.toLowerCase();
-  if (referenceHash === toHex(candidate.parsed.root.hash)) return true;
-  const sequence = reference.app_key_seq ?? reference.device_seq ?? 0;
-  return candidate.parsed.app_key_seq > 0 && sequence > candidate.parsed.app_key_seq;
+  return !!observed && rootReferenceCovers(observed, candidate.parsed.app_key_seq, hash);
 }
 
 function shouldIgnoreName(name: string): boolean {

@@ -4,14 +4,16 @@
    * signed in to it, and switching or leaving. Keys live under Advanced.
    */
   import { currentPath, navigate } from '../../lib/router.svelte';
-  import { logout, nostrStore } from '../../nostr';
+  import { nostrStore } from '../../nostr';
   import { getCurrentNostrIdentitySession } from '../../nostr/auth';
   import { accountsStore } from '../../accounts';
   import { ownDisplayName, saveOwnName } from '../../drive/ownDisplayName';
   import { Avatar } from '../User';
   import UserSettings from './UserSettings.svelte';
   import RecoveryPhraseSettings from './RecoveryPhraseSettings.svelte';
+  import LogoutDialog from '../Modals/LogoutDialog.svelte';
 
+  let logoutDialog = $state<LogoutDialog>();
   let recoverySection = $state<HTMLElement | null>(null);
   // Backup links straight to the recovery phrase.
   $effect(() => {
@@ -41,10 +43,6 @@
     nameSaved = true;
   }
 
-  function handleLogout(): void {
-    logout();
-    navigate('/');
-  }
 </script>
 
 <div class="space-y-6" data-testid="account-settings">
@@ -112,13 +110,14 @@
         </button>
         <button
           class="btn-ghost flex w-full items-center justify-start gap-2 text-sm text-danger hover:bg-danger/10"
-          onclick={handleLogout}
+          onclick={() => logoutDialog?.open()}
           data-testid="settings-logout"
         >
           <span class="i-lucide-log-out"></span>
           <span>Log out</span>
         </button>
       </div>
+      <LogoutDialog bind:this={logoutDialog} />
     </section>
   {/if}
 </div>

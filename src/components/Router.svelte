@@ -94,7 +94,9 @@
     <HomeRoute />
   {:else if route.id === 'deviceApproval'}
     {#await import('../routes/DeviceApprovalRoute.svelte') then { default: DeviceApprovalRoute }}
-      <DeviceApprovalRoute payload={route.params.payload || ''} />
+      {#key route.params.payload}
+        <DeviceApprovalRoute payload={route.params.payload || ''} />
+      {/key}
     {/await}
   {:else if route.id === 'shareDialog'}
     {#await import('../routes/ShareDialogRoute.svelte') then { default: ShareDialogRoute }}
