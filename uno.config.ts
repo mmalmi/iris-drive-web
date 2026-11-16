@@ -60,6 +60,10 @@ export default defineConfig({
     'bg-amber-500/12',
     'text-amber-500',
     'ring-amber-500/20',
+    // Device kinds under Storage, named in src/lib/deviceStorageView.ts, which is not scanned
+    'i-lucide-smartphone',
+    'i-lucide-laptop',
+    'i-lucide-hard-drive',
   ],
   presets: [
     presetUno(),
