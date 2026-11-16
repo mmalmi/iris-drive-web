@@ -70,7 +70,7 @@ pnpm run test:e2e:device-link
 
 The native lanes use `../iris-drive` by default. Set `IRIS_DRIVE_REPO` or
 `IRIS_DRIVE_BIN` when testing another checkout or prebuilt `idrive` binary.
-Web releases require the native linking and file-sync suites before publication.
+Web releases require the shared-folder, native linking and file-sync suites before publication.
 Run them with `pnpm run test:e2e:native-release`. The gate builds the native
 checkout with its lockfile or uses the supplied binary, and prints the binary’s
 SHA-256. Set `IRIS_DRIVE_BIN_SHA256` to verify a packaged candidate’s digest.

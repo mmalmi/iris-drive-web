@@ -707,7 +707,7 @@ test('web owner approves a native device that durably activates and acknowledges
   fipsSeedUrl,
 }) => {
   test.skip(!irisDriveAvailable(), 'iris-drive repo not available');
-  test.setTimeout(180_000);
+  test.setTimeout(240_000);
 
   const nativeConfig = fs.mkdtempSync(path.join(os.tmpdir(), 'iris-drive-native-link-web-'));
   let daemon: ReturnType<typeof spawn> | null = null;
@@ -776,20 +776,51 @@ test('web owner approves a native device that durably activates and acknowledges
         deviceAppKeyPubkey: nativePubkey,
       }),
     ]);
-    daemon = spawn(idriveBin(), ['daemon', '--relay', relayUrl, '--no-gateway'], {
-      env: {
-        ...process.env, IRIS_DRIVE_CONFIG_DIR: nativeConfig,
-        IRIS_DRIVE_FIPS_ENABLE_WEBRTC: '1', IRIS_FIPS_WEBSOCKET_SEED_URLS: fipsSeedUrl,
-      },
-      stdio: 'ignore',
-    });
     const nativeRow = page.getByTestId('user-key-row').filter({ hasText: 'Native device' });
-    await expect.poll(async () => {
-      const status = runIdriveJson<{ peers: { app_key_pubkey: string; fips_direct_online: boolean }[] }>(nativeConfig, ['status']);
-      const nativeSeesBrowser = !!status.peers.find((p) => p.app_key_pubkey === owner.appKeyPubkey)?.fips_direct_online;
-      const browserSeesNative = await nativeRow.getByLabel('Online', { exact: true }).isVisible();
-      return { nativeSeesBrowser, browserSeesNative };
-    }, { timeout: 55_000, intervals: [300, 600, 1500] }).toEqual({ nativeSeesBrowser: true, browserSeesNative: true });
+    const nativeRoute = () => {
+      const status = runIdriveJson<{ peers: { app_key_pubkey: string; fips_online_via: string | null }[] }>(nativeConfig, ['status']);
+      return status.peers.find((peer) => peer.app_key_pubkey === owner.appKeyPubkey)?.fips_online_via;
+    };
+    for (const transport of ['mesh', 'direct'] as const) {
+      daemon = spawn(idriveBin(), ['daemon', '--relay', relayUrl, '--no-gateway'], {
+        env: {
+          ...process.env, IRIS_DRIVE_CONFIG_DIR: nativeConfig,
+          IRIS_DRIVE_FIPS_ENABLE_WEBRTC: transport === 'direct' ? '1' : '0',
+          IRIS_FIPS_WEBSOCKET_SEED_URLS: fipsSeedUrl,
+        },
+        stdio: 'ignore',
+      });
+      await expect.poll(async () => {
+        const browser = await page.evaluate((nativePubkey) => {
+          const stats = (window as any).__driveFipsStats?.();
+          const peer = stats?.peers.find((peer: any) => peer.xOnlyPubkey === nativePubkey);
+          return { direct: peer?.connected ?? false, routed: peer?.routedOnline ?? false };
+        }, nativePubkey);
+        return {
+          nativeRoute: nativeRoute(),
+          browserOnline: await nativeRow.getByLabel('Online', { exact: true }).isVisible(),
+          browser,
+        };
+      }, { timeout: 55_000, intervals: [300, 600, 1500] }).toEqual({
+        nativeRoute: transport, browserOnline: true, browser: { direct: transport === 'direct', routed: transport === 'mesh' },
+      });
+      if (transport === 'mesh') {
+        const settingsUrl = page.url();
+        await page.goto('about:blank');
+        await expect.poll(nativeRoute, { timeout: 45_000, intervals: [1000, 2000] }).toBeNull();
+        await page.goto(settingsUrl, { waitUntil: 'domcontentloaded' });
+        await expect(nativeRow.getByLabel('Online', { exact: true })).toBeVisible({ timeout: 45_000 });
+        await expect.poll(nativeRoute, { timeout: 45_000 }).toBe('mesh');
+      }
+      await stopNativeDaemon(daemon);
+      daemon = null;
+      if (transport === 'mesh') {
+        await expect(nativeRow.getByLabel('Offline', { exact: true })).toBeVisible({ timeout: 40_000 });
+        // Start the desktop transport case with a fresh browser endpoint.
+        await page.reload({ waitUntil: 'domcontentloaded' });
+        await expect(nativeRow.getByLabel('Offline', { exact: true })).toBeVisible({ timeout: 30_000 });
+      }
+    }
   } finally {
     await stopNativeDaemon(daemon);
     fs.rmSync(nativeConfig, { recursive: true, force: true });
