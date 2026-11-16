@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { chromium, expect } from '@playwright/test';
 import { SocialGraph } from 'nostr-social-graph';
+import { DEFAULT_GRAPH_SNAPSHOT } from 'nostr-social-graph/hashtreeSnapshot';
+import { createNamedGraphFixture } from 'nostr-social-graph/testing/namedGraph';
 import ts from 'typescript';
 import { finalizeEvent, getPublicKey, nip19 } from 'nostr-tools';
 import {
@@ -33,7 +35,7 @@ const workerAssets = await Promise.all((await readdir(path.join(dist, 'assets'))
   .map(async name => ({ name, size: (await stat(path.join(dist, 'assets', name))).size })));
 const workerAsset = workerAssets.sort((a, b) => b.size - a.size)[0]?.name;
 assert.ok(workerAsset, 'Built application worker is missing');
-const fixture = await startGraphBrowserFixture(dist);
+
 const denyProxy = await createDenyProxy();
 let browser;
 let workerDenial;
@@ -47,11 +49,22 @@ const mute = (created_at, target = muted) => finalizeEvent({ kind: 10000, create
 async function bootstrapSnapshot(root) {
   assert.match(root, /^[0-9a-f]{64}$/);
   const graph = new SocialGraph(root);
-  // The trusted HTTP snapshot's discovery-root edge is model data; the
+  // The discovery-root edge is model data; the
   // independent author lists below are genuine signed synthetic-user events.
   graph.addFollower(root, owner);
   graph.handleEvent([follow(now - 100), mute(now - 99)], true);
   return Buffer.from(await graph.toBinary());
+}
+
+const discoveryRoot = '4523be58d395b1b196a9b8c82b038b6895cb02b683d0c253a955068dba1facd0';
+const publication = await createNamedGraphFixture(discoveryRoot, await bootstrapSnapshot(discoveryRoot));
+const mobileFile = publication.manifest.mobile_roots[discoveryRoot].file;
+const mobileHash = publication.uploaded.find(entry => entry.name === mobileFile).hash;
+const fixture = await startGraphBrowserFixture(dist, { production: DEFAULT_GRAPH_SNAPSHOT.publisher, fixture: publication.publisher });
+fixture.setEvents([publication.event]);
+function namedQueries(frames) {
+  return frames.filter(frame => frame.type === 'REQ' && frame.filters.some(filter =>
+    filter.kinds?.includes(30064) && filter['#d']?.includes('social-graph') && filter.authors?.includes(publication.event.pubkey)));
 }
 
 async function appPolicyCase(mode, relays) {
@@ -61,28 +74,32 @@ async function appPolicyCase(mode, relays) {
   const page = await context.newPage();
   const origin = fixture.origin.replace('127.0.0.1', 'drive.localhost');
   await context.grantPermissions(['local-network-access'], { origin });
-  const state = { httpBootstrap: 0, abortedBootstrap: 0, sockets: [], remoteHttp: [], pageErrors: [], consoleErrors: [] };
-  let releaseHttp;
-  const httpGate = new Promise(resolve => { releaseHttp = resolve; });
+  const state = { mobileReads: 0, abortedBootstrap: 0, sockets: [], remoteHttp: [], pageErrors: [], consoleErrors: [] };
+  let releaseMobile;
+  const mobileGate = new Promise(resolve => { releaseMobile = resolve; });
   page.on('pageerror', error => state.pageErrors.push(error.message));
   page.on('console', message => {
     if (message.type() === 'error' && state.consoleErrors.length < 12) state.consoleErrors.push(message.text().slice(0,800));
   });
   context.on('requestfailed', request => {
-    if (request.url().startsWith('https://graph-api.iris.to/')) state.abortedBootstrap++;
+    if (request.url() === `https://cdn.iris.to/${mobileHash}.bin`) state.abortedBootstrap++;
   });
   await context.route('**/*', async route => {
     const url = new URL(route.request().url());
     if (url.origin === origin || url.origin === fixture.origin) return route.continue();
-    if (url.origin === 'https://graph-api.iris.to') {
-      state.httpBootstrap++;
-      if (mode === 'default-to-empty' || mode === 'restored-account') await httpGate;
-      const root = url.searchParams.get('root');
-      try { await route.fulfill({ body: await bootstrapSnapshot(root), contentType: 'application/octet-stream',
-        headers: { 'x-graph-root': root, 'access-control-allow-origin': '*',
-          'access-control-expose-headers': 'x-graph-root' } }); }
-      catch (error) { if (!state.abortedBootstrap) throw error; }
-      return;
+    const hash = url.origin === 'https://cdn.iris.to' && url.pathname.match(/^\/([0-9a-f]{64})\.bin$/)?.[1];
+    if (hash) {
+      const block = await publication.readBlock(hash);
+      if (block) {
+        if (hash === mobileHash) {
+          state.mobileReads++;
+          if (mode === 'default-to-empty' || mode === 'restored-account') await mobileGate;
+        }
+        try { await route.fulfill({ body: Buffer.from(block), contentType: 'application/octet-stream',
+          headers: { 'access-control-allow-origin': '*' } }); }
+        catch (error) { if (!state.abortedBootstrap && !page.isClosed()) throw error; }
+        return;
+      }
     }
     state.remoteHttp.push(url.origin);
     await route.abort('blockedbyclient');
@@ -163,7 +180,7 @@ async function appPolicyCase(mode, relays) {
       await page.waitForFunction(() => performance.now() - window.__policySettingsHeldAt >= 1000);
       assert.ok(await page.locator('#app').evaluate(element => element.childElementCount > 0), 'UI did not mount independently');
       assert.equal((await page.evaluate(() => window.__policyWire)).filter(frame => frame.type === 'init').length, 0);
-      assert.equal(state.httpBootstrap, 0); assert.deepEqual(state.sockets, []); assert.deepEqual(state.remoteHttp, []);
+      assert.equal(state.mobileReads, 0); assert.deepEqual(state.sockets, []); assert.deepEqual(state.remoteHttp, []);
       if (evidence) await page.screenshot({ path: evidence.replace(/\.json$/, '-hydration.png') });
       await page.evaluate(() => window.__releasePolicySettings());
     }
@@ -179,12 +196,13 @@ async function appPolicyCase(mode, relays) {
       assert.equal(init.pubkey, owner, 'Restored session did not start the worker with the stored account');
       const identities = (await page.evaluate(() => window.__policyWire)).filter(frame => frame.type === 'setIdentity');
       assert.ok(identities.every(frame => frame.sameCredentials === false), 'Restored session redundantly sent the same credentials');
-      releaseHttp();
+      releaseMobile();
       return { mode, identityMessages: identities.length, duplicateCredentials: false };
     } else if (mode === 'default-enabled') {
       assert.ok([...new Set(DEFAULT_PUBLIC_RELAYS)].slice(0, 3).includes('wss://relay.ditto.pub'),
         'Ditto is outside the actual three-relay graph sync selection');
-      await expect.poll(() => state.httpBootstrap, { timeout: 10000 }).toBeGreaterThan(0);
+      await expect.poll(() => state.mobileReads, { timeout: 10000 }).toBeGreaterThan(0);
+      assert.ok(namedQueries(fixture.frames.slice(startFrames)).length > 0, 'Missing signed graph name query');
       await expect.poll(() => page.evaluate(pubkey => window.__workerAdapter.getFollows(pubkey), owner),
         { timeout: 15000 }).toEqual([friend]);
       await page.waitForFunction(() => window.__policyWire.some(frame => frame.type === 'attachNostrSource'),
@@ -192,7 +210,7 @@ async function appPolicyCase(mode, relays) {
       await expect.poll(() => fixture.frames.slice(startFrames).some(frame => frame.type === 'NEG-OPEN'
         && frame.catchup && frame.path.includes('relay.ditto.pub')), { timeout: 10000 }).toBe(true);
     } else if (mode === 'default-to-empty') {
-      await expect.poll(() => state.httpBootstrap, { timeout: 10000 }).toBe(1);
+      await expect.poll(() => state.mobileReads, { timeout: 10000 }).toBe(1);
       await page.waitForFunction(() => window.__policyWire.some(frame => frame.type === 'attachNostrSource'), undefined, { timeout: 15000 });
       const socketsBeforeChange = state.sockets.length;
       const workerSocketsBeforeChange = await page.evaluate(() => window.__policyWorkerSockets.length);
@@ -203,7 +221,7 @@ async function appPolicyCase(mode, relays) {
         && frame.graphBootstrap === false && frame.relays.length === 0));
       await page.waitForFunction(() => window.__policyRelayAcks.some(relays => relays.length === 0));
       await expect.poll(() => state.abortedBootstrap, { timeout: 5000 }).toBeGreaterThan(0);
-      releaseHttp();
+      releaseMobile();
       assert.deepEqual(await page.evaluate(pubkey => window.__workerAdapter.getFollows(pubkey), owner), []);
       await page.waitForFunction(() => window.__policyWire.filter(frame => frame.type === 'attachNostrSource').length >= 2,
         undefined, { timeout: 15000 });
@@ -213,7 +231,8 @@ async function appPolicyCase(mode, relays) {
     } else {
       await page.waitForFunction(() => window.__policyWire.some(frame => frame.type === 'attachNostrSource'),
         undefined, { timeout: 15000 });
-      assert.equal(state.httpBootstrap, 0);
+      assert.equal(state.mobileReads, 0);
+      assert.equal(namedQueries(fixture.frames.slice(startFrames)).length, 0);
       const permitted = new Set(relays.map(relay => relay.replace(/\/+$/, '')));
       assert.ok(state.sockets.every(socket => permitted.has(socket)), 'A socket escaped the saved relay scope');
       const workerSockets = await page.evaluate(() => window.__policyWorkerSockets);
@@ -225,7 +244,7 @@ async function appPolicyCase(mode, relays) {
       }
     }
     assert.deepEqual(state.pageErrors, []);
-    return { mode, initialBootstrapPermission: init.graphBootstrap, httpBootstrap: state.httpBootstrap,
+    return { mode, initialBootstrapPermission: init.graphBootstrap, mobileReads: state.mobileReads,
       abortedBootstrap: state.abortedBootstrap, socketAttempts: state.sockets.length,
       workerRoutingInstalled: true, workerSocketAttempts: (await page.evaluate(() => window.__policyWorkerSockets)).length,
       defaultGraphRelayCoverage: mode === 'default-enabled' ? { dittoNegOpen: true, publicPosts: 0 } : undefined,
@@ -234,7 +253,7 @@ async function appPolicyCase(mode, relays) {
     error.diagnostics = { mode, state, wire: await page.evaluate(() => window.__policyWire),
       workerUrls: page.workers().map(worker => worker.url()) };
     throw error;
-  } finally { releaseHttp(); await context.close(); }
+  } finally { releaseMobile(); await context.close(); }
 }
 
 async function graphEventsCase() {
