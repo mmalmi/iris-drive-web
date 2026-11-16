@@ -70,10 +70,18 @@ test('reader and editor join short native invites, edit across apps, reload and 
     await page.reload();
     await expect(page.getByText('Bob updated the picnic plan.', { exact: true })).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath('editor-file.png') });
+    await expect((await openFileMenu(page)).getByTestId('viewer-edit')).toBeVisible();
     runIdriveJson(dirs.alice!, ['shares', 'role', share.share_id, editor.profileId, 'reader']);
     runIdriveJson(dirs.alice!, ['publish', '--relay', relayUrl, '--timeout', '2']);
-    await expect((await openFileMenu(page)).getByTestId('viewer-edit')).toHaveCount(0, { timeout: 30_000 });
-    await page.keyboard.press('Escape');
+    const readOnlyMenu = page.getByTestId('viewer-menu').filter({
+      has: page.getByRole('menuitem', { name: 'Copy text', exact: true }),
+      hasNot: page.getByTestId('viewer-edit'),
+    });
+    // Applying a new role can remount the viewer and close its menu.
+    await expect.poll(async () => {
+      await openFileMenu(page);
+      return readOnlyMenu.isVisible();
+    }, { timeout: 30_000 }).toBe(true);
     await expect(page.getByText('Bob updated the picnic plan.', { exact: true })).toBeVisible();
     await readerPage.screenshot({ path: testInfo.outputPath('reader-file.png') });
     runIdriveJson(dirs.alice!, ['shares', 'revoke', share.share_id, reader.profileId]);
