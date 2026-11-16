@@ -181,18 +181,18 @@ describe('measuring what a device holds', () => {
 
 describe('what the Storage page says', () => {
   it('says how much a device holds, and how much room it uses', () => {
-    expect(holdingLabel(report({ held_files: 3, held_bytes: 3000 }), format)).toBe('All of it');
-    expect(holdingLabel(report(), format)).toBe('1000 B · 33%');
-    expect(holdingLabel(report({ held_bytes: 0, held_files: 0 }), format)).toBe('None of it');
-    expect(holdingLabel(report({ held_bytes: 1, file_bytes: 1000 }), format)).toBe('1 B · under 1%');
+    expect(holdingLabel(report({ held_files: 3, held_bytes: 3000 }), format)).toBe('All Drive files available offline');
+    expect(holdingLabel(report(), format)).toBe('1000 B stored · 33% of Drive');
+    expect(holdingLabel(report({ held_bytes: 0, held_files: 0 }), format)).toBe('No Drive data stored');
+    expect(holdingLabel(report({ held_bytes: 1, file_bytes: 1000 }), format)).toBe('1 B stored · under 1% of Drive');
     expect(spaceLabel(report(), format)).toBe('Uses 5000 B of 10000 B allowed');
   });
 
   it('names the devices that hold everything', () => {
     const all = report({ held_files: 3, held_bytes: 3000 });
-    expect(holdersSentence([{ pubkey: 'a', name: 'Laptop', current: false, report: all }])).toBe('All of it is on Laptop.');
-    expect(holdersSentence([{ pubkey: 'a', name: 'Laptop', current: true, report: all }])).toBe('All of it is on this device.');
-    expect(holdersSentence([{ pubkey: 'a', name: 'Laptop', current: false, report: report() }])).toBe('No device holds all of it.');
+    expect(holdersSentence([{ pubkey: 'a', name: 'Laptop', current: false, report: all }])).toBe('All Drive files are available offline on Laptop.');
+    expect(holdersSentence([{ pubkey: 'a', name: 'Laptop', current: true, report: all }])).toBe('All Drive files are available offline on this device.');
+    expect(holdersSentence([{ pubkey: 'a', name: 'Laptop', current: false, report: report() }])).toBe('');
   });
 
   it('lists folders, the files in no folder and the folders too small to list', () => {

@@ -91,14 +91,12 @@
       <h3 class="text-xs font-medium text-muted uppercase tracking-wide">Your devices</h3>
       <a href="#/settings/user" class="btn-ghost text-xs no-underline">Manage</a>
     </div>
-    <p class="text-sm text-text-2" data-testid="device-storage-summary">
-      {#if drive}
+    {#if drive}
+      <p class="text-sm text-text-2" data-testid="device-storage-summary">
         Your Drive is {formatBytes(drive.file_bytes)} in {drive.files.toLocaleString('en-US')} {drive.files === 1 ? 'file' : 'files'}.
         {holdersSentence(rows)}
-      {:else}
-        Measuring how much of your Drive is here…
-      {/if}
-    </p>
+      </p>
+    {/if}
 
     <ul class="list-none divide-y divide-surface-3 rounded bg-surface-2 overflow-hidden" aria-label="Your devices">
       {#each rows as row (row.pubkey)}
@@ -148,10 +146,8 @@
                   {:else}
                     <span data-testid="device-storage-space" title="Everything Drive keeps on that device, and the most it may keep">{spaceLabel(report, formatBytes)}</span>
                   {/if}
-                  <span>{row.current && held.measuring ? 'Measuring…' : ageLabel(row.current ? report.measured_at : held.heard[row.pubkey] ?? report.measured_at, now)}</span>
+                  <span>{ageLabel(row.current ? report.measured_at : held.heard[row.pubkey] ?? report.measured_at, now)}</span>
                 </span>
-              {:else if row.current}
-                <span class="block text-xs text-text-3">Measuring…</span>
               {/if}
             </span>
             {#if report}

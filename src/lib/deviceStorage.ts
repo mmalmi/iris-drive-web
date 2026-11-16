@@ -49,11 +49,10 @@ export interface DeviceStorageState {
   heard: Record<string, number>;
   /** The newest version of each device's Drive this one holds. */
   versions: Record<string, { seq: number; publishedAt: number }>;
-  measuring: boolean;
 }
 
 const blank = (profile: string | null = null, device: string | null = null): DeviceStorageState => (
-  { profile, device, reports: {}, heard: {}, versions: {}, measuring: false }
+  { profile, device, reports: {}, heard: {}, versions: {} }
 );
 
 export const deviceStorage = writable<DeviceStorageState>(blank());
@@ -164,7 +163,6 @@ let measuredRoot: string | null = null;
 let seenTimer: ReturnType<typeof setTimeout> | null = null;
 /** A measurement asked for before the Drive was known, with its `maxAgeMs`. */
 let awaitingRoot: number | null = null;
-let active = 0;
 const newest = new Map<string, number>();
 
 /** Runs `run` now, or once the app is in view again. */
@@ -225,8 +223,6 @@ async function measure(maxAgeMs: number): Promise<void> {
   if (!adapter?.measureDriveHolding) return;
   lastMeasuredAt = Date.now();
   measuredRoot = toHex(root.hash);
-  active += 1;
-  deviceStorage.update((state) => ({ ...state, measuring: true }));
   try {
     const holding = await adapter.measureDriveHolding({ hash: root.hash, key: root.key }, Number.isFinite(maxAgeMs) ? maxAgeMs : undefined);
     const { stored, capacity } = await space();
@@ -246,15 +242,11 @@ async function measure(maxAgeMs: number): Promise<void> {
       loose: { files: holding.loose.files, bytes: holding.loose.bytes, held: holding.loose.heldBytes },
       folders: holding.folders,
     };
-    if (accountKey(account()) !== current) return;
+    if (accountKey(me) !== current) return;
     deviceStorage.update((state) => ({ ...state, reports: { ...state.reports, [me.pubkey]: report } }));
     await send(me, report, false);
   } catch (error) {
     if (!(error instanceof Error && error.message === 'stopped')) console.warn('[deviceStorage] Could not measure', error);
-  } finally {
-    active -= 1;
-    // A newer measurement replaces one still going, which ends here first.
-    deviceStorage.update((state) => ({ ...state, measuring: active > 0 }));
   }
 }
 
@@ -397,7 +389,18 @@ export function startDeviceStorage(): void {
  */
 export function followDeviceStorage(): () => void {
   startDeviceStorage();
-  measureSoon(0, ON_OPEN_MAX_AGE_MS);
-  const profile = get(deviceStorage).profile;
-  return profile ? subscribeToTreeRoot(profile, DRIVE_ROOT_NAME, () => {}) : () => {};
+  let watched = '';
+  let stopRoot = () => {};
+  const stopAccount = deviceStorage.subscribe(({ profile, device }) => {
+    const key = profile && device ? `${profile}|${device}` : '';
+    if (key === watched) return;
+    watched = key;
+    stopRoot();
+    stopRoot = profile ? subscribeToTreeRoot(profile, DRIVE_ROOT_NAME, () => {}) : () => {};
+    if (profile) measureSoon(0, ON_OPEN_MAX_AGE_MS);
+  });
+  return () => {
+    stopAccount();
+    stopRoot();
+  };
 }

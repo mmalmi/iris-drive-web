@@ -29,6 +29,20 @@ function row(page: Page, current: boolean) {
   return page.getByTestId('device-storage-row').filter(current ? { hasText: 'This device' } : { hasNotText: 'This device' });
 }
 
+test('Storage measures a profile that becomes active while the page is open', async ({ page, relayUrl }) => {
+  await prepareFreshSession(page, relayUrl);
+  await page.goto(`${new URL(page.url()).origin}/#/settings/storage`);
+  await expect(page.getByTestId('storage-settings')).toBeVisible();
+  await page.evaluate(async () => {
+    const { createDriveProfile } = await import('/src/nostr');
+    await createDriveProfile({ name: 'Late profile' });
+  });
+  await expect(page.getByTestId('device-storage-row')).toHaveCount(1);
+  await expect(page.getByTestId('device-storage-summary')).toContainText('0 files', { timeout: 20_000 });
+  await expect(row(page, true).getByTestId('device-storage-held')).toHaveText('Drive is empty');
+  await expect(page.getByText(/measuring/i)).toHaveCount(0);
+});
+
 test('each device sees how much of the Drive the other holds, and that they are in sync', async ({ page, browser, relayUrl }, testInfo) => {
   test.setTimeout(300_000);
   await prepareFreshSession(page, relayUrl);
@@ -66,20 +80,20 @@ test('each device sees how much of the Drive the other holds, and that they are 
     await openStorage(second);
 
     // The first browser added the file: it holds all of the Drive.
-    await expect(row(page, true).getByTestId('device-storage-held')).toHaveText('All of it', { timeout: 60_000 });
-    await expect(page.getByTestId('device-storage-summary')).toContainText('All of it is on this device.');
+    await expect(row(page, true).getByTestId('device-storage-held')).toHaveText('All Drive files available offline', { timeout: 60_000 });
+    await expect(page.getByTestId('device-storage-summary')).toContainText('All Drive files are available offline on this device.');
     // The second has said how much it holds: not the file it never opened.
     const other = row(page, false);
     await expect(other.getByTestId('device-storage-held')).not.toHaveText('No report yet', { timeout: 90_000 });
-    await expect(other.getByTestId('device-storage-held')).not.toHaveText('All of it');
+    await expect(other.getByTestId('device-storage-held')).not.toHaveText('All Drive files available offline');
     await expect(other.getByTestId('device-storage-sync')).toHaveText('In sync', { timeout: 90_000 });
     await expect(other.getByTestId('device-storage-space')).toContainText(/Uses .+ of .+ allowed/);
 
     // On the second, the first holds all of it; the row opens to the folders.
     const first = row(second, false);
-    await expect(first.getByTestId('device-storage-held')).toHaveText('All of it', { timeout: 90_000 });
+    await expect(first.getByTestId('device-storage-held')).toHaveText('All Drive files available offline', { timeout: 90_000 });
     await expect(first.getByTestId('device-storage-sync')).toHaveText('In sync', { timeout: 90_000 });
-    await expect(row(second, true).getByTestId('device-storage-held')).not.toHaveText('All of it');
+    await expect(row(second, true).getByTestId('device-storage-held')).not.toHaveText('All Drive files available offline');
     await first.getByRole('button').first().click();
     await expect(first.getByTestId('device-storage-folders')).toContainText('1 file not in a folder');
     await page.screenshot({ path: testInfo.outputPath('first-device.png'), fullPage: true });
@@ -92,9 +106,9 @@ test('each device sees how much of the Drive the other holds, and that they are 
     await second.getByTestId('viewer-back').click();
     await second.goto(`${new URL(second.url()).origin}/#/settings/storage`);
     await second.reload();
-    await expect(row(second, true).getByTestId('device-storage-held')).toHaveText('All of it', { timeout: 60_000 });
-    await expect(second.getByTestId('device-storage-summary')).toContainText('All of it is on 2 devices.');
-    await expect(row(page, false).getByTestId('device-storage-held')).toHaveText('All of it', { timeout: 90_000 });
+    await expect(row(second, true).getByTestId('device-storage-held')).toHaveText('All Drive files available offline', { timeout: 60_000 });
+    await expect(second.getByTestId('device-storage-summary')).toContainText('All Drive files are available offline on 2 devices.');
+    await expect(row(page, false).getByTestId('device-storage-held')).toHaveText('All Drive files available offline', { timeout: 90_000 });
 
     // In the dark and at phone width, with a row open.
     await second.emulateMedia({ colorScheme: 'dark' });

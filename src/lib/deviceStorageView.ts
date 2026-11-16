@@ -21,16 +21,16 @@ export interface FolderLine {
 
 /** Whether the device holds every file of the Drive it measured. */
 export function holdsAll(report: DeviceStorageReport): boolean {
-  return report.held_files >= report.files && report.held_bytes >= report.file_bytes;
+  return !report.unread_folders && report.held_files >= report.files && report.held_bytes >= report.file_bytes;
 }
 
-/** How much a device holds, short: "All of it", "1.2 GB · 35%". */
+/** Local availability of this device’s Drive files. */
 export function holdingLabel(report: DeviceStorageReport, format: Format): string {
-  if (report.files === 0) return 'Nothing to hold yet';
-  if (holdsAll(report)) return 'All of it';
-  if (report.held_bytes === 0) return 'None of it';
+  if (report.files === 0) return report.unread_folders ? 'Storage unavailable' : 'Drive is empty';
+  if (holdsAll(report)) return 'All Drive files available offline';
+  if (report.held_bytes === 0) return 'No Drive data stored';
   const share = Math.floor((report.held_bytes / Math.max(1, report.file_bytes)) * 100);
-  return `${format(report.held_bytes)} · ${share < 1 ? 'under 1' : share}%`;
+  return `${format(report.held_bytes)} stored · ${share < 1 ? 'under 1' : share}% of Drive`;
 }
 
 /** The room a device uses: "Uses 2.3 GB of 5.0 GB allowed". */
@@ -62,9 +62,9 @@ export function driveSize(rows: DeviceRow[]): DeviceStorageReport | null {
 /** Which devices hold all of the Drive, in a sentence. */
 export function holdersSentence(rows: DeviceRow[]): string {
   const holders = rows.filter((row) => row.report && row.report.files > 0 && holdsAll(row.report));
-  if (holders.length === 0) return 'No device holds all of it.';
-  if (holders.length === 1) return holders[0].current ? 'All of it is on this device.' : `All of it is on ${holders[0].name}.`;
-  return `All of it is on ${holders.length} devices.`;
+  if (holders.length === 0) return '';
+  if (holders.length === 1) return holders[0].current ? 'All Drive files are available offline on this device.' : `All Drive files are available offline on ${holders[0].name}.`;
+  return `All Drive files are available offline on ${holders.length} devices.`;
 }
 
 /**
