@@ -93,7 +93,7 @@ test('a native device and a browser each show how much of the Drive the other ho
     // The browser shows the native device with its numbers once it has measured.
     await page.goto(`${new URL(page.url()).origin}/#/settings/storage`);
     await expect(page.getByTestId('device-storage-row')).toHaveCount(2, { timeout: 60_000 });
-    await expect(webRow(page, true).getByTestId('device-storage-held')).toHaveText('All of it', { timeout: 60_000 });
+    await expect(webRow(page, true).getByTestId('device-storage-held')).toHaveText('All Drive files available offline', { timeout: 60_000 });
     const native = webRow(page, false);
     await expect(native).toContainText('Native device');
     await expect(native.getByTestId('device-storage-held')).not.toHaveText('No report yet', { timeout: 300_000 });
@@ -106,7 +106,7 @@ test('a native device and a browser each show how much of the Drive the other ho
       const browser = rows.find((row) => !row.is_current);
       return { devices: rows.length, browser: browser?.held_label, app: browser?.app, sync: browser?.sync_label };
     }, { timeout: 120_000, intervals: [1_000, 2_000, 5_000] }).toEqual({
-      devices: 2, browser: 'All of it', app: 'web', sync: 'In sync',
+      devices: 2, browser: 'All Drive files available offline', app: 'web', sync: 'In sync',
     });
     const rows = nativeRows(nativeConfig);
     const own = rows.find((row) => row.is_current)!;
