@@ -826,3 +826,122 @@ test('web owner approves a native device that durably activates and acknowledges
     fs.rmSync(nativeConfig, { recursive: true, force: true });
   }
 });
+
+/** The test relay stops answering anything in this test's namespace. */
+async function silenceRelay(relayUrl: string): Promise<void> {
+  const url = new URL(relayUrl);
+  const response = await fetch(`http://${url.host}/__silence?ns=${encodeURIComponent(url.pathname)}`);
+  expect(response.ok).toBe(true);
+}
+
+/**
+ * Reads a file of the native device's Drive without asking any relay. Null
+ * while the root or its blocks have not arrived yet.
+ */
+function readNativeFile(configDir: string, outputDir: string, fileName: string): string | null {
+  const output = path.join(outputDir, `read-${fileName}`);
+  try {
+    const listing = runIdriveJson<{ files?: { path: string }[] }>(configDir, ['list']);
+    if (!listing.files?.some((entry) => entry.path === fileName)) return null;
+    runIdriveJson(configDir, ['provider', 'read', fileName, output]);
+    return fs.readFileSync(output, 'utf8');
+  } catch {
+    return null;
+  }
+}
+
+test('web and native devices of one account exchange Drive roots over the FIPS feed while relays are silent', async ({
+  page,
+  relayUrl,
+  fipsSeedUrl,
+}) => {
+  test.skip(!irisDriveAvailable(), 'iris-drive repo not available');
+  test.setTimeout(300_000);
+
+  const nativeConfig = fs.mkdtempSync(path.join(os.tmpdir(), 'iris-drive-native-feed-'));
+  const nativeFiles = fs.mkdtempSync(path.join(os.tmpdir(), 'iris-drive-native-feed-files-'));
+  let daemon: ReturnType<typeof spawn> | null = null;
+  try {
+    await prepareJoiningBrowser(page, relayUrl, fipsSeedUrl);
+    const owner = await page.evaluate(async () => {
+      const { createDriveProfile, getCurrentNostrIdentitySession } = await import('/src/nostr');
+      const created = await createDriveProfile({ name: 'Web owner' });
+      const session = getCurrentNostrIdentitySession();
+      if (!session) throw new Error('Web owner session was not created');
+      return { profileId: created.profileId, appKeyPubkey: session.appKeyPubkey };
+    });
+    await page.goto('/#/settings/user', { waitUntil: 'domcontentloaded' });
+    await expect(page.getByTestId('device-approval-input')).toBeVisible({ timeout: 30_000 });
+    const request = runIdriveJson<{
+      current_app_key_npub: string;
+      app_key_link_request: { url: string };
+    }>(nativeConfig, [
+      'link',
+      nativeLinkInvite(owner.profileId, owner.appKeyPubkey),
+      '--label',
+      'Native device',
+    ]);
+    configureNativeRelay(nativeConfig, relayUrl);
+    configureNativeBlossom(nativeConfig);
+    await page.getByTestId('device-approval-input').fill(request.app_key_link_request.url);
+    await page.getByTestId('approve-device-request').click();
+    await expect(page.getByTestId('user-key-row')).toHaveCount(2, { timeout: 30_000 });
+    const sync = runIdriveJson<{ device_approval_receipts_applied: number }>(nativeConfig, [
+      'sync', '--relay', relayUrl, '--timeout', '3',
+    ]);
+    expect(sync.device_approval_receipts_applied).toBe(1);
+    const nativePubkey = nip19.decode(request.current_app_key_npub).data as string;
+
+    await page.goto(`/#/${owner.profileId}/main`, { waitUntil: 'domcontentloaded' });
+    await waitForAppReady(page, 60_000);
+    await page.evaluate(async () => {
+      const { recordFeedSyncFrames } = await import('/e2e/drive-peer-test-helpers.ts');
+      (window as typeof window & { __feedSync?: unknown }).__feedSync = recordFeedSyncFrames();
+    });
+    daemon = spawn(idriveBin(), ['daemon', '--relay', relayUrl, '--no-gateway'], {
+      env: { ...process.env, IRIS_DRIVE_CONFIG_DIR: nativeConfig, IRIS_FIPS_WEBSOCKET_SEED_URLS: fipsSeedUrl },
+      stdio: 'ignore',
+    });
+    // The browser holds the native device as an event peer on its FIPS feed.
+    await expect.poll(() => page.evaluate((nativePubkey) => (
+      ((window as any).__driveFipsStats?.().nostrPeerIds ?? []) as string[]
+    ).some((peerId) => peerId.slice(2) === nativePubkey), nativePubkey), {
+      timeout: 90_000,
+      intervals: [500, 1_000, 2_000],
+    }).toBe(true);
+    // Each device answered the other's warm feed request with a Negentropy
+    // session: the browser opened one for the native device and replied to
+    // the one the native device opened.
+    await expect.poll(() => page.evaluate(() => {
+      const frames = (window as typeof window & {
+        __feedSync?: { sent: string[]; received: string[] };
+      }).__feedSync!;
+      return {
+        opened: frames.sent.includes('open') && frames.received.includes('reply'),
+        answered: frames.received.includes('open') && frames.sent.includes('reply'),
+      };
+    }), { timeout: 60_000, intervals: [500, 1_000] }).toEqual({ opened: true, answered: true });
+
+    await silenceRelay(relayUrl);
+
+    const webFileName = 'from-web-over-fips.txt';
+    const webFileContent = `web root over the FIPS feed ${crypto.randomUUID()}`;
+    expect(await addFileViaTreeAPI(page, [], webFileName, webFileContent)).toMatch(/^[0-9a-f]{64}$/);
+    await flushPendingPublishes(page);
+    await expect.poll(() => readNativeFile(nativeConfig, nativeFiles, webFileName), {
+      timeout: 90_000,
+      intervals: [1_000, 2_000],
+    }).toBe(webFileContent);
+
+    const nativeFileName = 'from-native-over-fips.txt';
+    const nativeFileContent = `native root over the FIPS feed ${crypto.randomUUID()}`;
+    const nativeSource = path.join(nativeFiles, 'native-source');
+    fs.writeFileSync(nativeSource, nativeFileContent);
+    runIdriveJson(nativeConfig, ['provider', 'write', nativeFileName, nativeSource]);
+    await expectProfileFile(page, owner.profileId, nativeFileName, nativeFileContent);
+  } finally {
+    await stopNativeDaemon(daemon);
+    fs.rmSync(nativeConfig, { recursive: true, force: true });
+    fs.rmSync(nativeFiles, { recursive: true, force: true });
+  }
+});
