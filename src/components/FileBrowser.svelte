@@ -135,13 +135,9 @@
     (effectiveTree.visibility === 'link-visible' || effectiveTree.visibility === 'private')
   );
 
-  $effect(() => {
-    const store = treesStore;
-    const unsub = store.subscribe(value => {
-      trees = value;
-    });
-    return unsub;
-  });
+  $effect(() => treesStore.subscribe(value => {
+    trees = value;
+  }));
 
   /** How the list is sorted, as last chosen on this device. */
   let sort = $state<ListSort>(loadSort());
