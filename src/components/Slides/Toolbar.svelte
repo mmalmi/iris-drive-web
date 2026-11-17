@@ -442,7 +442,7 @@
 </Popover>
 
 <Popover bind:open={open.fill} anchor={anchors.fill} label="Fill">
-  <ColourPanel value={shapes[0]?.fill} {palette} themeChoice="Theme colour" allowNone onPick={colour => pick(() => editorState.updateSelected({ fill: colour ?? undefined }))} />
+  <ColourPanel value={shapes[0]?.fill} {palette} themeChoice="Theme colour" allowNone allowOpacity onPick={colour => pick(() => editorState.updateSelected({ fill: colour ?? undefined }))} />
 </Popover>
 
 {#if open.table || open.tableEdit || open.cellFill || open.cellLines}

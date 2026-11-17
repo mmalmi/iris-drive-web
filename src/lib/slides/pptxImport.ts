@@ -10,13 +10,14 @@
  * rectangles and ellipses as they are, other outlines as rectangles); lines
  * and arrows; pictures, cropped as on the slide, with their descriptions;
  * tables with their column widths, row heights, fills, lines and merged
- * cells; groups, taken apart into what they hold; the shapes and pictures
+ * cells; on-click Appear effects, including groups; groups taken apart into what they hold; the shapes and pictures
  * of layouts and masters that show on a slide; speaker notes; fade and
  * slide-in transitions. The deck gets the look of ours nearest to the
  * file's theme. Not carried over: charts, diagrams, video and sound, and
  * pictures in old Windows formats (EMF, WMF).
  */
 import * as Y from 'yjs';
+import { readAppearances } from './pptxTiming';
 import { unzipSync } from 'fflate';
 import { Deck, SLIDE_HEIGHT, SLIDE_WIDTH, type Crop, type ElementJson, type ShapeKind, type TextAlign, type TextRole, type VerticalAlign } from './model';
 import type { RichTextJson } from './richTextData';
@@ -89,6 +90,7 @@ interface SlideContext {
   /** Pictures wanted, by their path in the file. */
   media: Set<string>;
   skipped: Map<string, number>;
+  appearances: Map<string, number>;
 }
 
 /** An element as read, with pictures named by their path in the file until they are stored. */
@@ -541,6 +543,7 @@ function readTree(tree: Element | null, owner: Part, transform: Transform, conte
   for (const child of kids(tree)) {
     const nv = kids(child).find(node => node.localName.startsWith('nv'));
     if (kid(nv, 'cNvPr')?.getAttribute('hidden') === '1') continue;
+    const before = out.length;
     if (child.localName === 'sp') {
       out.push(...textShape(child, owner, transform, context, fromSlide));
     } else if (child.localName === 'cxnSp') {
@@ -568,14 +571,20 @@ function readTree(tree: Element | null, owner: Part, transform: Transform, conte
       const chExt = kid(xfrm, 'chExt');
       if (!own || !chOff || !chExt) {
         out.push(...readTree(child, owner, transform, context, fromSlide));
-        continue;
+      } else {
+        const sx = own.w / Math.max(1, num(chExt, 'cx') ?? own.w);
+        const sy = own.h / Math.max(1, num(chExt, 'cy') ?? own.h);
+        const cx = num(chOff, 'x') ?? 0;
+        const cy = num(chOff, 'y') ?? 0;
+        const inner: Transform = (x, y, w, h) => transform(own.x + (x - cx) * sx, own.y + (y - cy) * sy, w * sx, h * sy);
+        out.push(...readTree(child, owner, inner, context, fromSlide));
       }
-      const sx = own.w / Math.max(1, num(chExt, 'cx') ?? own.w);
-      const sy = own.h / Math.max(1, num(chExt, 'cy') ?? own.h);
-      const cx = num(chOff, 'x') ?? 0;
-      const cy = num(chOff, 'y') ?? 0;
-      const inner: Transform = (x, y, w, h) => transform(own.x + (x - cx) * sx, own.y + (y - cy) * sy, w * sx, h * sy);
-      out.push(...readTree(child, owner, inner, context, fromSlide));
+    }
+    const target = fromSlide && kid(nv, 'cNvPr')?.getAttribute('id');
+    const appearOn = target ? context.appearances.get(target) : undefined;
+    if (appearOn) {
+      // A group's visibility applies to every child after it is unpacked.
+      for (let at = before; at < out.length; at++) out[at]!.appearOn = Math.max(appearOn, out[at]!.appearOn ?? 0);
     }
   }
   return out;
@@ -671,6 +680,7 @@ export async function importPptx(source: Uint8Array | Blob, target: PptxImportTa
 
   const media = new Set<string>();
   const skipped = new Map<string, number>();
+  const unsupportedMotion: number[] = [];
   const plans: SlidePlan[] = [];
   let firstTheme: ThemeInfo | null = null;
   let firstBackground: string | null = null;
@@ -685,7 +695,9 @@ export async function importPptx(source: Uint8Array | Blob, target: PptxImportTa
     for (const source of [layout, slide]) {
       for (const attribute of kid(kid(source?.root, 'clrMapOvr'), 'overrideClrMapping')?.attributes ?? []) map[attribute.localName] = attribute.value;
     }
-    const context: SlideContext = { files, scale, colour: { theme, map }, slide, layout, master, defaultStyle, media, skipped };
+    const appearances = readAppearances(kid(slide.root, 'timing'));
+    const context: SlideContext = { files, scale, colour: { theme, map }, slide, layout, master, defaultStyle, media, skipped, appearances: appearances.targets };
+    if (appearances.incomplete) unsupportedMotion.push(plans.length + 1);
     const transform = toSlide(scale);
     const elements: Planned[] = [];
     const background = backgroundOf([slide, layout, master], context);
@@ -743,6 +755,9 @@ export async function importPptx(source: Uint8Array | Blob, target: PptxImportTa
     slides: plans.length,
     firstId,
     theme,
-    skipped: [...skipped].map(([what, count]) => `${count} ${what}`),
+    skipped: [
+      ...[...skipped].map(([what, count]) => `${count} ${what}`),
+      ...(unsupportedMotion.length ? [`unsupported animations on slide${unsupportedMotion.length > 1 ? 's' : ''} ${unsupportedMotion.join(', ')}`] : []),
+    ],
   };
 }

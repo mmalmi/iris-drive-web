@@ -73,17 +73,25 @@ export interface BuildPlan {
   steps: number;
   /** For each element that builds, how many points come before its first. */
   offsets: Map<string, number>;
+  /** First visible step for objects revealed as a whole. */
+  appearances: Map<string, number>;
 }
 
 /** Which points of a slide come in at which step; no steps when the slide does not build. */
 export function buildPlan(slide: Slide): BuildPlan {
   const offsets = new Map<string, number>();
-  if (!slide.build) return { steps: 0, offsets };
-  let steps = 0;
+  const groups = [...new Set(slide.elements.flatMap(element => element.appearOn ? [element.appearOn] : []))].sort((a, b) => a - b);
+  const ranks = new Map(groups.map((group, index) => [group, index + 1]));
+  const appearances = new Map<string, number>();
   for (const element of slide.elements) {
-    if (!builds(element)) continue;
+    if (element.appearOn) appearances.set(element.id, ranks.get(element.appearOn)!);
+  }
+  let steps = groups.length;
+  if (!slide.build) return { steps, offsets, appearances };
+  for (const element of slide.elements) {
+    if (element.appearOn || !builds(element)) continue;
     offsets.set(element.id, steps);
     steps += buildPoints(element.content);
   }
-  return { steps, offsets };
+  return { steps, offsets, appearances };
 }

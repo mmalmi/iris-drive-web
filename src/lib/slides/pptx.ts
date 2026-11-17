@@ -7,11 +7,12 @@
  * italic, underline, strikethrough, colours and sizes; shapes (rectangle,
  * rounded rectangle, ellipse) with fill, border and text; lines and arrows;
  * pictures, cropped as on the slide; tables with fills, borders and the
- * heading row; rotation; speaker notes; fade and slide-in transitions.
+ * heading row; rotation; speaker notes; on-click object reveals; fade and slide-in transitions.
  * Colours and fonts of the theme are written out as they look, so the file
  * looks the same without our themes. Not carried over: points shown one at
  * a time, and text shrunk to fit (PowerPoint shrinks it again itself).
  */
+import { appearanceTiming } from './pptxTiming';
 import { strToU8, zipSync } from 'fflate';
 import * as Y from 'yjs';
 import { SLIDE_HEIGHT, SLIDE_WIDTH, type Slide, type SlideElement } from './model';
@@ -62,9 +63,18 @@ function hex(colour: string | null | undefined): string | null {
   return full.toUpperCase();
 }
 
-function solid(colour: string | null | undefined): string {
+function colourXml(colour: string | null | undefined): string {
   const value = hex(colour);
-  return value ? `<a:solidFill><a:srgbClr val="${value}"/></a:solidFill>` : '<a:noFill/>';
+  if (!value) return '';
+  const css = colour!.trim();
+  const alpha = css.length === 9 ? Number.parseInt(css.slice(7), 16) : 255;
+  return alpha === 255 ? `<a:srgbClr val="${value}"/>`
+    : `<a:srgbClr val="${value}"><a:alpha val="${Math.round(alpha / 255 * 100000)}"/></a:srgbClr>`;
+}
+
+function solid(colour: string | null | undefined): string {
+  const rgb = colourXml(colour);
+  return rgb ? `<a:solidFill>${rgb}</a:solidFill>` : '<a:noFill/>';
 }
 
 /** A CSS background as an OOXML fill: a colour, or a two-stop linear gradient. */
@@ -73,7 +83,7 @@ function backgroundFill(background: string): string {
   if (gradient) {
     // CSS measures from the top, clockwise; DrawingML from the right, clockwise.
     const angle = ((Number(gradient[1]) - 90) % 360 + 360) % 360;
-    return `<a:gradFill rotWithShape="1"><a:gsLst><a:gs pos="0"><a:srgbClr val="${hex(gradient[2])}"/></a:gs><a:gs pos="100000"><a:srgbClr val="${hex(gradient[3])}"/></a:gs></a:gsLst><a:lin ang="${Math.round(angle * 60000)}" scaled="0"/></a:gradFill>`;
+    return `<a:gradFill rotWithShape="1"><a:gsLst><a:gs pos="0">${colourXml(gradient[2])}</a:gs><a:gs pos="100000">${colourXml(gradient[3])}</a:gs></a:gsLst><a:lin ang="${Math.round(angle * 60000)}" scaled="0"/></a:gradFill>`;
   }
   return solid(background);
 }
@@ -103,7 +113,7 @@ type LinkTo = (href: string) => string;
 function runXml(text: string, attributes: Record<string, unknown>, look: TextLook, linkTo?: LinkTo): string {
   const size = validFontSize((attributes.fontSize as { size?: unknown } | undefined)?.size) ?? look.size;
   const colour = cssColour((attributes.color as { color?: unknown } | undefined)?.color);
-  const fill = hex(colour?.startsWith('#') ? colour : null) ?? hex(look.colour);
+  const fill = colour?.startsWith('#') ? colour : look.colour;
   const on = (mark: string) => mark in attributes && attributes[mark] !== null && attributes[mark] !== false;
   const props = [
     'lang="en-US"',
@@ -116,7 +126,7 @@ function runXml(text: string, attributes: Record<string, unknown>, look: TextLoo
   ].filter(Boolean).join(' ');
   const href = linkTo ? linkHref((attributes.link as { href?: unknown } | undefined)?.href) : null;
   const click = href ? `<a:hlinkClick r:id="${linkTo!(href)}"/>` : '';
-  return `<a:r><a:rPr ${props}>${fill ? `<a:solidFill><a:srgbClr val="${fill}"/></a:solidFill>` : ''}<a:latin typeface="${escapeXml(look.font)}"/>${click}</a:rPr><a:t>${escapeXml(text)}</a:t></a:r>`;
+  return `<a:r><a:rPr ${props}>${solid(fill)}<a:latin typeface="${escapeXml(look.font)}"/>${click}</a:rPr><a:t>${escapeXml(text)}</a:t></a:r>`;
 }
 
 function themeColour(value: string | null, palette: Palette): string | null {
@@ -229,12 +239,12 @@ function shapeXml(element: SlideElement, theme: Theme, layout: string, palette: 
 
 function lineXml(element: SlideElement, palette: Palette, writer: Writer): string {
   const id = writer.id++;
-  const stroke = hex(resolveColour(element.stroke, palette, palette.text)) ?? '000000';
+  const stroke = resolveColour(element.stroke, palette, palette.text) ?? '#000000';
   // A line's frame is a vector; OOXML keeps a box and flips it.
   const box = { ...element, x: Math.min(element.x, element.x + element.w), y: Math.min(element.y, element.y + element.h), w: Math.abs(element.w), h: Math.abs(element.h) };
   const flip = `${element.w < 0 ? ' flipH="1"' : ''}${element.h < 0 ? ' flipV="1"' : ''}`;
   const arrow = element.arrow ? '<a:tailEnd type="triangle" w="med" len="med"/>' : '';
-  return `<p:cxnSp><p:nvCxnSpPr><p:cNvPr id="${id}" name="Line ${id}"/><p:cNvCxnSpPr/><p:nvPr/></p:nvCxnSpPr><p:spPr>${xfrm(box, flip)}<a:prstGeom prst="line"><a:avLst/></a:prstGeom><a:ln w="${emu(element.strokeWidth ?? 4)}" cap="rnd"><a:solidFill><a:srgbClr val="${stroke}"/></a:solidFill>${arrow}</a:ln></p:spPr></p:cxnSp>`;
+  return `<p:cxnSp><p:nvCxnSpPr><p:cNvPr id="${id}" name="Line ${id}"/><p:cNvCxnSpPr/><p:nvPr/></p:nvCxnSpPr><p:spPr>${xfrm(box, flip)}<a:prstGeom prst="line"><a:avLst/></a:prstGeom><a:ln w="${emu(element.strokeWidth ?? 4)}" cap="rnd">${solid(stroke)}${arrow}</a:ln></p:spPr></p:cxnSp>`;
 }
 
 function pictureXml(element: SlideElement, image: PptxImage, target: string, writer: Writer): string {
@@ -268,7 +278,7 @@ function tableXml(element: SlideElement, theme: Theme, layout: string, palette: 
   const line = resolveColour(element.stroke, palette, palette.muted);
   const fallback: CellBorder | null = line ? { width: element.strokeWidth ?? 1.5, colour: line } : null;
   const lineXmlFor = (tag: string, border: CellBorder | null) => border
-    ? `<a:${tag} w="${emu(border.width)}"><a:solidFill><a:srgbClr val="${hex(resolveColour(border.colour, palette, line)) ?? '888888'}"/></a:solidFill></a:${tag}>`
+    ? `<a:${tag} w="${emu(border.width)}">${solid(resolveColour(border.colour, palette, line) ?? '#888888')}</a:${tag}>`
     : `<a:${tag}><a:noFill/></a:${tag}>`;
   const keyAt = (r: number, c: number) => (table.rows[r] && table.cols[c] ? cellKey(table.rows[r]!.id, table.cols[c]!.id) : null);
   /** The line along one side of a cell, as the slide draws it. */
@@ -400,7 +410,9 @@ export async function deckToPptx(options: PptxOptions): Promise<Uint8Array> {
       },
     };
     let shapes = '';
+    const appearances = new Map<number, number[]>();
     for (const element of slide.elements) {
+      const shapeId = writer.id;
       if (element.type === 'text') shapes += textShape(element, theme, slide.layout, palette, writer);
       else if (element.type === 'shape') shapes += shapeXml(element, theme, slide.layout, palette, writer);
       else if (element.type === 'line') shapes += lineXml(element, palette, writer);
@@ -408,6 +420,11 @@ export async function deckToPptx(options: PptxOptions): Promise<Uint8Array> {
       else if (element.type === 'image' && element.src) {
         const found = media.get(element.src);
         if (found) shapes += pictureXml(element, found.image, `../media/${found.path.split('/').pop()}`, writer);
+      }
+      if (element.appearOn && writer.id > shapeId) {
+        const group = appearances.get(element.appearOn) ?? [];
+        group.push(shapeId);
+        appearances.set(element.appearOn, group);
       }
     }
     const notes = slide.notes?.toString() ?? '';
@@ -420,7 +437,7 @@ export async function deckToPptx(options: PptxOptions): Promise<Uint8Array> {
       ]));
     }
     const tree = emptyTree().replace('</p:spTree>', `${shapes}</p:spTree>`);
-    put(`ppt/slides/slide${number}.xml`, `${XML_HEAD}<p:sld xmlns:a="${NS_A}" xmlns:r="${NS_R}" xmlns:p="${NS_P}"><p:cSld><p:bg><p:bgPr>${backgroundFill(background)}<a:effectLst/></p:bgPr></p:bg>${tree}</p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr>${transitionXml(slide)}</p:sld>`);
+    put(`ppt/slides/slide${number}.xml`, `${XML_HEAD}<p:sld xmlns:a="${NS_A}" xmlns:r="${NS_R}" xmlns:p="${NS_P}"><p:cSld><p:bg><p:bgPr>${backgroundFill(background)}<a:effectLst/></p:bgPr></p:bg>${tree}</p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr>${transitionXml(slide)}${appearanceTiming(appearances)}</p:sld>`);
     put(`ppt/slides/_rels/slide${number}.xml.rels`, relationshipsXml(rels));
     slideRefs.push(`ppt/slides/slide${number}.xml`);
   });

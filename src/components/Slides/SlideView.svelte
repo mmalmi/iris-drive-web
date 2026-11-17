@@ -48,16 +48,18 @@
     {#each slide.elements as element (element.id)}
       {@const moved = overrides?.[element.id]}
       {@const offset = plan?.offsets.get(element.id)}
-      <ElementView
-        element={moved ? { ...element, ...moved } : element}
-        {theme}
-        {palette}
-        layout={slide.layout}
-        {urls}
-        {editorState}
-        revision={editorState?.revision}
-        reveal={offset === undefined || step === undefined ? undefined : step - offset}
-      />
+      {#if step === undefined || step >= (plan?.appearances.get(element.id) ?? 0)}
+        <ElementView
+          element={moved ? { ...element, ...moved } : element}
+          {theme}
+          {palette}
+          layout={slide.layout}
+          {urls}
+          {editorState}
+          revision={editorState?.revision}
+          reveal={offset === undefined || step === undefined ? undefined : step - offset}
+        />
+      {/if}
     {/each}
   </div>
 </div>

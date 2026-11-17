@@ -20,6 +20,13 @@
 
   const modifier = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl+';
 
+  let reveals = $derived(editorState.selected.every(element => element.appearOn !== undefined));
+
+  function toggleAppearance(): void {
+    const last = editorState.current?.elements.reduce((max, element) => Math.max(max, element.appearOn ?? 0), 0) ?? 0;
+    editorState.updateSelected({ appearOn: reveals ? undefined : last + 1 });
+  }
+
   function run(action: () => void): void {
     open = false;
     onDone();
@@ -63,6 +70,9 @@
   {/if}
   {#if editorState.selection.length > 0}
     <div class="menu-divider"></div>
+    <button class="menu-item" onclick={() => run(toggleAppearance)} data-testid="element-menu-appear">
+      <span class="i-lucide-mouse-pointer-click"></span>{reveals ? 'Show from start' : 'Appear on click'}
+    </button>
     <button class="menu-item" onclick={() => run(() => editorState.duplicateSelected())} data-testid="element-menu-duplicate">
       <span class="i-lucide-copy-plus"></span>Duplicate<span class="keys">{modifier}D</span>
     </button>

@@ -69,7 +69,7 @@ describe('merged cells', () => {
     expect(words(map(), 0, 0)).toBe('Quarter\nresults');
     expect(words(map(), 0, 1)).toBe('');
     expect(deck.version).toBe(3);
-    expect(DECK_VERSION).toBe(3);
+    expect(DECK_VERSION).toBeGreaterThanOrEqual(deck.version);
     // Typing with Tab passes over the hidden cells.
     expect(stepCell(table, key(map(), 0, 0), false)).toBe(key(map(), 1, 0));
   });

@@ -184,9 +184,13 @@ export function readColour(fill: Element | null | undefined, context: ColourCont
   }
   if (!hex || !/^[0-9a-f]{6}/i.test(hex)) return null;
   let rgb = toRgb(hex);
+  let alpha = hex.length === 8 ? Number.parseInt(hex.slice(6), 16) / 255 : 1;
   for (const change of kids(colour)) {
     const value = (num(change, 'val') ?? 100000) / 100000;
-    if (change.localName === 'lumMod' || change.localName === 'lumOff') {
+    if (change.localName === 'alpha') alpha = Math.min(1, Math.max(0, value));
+    else if (change.localName === 'alphaMod') alpha = Math.min(1, Math.max(0, alpha * value));
+    else if (change.localName === 'alphaOff') alpha = Math.min(1, Math.max(0, alpha + value));
+    else if (change.localName === 'lumMod' || change.localName === 'lumOff') {
       const hsl = toHsl(rgb);
       hsl[2] = Math.min(1, Math.max(0, change.localName === 'lumMod' ? hsl[2] * value : hsl[2] + value));
       rgb = fromHsl(hsl);
@@ -196,7 +200,8 @@ export function readColour(fill: Element | null | undefined, context: ColourCont
       rgb = rgb.map(channel => channel * value) as [number, number, number];
     }
   }
-  return toHex(rgb);
+  const byte = Math.round(alpha * 255);
+  return toHex(rgb) + (byte === 255 ? '' : byte.toString(16).padStart(2, '0'));
 }
 
 /** The colour of a fill (solid, or the first stop of a gradient); 'none' for no fill; undefined when it does not say. */

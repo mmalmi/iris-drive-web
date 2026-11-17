@@ -72,7 +72,8 @@ import {
 export { richTextIsEmpty, richTextToJson, richTextToPlain, type RichTextJson };
 
 /** The newest version of the format this code reads and writes. */
-export const DECK_VERSION = 3;
+const OBJECT_REVEAL_VERSION = 4;
+export const DECK_VERSION = OBJECT_REVEAL_VERSION;
 /** What a new deck is written as: tables raise it to 2, since older code would drop them when copying. */
 const FIRST_VERSION = 1;
 const TABLE_VERSION = 2;
@@ -108,6 +109,8 @@ export interface SlideElement extends Frame {
   id: string;
   type: ElementType;
   z: string;
+  /** Objects with the same positive number appear together on a presenter click. */
+  appearOn?: number;
   /** Text boxes and shapes. */
   content?: Y.XmlFragment;
   /** What a text box is for; sets its default look and its hint while empty. */
@@ -176,7 +179,7 @@ const ROLES: ReadonlySet<string> = new Set(['title', 'subtitle', 'body']);
 const ALIGNS: ReadonlySet<string> = new Set(['left', 'center', 'right']);
 const VALIGNS: ReadonlySet<string> = new Set(['top', 'middle', 'bottom']);
 const WRITABLE_KEYS = [
-  'type', 'z', 'x', 'y', 'w', 'h', 'rot', 'role', 'fontSize', 'color', 'align', 'valign',
+  'type', 'z', 'x', 'y', 'w', 'h', 'rot', 'appearOn', 'role', 'fontSize', 'color', 'align', 'valign',
   'shape', 'fill', 'stroke', 'strokeWidth', 'arrow', 'src', 'header', 'alt', 'crop',
 ] as const;
 
@@ -201,6 +204,10 @@ function altText(value: unknown): string | undefined {
 
 function oneOf<T extends string>(value: unknown, allowed: ReadonlySet<string>): T | undefined {
   return typeof value === 'string' && allowed.has(value) ? value as T : undefined;
+}
+
+function readAppearOn(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : undefined;
 }
 
 function positive(value: unknown): number | undefined {
@@ -244,6 +251,7 @@ function readElement(id: string, map: unknown): SlideElement | null {
     element.table = table;
   }
   const optional: ElementProps = {
+    appearOn: readAppearOn(map.get('appearOn')),
     role: oneOf<TextRole>(map.get('role'), ROLES),
     fontSize: positive(map.get('fontSize')),
     color: text(map.get('color')),
@@ -602,6 +610,7 @@ export class Deck {
       writeTable(map, init.table);
       this.#raise(tableNeedsV3(init.table) ? V3 : TABLE_VERSION);
     }
+    if (readAppearOn(init.appearOn)) this.#raise(OBJECT_REVEAL_VERSION);
     if (init.type === 'image' && readCrop(init.crop)) this.#raise(V3);
     return id;
   }
@@ -645,6 +654,7 @@ export class Deck {
             }
           } else if (map.get(key) !== value) {
             map.set(key, value);
+            if (key === 'appearOn' && readAppearOn(value)) this.#raise(OBJECT_REVEAL_VERSION);
           }
         }
       }

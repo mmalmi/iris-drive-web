@@ -10,7 +10,7 @@
 import * as Y from 'yjs';
 import type { Editor } from '@tiptap/core';
 
-const HEX = /^#[0-9a-fA-F]{6}$|^#[0-9a-fA-F]{3}$/;
+const HEX = /^#[0-9a-fA-F]{6}$|^#[0-9a-fA-F]{3}$|^#[0-9a-fA-F]{8}$/;
 const THEME_NAMES: Record<string, string> = {
   text: 'var(--slide-text)',
   muted: 'var(--slide-muted)',

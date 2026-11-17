@@ -1,9 +1,10 @@
 // @vitest-environment happy-dom
 import { describe, expect, test } from 'vitest';
 import * as Y from 'yjs';
-import { strToU8, zipSync } from 'fflate';
+import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
 import { inheritedPptx } from '../e2e/slides.pptxSample';
 import { Deck, richTextToJson, richTextToPlain, type SlideElement } from '../src/lib/slides/model';
+import { buildPlan } from '../src/lib/slides/motion';
 import { deckToPptx } from '../src/lib/slides/pptx';
 import { importPptx } from '../src/lib/slides/pptxImport';
 import { cellKey, newTable, readTable } from '../src/lib/slides/table';
@@ -116,6 +117,34 @@ describe('PowerPoint files brought in', () => {
     expect(first.cells.get(cellKey(first.rows[1]!.id, first.cols[0]!.id))!.borders?.b).toEqual({ width: 4, colour: '#e03131' });
     // Imported into an empty deck, it is the whole deck, and undo is not needed to see it.
     expect(new Deck(into.ydoc).readSlides()).toHaveLength(1);
+  });
+
+  test('translucent overlays and on-click object groups survive a PowerPoint round trip', async () => {
+    const deck = new Deck(new Y.Doc());
+    deck.start('light');
+    const frame = { x: 0, y: 0, w: 320, h: 180, rot: 0 };
+    deck.addSlide('blank', [
+      { ...frame, type: 'shape', shape: 'rect', fill: '#05080f6b' },
+      { ...frame, type: 'text', text: 'Second click', appearOn: 2 },
+      { ...frame, type: 'text', text: 'First click', appearOn: 1 },
+      { ...frame, type: 'shape', shape: 'ellipse', appearOn: 1 },
+    ]);
+    expect(deck.version).toBe(4);
+    const bytes = await deckToPptx({ slides: deck.readSlides(), theme: themeById('light'), title: 'Appear', loadImage: async () => null });
+    const xml = strFromU8(unzipSync(bytes)['ppt/slides/slide1.xml']!);
+    expect(xml).toContain('<a:alpha val="41961"/>');
+    expect(xml).toContain('nodeType="clickEffect"');
+    const into = target();
+    expect((await importPptx(bytes, into, { replace: true })).skipped).toEqual([]);
+    const slide = new Deck(into.ydoc).readSlides()[0]!;
+    expect(slide.elements[0]!.fill).toBe('#05080f6b');
+    expect(slide.elements.map(element => element.appearOn)).toEqual([undefined, 2, 1, 1]);
+    expect(buildPlan(slide).steps).toBe(2);
+    // A timed entrance cannot be represented as an immediate presenter click.
+    const timed = unzipSync(bytes);
+    timed['ppt/slides/slide1.xml'] = strToU8(xml.replace(/(nodeType="clickEffect"><p:stCondLst><p:cond delay=")0/, (_, prefix: string) => prefix + '500'));
+    expect((await importPptx(zipSync(timed), target())).skipped).toContain('unsupported animations on slide 1');
+
   });
 
   test('a hand-written file whose slides inherit from their layout and master', async () => {

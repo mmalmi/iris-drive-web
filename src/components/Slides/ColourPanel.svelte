@@ -9,13 +9,20 @@
     /** Label of the choice that hands the colour back to the theme. */
     themeChoice?: string;
     allowNone?: boolean;
+    allowOpacity?: boolean;
     /** Whether the theme's named colours are offered. */
     themeColours?: boolean;
     onPick: (colour: string | null) => void;
   }
-  let { value, palette, themeChoice, allowNone = false, themeColours = true, onPick }: Props = $props();
+  let { value, palette, themeChoice, allowNone = false, allowOpacity = false, themeColours = true, onPick }: Props = $props();
 
-  let custom = $derived(resolveColour(value, palette) ?? '#7647fe');
+  let custom = $derived(resolveColour(value, palette) ?? palette.accent);
+  let rgb = $derived(custom.length === 4 ? '#' + [...custom.slice(1)].map(channel => channel + channel).join('') : custom.slice(0, 7));
+  let opacity = $derived(custom.length === 9 ? Math.round(parseInt(custom.slice(7), 16) / 255 * 100) : 100);
+
+  function withOpacity(colour: string, percent: number): string {
+    return percent === 100 ? colour : colour + Math.round(percent / 100 * 255).toString(16).padStart(2, '0');
+  }
 </script>
 
 <div class="panel" data-testid="colour-panel">
@@ -60,8 +67,16 @@
   </div>
   <label class="menu-item custom">
     <span class="i-lucide-pipette"></span>Other colour
-    <input type="color" value={custom.length === 7 ? custom : '#7647fe'} onchange={event => onPick((event.target as HTMLInputElement).value)} />
+    <input type="color" value={rgb} onchange={event => onPick(withOpacity(event.currentTarget.value, allowOpacity ? opacity : 100))} />
   </label>
+  {#if allowOpacity && value !== 'none'}
+    <label class="opacity-control">
+      <span>Opacity</span>
+      <input type="range" min="0" max="100" value={opacity} aria-label="Fill opacity" aria-valuetext={`${opacity}%`}
+        onchange={event => onPick(withOpacity(rgb, event.currentTarget.valueAsNumber))} />
+      <span>{opacity}%</span>
+    </label>
+  {/if}
 </div>
 
 <style>
@@ -96,6 +111,16 @@
     outline: 2px solid #916dfe;
     outline-offset: 2px;
   }
+
+  .opacity-control {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    font-size: 12px;
+  }
+
+  .opacity-control input { min-width: 0; flex: 1; }
 
   .custom {
     position: relative;

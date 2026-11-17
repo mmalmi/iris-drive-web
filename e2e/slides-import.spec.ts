@@ -23,6 +23,32 @@ async function importFile(page: Page, name: string, buffer: Buffer | Uint8Array)
 test.describe('PowerPoint files brought in', () => {
   test.setTimeout(240_000);
 
+  test('a translucent shape can appear on a presenter click', async ({ page, relayUrl }) => {
+    await prepareFreshSession(page, relayUrl);
+    await createDriveProfile(page);
+    await createPresentation(page, 'Appear');
+    await addShapeAt(page, 'rect', 280, 320);
+    await page.getByTestId('shape-fill').click();
+    const opacity = page.getByRole('slider', { name: 'Fill opacity' });
+    await opacity.fill('42');
+    const shape = elements(page, 'shape').first();
+    await expect(shape.locator('.el-shape')).toHaveCSS('background-color', /rgba\(.+, 0\.42\)/);
+    await page.keyboard.press('Escape');
+    await shape.click({ button: 'right', position: { x: 18, y: 18 } });
+    await page.getByTestId('element-menu-appear').click();
+    await expectSlidesSaved(page);
+    await page.reload();
+    await expect(elements(page, 'shape')).toHaveCount(1);
+    await page.getByTestId('present').click();
+    const audience = page.getByTestId('present-view');
+    await expect(audience).toBeFocused();
+    await expect(audience.locator('[data-type="shape"]')).toHaveCount(0);
+    await page.keyboard.press('ArrowRight');
+    await expect(audience.locator('[data-type="shape"]')).toHaveCount(1);
+    await page.keyboard.press('ArrowLeft');
+    await expect(audience.locator('[data-type="shape"]')).toHaveCount(0);
+  });
+
   test('a deck made here and saved as PowerPoint comes back into a new deck whole, and is presented', async ({ page, relayUrl }) => {
     await prepareFreshSession(page, relayUrl);
     await createDriveProfile(page);
