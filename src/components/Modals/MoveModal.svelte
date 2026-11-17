@@ -4,22 +4,29 @@
    * folder: go through its folders and choose where.
    */
   import { get } from 'svelte/store';
-  import { moveEntriesTo } from '../../actions';
+  import type { TreeEntry } from '@hashtree/core';
+  import { moveSelection } from '../../lib/moveEntries';
+  import { captureIdentityWriteGuard, captureRouteWriteGuard } from '../../lib/routeWriteGuard';
+  import { navigate } from '../../utils/navigate';
+  import { buildRouteUrl, moveEntriesTo } from '../../actions';
   import { nostrStore } from '../../nostr';
   import { acceptedShares } from '../../drive/shareLibrary';
   import { activeNostrIdentityRootScope } from '../../drive/profileRoute';
   import { parseRoute } from '../../utils/route';
-  import { toast } from '../../stores/toast';
+  import { toast, showToast } from '../../stores/toast';
 
   let show = $state(false);
-  let names = $state<string[]>([]);
+  let selected = $state.raw<ReadonlyMap<string, string>>(new Map());
+  let names = $derived([...selected.keys()]);
+  let sourceIsCurrent = () => false;
   let from = $state<string[]>([]);
   let at = $state<string[]>([]);
   let afterClose: (() => void) | null = null;
 
   /** `parentPath` is the folder the items are in now; `onClose` runs once the dialog has gone. */
-  export function open(itemNames: string | string[], parentPath: string[], onClose?: () => void) {
-    names = typeof itemNames === 'string' ? [itemNames] : itemNames;
+  export function open(entries: readonly Pick<TreeEntry, 'name' | 'cid'>[], parentPath: string[], onClose?: () => void) {
+    selected = moveSelection(entries);
+    sourceIsCurrent = captureRouteWriteGuard();
     from = parentPath;
     at = parentPath;
     afterClose = onClose ?? null;
@@ -46,8 +53,12 @@
    * `targetPath`, together from the latest Drive, and says how it went:
    * for this dialog and for dragging. Resolves whether all of them moved.
    */
-  export async function moveAndTell(parentPath: string[], itemNames: string | string[], targetPath: string[], expected?: ReadonlyMap<string, string>): Promise<boolean> {
-    const all = typeof itemNames === 'string' ? [itemNames] : itemNames;
+  export async function moveAndTell(parentPath: string[], expected: ReadonlyMap<string, string>, targetPath: string[]): Promise<boolean> {
+    const all = [...expected.keys()];
+    const route = parseRoute();
+    const sameAccount = captureIdentityWriteGuard();
+    const url = buildRouteUrl(route.npub, route.treeName, targetPath, undefined, route.params.get('k'));
+    const targetName = folderName(targetPath);
     if (!all.length) return true;
     try {
       const destinations = await moveEntriesTo(parentPath, all, targetPath, expected);
@@ -55,7 +66,16 @@
       const subject = destinations.size === 1 ? all[0] : `${destinations.size} items`;
       const detail = renamed.length === 1 ? ` · “${renamed[0][0]}” is now “${renamed[0][1]}”`
         : renamed.length > 1 ? ` · ${renamed.length} renamed to keep both versions` : '';
-      toast.success(`Moved ${subject} to ${folderName(targetPath)}${detail}`);
+      const message = `Moved ${subject} to ${targetName}${detail}`;
+      if (sameAccount()) {
+        const here = parseRoute();
+        const atTarget = route.npub === here.npub && route.treeName === here.treeName
+          && here.path.length === targetPath.length && here.path.every((part, i) => targetPath[i] === part);
+        showToast('success', message, 6000, atTarget ? undefined : {
+          label: 'Go to folder',
+          run: () => { if (sameAccount()) navigate(url); },
+        });
+      }
       return true;
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Could not move the selected items');
@@ -103,7 +123,10 @@
   async function moveHere() {
     if (moving) return;
     moving = true;
-    if (await moveAndTell(from, names, at)) close();
+    if (!sourceIsCurrent()) {
+      toast.error('The open folder changed. Select the items again.');
+      close();
+    } else if (await moveAndTell(from, selected, at)) close();
     moving = false;
   }
 </script>

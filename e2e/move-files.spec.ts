@@ -110,6 +110,39 @@ test.describe('moving files and folders', () => {
     await expect(row(page, 'plan (2).txt')).toBeVisible();
   });
 
+  for (const gesture of ['drag', 'dialog'] as const) {
+    test(`a replacement during a ${gesture} leaves the entire selection in its source folder`, async ({ page, relayUrl }) => {
+      await prepareFreshSession(page, relayUrl);
+      await createDriveProfile(page, 'Mover');
+      await makeFolder(page, 'Archive');
+      const upload = page.getByTestId('upload-files-input');
+      const file = (name: string, content: string) => ({ name, mimeType: 'text/plain', buffer: Buffer.from(content) });
+      await upload.setInputFiles([file('a.txt', 'first'), file('b.txt', 'second')]);
+      for (const name of ['a.txt', 'b.txt']) {
+        await page.getByRole('checkbox', { name: `Select ${name}`, exact: true }).check();
+      }
+
+      const transfer = await page.evaluateHandle(() => new DataTransfer());
+      const dialog = page.getByTestId('move-dialog');
+      if (gesture === 'drag') await row(page, 'a.txt').dispatchEvent('dragstart', { dataTransfer: transfer });
+      else {
+        await page.getByTestId('selection-move').click();
+        await dialog.getByTestId('move-folder').filter({ hasText: 'Archive' }).click();
+      }
+      // A replacement arrives after selection but before the drop or confirmation.
+      await upload.setInputFiles(file('b.txt', 'replacement contents'));
+      await expect(page.locator('[data-testid="file-row"][data-entry-name="b.txt"]')).toContainText('20 B');
+      if (gesture === 'drag') {
+        await page.locator('[data-testid="file-row"][data-entry-name="Archive"]').dispatchEvent('drop', { dataTransfer: transfer });
+      } else await dialog.getByTestId('move-confirm').click();
+      await expect(page.getByRole('alert')).toContainText('“b.txt” changed. Select it again to move it.');
+      if (gesture === 'dialog') await dialog.getByRole('button', { name: 'Cancel' }).click();
+      for (const name of ['a.txt', 'b.txt']) await expect(row(page, name)).toBeVisible();
+      await openFolder(page, 'Archive');
+      await expect(page.getByTestId('empty-folder')).toBeVisible();
+    });
+  }
+
   test('a dragged selection moves together and keeps both versions of a conflicting file', async ({ page, relayUrl }) => {
     await prepareFreshSession(page, relayUrl);
     await createDriveProfile(page, 'Mover');
@@ -138,7 +171,10 @@ test.describe('moving files and folders', () => {
     await row(page, '0-free.txt').dragTo(archive);
     await expect(page.getByText('Moved 2 items to Archive · “b.txt” is now “b (2).txt”')).toBeVisible();
     for (const name of incoming) await expect(row(page, name)).toHaveCount(0);
-    await openFolder(page, 'Archive');
+    const notice = page.getByRole('status').filter({ hasText: 'Moved 2 items to Archive' });
+    await page.screenshot({ path: test.info().outputPath('move-confirmation.png') });
+    await notice.getByRole('button', { name: 'Go to folder' }).click();
+    await expect(page).toHaveURL(/\/main\/Archive$/);
     await page.reload();
     for (const name of [...names, '0-free.txt', 'b (2).txt']) await expect(row(page, name)).toBeVisible();
     await page.screenshot({ path: test.info().outputPath('bulk-move-conflict.png') });

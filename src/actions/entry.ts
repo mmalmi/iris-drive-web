@@ -14,10 +14,11 @@ import { moveEntriesInTree } from '../lib/moveEntries';
 import { setEntryForDriveRoute } from '../drive/profileDriveRouteEntry';
 import { moveRecents, putBackRecents } from '../stores/recents';
 import type { TrashItem } from '../lib/driveTrash';
+import { forgetDeletionHistory, latestDeletion, rememberDeletion } from './deletionHistory';
 import { inTurn } from '../lib/driveWrites';
 import { freeName } from '../lib/driveClipboard';
 import { documentTitle, isDocumentFolderName } from '../lib/documentNames';
-import { showToast, toast } from '../stores/toast';
+import { toast } from '../stores/toast';
 import { changeDriveRoot } from '../drive/driveRootChange';
 import { linkSubjectAt } from '../drive/linkShares';
 import { acceptedShares } from '../drive/shareLibrary';
@@ -30,9 +31,6 @@ function changeFolderTree(scope?: string): typeof changeOpenTree {
   return scope ? (write) => changeDriveRoot(scope, 'main', write) : changeOpenTree;
 }
 
-/** How long Undo stays offered after a delete. */
-const UNDO_MS = 10_000;
-
 function isProfileDriveMutation(route: EntryRoute = parseRoute()): boolean {
   return !!route.treeName && isEditableDriveRouteScope(route.npub, nostrStore.getState());
 }
@@ -43,10 +41,10 @@ function pathString(parts: string[]): string {
 
 /**
  * Moves Recent and links along with an entry of the open tree, or drops them
- * when `to` is null; resolves a function that sets them back as they were.
+ * when `to` is null, remembering the changes a deletion can undo.
  */
-function followInRecents(from: string[], to: string[] | null, route: EntryRoute = parseRoute()): () => void {
-  if (!route.npub || !route.treeName) return () => {};
+function followInRecents(from: string[], to: string[] | null, route: EntryRoute = parseRoute()) {
+  if (!route.npub || !route.treeName) return { recents: [], links: [] };
   const at = (parts: string[]) => `/${route.npub}/${route.treeName}/${pathString(parts)}`;
   const recents = moveRecents(at(from), to ? at(to) : null);
   const profile = activeNostrIdentityRootScope(nostrStore.getState());
@@ -54,10 +52,7 @@ function followInRecents(from: string[], to: string[] | null, route: EntryRoute 
   const subject = route.treeName === 'main' ? linkSubjectAt({ scope: route.npub, path: from }, profile, records) : null;
   const next = to ? linkSubjectAt({ scope: route.npub, path: to }, profile, records) : null;
   const links = subject ? followLinkShares(subject.path, next?.path ?? null, subject.share) : [];
-  return () => {
-    putBackRecents(recents);
-    putBackLinkShares(links);
-  };
+  return { recents, links };
 }
 
 /**
@@ -206,7 +201,10 @@ export async function deleteEntries(names: string[], parentPath: string[] = getC
     throw error;
   }
   if (!records.length || account !== trashAccount()) return;
-  const followers = records.map(({ entry }) => followInRecents([...parentPath, entry.name], null, route));
+  const deleted = records.map(({ id, entry }) => {
+    const original = [...parentPath, entry.name];
+    return { id, original, ...followInRecents(original, null, route) };
+  });
   const current = parseRoute();
   const open = current.path.at(-1);
   if (!albumScope && current.npub === route.npub && current.treeName === treeName && open
@@ -216,22 +214,44 @@ export async function deleteEntries(names: string[], parentPath: string[] = getC
 
   const one = records.length === 1 ? records[0]!.entry.name : null;
   const said = one ? `Deleted “${isDocumentFolderName(one) ? documentTitle(one) : one}”` : `Deleted ${records.length} items`;
-  showToast('success', said, UNDO_MS, {
-    label: 'Undo',
-    run: () => void restoreTrashItems(account, records.map(record => record.id)).then(restored => {
+  rememberDeletion(account, deleted, said, undoLastDeletion);
+}
+
+let undoQueue = Promise.resolve();
+
+/** Undo the newest outstanding deletion in this tab, one keyboard press at a time. */
+export function undoLastDeletion(): boolean {
+  const account = trashAccount();
+  if (!account || !latestDeletion(account)) return false;
+  undoQueue = undoQueue.then(async () => {
+    while (account === trashAccount()) {
+      const batch = latestDeletion(account);
+      if (!batch) break;
+      const ids = batch.map(item => item.id);
+      const restored = await restoreTrashItems(account, ids, true);
       if (account !== trashAccount()) return;
-      records.forEach(({ id, entry }, i) => {
-        if (JSON.stringify(restored.get(id)) === JSON.stringify([...parentPath, entry.name])) followers[i]!();
-      });
-    }).catch(error => toast.error(error instanceof Error ? error.message : 'Could not undo the deletion')),
+      for (const item of batch) {
+        if (JSON.stringify(restored.get(item.id)) !== JSON.stringify(item.original)) continue;
+        putBackRecents(item.recents);
+        putBackLinkShares(item.links);
+      }
+      if (restored.size) break;
+    }
+  }).catch(error => {
+    if (account === trashAccount()) toast.error(error instanceof Error ? error.message : 'Could not undo the deletion');
   });
+  return true;
 }
 
 /** Restore one selection to its original Drive, including after leaving that folder or restarting. */
-export async function restoreTrashItems(account: string, ids: string[]): Promise<Map<string, string[]>> {
+export async function restoreTrashItems(account: string, ids: string[], skipMissing = false): Promise<Map<string, string[]>> {
   const { getTrash, recoverContents, rememberDestination, forgetTrash } = await import('../lib/driveTrash');
-  const first = ids.length ? await getTrash(ids[0], account) : null;
-  if (!first) throw new Error('This item is no longer in Trash');
+  const first = (await Promise.all(ids.map(id => getTrash(id, account)))).find(Boolean);
+  if (!first) {
+    if (!skipMissing) throw new Error('This item is no longer in Trash');
+    forgetDeletionHistory(ids);
+    return new Map();
+  }
   const { scope, treeName } = first;
   requireTrashAccess(account, scope);
   const tree = getTree();
@@ -278,6 +298,7 @@ export async function restoreTrashItems(account: string, ids: string[]): Promise
     return next === root ? null : next;
   });
   await forgetTrash([...restored.keys()]);
+  forgetDeletionHistory(ids);
   return restored;
 }
 
@@ -337,11 +358,8 @@ export async function moveEntriesTo(
   const saved = await change(async root => {
     destinations.clear();
     const move = isProfileDriveMutation(started) ? moveProfileDriveEntries : moveEntriesInTree;
-    const result = await move(tree, root, parentPath, names, targetPath);
+    const result = await move(tree, root, parentPath, names, targetPath, expected);
     for (const { entry, destinationName } of result.items) {
-      if (expected && expected.get(entry.name) !== toHex(entry.cid.hash)) {
-        throw new Error(`“${documentTitle(entry.name)}” changed. Cut it again to move it.`);
-      }
       destinations.set(entry.name, destinationName);
     }
     if (expected && account !== nostrStore.getState().pubkey) throw new Error('The signed-in account changed');

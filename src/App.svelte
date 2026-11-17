@@ -16,6 +16,7 @@
   import { chooseSidebar, sidebarChoice } from './stores/sidebar';
   import { isViewingFileStore, routeStore } from './stores';
   import { isDocumentFolderName } from './lib/documentNames';
+  import { undoLastDeletion } from './actions/entry';
   import Router from './components/Router.svelte';
   import { currentPath, initRouter } from './lib/router.svelte';
   import { settingsStore } from './stores/settings';
@@ -132,10 +133,15 @@
   const desktop = new MediaQuery('min-width: 768px');
 
   function driveKey(event: KeyboardEvent) {
-    if (event.key !== '/' || event.defaultPrevented || event.altKey || event.isComposing || event.repeat) return;
+    const undo = event.key.toLowerCase() === 'z' && (event.ctrlKey || event.metaKey) && !event.shiftKey;
+    if ((!undo && event.key !== '/') || event.defaultPrevented || event.altKey || event.isComposing || event.repeat) return;
     if (event.target instanceof Element && event.target.closest('input:not([type=checkbox]), textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="grid"], [role="menu"]')) return;
     if (document.querySelector('dialog[open], [aria-modal="true"], [data-scroll-lock]')) return;
     if ($routeStore.path.some(isDocumentFolderName)) return;
+    if (undo) {
+      if (!$isViewingFileStore && document.querySelector('[data-drive-undo]') && !document.querySelector('[role="menu"]') && undoLastDeletion()) event.preventDefault();
+      return;
+    }
     event.preventDefault();
     if (event.ctrlKey || event.metaKey) shortcuts.open();
     else (desktop.current ? desktopSearch : mobileSearch).focus();

@@ -22,7 +22,7 @@ vi.mock('../src/drive/linkShareSync', () => ({ followLinkShares: () => [], putBa
 vi.mock('../src/drive/linkShares', () => ({ linkSubjectAt: () => null }));
 vi.mock('../src/drive/shareLibrary', () => ({ acceptedShares: { subscribe: (run: (items: unknown[]) => void) => { run([]); return () => {}; } } }));
 vi.mock('../src/stores/recents', () => ({ moveRecents: () => [], putBackRecents: vi.fn() }));
-vi.mock('../src/stores/toast', () => ({ showToast: state.toast, toast: { error: vi.fn() } }));
+vi.mock('../src/stores/toast', () => ({ showToast: state.toast, dismissToast: vi.fn(), toast: { error: vi.fn() } }));
 vi.mock('../src/drive/driveRootChange', () => ({
   changeDriveRoot: async (_scope: string, _tree: string, write: (root: CID) => Promise<CID | null>) => {
     const next = await write(state.root);
@@ -44,10 +44,12 @@ vi.mock('../src/lib/driveTrash', () => ({
   rememberDestination: (id: string, path: string[]) => { state.records.get(id)!.destination = path; },
 }));
 
-import { deleteEntries, restoreTrashItems } from '../src/actions/entry';
+import { setDeletionHistoryOwner } from '../src/actions/deletionHistory';
+import { deleteEntries, restoreTrashItems, undoLastDeletion } from '../src/actions/entry';
 
 describe('moving files to Trash and restoring them', () => {
   beforeEach(async () => {
+    setDeletionHistoryOwner(null);
     state.records.clear();
     state.failArchive = false;
     state.owner = 'one';
@@ -100,4 +102,30 @@ describe('moving files to Trash and restoring them', () => {
     expect(result.get(id)).toEqual(item.destination);
     expect(state.records.size).toBe(0);
   });
+
+  it('keeps only remaining items in Undo when Trash restore handles part of a batch', async () => {
+    const file = await state.tree.putFile(new Uint8Array([2]));
+    state.root = await state.tree.setEntry(state.root, ['folder'], 'next.txt', file.cid, file.size);
+    await deleteEntries(['old.txt', 'next.txt']);
+    const firstId = [...state.records.keys()][0];
+    await restoreTrashItems('one', [firstId]);
+    expect(undoLastDeletion()).toBe(true);
+    await vi.waitFor(() => expect(state.records.size).toBe(0));
+    expect(undoLastDeletion()).toBe(false);
+    expect((await state.tree.listDirectory((await state.tree.resolvePath(state.root, ['folder']))!.cid)).map(item => item.name).sort())
+      .toEqual(['next.txt', 'old.txt']);
+  });
+
+  it('drops keyboard history when leaving the account, preserving Trash for its owner', async () => {
+    await deleteEntries(['old.txt']);
+    setDeletionHistoryOwner(null);
+    state.owner = 'two';
+    setDeletionHistoryOwner('two');
+    expect(undoLastDeletion()).toBe(false);
+    state.owner = 'one';
+    setDeletionHistoryOwner('one');
+    expect(undoLastDeletion()).toBe(false);
+    expect(state.records.size).toBe(1);
+  });
+
 });

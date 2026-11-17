@@ -63,7 +63,7 @@
   }
 </script>
 
-<main class="flex-1 min-w-0 flex flex-col bg-surface-0" data-testid="trash-route">
+<main class="flex-1 min-w-0 flex flex-col bg-surface-0" data-drive-undo data-testid="trash-route">
   <header class="shrink-0 border-b border-surface-2 px-3 py-3 lg:px-5">
     <h1 class="m-0 flex items-center gap-2 text-base lg:text-xl font-medium text-text-1"><span class="i-lucide-trash-2 text-accent"></span>Trash</h1>
     <p class="mt-1 mb-0 text-sm text-text-3">Items deleted in this browser stay here for 30 days.</p>

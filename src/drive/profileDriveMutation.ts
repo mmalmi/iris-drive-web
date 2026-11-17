@@ -38,8 +38,9 @@ export async function moveProfileDriveEntries(
   sourcePath: string[],
   names: string[],
   targetPath: string[],
+  expected?: ReadonlyMap<string, string>,
 ): Promise<MoveResult> {
-  const move = await moveEntriesInTree(tree, root, sourcePath, names, targetPath);
+  const move = await moveEntriesInTree(tree, root, sourcePath, names, targetPath, expected);
   if (!move.items.length) return move;
   const deletedPaths: string[] = [];
   const roleOperations: PathKindReplacementOperation[] = [];

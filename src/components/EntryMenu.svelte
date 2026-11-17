@@ -28,14 +28,8 @@
   import { deleteEntry, makeCopy } from '../actions';
   import { open as openRenameModal } from './Modals/RenameModal.svelte';
   import { open as openMoveModal } from './Modals/MoveModal.svelte';
-  import { open as openShareModal } from './Modals/ShareModal.svelte';
+  import { copyEntryLinks, shareEntry } from './entrySharing';
   import { routeStore } from '../stores';
-  import { nostrStore } from '../nostr';
-  import { acceptedShares } from '../drive/shareLibrary';
-  import { activeNostrIdentityRootScope } from '../drive/profileRoute';
-  import { sharePeopleTarget } from '../drive/sharePeople';
-  import { linkOpening, linkShares, linkTargetAt } from '../drive/linkShares';
-  import { createDriveShareLinkVariants, entryCopyHref } from '../lib/shareUrls';
   import { documentKindInfo, documentTitle } from '../lib/documentNames';
   import { downloadFile, downloadFolderZip } from '../lib/downloadEntry';
   import { isNostrIdentityId } from '../utils/route';
@@ -59,43 +53,6 @@
   // In Drive a folder is copied where it is; trees outside it are forked from the folder's page.
   let inDrive = $derived(isNostrIdentityId(route.npub ?? ''));
 
-  /** Where it is, for sharing. */
-  let where = $derived({
-    scope: route.npub,
-    treeName: route.treeName,
-    path: [...path, entry.name],
-    profileId: activeNostrIdentityRootScope($nostrStore),
-    records: $acceptedShares,
-  });
-
-  /**
-   * As Google Drive's Copy link: the link anyone opens when it opens by link,
-   * else its address in Drive, which opens for whoever it is shared with.
-   */
-  function copyLink() {
-    const target = route.isPermalink ? null : linkTargetAt(where);
-    const link = (target && linkOpening(target, where.profileId, $acceptedShares, $linkShares))
-      ?? `${window.location.origin}${window.location.pathname}${request.href}`;
-    navigator.clipboard.writeText(link).then(
-      () => toast.success('Link copied'),
-      () => toast.error('Could not copy the link'),
-    );
-  }
-
-  function share() {
-    const here = `${window.location.origin}${window.location.pathname}`;
-    const [primary, secondary] = createDriveShareLinkVariants({
-      permalinkUrl: `${here}${entryCopyHref(entry)}`,
-      currentUrl: `${here}${request.href}`,
-      routeScope: route.npub,
-      isPermalink: route.isPermalink,
-    });
-    const people = isDir && canEdit && !route.isPermalink ? sharePeopleTarget(where) : null;
-    // A single file is not shared with people, but it can open by link.
-    const general = !isDir && !route.isPermalink ? linkTargetAt(where) : null;
-    if (primary) openShareModal(primary.url, secondary?.url ?? null, people, true, general);
-  }
-
   async function download() {
     try {
       if (isDir) await downloadFolderZip(entry.cid, entry.name);
@@ -115,13 +72,13 @@
     const href = request.href;
     const list: MenuItem[] = [
       { label: 'Open', icon: 'i-lucide-square-arrow-out-up-right', testid: 'row-menu-open', href },
-      { label: 'Share', icon: 'i-lucide-share', testid: 'row-menu-share', run: share },
-      { label: 'Copy link', icon: 'i-lucide-link', testid: 'row-menu-copy-link', run: copyLink },
+      { label: 'Share', icon: 'i-lucide-share', testid: 'row-menu-share', run: () => shareEntry(entry, href, path, canEdit) },
+      { label: 'Copy link', icon: 'i-lucide-link', testid: 'row-menu-copy-link', run: () => void copyEntryLinks([{ entry, href }], path) },
     ];
     if (canEdit) {
       list.push(
         { label: 'Rename', icon: 'i-lucide-pencil', testid: 'row-menu-rename', run: () => openRenameModal(entry.name, isDir, undefined, path) },
-        { label: 'Move', icon: 'i-lucide-folder-input', testid: 'row-menu-move', run: () => openMoveModal(entry.name, path) },
+        { label: 'Move', icon: 'i-lucide-folder-input', testid: 'row-menu-move', run: () => openMoveModal([entry], path) },
       );
       // A document's copy would share its live editing with the original, so documents have none.
       if (!documentInfo && inDrive) list.push({ label: 'Make a copy', icon: 'i-lucide-copy', testid: 'row-menu-copy', run: () => void makeCopy([...path, entry.name]) });

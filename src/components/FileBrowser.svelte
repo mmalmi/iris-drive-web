@@ -8,7 +8,9 @@
   import { cutItems, pastedCut, finishCut } from '../lib/cutClipboard';
   import { open as openRename } from './Modals/RenameModal.svelte';
   import { openNewMenuBeside } from './NewMenu.svelte';
-  import { moveAndTell } from './Modals/MoveModal.svelte';
+  import { copyEntryLinks, shareEntry } from './entrySharing';
+  import { moveSelection } from '../lib/moveEntries';
+  import { open as openMove, moveAndTell } from './Modals/MoveModal.svelte';
   import SelectionBar, { deleteChosen } from './SelectionBar.svelte';
   import ListSortHeader from './ListSortHeader.svelte';
   import { loadGridView } from './FolderViewSwitch.svelte';
@@ -200,7 +202,7 @@
   }
 
   /** The names of what is being dragged: all that is chosen when a chosen row is dragged. */
-  let dragging = $state<string[] | null>(null);
+  let dragging = $state.raw<{ folder: string; items: ReadonlyMap<string, string> } | null>(null);
   let dropTargetDir = $state<string | null>(null);
 
   function handleEntryDragStart(e: DragEvent, entry: FileEntry) {
@@ -214,9 +216,9 @@
       else data.effectAllowed = 'copy';
       return;
     }
-    dragging = selection.has(entry.name) ? selectionEntries.map((item) => item.name) : [entry.name];
+    dragging = { folder: folderKey(currentPath), items: moveSelection(selection.has(entry.name) ? selectionEntries : [entry]) };
     data.effectAllowed = 'copyMove';
-    data.setData('text/plain', dragging.join('\n'));
+    data.setData('text/plain', [...dragging.items.keys()].join('\n'));
   }
 
   function handleEntryDragEnd() {
@@ -226,9 +228,14 @@
 
   /** Moves what was dragged; what has gone is no longer chosen. */
   async function moveDragged(targetPath: string[]) {
-    const names = dragging ?? [];
+    const source = dragging;
     dragging = null;
-    if (names.length) await moveAndTell(currentPath, names, targetPath);
+    if (!source) return;
+    if (source.folder !== folderKey(currentPath)) {
+      toast.error('The open folder changed. Select the items again.');
+      return;
+    }
+    await moveAndTell(currentPath, source.items, targetPath);
   }
 
   function handleDirDragOver(e: DragEvent, dirName: string) {
@@ -242,7 +249,7 @@
       dropTargetDir = dirName;
       return;
     }
-    if (dragging.includes(dirName)) return;
+    if (dragging.items.has(dirName)) return;
     e.preventDefault();
     e.dataTransfer!.dropEffect = 'move';
     dropTargetDir = dirName;
@@ -261,7 +268,7 @@
       return;
     }
 
-    if (!canEdit || dragging.includes(dirName)) return;
+    if (!canEdit || dragging.items.has(dirName)) return;
     await moveDragged([...currentPath, dirName]);
   }
 
@@ -376,7 +383,7 @@
           return;
         }
         const expected = new Map(cut.entries.map(entry => [entry.name, entry.hash]));
-        void moveAndTell(cut.path, [...expected.keys()], currentPath, expected)
+        void moveAndTell(cut.path, expected, currentPath)
           .then(moved => { if (moved) finishCut(cut.token); });
         return;
       }
@@ -581,11 +588,30 @@
   });
 
   function handleKeyDown(e: KeyboardEvent) {
+    if (e.defaultPrevented || e.isComposing) return;
+    if (e.target instanceof Element && e.target.closest('textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"]')) return;
     const key = e.key.toLowerCase();
     // Space belongs to the checkbox. File actions also work after selecting by checkbox.
     if (e.target instanceof HTMLInputElement && (e.target.type !== 'checkbox' || key === ' ')) return;
 
-    if ((e.ctrlKey || e.metaKey) && key === 'a') {
+    if ((e.ctrlKey || e.metaKey) && e.altKey && !e.shiftKey && !e.getModifierState('AltGraph')) {
+      // On Mac, Option can change the letter itself (for example, Option+M is µ).
+      const action = /^[a-z]$/.test(key) ? key : e.code.replace(/^Key/, '').toLowerCase();
+      if (!['a', 'l', 'm'].includes(action)) return;
+      const focused = chosenEntry();
+      const items = selectionEntries.length ? selectionEntries : focused ? [focused] : [];
+      if (!items.length) return;
+      e.preventDefault();
+      if (action === 'l') void copyEntryLinks(items.map(entry => ({ entry, href: entryHref(entry) })), currentPath);
+      if (action === 'm' && canEdit) openMove(items, currentPath, () => fileListRef?.focus());
+      if (action === 'a') {
+        if (items.length === 1) shareEntry(items[0], entryHref(items[0]), currentPath, canEdit);
+        else toast.info('Select one item to share');
+      }
+      return;
+    }
+
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && key === 'a') {
       e.preventDefault();
       selection.selectAll(entries.map((entry) => entry.name));
       return;
@@ -615,7 +641,8 @@
       return;
     }
 
-    if ((key === 'delete' || key === 'backspace') && canEdit) {
+    const hashDelete = key === '#' && !e.metaKey && (!e.ctrlKey || e.getModifierState('AltGraph'));
+    if ((key === 'delete' || key === 'backspace' || hashDelete) && canEdit) {
       if (selecting) {
         e.preventDefault();
         void deleteChosen(selectionEntries, () => clearSelection());
@@ -705,6 +732,7 @@
 
     <div
       bind:this={fileListRef}
+      data-drive-undo
       data-testid="file-list"
       data-scroll-root
       data-layout={grid ? 'grid' : 'list'}
@@ -753,7 +781,7 @@
             <!-- svelte-ignore a11y_no_static_element_interactions -->
             <div
               class:folder-tile={grid && isFolder}
-              class="group relative flex items-center {grid ? 'rounded-xl' : 'border-b border-surface-2 sm:grid sm:grid-cols-[minmax(0,1fr)_var(--folder-actions-width)]'} {checked ? 'bg-accent/20 hover:bg-accent/25' : menuOpen ? 'bg-surface-2/70' : `hover:bg-surface-2/50 ${grid ? 'bg-surface-1' : ''}`} {cursor === entry.name && !checked ? 'ring-2 ring-inset ring-accent' : ''} {recentlyChanged.has(entry.name) && !checked ? 'animate-pulse-live' : ''} {dragging?.includes(entry.name) ? 'opacity-50' : ''} {dropTargetDir === entry.name ? 'bg-accent/20 ring-2 ring-inset ring-accent' : ''}"
+              class="group relative flex items-center {grid ? 'rounded-xl' : 'border-b border-surface-2 sm:grid sm:grid-cols-[minmax(0,1fr)_var(--folder-actions-width)]'} {checked ? 'bg-accent/20 hover:bg-accent/25' : menuOpen ? 'bg-surface-2/70' : `hover:bg-surface-2/50 ${grid ? 'bg-surface-1' : ''}`} {cursor === entry.name && !checked ? 'ring-2 ring-inset ring-accent' : ''} {recentlyChanged.has(entry.name) && !checked ? 'animate-pulse-live' : ''} {dragging?.items.has(entry.name) ? 'opacity-50' : ''} {dropTargetDir === entry.name ? 'bg-accent/20 ring-2 ring-inset ring-accent' : ''}"
               data-testid="file-row"
               data-entry-name={entry.name}
               data-changed={recentlyChanged.has(entry.name) ? '' : undefined}

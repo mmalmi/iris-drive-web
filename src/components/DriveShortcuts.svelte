@@ -1,6 +1,7 @@
 <script lang="ts">
   let dialog: HTMLDialogElement;
   const mod = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl';
+  const action = mod === '⌘' ? '⌘ + Option' : 'Ctrl + Alt';
   const rows = [
     ['Search Drive', '/'],
     ['Show keyboard shortcuts', mod + ' + /'],
@@ -12,10 +13,14 @@
     ['Open', 'Enter'],
     ['Open in new tab', mod + ' + Enter'],
     ['Rename', 'F2'],
+    ['Copy link', action + ' + L'],
+    ['Move', action + ' + M'],
+    ['Share', action + ' + A'],
     ['Copy', mod + ' + C'],
     ['Cut', mod + ' + X'],
     ['Paste', mod + ' + V'],
-    ['Delete', 'Delete / Backspace'],
+    ['Delete', 'Delete / Backspace / #'],
+    ['Undo deletion', mod + ' + Z'],
     ['More actions', 'Shift + F10'],
     ['Clear selection', 'Esc'],
   ];

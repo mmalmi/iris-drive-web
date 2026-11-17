@@ -1,11 +1,16 @@
-import { LinkType, type CID, type HashTree, type TreeEntry } from '@hashtree/core';
+import { LinkType, toHex, type CID, type HashTree, type TreeEntry } from '@hashtree/core';
 
 import { freeName } from './driveClipboard';
-import { isDocumentFolderName } from './documentNames';
+import { documentTitle, isDocumentFolderName } from './documentNames';
 
 export interface MoveResult {
   root: CID;
   items: { entry: TreeEntry; destinationName: string }[];
+}
+
+/** Remember the versions shown when the move starts. */
+export function moveSelection(entries: readonly Pick<TreeEntry, 'name' | 'cid'>[]): Map<string, string> {
+  return new Map(entries.map(entry => [entry.name, toHex(entry.cid.hash)]));
 }
 
 const startsWith = (path: string[], prefix: string[]) => prefix.every((part, index) => path[index] === part);
@@ -17,6 +22,7 @@ export async function moveEntriesInTree(
   sourcePath: string[],
   names: string[],
   targetPath: string[],
+  expected?: ReadonlyMap<string, string>,
 ): Promise<MoveResult> {
   const chosen = new Set(names);
   if (!chosen.size) return { root, items: [] };
@@ -54,6 +60,9 @@ export async function moveEntriesInTree(
   for (const name of chosen) {
     const entry = available.get(name);
     if (!entry) throw new Error(`“${name}” is no longer there`);
+    if (expected && expected.get(name) !== toHex(entry.cid.hash)) {
+      throw new Error(`“${documentTitle(name)}” changed. Select it again to move it.`);
+    }
     const destinationName = taken.has(name)
       ? freeName(name, reserved, entry.type !== LinkType.Dir || isDocumentFolderName(name))
       : name;

@@ -28,19 +28,20 @@ const items: Table<TrashItem, string> = db.table('items');
 const blocks: Table<Block, string> = db.table('blocks');
 const refs: Table<{ item: string; hash: string }, [string, string]> = db.table('refs');
 const channel = typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel('iris-drive-trash');
-const changed = new EventTarget();
+const listeners = new Set<(removedIds: string[]) => void>();
 
-function notify(): void {
-  changed.dispatchEvent(new Event('change'));
-  channel?.postMessage(null);
+function changed(removedIds: string[]): void {
+  for (const run of listeners) run(removedIds);
 }
-export function watchTrash(run: () => void): () => void {
-  changed.addEventListener('change', run);
-  channel?.addEventListener('message', run);
-  return () => {
-    changed.removeEventListener('change', run);
-    channel?.removeEventListener('message', run);
-  };
+if (channel) channel.onmessage = event => changed(Array.isArray(event.data) ? event.data : []);
+
+function notify(removedIds: string[] = []): void {
+  changed(removedIds);
+  channel?.postMessage(removedIds);
+}
+export function watchTrash(run: (removedIds: string[]) => void): () => void {
+  listeners.add(run);
+  return () => { listeners.delete(run); };
 }
 
 export async function listTrash(account: string): Promise<TrashItem[]> {
@@ -60,7 +61,7 @@ export async function forgetTrash(ids: string[]): Promise<void> {
     await blocks.bulkDelete([...affected]);
     await items.bulkDelete(ids);
   });
-  notify();
+  notify(ids);
 }
 
 export async function expireTrash(): Promise<void> {

@@ -86,7 +86,7 @@ describe('saving a bulk move', () => {
   it('leaves the whole cut selection in place when an item has changed since it was cut', async () => {
     const before = state.root;
     const expected = new Map([['a.txt', 'old-content'], ['b.txt', 'old-content']]);
-    await expect(moveEntriesTo([], [...expected.keys()], ['Target'], expected)).rejects.toThrow('Cut it again');
+    await expect(moveEntriesTo([], [...expected.keys()], ['Target'], expected)).rejects.toThrow('Select it again');
     expect(state.root).toBe(before);
     expect(state.save).not.toHaveBeenCalled();
     expect(state.recents).not.toHaveBeenCalled();
