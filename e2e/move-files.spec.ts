@@ -66,6 +66,10 @@ test.describe('moving files and folders', () => {
     await prepareFreshSession(page, relayUrl);
     await createDriveProfile(page, 'Mover');
     await makeFolder(page, 'Archive');
+    await openFolder(page, 'Archive');
+    await makeFolder(page, 'Inbox');
+    await page.getByRole('navigation', { name: 'Folder path' }).getByRole('link', { name: 'My Drive' }).click();
+    await expect(row(page, 'Archive')).toBeVisible();
     await makeFolder(page, 'Inbox');
     await openFolder(page, 'Inbox');
     await page.getByTestId('upload-files-input').setInputFiles({ name: 'note.txt', mimeType: 'text/plain', buffer: Buffer.from('Inside') });
@@ -78,11 +82,11 @@ test.describe('moving files and folders', () => {
     await dialog.getByTestId('move-folder').click();
     await dialog.getByTestId('move-confirm').click();
 
-    await expect(page).toHaveURL(/\/main\/Archive\/Inbox$/, { timeout: 30_000 });
+    await expect(page).toHaveURL(/\/main\/Archive\/Inbox(?:%20| )\(2\)$/, { timeout: 30_000 });
     await expect(row(page, 'note.txt')).toBeVisible({ timeout: 30_000 });
   });
 
-  test('a file dragged onto a folder moves into it, unless something there has its name', async ({ page, relayUrl }) => {
+  test('a dragged file gets a free name when its destination already contains that name', async ({ page, relayUrl }) => {
     await prepareFreshSession(page, relayUrl);
     await createDriveProfile(page, 'Mover');
     await makeFolder(page, 'Archive');
@@ -99,7 +103,49 @@ test.describe('moving files and folders', () => {
 
     await upload();
     await row(page, 'plan.txt').dragTo(archive);
-    await expect(page.getByText('There is already something called “plan.txt” there')).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText('Moved plan.txt to Archive · “plan.txt” is now “plan (2).txt”')).toBeVisible();
+    await expect(row(page, 'plan.txt')).toHaveCount(0);
+    await openFolder(page, 'Archive');
     await expect(row(page, 'plan.txt')).toBeVisible();
+    await expect(row(page, 'plan (2).txt')).toBeVisible();
+  });
+
+  test('a dragged selection moves together and keeps both versions of a conflicting file', async ({ page, relayUrl }) => {
+    await prepareFreshSession(page, relayUrl);
+    await createDriveProfile(page, 'Mover');
+    await makeFolder(page, 'Archive');
+    const names = ['a.txt', 'b.txt', 'c.txt'];
+    await page.getByTestId('upload-files-input').setInputFiles(names.map(name => ({
+      name, mimeType: 'text/plain', buffer: Buffer.from('original contents of ' + name),
+    })));
+    for (const name of names) await page.getByRole('checkbox', { name: `Select ${name}`, exact: true }).check();
+    const archive = page.locator('[data-testid="file-row"][data-entry-name="Archive"]');
+    await row(page, 'b.txt').dragTo(archive);
+    await expect(page.getByText('Moved 3 items to Archive')).toBeVisible();
+    for (const name of names) await expect(row(page, name)).toHaveCount(0);
+    await expect(page.getByTestId('selection-bar')).toBeHidden();
+    await openFolder(page, 'Archive');
+    for (const name of names) await expect(row(page, name)).toBeVisible();
+    await page.screenshot({ path: test.info().outputPath('bulk-move-destination.png') });
+    await page.getByRole('navigation', { name: 'Folder path' }).getByRole('link', { name: 'My Drive' }).click();
+    await expect(archive).toBeVisible();
+
+    const incoming = ['0-free.txt', 'b.txt'];
+    await page.getByTestId('upload-files-input').setInputFiles(incoming.map(name => ({
+      name, mimeType: 'text/plain', buffer: Buffer.from('new contents'),
+    })));
+    for (const name of incoming) await page.getByRole('checkbox', { name: `Select ${name}`, exact: true }).check();
+    await row(page, '0-free.txt').dragTo(archive);
+    await expect(page.getByText('Moved 2 items to Archive · “b.txt” is now “b (2).txt”')).toBeVisible();
+    for (const name of incoming) await expect(row(page, name)).toHaveCount(0);
+    await openFolder(page, 'Archive');
+    await page.reload();
+    for (const name of [...names, '0-free.txt', 'b (2).txt']) await expect(row(page, name)).toBeVisible();
+    await page.screenshot({ path: test.info().outputPath('bulk-move-conflict.png') });
+    await openListedFile(page, 'b (2).txt');
+    await expect(page.getByText('new contents', { exact: true })).toBeVisible();
+    await page.getByTestId('viewer-back').click();
+    await openListedFile(page, 'b.txt');
+    await expect(page.getByText('original contents of b.txt', { exact: true })).toBeVisible();
   });
 });

@@ -4,7 +4,7 @@
    * folder: go through its folders and choose where.
    */
   import { get } from 'svelte/store';
-  import { moveEntryTo } from '../../actions';
+  import { moveEntriesTo } from '../../actions';
   import { nostrStore } from '../../nostr';
   import { acceptedShares } from '../../drive/shareLibrary';
   import { activeNostrIdentityRootScope } from '../../drive/profileRoute';
@@ -43,25 +43,24 @@
 
   /**
    * Moves items from the folder at `parentPath` into the one at
-   * `targetPath`, one at a time from the latest Drive, and says how it went:
+   * `targetPath`, together from the latest Drive, and says how it went:
    * for this dialog and for dragging. Resolves whether all of them moved.
    */
-  export async function moveAndTell(parentPath: string[], itemNames: string | string[], targetPath: string[]): Promise<boolean> {
+  export async function moveAndTell(parentPath: string[], itemNames: string | string[], targetPath: string[], expected?: ReadonlyMap<string, string>): Promise<boolean> {
     const all = typeof itemNames === 'string' ? [itemNames] : itemNames;
-    let moved = 0;
-    let failure: string | null = null;
-    for (const itemName of all) {
-      try {
-        // It takes its turn with the page's other changes itself.
-        await moveEntryTo(parentPath, itemName, targetPath);
-        moved += 1;
-      } catch (error) {
-        failure ??= error instanceof Error ? error.message : `Could not move ${itemName}`;
-      }
+    if (!all.length) return true;
+    try {
+      const destinations = await moveEntriesTo(parentPath, all, targetPath, expected);
+      const renamed = [...destinations].filter(([source, destination]) => source !== destination);
+      const subject = destinations.size === 1 ? all[0] : `${destinations.size} items`;
+      const detail = renamed.length === 1 ? ` · “${renamed[0][0]}” is now “${renamed[0][1]}”`
+        : renamed.length > 1 ? ` · ${renamed.length} renamed to keep both versions` : '';
+      toast.success(`Moved ${subject} to ${folderName(targetPath)}${detail}`);
+      return true;
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not move the selected items');
+      return false;
     }
-    if (moved > 0) toast.success(`Moved ${all.length === 1 ? all[0] : `${moved} items`} to ${folderName(targetPath)}`);
-    if (failure) toast.error(failure);
-    return moved === all.length;
   }
 </script>
 

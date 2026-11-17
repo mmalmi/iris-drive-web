@@ -12,6 +12,7 @@ import {
   replacePathKindReplacements,
   type PathKindReplacementOperation,
 } from './profileDrivePathKindMetadata';
+import { moveEntriesInTree, type MoveResult } from '../lib/moveEntries';
 
 const META_DIRECTORY = '.hashtree';
 const TOMBSTONE_DIRECTORY = 'tombstones';
@@ -28,6 +29,28 @@ export type ProfileDriveMutation =
 export interface ProfileDriveMutationOptions {
   recordTombstones?: boolean;
   tombstonedAt?: number;
+}
+
+/** Move a selection together, recording its deletion barriers in one metadata update. */
+export async function moveProfileDriveEntries(
+  tree: HashTree,
+  root: CID,
+  sourcePath: string[],
+  names: string[],
+  targetPath: string[],
+): Promise<MoveResult> {
+  const move = await moveEntriesInTree(tree, root, sourcePath, names, targetPath);
+  if (!move.items.length) return move;
+  const deletedPaths: string[] = [];
+  const roleOperations: PathKindReplacementOperation[] = [];
+  for (const { entry, destinationName } of move.items) {
+    const from = [...sourcePath, entry.name];
+    for (const path of await visibleEntryPathsUnder(tree, entry, from)) deletedPaths.push(path);
+    roleOperations.push({ op: 'clear', path: from.join('/') });
+    roleOperations.push({ op: 'clear', path: [...targetPath, destinationName].join('/') });
+  }
+  const updated = await updateMutationMetadata(tree, move.root, { add: deletedPaths, replacementPaths: [], roleOperations });
+  return { root: updated, items: move.items };
 }
 
 /**
@@ -471,6 +494,11 @@ async function visiblePathsUnder(
   if (targetParts[0] === META_DIRECTORY) return [];
   const entry = await resolveEntry(tree, root, targetParts);
   if (!entry) return [];
+  return visibleEntryPathsUnder(tree, entry, targetParts);
+}
+
+async function visibleEntryPathsUnder(tree: HashTree, entry: TreeEntry, targetParts: string[]): Promise<string[]> {
+  if (targetParts[0] === META_DIRECTORY) return [];
   const targetPath = targetParts.join('/');
   if (entry.type !== LinkType.Dir) return [targetPath];
 

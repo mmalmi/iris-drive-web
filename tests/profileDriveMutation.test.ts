@@ -6,6 +6,7 @@ import {
   type CID,
 } from '@hashtree/core';
 import {
+  moveProfileDriveEntries,
   mutateProfileDriveRoot,
   prepareProfileDriveRootForPublish,
 } from '../src/drive/profileDriveMutation';
@@ -46,6 +47,38 @@ async function tombstoneTimestamps(tree: HashTree, root: CID): Promise<Map<strin
 }
 
 describe('profile Drive production mutations', () => {
+  it('records a bulk move in one generation, including folder contents and retained deletions', async () => {
+    const tree = new HashTree({ store: new MemoryStore() });
+    let root = await rootWithFiles(tree, {
+      'Source/first.txt': 'first',
+      'Source/Folder/child.txt': 'child',
+      'Target/kept.txt': 'kept',
+      'removed.txt': 'gone',
+    });
+    root = await mutateProfileDriveRoot(tree, root, { type: 'delete', path: 'removed.txt' });
+    root = await prepareProfileDriveRootForPublish(tree, root);
+    const previous = (await tombstoneTimestamps(tree, root)).get('removed.txt')!;
+    const { root: moved } = await moveProfileDriveEntries(tree, root, ['Source'], ['first.txt', 'Folder'], ['Target']);
+    const prepared = await prepareProfileDriveRootForPublish(tree, moved, root);
+    const markers = await tombstoneTimestamps(tree, prepared);
+
+    expect([...markers.keys()].sort()).toEqual(['Source/Folder', 'Source/Folder/child.txt', 'Source/first.txt', 'removed.txt']);
+    expect(markers.get('removed.txt')).toBe(previous);
+    const generation = markers.get('Source/first.txt')!;
+    expect(generation).toBeGreaterThan(previous);
+    expect(markers.get('Source/Folder')).toBe(generation);
+    expect(markers.get('Source/Folder/child.txt')).toBe(generation);
+    expect(await tree.resolvePath(prepared, ['Source', 'first.txt'])).toBeNull();
+    expect(await tree.resolvePath(prepared, ['Source', 'Folder'])).toBeNull();
+    for (const [from, to] of [
+      ['Source/first.txt', 'Target/first.txt'],
+      ['Source/Folder/child.txt', 'Target/Folder/child.txt'],
+      ['Target/kept.txt', 'Target/kept.txt'],
+    ]) {
+      expect((await tree.resolvePath(prepared, to!))?.cid).toEqual((await tree.resolvePath(root, from!))?.cid);
+    }
+  });
+
   it('authors tombstones for delete, rename, and move source paths', async () => {
     const tree = new HashTree({ store: new MemoryStore() });
     let root = await rootWithFiles(tree, {

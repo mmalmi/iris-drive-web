@@ -33,9 +33,9 @@ export function pasteStamp(date = new Date()): string {
 }
 
 /** `name`, or `name (2)`, `name (3)`… when that is taken. */
-export function freeName(name: string, taken: ReadonlySet<string>): string {
+export function freeName(name: string, taken: ReadonlySet<string>, preserveExtension = true): string {
   if (!taken.has(name)) return name;
-  const dot = name.lastIndexOf('.');
+  const dot = preserveExtension ? name.lastIndexOf('.') : -1;
   const stem = dot > 0 ? name.slice(0, dot) : name;
   const ext = dot > 0 ? name.slice(dot) : '';
   for (let n = 2; ; n += 1) {

@@ -9,7 +9,8 @@ import { LinkType, type CID, type HashTree, type TreeEntry } from '@hashtree/cor
 import { getCurrentRootCid, getCurrentPathFromUrl, buildRouteUrl, updateRoute } from './route';
 import { activeNostrIdentityRootScope, isEditableDriveRouteScope } from '../drive/profileRoute';
 import { followLinkShares, putBackLinkShares } from '../drive/linkShareSync';
-import { mutateProfileDriveRoot } from '../drive/profileDriveMutation';
+import { moveProfileDriveEntries, mutateProfileDriveRoot } from '../drive/profileDriveMutation';
+import { moveEntriesInTree } from '../lib/moveEntries';
 import { setEntryForDriveRoute } from '../drive/profileDriveRouteEntry';
 import { moveRecents, putBackRecents } from '../stores/recents';
 import { inTurn } from '../lib/driveWrites';
@@ -100,18 +101,6 @@ function removeIn(root: CID, parentPath: string[], name: string, route: EntryRou
   return isProfileDriveMutation(route)
     ? mutateProfileDriveRoot(tree, root, { type: 'delete', path: pathString([...parentPath, name]) })
     : tree.removeEntry(root, parentPath, name);
-}
-
-/** Moves an entry of `root` from the folder at `parentPath` into the folder at `targetPath`. */
-function moveIn(root: CID, parentPath: string[], name: string, targetPath: string[]): Promise<CID> {
-  const tree = getTree();
-  return isProfileDriveMutation()
-    ? mutateProfileDriveRoot(tree, root, {
-      type: 'rename',
-      from: pathString([...parentPath, name]),
-      to: pathString([...targetPath, name]),
-    })
-    : tree.moveEntry(root, parentPath, name, targetPath);
 }
 
 // Rename entry
@@ -268,27 +257,36 @@ export async function renameCurrentFolder(newName: string, folder?: FolderLocati
 }
 
 /**
- * Move an entry of the open tree from the folder at `parentPath` into the
- * folder at `targetPath`. What was open inside it stays open where it went.
+ * Move a selection in one queued change and save. What was open inside it
+ * stays open under its final name.
  */
-export async function moveEntryTo(parentPath: string[], name: string, targetPath: string[]): Promise<void> {
+export async function moveEntriesTo(parentPath: string[], names: string[], targetPath: string[]): Promise<Map<string, string>> {
+  const destinations = new Map<string, string>();
+  if (!names.length) return destinations;
+  const started = parseRoute();
   const tree = getTree();
-  const moved = await changeOpenTree(async (root) => {
-    const target = targetPath.length === 0
-      ? { cid: root, type: LinkType.Dir }
-      : await tree.resolvePath(root, pathString(targetPath));
-    if (target?.type !== LinkType.Dir) throw new Error('That folder is no longer there');
-    if ((await tree.listDirectory(target.cid)).some((entry) => entry.name === name)) {
-      throw new Error(`There is already something called “${name}” there`);
-    }
-    return moveIn(root, parentPath, name, targetPath);
+  const saved = await changeOpenTree(async root => {
+    const move = isProfileDriveMutation(started) ? moveProfileDriveEntries : moveEntriesInTree;
+    const result = await move(tree, root, parentPath, names, targetPath);
+    for (const { entry, destinationName } of result.items) destinations.set(entry.name, destinationName);
+    return result.root;
   });
-  if (!moved) throw new Error('Nothing is open');
-  const from = [...parentPath, name];
-  followInRecents(from, [...targetPath, name]);
+  if (!saved) throw new Error('Nothing is open');
+  for (const [name, destination] of destinations) {
+    followInRecents([...parentPath, name], [...targetPath, destination], started);
+  }
 
   const route = parseRoute();
-  if (from.every((part, index) => route.path[index] === part)) {
-    navigate(buildRouteUrl(route.npub, route.treeName, [...targetPath, name, ...route.path.slice(from.length)], undefined, route.params.get('k')));
+  const destination = destinations.get(route.path[parentPath.length]);
+  if (destination && route.npub === started.npub && route.treeName === started.treeName
+      && parentPath.every((part, i) => route.path[i] === part)) {
+    const path = [...targetPath, destination, ...route.path.slice(parentPath.length + 1)];
+    navigate(buildRouteUrl(route.npub, route.treeName, path, undefined, route.params.get('k')));
   }
+  return destinations;
+}
+
+/** Move one entry using the same validation and save as a selection. */
+export async function moveEntryTo(parentPath: string[], name: string, targetPath: string[]): Promise<void> {
+  await moveEntriesTo(parentPath, [name], targetPath);
 }
