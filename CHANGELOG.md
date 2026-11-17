@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.31 - 2026-11-17
+
+- Reveal text, pictures and shapes on click. Select several objects to reveal them together. PowerPoint import and export preserve supported Appear effects.
+- Adjust fill opacity and keep transparent PowerPoint overlays when importing and exporting slides.
+- Follow the destination link after moving files. Drive checks the selected versions before moving them.
+
 ## 0.1.30 - 2026-11-17
 
 - Restore deleted files and folders from Trash for 30 days in the browser where you deleted them. Use Ctrl+Z or ⌘Z in the file list to undo a deletion.
