@@ -47,7 +47,7 @@
 
   function move(e: MouseEvent) {
     const button = e.currentTarget as HTMLElement;
-    openMoveModal(entries.map((entry) => entry.name), path, () => {
+    openMoveModal(entries, path, () => {
       // Back to the button, or to the list once what was chosen has gone.
       (button.isConnected ? button : list)?.focus();
     });

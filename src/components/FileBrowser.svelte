@@ -9,6 +9,7 @@
   import { open as openRename } from './Modals/RenameModal.svelte';
   import { openNewMenuBeside } from './NewMenu.svelte';
   import { copyEntryLinks, shareEntry } from './entrySharing';
+  import { moveSelection } from '../lib/moveEntries';
   import { open as openMove, moveAndTell } from './Modals/MoveModal.svelte';
   import SelectionBar, { deleteChosen } from './SelectionBar.svelte';
   import ListSortHeader from './ListSortHeader.svelte';
@@ -201,7 +202,7 @@
   }
 
   /** The names of what is being dragged: all that is chosen when a chosen row is dragged. */
-  let dragging = $state<string[] | null>(null);
+  let dragging = $state.raw<{ folder: string; items: ReadonlyMap<string, string> } | null>(null);
   let dropTargetDir = $state<string | null>(null);
 
   function handleEntryDragStart(e: DragEvent, entry: FileEntry) {
@@ -215,9 +216,9 @@
       else data.effectAllowed = 'copy';
       return;
     }
-    dragging = selection.has(entry.name) ? selectionEntries.map((item) => item.name) : [entry.name];
+    dragging = { folder: folderKey(currentPath), items: moveSelection(selection.has(entry.name) ? selectionEntries : [entry]) };
     data.effectAllowed = 'copyMove';
-    data.setData('text/plain', dragging.join('\n'));
+    data.setData('text/plain', [...dragging.items.keys()].join('\n'));
   }
 
   function handleEntryDragEnd() {
@@ -227,9 +228,14 @@
 
   /** Moves what was dragged; what has gone is no longer chosen. */
   async function moveDragged(targetPath: string[]) {
-    const names = dragging ?? [];
+    const source = dragging;
     dragging = null;
-    if (names.length) await moveAndTell(currentPath, names, targetPath);
+    if (!source) return;
+    if (source.folder !== folderKey(currentPath)) {
+      toast.error('The open folder changed. Select the items again.');
+      return;
+    }
+    await moveAndTell(currentPath, source.items, targetPath);
   }
 
   function handleDirDragOver(e: DragEvent, dirName: string) {
@@ -243,7 +249,7 @@
       dropTargetDir = dirName;
       return;
     }
-    if (dragging.includes(dirName)) return;
+    if (dragging.items.has(dirName)) return;
     e.preventDefault();
     e.dataTransfer!.dropEffect = 'move';
     dropTargetDir = dirName;
@@ -262,7 +268,7 @@
       return;
     }
 
-    if (!canEdit || dragging.includes(dirName)) return;
+    if (!canEdit || dragging.items.has(dirName)) return;
     await moveDragged([...currentPath, dirName]);
   }
 
@@ -377,7 +383,7 @@
           return;
         }
         const expected = new Map(cut.entries.map(entry => [entry.name, entry.hash]));
-        void moveAndTell(cut.path, [...expected.keys()], currentPath, expected)
+        void moveAndTell(cut.path, expected, currentPath)
           .then(moved => { if (moved) finishCut(cut.token); });
         return;
       }
@@ -597,7 +603,7 @@
       if (!items.length) return;
       e.preventDefault();
       if (action === 'l') void copyEntryLinks(items.map(entry => ({ entry, href: entryHref(entry) })), currentPath);
-      if (action === 'm' && canEdit) openMove(items.map(entry => entry.name), currentPath, () => fileListRef?.focus());
+      if (action === 'm' && canEdit) openMove(items, currentPath, () => fileListRef?.focus());
       if (action === 'a') {
         if (items.length === 1) shareEntry(items[0], entryHref(items[0]), currentPath, canEdit);
         else toast.info('Select one item to share');
@@ -775,7 +781,7 @@
             <!-- svelte-ignore a11y_no_static_element_interactions -->
             <div
               class:folder-tile={grid && isFolder}
-              class="group relative flex items-center {grid ? 'rounded-xl' : 'border-b border-surface-2 sm:grid sm:grid-cols-[minmax(0,1fr)_var(--folder-actions-width)]'} {checked ? 'bg-accent/20 hover:bg-accent/25' : menuOpen ? 'bg-surface-2/70' : `hover:bg-surface-2/50 ${grid ? 'bg-surface-1' : ''}`} {cursor === entry.name && !checked ? 'ring-2 ring-inset ring-accent' : ''} {recentlyChanged.has(entry.name) && !checked ? 'animate-pulse-live' : ''} {dragging?.includes(entry.name) ? 'opacity-50' : ''} {dropTargetDir === entry.name ? 'bg-accent/20 ring-2 ring-inset ring-accent' : ''}"
+              class="group relative flex items-center {grid ? 'rounded-xl' : 'border-b border-surface-2 sm:grid sm:grid-cols-[minmax(0,1fr)_var(--folder-actions-width)]'} {checked ? 'bg-accent/20 hover:bg-accent/25' : menuOpen ? 'bg-surface-2/70' : `hover:bg-surface-2/50 ${grid ? 'bg-surface-1' : ''}`} {cursor === entry.name && !checked ? 'ring-2 ring-inset ring-accent' : ''} {recentlyChanged.has(entry.name) && !checked ? 'animate-pulse-live' : ''} {dragging?.items.has(entry.name) ? 'opacity-50' : ''} {dropTargetDir === entry.name ? 'bg-accent/20 ring-2 ring-inset ring-accent' : ''}"
               data-testid="file-row"
               data-entry-name={entry.name}
               data-changed={recentlyChanged.has(entry.name) ? '' : undefined}

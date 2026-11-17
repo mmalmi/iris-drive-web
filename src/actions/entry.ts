@@ -358,11 +358,8 @@ export async function moveEntriesTo(
   const saved = await change(async root => {
     destinations.clear();
     const move = isProfileDriveMutation(started) ? moveProfileDriveEntries : moveEntriesInTree;
-    const result = await move(tree, root, parentPath, names, targetPath);
+    const result = await move(tree, root, parentPath, names, targetPath, expected);
     for (const { entry, destinationName } of result.items) {
-      if (expected && expected.get(entry.name) !== toHex(entry.cid.hash)) {
-        throw new Error(`“${documentTitle(entry.name)}” changed. Cut it again to move it.`);
-      }
       destinations.set(entry.name, destinationName);
     }
     if (expected && account !== nostrStore.getState().pubkey) throw new Error('The signed-in account changed');

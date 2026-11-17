@@ -387,7 +387,7 @@
       items.push(
         { label: 'Keep a copy on a server', icon: 'i-lucide-upload-cloud', testid: 'viewer-push', run: () => openBlossomPushModal(current.cid, current.name, false, routeNpub ? (npubToPubkey(routeNpub) ?? undefined) : undefined, routeTreeName ?? undefined) },
         { label: 'Rename', icon: 'i-lucide-pencil', testid: 'viewer-rename', run: () => openRenameModal(current.name) },
-        { label: 'Move', icon: 'i-lucide-folder-input', testid: 'viewer-move', run: () => openMoveModal(current.name, routePath.slice(0, -1)) },
+        { label: 'Move', icon: 'i-lucide-folder-input', testid: 'viewer-move', run: () => openMoveModal([current], routePath.slice(0, -1)) },
         { label: 'Delete', icon: 'i-lucide-trash-2', testid: 'viewer-delete', run: handleDelete, danger: true },
       );
     }
