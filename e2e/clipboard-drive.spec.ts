@@ -268,8 +268,9 @@ test.describe('moving a cut selection', () => {
     await addFiles(page, [text('a.txt', 'original')]);
     const destUrl = page.url();
     await page.goto(home);
+    await expect(row(page, 'Target')).toBeVisible();
     await row(page, 'a.txt').click();
-    await row(page, 'b.txt').click({ modifiers: ['ControlOrMeta'] });
+    await page.getByRole('checkbox', { name: 'Select b.txt' }).check();
     await expect(page.getByTestId('selection-count')).toHaveText('2 selected');
     await page.keyboard.press('ControlOrMeta+x');
     await expect(page.getByText('Cut 2 items')).toBeVisible();

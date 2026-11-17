@@ -330,13 +330,18 @@
   function belongsElsewhere(event: ClipboardEvent): boolean {
     if (event.defaultPrevented) return true;
     const target = event.target instanceof Element ? event.target : null;
-    if (target?.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="dialog"]')) return true;
+    const rowCheckbox = target instanceof HTMLInputElement && target.type === 'checkbox' && fileListRef?.contains(target);
+    if (!rowCheckbox && target?.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="dialog"]')) return true;
     // The app's dialogs cover the page with a fixed layer.
     return !!document.querySelector('dialog[open], [aria-modal="true"], .fixed.inset-0');
   }
 
   /** The entry a copy, Enter or the menu key is about: the one the keyboard is on, or the only one chosen. */
   function chosenEntry(): FileEntry | null {
+    const focused = document.activeElement;
+    const row = focused && fileListRef?.contains(focused) ? focused.closest('[data-entry-name]') : null;
+    const name = row?.getAttribute('data-entry-name');
+    if (name) return entries.find(entry => entry.name === name) ?? null;
     return entries[cursorIndex] ?? (selectionEntries.length === 1 ? selectionEntries[0] : null);
   }
 
@@ -577,8 +582,8 @@
 
   function handleKeyDown(e: KeyboardEvent) {
     const key = e.key.toLowerCase();
-    // A row's checkbox takes its own keys.
-    if (e.target instanceof HTMLInputElement) return;
+    // Space belongs to the checkbox. File actions also work after selecting by checkbox.
+    if (e.target instanceof HTMLInputElement && (e.target.type !== 'checkbox' || key === ' ')) return;
 
     if ((e.ctrlKey || e.metaKey) && key === 'a') {
       e.preventDefault();
@@ -658,6 +663,7 @@
     if (e.shiftKey) selection.extendTo(entries.map((item) => item.name), entry.name, cursor ?? entry.name);
     else if (!e.ctrlKey && !e.metaKey) selection.only(entry.name);
     cursor = entry.name;
+    fileListRef?.focus({ preventScroll: true });
     rowElement(entry.name)?.scrollIntoView({ block: 'nearest' });
   }
 </script>

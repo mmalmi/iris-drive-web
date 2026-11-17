@@ -133,7 +133,7 @@
 
   function driveKey(event: KeyboardEvent) {
     if (event.key !== '/' || event.defaultPrevented || event.altKey || event.isComposing || event.repeat) return;
-    if (event.target instanceof Element && event.target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="grid"], [role="menu"]')) return;
+    if (event.target instanceof Element && event.target.closest('input:not([type=checkbox]), textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="grid"], [role="menu"]')) return;
     if (document.querySelector('dialog[open], [aria-modal="true"], [data-scroll-lock]')) return;
     if ($routeStore.path.some(isDocumentFolderName)) return;
     event.preventDefault();
