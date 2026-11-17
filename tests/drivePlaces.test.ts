@@ -17,12 +17,13 @@ describe('the place a page belongs to', () => {
   it('is My Drive for this Drive, Shared with me for a folder shared with it', () => {
     expect(active(`/${ME}/main/Photos`)).toEqual(['My Drive']);
     expect(active(`/${SHARED}/main`)).toEqual(['Shared with me']);
+    expect(active('/trash')).toEqual(['Trash']);
     expect(active('/recent')).toEqual(['Recent']);
     expect(active('/photos')).toEqual(['Photos']);
   });
 
-  it('are My Drive, Recent, Photos and Shared with me, in that order', () => {
-    expect(drivePlaces('/photos', `#/${ME}/main`, records).map((place) => place.href)).toEqual([`#/${ME}/main`, '#/recent', '#/photos', '#/shared-with-me']);
+  it('are My Drive, Recent, Photos Shared with me and Trash, in that order', () => {
+    expect(drivePlaces('/photos', `#/${ME}/main`, records).map((place) => place.href)).toEqual([`#/${ME}/main`, '#/recent', '#/photos', '#/shared-with-me', '#/trash']);
   });
 
   it('is none for a Drive or folder this account has no access to', () => {

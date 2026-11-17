@@ -5,6 +5,8 @@
   import { untrack } from 'svelte';
   import { addCopiedEntry, deleteEntry } from '../actions';
   import EmptyFolder from './EmptyFolder.svelte';
+  import { cutItems, pastedCut, finishCut } from '../lib/cutClipboard';
+  import { open as openRename } from './Modals/RenameModal.svelte';
   import { openNewMenuBeside } from './NewMenu.svelte';
   import { moveAndTell } from './Modals/MoveModal.svelte';
   import SelectionBar, { deleteChosen } from './SelectionBar.svelte';
@@ -330,7 +332,7 @@
     const target = event.target instanceof Element ? event.target : null;
     if (target?.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="dialog"]')) return true;
     // The app's dialogs cover the page with a fixed layer.
-    return !!document.querySelector('[aria-modal="true"], .fixed.inset-0');
+    return !!document.querySelector('dialog[open], [aria-modal="true"], .fixed.inset-0');
   }
 
   /** The entry a copy, Enter or the menu key is about: the one the keyboard is on, or the only one chosen. */
@@ -346,9 +348,33 @@
   // or copied picture, or plain text kept as a text file.
   $effect(() => {
     if (!inTreeView || !canEdit) return;
+    const onCut = (event: ClipboardEvent) => {
+      if (belongsElsewhere(event) || isViewingFile || resolvingPath || loadingEntries || !window.getSelection()?.isCollapsed) return;
+      const account = $nostrStore.pubkey;
+      if (!canEdit || !account || !route.npub || !route.treeName || !event.clipboardData) return;
+      const picked = chosenEntry();
+      const items = selectionEntries.length ? selectionEntries : picked ? [picked] : [];
+      if (!items.length) return;
+      event.preventDefault();
+      cutItems(event.clipboardData, account, route.npub, route.treeName, currentPath, items);
+      toast.success(items.length === 1 ? `Cut “${documentTitle(items[0].name)}”` : `Cut ${items.length} items`, 2500);
+    };
     const onPaste = (event: ClipboardEvent) => {
       // Right after moving to another folder, which folder is open is still being worked out.
       if (belongsElsewhere(event) || resolvingPath || loadingEntries || isViewingFile) return;
+      const cut = pastedCut(event.clipboardData);
+      if (cut) {
+        event.preventDefault();
+        if (cut === 'expired') { toast.error('Select the items and cut them again'); return; }
+        if (cut.account !== $nostrStore.pubkey || cut.scope !== route.npub || cut.tree !== route.treeName) {
+          toast.error('Paste into a folder in the same Drive');
+          return;
+        }
+        const expected = new Map(cut.entries.map(entry => [entry.name, entry.hash]));
+        void moveAndTell(cut.path, [...expected.keys()], currentPath, expected)
+          .then(moved => { if (moved) finishCut(cut.token); });
+        return;
+      }
       // A file copied here comes back as itself, not as its picture, text or link.
       const copied = copiedEntryIn(event.clipboardData);
       if (copied) {
@@ -368,8 +394,12 @@
         toast.success(many ? `Pasted ${pasted.summary}` : `Saved as ${pasted.summary}`);
       }, () => toast.error('Could not save what was pasted.'));
     };
+    document.addEventListener('cut', onCut);
     document.addEventListener('paste', onPaste);
-    return () => document.removeEventListener('paste', onPaste);
+    return () => {
+      document.removeEventListener('cut', onCut);
+      document.removeEventListener('paste', onPaste);
+    };
   });
 
   // Copying a file for other apps: a picture as a picture, a text file as its text, anything else as a link.
@@ -589,9 +619,17 @@
       const targetEntry = chosenEntry();
       if (targetEntry) {
         e.preventDefault();
-        void deleteEntry(targetEntry.name);
+        void deleteEntry(targetEntry.name, currentPath).catch(error => toast.error(error instanceof Error ? error.message : 'Could not delete the item'));
         cursor = null;
       }
+      return;
+    }
+
+    if (key === 'f2' && canEdit && selectionEntries.length <= 1) {
+      const entry = selectionEntries[0] ?? chosenEntry();
+      if (!entry) return;
+      e.preventDefault();
+      openRename(entry.name, entry.type === LinkType.Dir, () => fileListRef?.focus(), currentPath);
       return;
     }
 
@@ -599,7 +637,8 @@
       const entry = chosenEntry();
       if (!entry) return;
       e.preventDefault();
-      open(entry);
+      if (e.ctrlKey || e.metaKey) window.open(entryHref(entry), '_blank', 'noopener');
+      else open(entry);
       return;
     }
 

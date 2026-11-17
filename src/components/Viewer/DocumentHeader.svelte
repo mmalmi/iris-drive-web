@@ -156,7 +156,7 @@
       <span class="i-lucide-share text-base"></span>
     </button>
     {#if drive.canEdit}
-      <button onclick={() => void drive.delete()} class="btn-circle btn-ghost" title="Delete {noun}" aria-label="Delete {noun}" data-testid="document-delete">
+      <button onclick={() => void drive.delete().catch(error => showToast('error', error instanceof Error ? error.message : 'Could not delete the document'))} class="btn-circle btn-ghost" title="Delete {noun}" aria-label="Delete {noun}" data-testid="document-delete">
         <span class="i-lucide-trash-2 text-base"></span>
       </button>
     {/if}

@@ -307,12 +307,8 @@
 
   function handleDelete() {
     if (!entry) return;
-    void deleteEntry(entry.name);
-    const dirPath = routePath.slice(0, -1);
-    const parts: string[] = [];
-    if (routeNpub && routeTreeName) parts.push(routeNpub, routeTreeName, ...dirPath);
-    const linkKeySuffix = linkKey ? `?k=${linkKey}` : '';
-    window.location.hash = '#/' + parts.map(encodeURIComponent).join('/') + linkKeySuffix;
+    void deleteEntry(entry.name, routePath.slice(0, -1))
+      .catch(error => toast.error(error instanceof Error ? error.message : 'Could not delete the file'));
   }
 
   async function handleDownload() {

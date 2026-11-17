@@ -26,9 +26,9 @@
       href={place.href}
       aria-label={place.label}
       aria-current={place.active ? 'page' : undefined}
-      class="flex h-16 flex-1 flex-col items-center justify-center gap-1 text-xs no-underline {place.active ? 'text-text-1 font-medium' : 'text-text-2'}"
+      class="flex h-16 min-w-0 flex-1 flex-col items-center justify-center gap-1 text-xs no-underline {place.active ? 'text-text-1 font-medium' : 'text-text-2'}"
     >
-      <span class="flex h-8 w-16 items-center justify-center rounded-full {place.active ? 'bg-accent/15 text-accent' : ''}">
+      <span class="flex h-8 w-full max-w-16 items-center justify-center rounded-full {place.active ? 'bg-accent/15 text-accent' : ''}">
         <span class="{place.icon} text-xl"></span>
       </span>
       <span>{place.short}</span>

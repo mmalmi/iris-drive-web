@@ -4,7 +4,7 @@ import { HashTree, LinkType, MemoryStore, type CID } from '@hashtree/core';
 const shared = vi.hoisted(() => ({ tree: null as HashTree | null }));
 vi.mock('../src/store', () => ({ getTree: () => shared.tree }));
 
-const { driveSearchDone, onDriveSearchProgress, searchDrive, startDriveSearch } = await import('../src/lib/driveSearch');
+const { driveSearchDone, hasMoreFolders, onDriveSearchProgress, searchDrive, startDriveSearch } = await import('../src/lib/driveSearch');
 
 async function file(tree: HashTree, text: string) {
   const { cid, size } = await tree.putFile(new TextEncoder().encode(text));
@@ -64,5 +64,45 @@ describe('searching this Drive', () => {
     expect(searchDrive(roots, 'trip').map((item) => item.href)).toEqual(['#/share-1/main']);
     expect(searchDrive(roots, 'tickets')[0]?.where).toBe('Trip');
     expect(searchDrive(roots, 'work')[0]).toMatchObject({ name: 'Work', folder: true });
+  });
+
+  it('combines folder and type filters throughout a subtree, including nested shares', async () => {
+    const tree = new HashTree({ store: new MemoryStore() });
+    shared.tree = tree;
+    const pdf = await file(tree, 'PDF');
+    const deep = await dir(tree, Array.from({ length: 15 }, (_, i) => ({ name: `Notes ${i}.PDF`, ...pdf })));
+    const work = await dir(tree, [{ name: 'Records', ...deep }, { name: 'Notes.txt', ...pdf }]);
+    const root = await dir(tree, [{ name: 'Work', ...work }, { name: 'Workshop', ...deep }]);
+    const roots = [
+      { scope: 'me', label: 'My Drive', cid: root.cid },
+      { scope: 'owned-share', label: 'Shared notes', cid: deep.cid, shared: true },
+      { scope: 'received-share', label: 'Invited notes', cid: deep.cid, shared: true },
+    ];
+    startDriveSearch(roots);
+    await finished(roots);
+    const folder = { scope: 'me', path: ['Work'], nestedShares: ['owned-share'] };
+    const all = searchDrive(roots, 'notes', Infinity, { folder, type: 'pdf' });
+    expect(all).toHaveLength(30);
+    expect(all.every(item => item.where === 'My Drive / Work / Records' || item.where === 'Shared notes')).toBe(true);
+    expect(searchDrive(roots, '', 12, { folder, type: 'pdf' })).toHaveLength(12);
+    expect(searchDrive(roots, '', 12, { folder, type: 'document' }).map(item => item.name)).toEqual(['Notes.txt']);
+    expect(searchDrive(roots, '', 12, { folder, type: 'folder' }).map(item => item.name).sort()).toEqual(['Records', 'Shared notes']);
+    expect(searchDrive(roots, '', Infinity, { folder: { scope: 'received-share', path: [], nestedShares: [] } })).toHaveLength(15);
+  });
+
+  it('continues a large Drive from the quick scan limit when all results are requested', async () => {
+    const tree = new HashTree({ store: new MemoryStore() });
+    shared.tree = tree;
+    const folder = await dir(tree, [{ name: 'needle.txt', ...(await file(tree, 'x')) }]);
+    const root = await dir(tree, Array.from({ length: 2001 }, (_, i) => ({ name: `folder-${i}`, ...folder })));
+    const roots = [{ scope: 'large', label: 'My Drive', cid: root.cid }];
+    startDriveSearch(roots);
+    await finished(roots);
+    expect(hasMoreFolders(roots, false)).toBe(true);
+    expect(searchDrive(roots, 'needle', Infinity)).toHaveLength(1999);
+    hasMoreFolders(roots, true);
+    await finished(roots);
+    expect(hasMoreFolders(roots, false)).toBe(false);
+    expect(searchDrive(roots, 'needle', Infinity)).toHaveLength(2001);
   });
 });

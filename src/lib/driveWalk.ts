@@ -37,6 +37,8 @@ export interface DriveWalk {
   /** The top folder has been read. */
   topListed: boolean;
   done: boolean;
+  /** Continues from the next unread folder after the quick scan reaches its limit. */
+  more?: () => void;
 }
 
 export const DRIVE_TREE_NAME = 'main';
@@ -107,7 +109,7 @@ export function startDriveWalk(roots: DriveRoot[]): void {
     if (walks.has(key)) continue;
     const state: DriveWalk = { found: [], topListed: false, done: false };
     walks.set(key, state);
-    void walkInParallel(root, state);
+    walkInParallel(root, state);
   }
 }
 
@@ -121,39 +123,47 @@ export function driveWalkDone(roots: DriveRoot[]): boolean {
   return roots.every((root) => walks.get(walkKey(root))?.done ?? false);
 }
 
-async function walkInParallel(root: DriveRoot, state: DriveWalk): Promise<void> {
+function walkInParallel(root: DriveRoot, state: DriveWalk): void {
   // Listing folders one after another is slow when their blocks come from
   // the worker one round trip at a time; a few at once is enough.
   const queue: Array<{ cid: CID; path: string[] }> = [{ cid: root.cid, path: [] }];
   const skip = new Set(root.skip ?? []);
   let folders = 0;
   let active = 0;
-  await new Promise<void>((resolve) => {
-    const pump = () => {
-      while (active < PARALLEL_LISTINGS && queue.length > 0 && folders < MAX_FOLDERS) {
-        const folder = queue.shift()!;
-        folders += 1;
-        active += 1;
-        void listFolder(folder.cid).then((entries) => {
-          if (folder.path.length === 0) state.topListed = true;
-          for (const entry of entries ?? []) {
-            if (isHiddenDirectoryName(entry.name)) continue;
-            const path = [...folder.path, entry.name];
-            if (skip.has(path.join('/'))) continue;
-            state.found.push({ path, entry });
-            // A document is one item; what is inside it is not.
-            if (entry.type === LinkType.Dir && !documentKindInfo(entry.name)) queue.push({ cid: entry.cid, path });
-          }
-        }).finally(() => {
-          active -= 1;
-          notify();
-          pump();
-        });
-      }
-      if (active === 0) resolve();
-    };
-    pump();
-  });
-  state.done = true;
-  notify();
+  const key = walkKey(root);
+  function pump() {
+    if (walks.get(key) !== state) return;
+    while (active < PARALLEL_LISTINGS && queue.length > 0 && folders < MAX_FOLDERS) {
+      const folder = queue.shift()!;
+      folders += 1;
+      active += 1;
+      void listFolder(folder.cid).then((entries) => {
+        if (folder.path.length === 0) state.topListed = true;
+        for (const entry of entries ?? []) {
+          if (isHiddenDirectoryName(entry.name)) continue;
+          const path = [...folder.path, entry.name];
+          if (skip.has(path.join('/'))) continue;
+          state.found.push({ path, entry });
+          // A document is one item; what is inside it is not.
+          if (entry.type === LinkType.Dir && !documentKindInfo(entry.name)) queue.push({ cid: entry.cid, path });
+        }
+      }).finally(() => {
+        active -= 1;
+        notify();
+        pump();
+      });
+    }
+    if (active) return;
+    state.done = true;
+    if (queue.length) {
+      state.more = () => {
+        delete state.more;
+        state.done = false;
+        folders = 0;
+        pump();
+      };
+    }
+    notify();
+  }
+  pump();
 }

@@ -6,6 +6,8 @@
   import ConnectivityIndicator from './components/ConnectivityIndicator.svelte';
   import BandwidthIndicator from './components/BandwidthIndicator.svelte';
   import SearchInput from './components/SearchInput.svelte';
+  import TrashMaintenance from './components/TrashMaintenance.svelte';
+  import DriveShortcuts from './components/DriveShortcuts.svelte';
   import MobileSearch from './components/MobileSearch.svelte';
   import DriveSidebar from './components/DriveSidebar.svelte';
   import DriveTabs from './components/DriveTabs.svelte';
@@ -124,6 +126,21 @@
       .catch((error) => console.warn('[share] Could not publish this device for sharing:', error));
   });
 
+  let desktopSearch: SearchInput;
+  let mobileSearch: MobileSearch;
+  let shortcuts: DriveShortcuts;
+  const desktop = new MediaQuery('min-width: 768px');
+
+  function driveKey(event: KeyboardEvent) {
+    if (event.key !== '/' || event.defaultPrevented || event.altKey || event.isComposing || event.repeat) return;
+    if (event.target instanceof Element && event.target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="grid"], [role="menu"]')) return;
+    if (document.querySelector('dialog[open], [aria-modal="true"], [data-scroll-lock]')) return;
+    if ($routeStore.path.some(isDocumentFolderName)) return;
+    event.preventDefault();
+    if (event.ctrlKey || event.metaKey) shortcuts.open();
+    else (desktop.current ? desktopSearch : mobileSearch).focus();
+  }
+
   function handleLogoClick(e: MouseEvent) {
     const isEmptyHomeHash = homePath === '/'
       && (window.location.hash === '' || window.location.hash === '#');
@@ -133,6 +150,8 @@
     }
   }
 </script>
+
+<svelte:window onkeydown={driveKey} />
 
 <div class="h-full flex flex-col bg-surface-1" style:--drive-tabs-height={showDriveTabs ? '4rem' : undefined}>
   <Header>
@@ -155,11 +174,11 @@
       </a>
     </div>
     <div class="flex-1 hidden md:flex justify-center px-4">
-      <SearchInput />
+      <SearchInput bind:this={desktopSearch} />
     </div>
     <div class="flex-1 md:hidden"></div>
     <div class="flex items-center gap-2 md:gap-3 shrink-0">
-      <MobileSearch />
+      <MobileSearch bind:this={mobileSearch} />
       {#if showBandwidth}
         <BandwidthIndicator />
       {/if}
@@ -171,7 +190,7 @@
   <!-- Main area -->
   <div class="flex-1 flex min-h-0">
     {#if showDriveSidebar}
-      <DriveSidebar currentPath={$currentPath} {homeHref} rail={sidebarRail} auto={$sidebarChoice === null} />
+      <DriveSidebar onShortcuts={() => shortcuts.open()} currentPath={$currentPath} {homeHref} rail={sidebarRail} auto={$sidebarChoice === null} />
     {/if}
     <div class="flex-1 flex flex-col min-w-0 min-h-0 bg-surface-0 md:mr-2 md:mb-2 md:rounded-2xl md:overflow-hidden">
       <Router currentPath={$currentPath} />
@@ -182,6 +201,7 @@
   {/if}
 
   <!-- Modals -->
+  <DriveShortcuts bind:this={shortcuts} />
   <CreateModal />
   <RenameModal />
   <MoveModal />
@@ -191,5 +211,6 @@
   <ShareModal />
   <UnsavedChangesModal />
   <BlossomPushModal />
+  <TrashMaintenance />
   <Toast />
 </div>

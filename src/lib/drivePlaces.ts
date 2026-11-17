@@ -17,6 +17,7 @@ export function drivePlaces(currentPath: string, homeHref: string, records: Acce
   const scope = currentPath.split('/').filter(Boolean)[0];
   // A folder shared with this profile; one it shared itself stays under My Drive.
   const inShared = records.some((record) => record.share_id === scope && !isOwnShare(record));
+  const trash = currentPath === '/trash';
   const recent = currentPath === '/recent';
   const photos = currentPath === '/photos' || currentPath.startsWith('/photos/');
   const shared = inShared || currentPath === '/shared-with-me';
@@ -30,11 +31,12 @@ export function drivePlaces(currentPath: string, homeHref: string, records: Acce
       label: 'My Drive',
       short: 'My Drive',
       icon: 'i-lucide-hard-drive',
-      active: !recent && !photos && !shared && !unknown && !currentPath.startsWith('/settings'),
+      active: !trash && !recent && !photos && !shared && !unknown && !currentPath.startsWith('/settings'),
     },
     { href: '#/recent', label: 'Recent', short: 'Recent', icon: 'i-lucide-clock-3', active: recent },
     { href: '#/photos', label: 'Photos', short: 'Photos', icon: 'i-lucide-image', active: photos },
     { href: '#/shared-with-me', label: 'Shared with me', short: 'Shared', icon: 'i-lucide-users', active: shared },
+    { href: '#/trash', label: 'Trash', short: 'Trash', icon: 'i-lucide-trash-2', active: trash },
   ];
 }
 

@@ -4,6 +4,12 @@
   let expanded = $state(false);
   let containerRef: HTMLDivElement | undefined = $state();
 
+  let search = $state<SearchInput>();
+  export function focus() {
+    if (expanded) search?.focus();
+    else expanded = true;
+  }
+
   // Close on click outside and escape key
   $effect(() => {
     if (!expanded) return;
@@ -34,7 +40,7 @@
     <!-- Expanded search overlay -->
     <div class="absolute left-0 right-0 top-0 h-14 bg-surface-0 flex items-center px-3 z-50">
       <div class="flex-1">
-        <SearchInput fullWidth autofocus onSelect={() => (expanded = false)} />
+        <SearchInput bind:this={search} fullWidth autofocus onSelect={() => (expanded = false)} />
       </div>
       <button
         onclick={() => (expanded = false)}

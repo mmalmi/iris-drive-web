@@ -107,7 +107,7 @@
   }
 
   function remove() {
-    void deleteEntry(entry.name).catch(() => toast.error(`Could not delete ${title}`));
+    void deleteEntry(entry.name, path).catch(error => toast.error(error instanceof Error ? error.message : `Could not delete ${title}`));
   }
 
   // Lucide has no filled set; these are its plainest outlines.
@@ -120,7 +120,7 @@
     ];
     if (canEdit) {
       list.push(
-        { label: 'Rename', icon: 'i-lucide-pencil', testid: 'row-menu-rename', run: () => openRenameModal(entry.name, isDir) },
+        { label: 'Rename', icon: 'i-lucide-pencil', testid: 'row-menu-rename', run: () => openRenameModal(entry.name, isDir, undefined, path) },
         { label: 'Move', icon: 'i-lucide-folder-input', testid: 'row-menu-move', run: () => openMoveModal(entry.name, path) },
       );
       // A document's copy would share its live editing with the original, so documents have none.

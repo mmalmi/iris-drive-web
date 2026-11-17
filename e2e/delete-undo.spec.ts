@@ -52,6 +52,62 @@ test.describe('deleting', () => {
     await expect(fileRow(page, 'plan.txt')).toBeVisible({ timeout: 30_000 });
   });
 
+  test('Trash restores after a reload, keeps a newer file, and reconstructs a missing parent', async ({ page, relayUrl }) => {
+    await prepareFreshSession(page, relayUrl);
+    const owner = await createDriveProfile(page, 'Restorer');
+    const home = `#/${owner.profileId}/main`;
+    await expectFolderEditable(page);
+    await createAndEnterFolder(page, 'Notes');
+    await uploadIntoFolder(page, [text('meeting.txt', 'first version'), text('todo.txt', 'remember this')]);
+    for (const name of ['meeting.txt', 'todo.txt']) {
+      await (await openRowMenu(page, name)).getByRole('menuitem', { name: 'Delete' }).click();
+      await expect(fileRow(page, name)).toHaveCount(0);
+    }
+    await page.evaluate(hash => { window.location.hash = hash; }, home);
+    await (await openRowMenu(page, 'Notes')).getByRole('menuitem', { name: 'Delete' }).click();
+    await expect(fileRow(page, 'Notes')).toHaveCount(0);
+
+    await page.getByTestId('drive-sidebar').getByRole('link', { name: 'Trash' }).click();
+    await page.reload();
+    const trash = page.getByTestId('trash-route');
+    await expect(trash.getByRole('button', { name: 'Restore meeting.txt' })).toBeVisible();
+    await page.screenshot({ path: test.info().outputPath('trash.png') });
+    // The recovery store independently holds the bytes. Even when a second
+    // reference expires, the live one retains its blocks.
+    const kept = await page.evaluate(async account => {
+      const { listTrash, getTrash, archiveTrash, expireTrash, recoverContents, TRASH_RETENTION } = await import('/src/lib/driveTrash.ts');
+      const { getTree } = await import('/src/store.ts');
+      const item = (await listTrash(account)).find(row => row.entry.name === 'meeting.txt')!;
+      await archiveTrash(getTree(), [{ ...item, id: crypto.randomUUID(), deletedAt: Date.now() - TRASH_RETENTION }]);
+      await expireTrash();
+      const data = new Map();
+      const store = {
+        get: async hash => data.get(hash.toString()) ?? null, has: async hash => data.has(hash.toString()),
+        put: async (hash, bytes) => { data.set(hash.toString(), bytes); return true; },
+      };
+      const fresh = new (getTree().constructor)({ store });
+      await recoverContents(fresh, item);
+      return {
+        contents: new TextDecoder().decode(await fresh.readFile(item.entry.cid)),
+        foreign: Boolean(await getTrash(item.id, 'a different account')),
+      };
+    }, owner.profileId);
+    expect(kept).toEqual({ contents: 'first version', foreign: false });
+    await trash.getByRole('button', { name: 'Restore todo.txt' }).click();
+    await expect(trash.getByRole('button', { name: 'Restore todo.txt' })).toHaveCount(0);
+    await page.evaluate(hash => { window.location.hash = hash + '/Notes'; }, home);
+    await expect(fileRow(page, 'todo.txt')).toBeVisible();
+    await uploadIntoFolder(page, text('meeting.txt', 'newer file'));
+
+    await page.getByTestId('drive-sidebar').getByRole('link', { name: 'Trash' }).click();
+    await trash.getByRole('button', { name: 'Restore meeting.txt' }).click();
+    await expect(trash.getByRole('button', { name: 'Restore meeting.txt' })).toHaveCount(0);
+    await page.evaluate(hash => { window.location.hash = hash + '/Notes'; }, home);
+    await expect(fileRow(page, 'meeting.txt')).toBeVisible();
+    await openListedFile(page, 'meeting (2).txt');
+    await expect(page.locator('pre')).toContainText('first version');
+  });
+
   test('Undo turns the link of what was deleted back on', async ({ page, browser, relayUrl }) => {
     await prepareFreshSession(page, relayUrl);
     const owner = await createDriveProfile(page, 'Sharer');

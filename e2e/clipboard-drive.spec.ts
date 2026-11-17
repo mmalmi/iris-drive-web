@@ -250,3 +250,45 @@ test.describe('the system clipboard and drag and drop in a Drive folder', () => 
     expect(drag).toMatchObject({ status: 200, size: PICTURE.length });
   });
 });
+
+test.describe('moving a cut selection', () => {
+  test.use({ permissions: ['clipboard-read', 'clipboard-write'] });
+
+  test('moves the selected files once, keeps a colliding file and supports pasting in another tab', async ({ page, context, relayUrl }) => {
+    await prepareFreshSession(page, relayUrl);
+    await createDriveProfile(page, 'Cut and paste');
+    const home = page.url();
+    await chooseNew(page, 'Folder');
+    const name = page.getByPlaceholder('Folder name...');
+    await name.fill('Target');
+    await name.press('Enter');
+    const text = (name: string, value: string) => ({ name, mimeType: 'text/plain', buffer: Buffer.from(value) });
+    await addFiles(page, [text('a.txt', 'incoming'), text('b.txt', 'second')]);
+    await row(page, 'Target').dblclick();
+    await addFiles(page, [text('a.txt', 'original')]);
+    const destUrl = page.url();
+    await page.goto(home);
+    await row(page, 'a.txt').click();
+    await row(page, 'b.txt').click({ modifiers: ['ControlOrMeta'] });
+    await expect(page.getByTestId('selection-count')).toHaveText('2 selected');
+    await page.keyboard.press('ControlOrMeta+x');
+    await expect(page.getByText('Cut 2 items')).toBeVisible();
+    await expect(row(page, 'a.txt')).toBeVisible();
+    const target = await context.newPage();
+    await target.goto(destUrl);
+    await expect(row(target, 'a.txt')).toBeVisible();
+    await fileList(target).focus();
+    await target.keyboard.press('ControlOrMeta+v');
+    await expect(row(target, 'b.txt')).toBeVisible();
+    await expect(row(target, 'a (2).txt')).toBeVisible();
+    await target.keyboard.press('ControlOrMeta+v');
+    await expect(target.getByText('Select the items and cut them again')).toBeVisible();
+    await row(target, 'a.txt').dblclick();
+    await expect(target.locator('pre')).toContainText('original');
+    await target.close();
+    await page.reload();
+    await expect(row(page, 'Target')).toBeVisible();
+    await expect(row(page, 'b.txt')).toHaveCount(0);
+    await expect(row(page, 'a.txt')).toHaveCount(0);
+  });
+});

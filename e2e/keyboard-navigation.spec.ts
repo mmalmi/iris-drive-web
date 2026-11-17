@@ -67,3 +67,47 @@ test('arrows and j/k move through a folder without opening anything; Enter opens
   await expect(page).toHaveURL(/\/main\/Keys\/Inner$/);
   await expect(page.getByTestId('empty-folder')).toBeVisible();
 });
+
+test('search, help, rename and open in a new tab from the keyboard', async ({ page, context, relayUrl }, testInfo) => {
+  await prepareFreshSession(page, relayUrl);
+  await createDriveProfile(page, 'File keys');
+  await createAndEnterFolder(page, 'Projects');
+  await createFolder(page, 'Reports');
+  const list = page.getByTestId('file-list');
+  await list.focus();
+  await expect(fileRow(page, 'Reports')).toBeVisible();
+  await expect(page.getByPlaceholder('Folder name...')).toBeHidden();
+  await list.focus();
+  await page.keyboard.press('/');
+  const search = page.getByRole('textbox', { name: 'Search Drive' });
+  await expect(search).toBeFocused();
+  await search.press('/');
+  await expect(search).toHaveValue('/');
+  await search.press('Escape');
+
+  await list.focus();
+  await page.keyboard.press('ControlOrMeta+/');
+  const help = page.getByRole('dialog', { name: 'Keyboard shortcuts' });
+  await expect(help).toContainText('Open in new tab');
+  await page.screenshot({ path: testInfo.outputPath('keyboard-shortcuts.png') });
+  await page.keyboard.press('Escape');
+  await expect(help).toBeHidden();
+  await expect(list).toBeFocused();
+
+  await fileRow(page, 'Reports').getByRole('link').click();
+  await page.keyboard.press('F2');
+  const rename = page.getByPlaceholder('New name...');
+  await expect(rename).toHaveValue('Reports');
+  await rename.fill('Invoices');
+  await rename.press('Enter');
+  await expect(fileRow(page, 'Invoices')).toBeVisible();
+  await fileRow(page, 'Invoices').getByRole('link').click();
+  const original = page.url();
+  const opened = context.waitForEvent('page');
+  await page.keyboard.press('ControlOrMeta+Enter');
+  const tab = await opened;
+  await expect(tab).toHaveURL(/\/Projects\/Invoices$/);
+  await expect(tab.getByTestId('folder-header')).toContainText('Invoices');
+  expect(page.url()).toBe(original);
+  await tab.close();
+});

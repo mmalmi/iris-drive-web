@@ -12,7 +12,7 @@
     if (items.length === 0) return;
     onDeleting();
     await deleteEntries(items.map((entry) => entry.name))
-      .catch(() => toast.error(items.length === 1 ? `Could not delete ${title(items[0])}` : `Could not delete ${items.length} items`));
+      .catch(error => toast.error(error instanceof Error ? error.message : items.length === 1 ? `Could not delete ${title(items[0])}` : `Could not delete ${items.length} items`));
   }
 </script>
 
@@ -55,7 +55,7 @@
 
   // Escape lets go of them all, unless a dialog, a menu or a field has it.
   function onWindowKeyDown(e: KeyboardEvent) {
-    if (e.key !== 'Escape' || e.defaultPrevented || document.querySelector('[aria-modal="true"]')) return;
+    if (e.key !== 'Escape' || e.defaultPrevented || document.querySelector('dialog[open], [aria-modal="true"]')) return;
     if (e.target instanceof Element && e.target.closest('input:not([type="checkbox"]), textarea, select, [contenteditable]:not([contenteditable="false"])')) return;
     e.preventDefault();
     onClear();

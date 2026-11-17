@@ -1,6 +1,6 @@
 import { expect, test, type Page } from './fixtures';
 import { createDocument, createDriveProfile, prepareFreshSession } from './documents.helpers';
-import { chooseNew } from './test-utils';
+import { chooseNew, expectFolderEditable, uploadIntoFolder } from './test-utils';
 
 /** The search box finds names in this Drive: My Drive and its shared folders. */
 
@@ -84,6 +84,42 @@ test.describe('searching Drive', () => {
 
     await search(page, 'nothing like this');
     await expect(page.getByTestId('drive-search-results')).toContainText('Nothing found', { timeout: 30_000 });
+  });
+
+  test('filters by the open folder and file type and shows every match on desktop and phone', async ({ page, relayUrl }, testInfo) => {
+    await prepareFreshSession(page, relayUrl);
+    await createDriveProfile(page, 'Search filters');
+    await expectFolderEditable(page);
+    await addFile(page, 'Receipt outside.pdf');
+    await newFolder(page, 'Receipts');
+    const names = Array.from({ length: 14 }, (_, i) => `Receipt ${String(i + 1).padStart(2, '0')}.pdf`);
+    await uploadIntoFolder(page, [...names, 'Receipt notes.txt'].map(name => ({
+      name, mimeType: name.endsWith('.pdf') ? 'application/pdf' : 'text/plain', buffer: Buffer.from(name),
+    })));
+
+    await search(page, 'receipt');
+    const results = page.getByTestId('drive-search-results').filter({ visible: true });
+    const rows = results.getByTestId('drive-search-result');
+    await results.getByRole('button', { name: 'This folder' }).click();
+    await results.getByLabel('File type').selectOption('pdf');
+    await expect(rows).toHaveCount(12);
+    await results.getByRole('button', { name: 'Show all results' }).click();
+    await expect(rows).toHaveCount(14);
+    await expect(rows.last()).toContainText('Receipt 14.pdf');
+    await expect(rows.filter({ hasText: 'outside' })).toHaveCount(0);
+    await page.screenshot({ path: testInfo.outputPath('filtered-search-desktop.png') });
+
+    // A type filter also works with no search terms on a phone.
+    await page.getByTestId('drive-search-input').press('Escape');
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.getByRole('button', { name: 'Search', exact: true }).click();
+    await results.getByRole('button', { name: 'This folder' }).click();
+    await results.getByLabel('File type').selectOption('document');
+    await expect(rows).toHaveCount(1);
+    await expect(rows.first()).toContainText('Receipt notes.txt');
+    await page.screenshot({ path: testInfo.outputPath('filtered-search-phone.png') });
+    await rows.first().click();
+    await expect(page).toHaveURL(/Receipt%20notes\.txt$/);
   });
 
   test('works from the search button on a phone', async ({ page, relayUrl }, testInfo) => {

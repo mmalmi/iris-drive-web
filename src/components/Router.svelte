@@ -19,6 +19,7 @@
     | 'shareDialog'
     | 'shareJoin'
     | 'shareInvite'
+    | 'trash'
     | 'recent'
     | 'photos'
     | 'sharedWithMe'
@@ -41,6 +42,7 @@
     { pattern: '/share', id: 'shareDialog' },
     { pattern: '/share-invite/:payload', id: 'shareInvite' },
     { pattern: '/share-join/:payload', id: 'shareJoin' },
+    { pattern: '/trash', id: 'trash' },
     { pattern: '/recent', id: 'recent' },
     // The timeline, the albums and each album.
     { pattern: '/photos/*', id: 'photos' },
@@ -109,6 +111,10 @@
   {:else if route.id === 'shareJoin'}
     {#await import('../routes/ShareJoinRoute.svelte') then { default: ShareJoinRoute }}
       <ShareJoinRoute payload={route.params.payload || ''} />
+    {/await}
+  {:else if route.id === 'trash'}
+    {#await import('../routes/TrashRoute.svelte') then { default: TrashRoute }}
+      <TrashRoute />
     {/await}
   {:else if route.id === 'recent'}
     {#await import('../routes/RecentRoute.svelte') then { default: RecentRoute }}

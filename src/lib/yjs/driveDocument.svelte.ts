@@ -614,11 +614,26 @@ export class DriveDocument {
 
   /** Removes the document from the Drive, with Undo, and returns to its folder. */
   async delete(): Promise<void> {
+    const location = window.location.hash;
+    await this.saveNow();
+    if (this.#destroyed || window.location.hash !== location) return;
+    if (this.#session?.dirty && this.#isSaver) throw new Error('Wait until the document is saved before deleting it');
     if (this.#saveTimer) clearTimeout(this.#saveTimer);
+    const wasSaver = this.#isSaver;
     this.#leaving = true;
     this.#isSaver = false;
     this.#session?.setSaver(false);
-    await deleteCurrentFolder();
+    try {
+      await deleteCurrentFolder();
+    } catch (error) {
+      if (!this.#destroyed) {
+        this.#leaving = false;
+        this.#isSaver = wasSaver;
+        this.#session?.setSaver(wasSaver);
+        if (wasSaver && this.#session?.dirty) this.#scheduleSave();
+      }
+      throw error;
+    }
   }
 
   #currentRoot(): CID | null {

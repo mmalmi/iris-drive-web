@@ -277,7 +277,7 @@
 
   async function handleDelete() {
     if (isSubdir && currentDirName) {
-      void deleteCurrentFolder();
+      void deleteCurrentFolder().catch(error => toast.error(error instanceof Error ? error.message : 'Could not delete the folder'));
     } else if (route.treeName) {
       if (confirm(`Delete "${route.treeName}"? It will be removed from your folders.`)) {
         await deleteTree(route.treeName);

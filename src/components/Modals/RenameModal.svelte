@@ -10,7 +10,11 @@
   let modalInput = $state('');
   let selectUntil = $state(0);
 
-  export function open(name: string, isFolder = false) {
+  let afterClose: (() => void) | undefined;
+  let parentPath: string[] | undefined;
+  export function open(name: string, isFolder = false, onClose?: () => void, parent?: string[]) {
+    afterClose = onClose;
+    parentPath = parent;
     originalName = name;
     modalInput = documentTitle(name);
     const dot = modalInput.lastIndexOf('.');
@@ -21,6 +25,10 @@
 
   export function close() {
     show = false;
+    const focus = afterClose;
+    afterClose = undefined;
+    parentPath = undefined;
+    if (focus) queueMicrotask(focus);
     originalName = '';
     modalInput = '';
   }
@@ -47,10 +55,14 @@
       close();
       return;
     }
-    await renameEntry(originalName, newName);
+    await renameEntry(originalName, newName, parentPath);
     close();
   }
 </script>
+
+<svelte:window onkeydown={(event) => {
+  if (show && event.key === 'Escape') { event.preventDefault(); close(); }
+}} />
 
 {#if show}
   <!-- svelte-ignore a11y_click_events_have_key_events -->

@@ -5,6 +5,7 @@
   import NewMenu from './NewMenu.svelte';
 
   interface Props {
+    onShortcuts: () => void;
     currentPath: string;
     homeHref: string;
     /** Icons with short names under them, for windows without room for the full sidebar. */
@@ -17,7 +18,7 @@
     auto?: boolean;
   }
 
-  let { currentPath, homeHref, rail = false, auto = false }: Props = $props();
+  let { onShortcuts, currentPath, homeHref, rail = false, auto = false }: Props = $props();
 
   let places = $derived(drivePlaces(currentPath, homeHref, $acceptedShares));
 </script>
@@ -69,6 +70,10 @@
   </nav>
 
   <div class="mt-auto pt-4 border-t border-surface-2 flex flex-col {rail ? 'gap-3 self-stretch items-center' : ''}">
+    <button type="button" aria-label="Keyboard shortcuts" title="Keyboard shortcuts" onclick={onShortcuts}
+      class="flex items-center text-text-2 hover:bg-surface-2 rounded-full {rail ? 'flex-col gap-1 px-1 py-1 text-xs' : 'h-10 gap-3 px-4 text-sm'}">
+      <span class="i-lucide-keyboard text-lg"></span>{rail ? 'Shortcuts' : 'Keyboard shortcuts'}
+    </button>
     {#each DRIVE_FOOTER_PLACES as place (place.href)}
       {#if rail}
         {@render railLink(place.href, place.label, place.label, place.icon, false)}

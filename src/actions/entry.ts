@@ -5,7 +5,7 @@ import { navigate } from '../utils/navigate';
 import { parseRoute } from '../utils/route';
 import { autosaveIfOwn, nostrStore } from '../nostr';
 import { getTree } from '../store';
-import { LinkType, type CID, type HashTree, type TreeEntry } from '@hashtree/core';
+import { LinkType, toHex, type CID, type HashTree, type TreeEntry } from '@hashtree/core';
 import { getCurrentRootCid, getCurrentPathFromUrl, buildRouteUrl, updateRoute } from './route';
 import { activeNostrIdentityRootScope, isEditableDriveRouteScope } from '../drive/profileRoute';
 import { followLinkShares, putBackLinkShares } from '../drive/linkShareSync';
@@ -13,6 +13,7 @@ import { moveProfileDriveEntries, mutateProfileDriveRoot } from '../drive/profil
 import { moveEntriesInTree } from '../lib/moveEntries';
 import { setEntryForDriveRoute } from '../drive/profileDriveRouteEntry';
 import { moveRecents, putBackRecents } from '../stores/recents';
+import type { TrashItem } from '../lib/driveTrash';
 import { inTurn } from '../lib/driveWrites';
 import { freeName } from '../lib/driveClipboard';
 import { documentTitle, isDocumentFolderName } from '../lib/documentNames';
@@ -104,7 +105,7 @@ function removeIn(root: CID, parentPath: string[], name: string, route: EntryRou
 }
 
 // Rename entry
-export async function renameEntry(oldName: string, newName: string) {
+export async function renameEntry(oldName: string, newName: string, folderPath?: string[]) {
   if (!newName || oldName === newName) return;
 
   const route = parseRoute();
@@ -112,7 +113,7 @@ export async function renameEntry(oldName: string, newName: string) {
 
   // Check if we're renaming the current directory (we're inside it)
   const lastSegment = urlPath.length > 0 ? urlPath[urlPath.length - 1] : null;
-  const isRenamingCurrentDir = lastSegment === oldName && !/\.[a-zA-Z0-9]+$/.test(oldName);
+  const isRenamingCurrentDir = !folderPath && lastSegment === oldName && !/\.[a-zA-Z0-9]+$/.test(oldName);
 
   let parentPath: string[];
   if (isRenamingCurrentDir) {
@@ -120,7 +121,7 @@ export async function renameEntry(oldName: string, newName: string) {
     parentPath = urlPath.slice(0, -1);
   } else {
     // Renaming item within current directory
-    parentPath = getCurrentPathFromUrl();
+    parentPath = folderPath ?? getCurrentPathFromUrl();
   }
 
   if (!await changeOpenTree(root => renameIn(root, parentPath, oldName, newName))) return;
@@ -132,7 +133,7 @@ export async function renameEntry(oldName: string, newName: string) {
     const newPath = [...parentPath, newName];
     const url = buildRouteUrl(route.npub, route.treeName, newPath, undefined, route.params.get('k'));
     navigate(url);
-  } else if (lastSegment === oldName) {
+  } else if (lastSegment === oldName && (!folderPath || folderPath.length < urlPath.length)) {
     updateRoute(newName);
   }
 }
@@ -141,86 +142,148 @@ async function folderAt(tree: HashTree, root: CID, path: string[]): Promise<CID 
   return path.length ? (await tree.resolvePath(root, pathString(path)))?.cid ?? null : root;
 }
 
-/**
- * Deletes the named items of the folder at `parentPath` of the open tree and
- * says so, offering Undo for a while. Leaves an open file that was deleted
- * for its folder.
- */
+function trashAccount(): string | null {
+  const state = nostrStore.getState();
+  return state.isLoggedIn ? activeNostrIdentityRootScope(state) ?? state.npub : null;
+}
+
+function requireTrashAccess(account: string, scope: string): void {
+  const state = nostrStore.getState();
+  if (trashAccount() !== account || (state.npub !== scope && !isEditableDriveRouteScope(scope, state))) {
+    throw new Error('You need edit access to the original Drive');
+  }
+}
+
+function sameEntry(a: Pick<TreeEntry, 'cid' | 'type'>, b: Pick<TreeEntry, 'cid' | 'type'>): boolean {
+  return a.type === b.type && toHex(a.cid.hash) === toHex(b.cid.hash)
+    && (a.cid.key ? toHex(a.cid.key) : '') === (b.cid.key ? toHex(b.cid.key) : '');
+}
+
+/** Archive everything before unlinking it, including files inside deleted folders. */
 export async function deleteEntries(names: string[], parentPath: string[] = getCurrentPathFromUrl(), albumScope?: string): Promise<void> {
   const route = albumScope ? { npub: albumScope, treeName: 'main' } : parseRoute();
-  const change = changeFolderTree(albumScope);
-  const removed: TreeEntry[] = [];
-  await change(async (root) => {
-    removed.length = 0;
-    const tree = getTree();
-    const folder = await folderAt(tree, root, parentPath);
-    if (!folder) return null;
-    const here = new Map((await tree.listDirectory(folder)).map((entry) => [entry.name, entry]));
-    let next = root;
-    for (const name of new Set(names)) {
-      const entry = here.get(name);
-      if (albumScope && entry?.type !== LinkType.Dir) throw new Error('This folder no longer exists.');
-      if (!entry) continue;
-      next = await removeIn(next, parentPath, name, route);
-      removed.push(entry);
-    }
-    return removed.length ? next : null;
-  });
-  if (removed.length === 0) return;
-  const followers = removed.map((entry) => followInRecents([...parentPath, entry.name], null, route));
-
+  const account = trashAccount();
+  const scope = route.npub ?? nostrStore.getState().npub;
+  const treeName = route.treeName;
+  if (!account || !scope || !treeName) throw new Error('Sign in to move items to Trash');
+  requireTrashAccess(account, scope);
+  const { archiveTrash, forgetTrash } = await import('../lib/driveTrash');
+  const tree = getTree();
+  const records: TrashItem[] = [];
+  let archived = false;
+  try {
+    await changeDriveRoot(scope, treeName, async root => {
+      requireTrashAccess(account, scope);
+      const folder = await folderAt(tree, root, parentPath);
+      if (!folder) throw new Error('The original folder no longer exists');
+      const here = new Map((await tree.listDirectory(folder)).map(entry => [entry.name, entry]));
+      if (!archived) {
+        for (const name of new Set(names)) {
+          const entry = here.get(name);
+          if (albumScope && entry?.type !== LinkType.Dir) throw new Error('This folder no longer exists');
+          if (entry) records.push({ id: crypto.randomUUID(), account, scope, treeName, path: parentPath.slice(), entry,
+            deletedAt: Date.now(), ready: false });
+        }
+        if (!records.length) return null;
+        try {
+          await archiveTrash(tree, records);
+        } catch {
+          throw new Error('Could not save these items in Trash. Check storage space and file availability.');
+        }
+        archived = true;
+      }
+      let next = root;
+      for (const { entry } of records) {
+        const current = here.get(entry.name);
+        if (!current || !sameEntry(current, entry)) throw new Error('The selection changed before it could be deleted');
+        next = await removeIn(next, parentPath, entry.name, route);
+      }
+      requireTrashAccess(account, scope);
+      return next;
+    });
+  } catch (error) {
+    if (archived) await forgetTrash(records.map(record => record.id));
+    throw error;
+  }
+  if (!records.length || account !== trashAccount()) return;
+  const followers = records.map(({ entry }) => followInRecents([...parentPath, entry.name], null, route));
   const current = parseRoute();
   const open = current.path.at(-1);
-  if (!albumScope && open && removed.some((entry) => entry.name === open) && pathString(current.path.slice(0, -1)) === pathString(parentPath)) {
+  if (!albumScope && current.npub === route.npub && current.treeName === treeName && open
+      && records.some(({ entry }) => entry.name === open) && pathString(current.path.slice(0, -1)) === pathString(parentPath)) {
     navigate(buildRouteUrl(current.npub, current.treeName, parentPath, undefined, current.params.get('k')));
   }
 
-  const one = removed.length === 1 ? removed[0]!.name : null;
-  const said = one ? `Deleted “${isDocumentFolderName(one) ? documentTitle(one) : one}”` : `Deleted ${removed.length} items`;
+  const one = records.length === 1 ? records[0]!.entry.name : null;
+  const said = one ? `Deleted “${isDocumentFolderName(one) ? documentTitle(one) : one}”` : `Deleted ${records.length} items`;
   showToast('success', said, UNDO_MS, {
     label: 'Undo',
-    run: () => void putBack(parentPath, removed, change, albumScope ? route : undefined)
-      .then((sameNames) => removed.forEach((entry, i) => { if (sameNames.has(entry.name)) followers[i]!(); }))
-      .catch(() => toast.error('Could not undo the delete')),
+    run: () => void restoreTrashItems(account, records.map(record => record.id)).then(restored => {
+      if (account !== trashAccount()) return;
+      records.forEach(({ id, entry }, i) => {
+        if (JSON.stringify(restored.get(id)) === JSON.stringify([...parentPath, entry.name])) followers[i]!();
+      });
+    }).catch(error => toast.error(error instanceof Error ? error.message : 'Could not undo the deletion')),
   });
 }
 
-/**
- * Puts deleted entries back in the folder at `parentPath` of the open tree,
- * as they were; one whose name was taken since gets a free one. Resolves the
- * names put back as they were.
- */
-async function putBack(parentPath: string[], entries: TreeEntry[], change: typeof changeOpenTree, route?: EntryRoute): Promise<Set<string>> {
-  const sameNames = new Set<string>();
-  const saved = await change(async (root) => {
-    sameNames.clear();
-    const tree = getTree();
-    const folder = await folderAt(tree, root, parentPath);
-    const taken = new Set(folder ? (await tree.listDirectory(folder)).map((entry) => entry.name) : []);
+/** Restore one selection to its original Drive, including after leaving that folder or restarting. */
+export async function restoreTrashItems(account: string, ids: string[]): Promise<Map<string, string[]>> {
+  const { getTrash, recoverContents, rememberDestination, forgetTrash } = await import('../lib/driveTrash');
+  const first = ids.length ? await getTrash(ids[0], account) : null;
+  if (!first) throw new Error('This item is no longer in Trash');
+  const { scope, treeName } = first;
+  requireTrashAccess(account, scope);
+  const tree = getTree();
+  const restored = new Map<string, string[]>();
+  await changeDriveRoot(scope, treeName, async root => {
+    requireTrashAccess(account, scope);
+    restored.clear();
     let next = root;
-    for (const entry of entries) {
-      const name = freeName(entry.name, taken);
-      taken.add(name);
-      if (name === entry.name) sameNames.add(name);
-      next = await setEntryForDriveRoute(
-        tree,
-        next,
-        parentPath,
-        name,
-        { cid: entry.cid, size: entry.size, type: entry.type, meta: entry.meta },
-        route ?? parseRoute(),
-        nostrStore.getState(),
-      );
+    for (const id of ids) {
+      const record = await getTrash(id, account);
+      if (!record) continue;
+      if (record.scope !== scope || record.treeName !== treeName) throw new Error('The selection belongs to several Drives');
+      await recoverContents(tree, record);
+      const { entry } = record;
+      // A saved tree and its Trash row are in different stores. If the tab closed
+      // between those commits, finish the pending restore without adding a second copy.
+      if (record.destination) {
+        const existing = await tree.resolvePath(next, record.destination);
+        if (existing && sameEntry(existing, entry)) {
+          restored.set(id, record.destination);
+          continue;
+        }
+      }
+      let parent = record.path;
+      // Recreate missing parents. If a file took a parent's name, keep that file
+      // and restore to the nearest containing folder instead.
+      for (let depth = 1; depth <= parent.length; depth++) {
+        const ancestor = await tree.resolvePath(next, parent.slice(0, depth));
+        if (!ancestor) break;
+        if (ancestor.type !== LinkType.Dir) {
+          parent = parent.slice(0, depth - 1);
+          break;
+        }
+      }
+      const folder = await folderAt(tree, next, parent);
+      const taken = new Set(folder ? (await tree.listDirectory(folder)).map(item => item.name) : []);
+      const name = freeName(entry.name, taken, entry.type !== LinkType.Dir || isDocumentFolderName(entry.name));
+      const destination = [...parent, name];
+      await rememberDestination(id, destination);
+      next = await setEntryForDriveRoute(tree, next, parent, name, entry, { npub: scope, treeName }, nostrStore.getState());
+      restored.set(id, destination);
     }
-    return next;
+    requireTrashAccess(account, scope);
+    return next === root ? null : next;
   });
-  if (!saved) throw new Error('No folder is open');
-  return sameNames;
+  await forgetTrash([...restored.keys()]);
+  return restored;
 }
 
 /** Deletes an item of the open folder; see deleteEntries. */
-export function deleteEntry(name: string): Promise<void> {
-  return deleteEntries([name]);
+export function deleteEntry(name: string, parentPath?: string[]): Promise<void> {
+  return deleteEntries([name], parentPath);
 }
 
 /** Deletes the folder the page shows, and goes to the one it was in; see deleteEntries. */
@@ -228,7 +291,6 @@ export async function deleteCurrentFolder(): Promise<void> {
   const route = parseRoute();
   if (route.path.length === 0) return; // Can't delete root
   const parentPath = route.path.slice(0, -1);
-  navigate(buildRouteUrl(route.npub, route.treeName, parentPath, undefined, route.params.get('k')));
   await deleteEntries([route.path.at(-1)!], parentPath);
 }
 
@@ -260,15 +322,29 @@ export async function renameCurrentFolder(newName: string, folder?: FolderLocati
  * Move a selection in one queued change and save. What was open inside it
  * stays open under its final name.
  */
-export async function moveEntriesTo(parentPath: string[], names: string[], targetPath: string[]): Promise<Map<string, string>> {
+export async function moveEntriesTo(
+  parentPath: string[], names: string[], targetPath: string[], expected?: ReadonlyMap<string, string>,
+): Promise<Map<string, string>> {
   const destinations = new Map<string, string>();
   if (!names.length) return destinations;
   const started = parseRoute();
   const tree = getTree();
-  const saved = await changeOpenTree(async root => {
+  const account = nostrStore.getState().pubkey;
+  const { npub: scope, treeName } = started;
+  const change = expected && scope && treeName
+    ? (work: Parameters<typeof changeOpenTree>[0]) => changeDriveRoot(scope, treeName, work)
+    : changeOpenTree;
+  const saved = await change(async root => {
+    destinations.clear();
     const move = isProfileDriveMutation(started) ? moveProfileDriveEntries : moveEntriesInTree;
     const result = await move(tree, root, parentPath, names, targetPath);
-    for (const { entry, destinationName } of result.items) destinations.set(entry.name, destinationName);
+    for (const { entry, destinationName } of result.items) {
+      if (expected && expected.get(entry.name) !== toHex(entry.cid.hash)) {
+        throw new Error(`“${documentTitle(entry.name)}” changed. Cut it again to move it.`);
+      }
+      destinations.set(entry.name, destinationName);
+    }
+    if (expected && account !== nostrStore.getState().pubkey) throw new Error('The signed-in account changed');
     return result.root;
   });
   if (!saved) throw new Error('Nothing is open');

@@ -32,7 +32,13 @@ vi.mock('../src/drive/linkShareSync', () => ({ followLinkShares: () => [], putBa
 vi.mock('../src/drive/linkShares', () => ({ linkSubjectAt: () => null }));
 vi.mock('../src/drive/shareLibrary', () => ({ acceptedShares: { subscribe: (run: (value: unknown[]) => void) => { run([]); return () => {}; } } }));
 vi.mock('../src/stores/recents', () => ({ moveRecents: state.recents, putBackRecents: vi.fn() }));
-vi.mock('../src/drive/driveRootChange', () => ({ changeDriveRoot: vi.fn() }));
+vi.mock('../src/drive/driveRootChange', () => ({
+  changeDriveRoot: async (_scope: string, _tree: string, work: (root: CID) => Promise<CID | null>) => {
+    const next = await work(state.root!);
+    if (next) { state.root = next; state.save(next); }
+    return !!next;
+  },
+}));
 vi.mock('../src/stores/toast', () => ({ showToast: vi.fn(), toast: { error: vi.fn() } }));
 
 import { moveEntriesTo } from '../src/actions/entry';
@@ -75,6 +81,15 @@ describe('saving a bulk move', () => {
     expect(state.save).not.toHaveBeenCalled();
     expect(state.recents).not.toHaveBeenCalled();
     expect(state.root).toBe(before);
+  });
+
+  it('leaves the whole cut selection in place when an item has changed since it was cut', async () => {
+    const before = state.root;
+    const expected = new Map([['a.txt', 'old-content'], ['b.txt', 'old-content']]);
+    await expect(moveEntriesTo([], [...expected.keys()], ['Target'], expected)).rejects.toThrow('Cut it again');
+    expect(state.root).toBe(before);
+    expect(state.save).not.toHaveBeenCalled();
+    expect(state.recents).not.toHaveBeenCalled();
   });
 
   it('keeps overlapping requests in order, with the second building on the first', async () => {
