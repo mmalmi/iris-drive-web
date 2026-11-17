@@ -72,6 +72,9 @@ test('search, help, rename and open in a new tab from the keyboard', async ({ pa
   await prepareFreshSession(page, relayUrl);
   await createDriveProfile(page, 'File keys');
   await createAndEnterFolder(page, 'Projects');
+  const sidebar = page.getByRole('complementary', { name: 'Drive navigation' });
+  await expect(sidebar).toBeVisible();
+  await expect(sidebar.getByRole('button', { name: 'Keyboard shortcuts' })).toHaveCount(0);
   await createFolder(page, 'Reports');
   const list = page.getByTestId('file-list');
   await list.focus();

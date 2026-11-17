@@ -67,9 +67,10 @@
 
   interface Props {
     currentPath: string;
+    onShortcuts: () => void;
   }
 
-  let { currentPath }: Props = $props();
+  let { currentPath, onShortcuts }: Props = $props();
 
   // Find matching route
   function findRoute(path: string): { id: RouteId; params: ResolvedRouteParams } {
@@ -130,7 +131,7 @@
     {/await}
   {:else if route.id === 'settings'}
     {#await import('./settings/SettingsLayout.svelte') then { default: SettingsLayout }}
-      <SettingsLayout />
+      <SettingsLayout {onShortcuts} />
     {/await}
   {:else if route.id === 'users'}
     {#await import('./UsersPage.svelte') then { default: UsersPage }}

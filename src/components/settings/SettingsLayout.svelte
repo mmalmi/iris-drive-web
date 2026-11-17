@@ -14,6 +14,8 @@
   import ServersSettings from './ServersSettings.svelte';
   import TransportUsageSettings from './TransportUsageSettings.svelte';
 
+  let { onShortcuts }: { onShortcuts: () => void } = $props();
+
   interface SettingsTab {
     id: string;
     label: string;
@@ -41,6 +43,13 @@
       id: 'about',
       label: 'About',
       icon: 'i-lucide-info',
+      activeRowClass: 'bg-accent/8',
+      iconFrameClass: 'bg-accent/12 text-accent ring-1 ring-accent/20',
+    },
+    {
+      id: 'help',
+      label: 'Help',
+      icon: 'i-lucide-circle-help',
       activeRowClass: 'bg-accent/8',
       iconFrameClass: 'bg-accent/12 text-accent ring-1 ring-accent/20',
     },
@@ -130,6 +139,7 @@
     if (path.startsWith('/settings/storage')) return 'storage';
     if (path.startsWith('/settings/backup')) return 'storage';
     if (path.startsWith('/settings/about')) return 'about';
+    if (path === '/settings/help') return 'help';
     if (path.startsWith('/settings/network')) return 'network';
     if (path.startsWith('/settings/servers')) return 'network';
     if (path.startsWith('/settings/p2p')) return 'network';
@@ -272,6 +282,10 @@
         <StorageSettings />
       {:else if activeTab === 'about'}
         <AboutSettings />
+      {:else if activeTab === 'help'}
+        {#await import('./HelpSettings.svelte') then { default: HelpSettings }}
+          <HelpSettings {onShortcuts} />
+        {/await}
       {:else if activeTab === 'keys'}
         <KeysSettings />
       {:else if activeTab === 'developer'}

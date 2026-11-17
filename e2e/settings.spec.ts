@@ -2,6 +2,30 @@ import { test, expect } from './fixtures';
 import { setupPageErrorHandler, configureBlossomServers, navigateToPublicFolder, disableOthersPool, waitForAppReady, getTestBlossomUrl } from './test-utils.js';
 
 test.describe('Settings page', () => {
+  for (const width of [1280, 390]) {
+    test(`Help explains Drive and opens keyboard shortcuts at ${width}px`, async ({ page }, testInfo) => {
+      await page.setViewportSize({ width, height: 844 });
+      await page.goto('/#/settings');
+      await page.getByRole('button', { name: 'Help', exact: true }).click();
+      await expect(page).toHaveURL(/#\/settings\/help$/);
+      await expect(page.getByRole('heading', { name: 'Who can open a link I copy?' })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'How do I restore a deleted file?' })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Which device has a copy of my files?' })).toBeVisible();
+      await expect(page.getByRole('link', { name: 'Trash', exact: true })).toHaveAttribute('href', '#/trash');
+      await expect(page.getByRole('link', { name: 'Settings → Storage' })).toHaveAttribute('href', '#/settings/storage');
+      await page.screenshot({ path: testInfo.outputPath('settings-help.png') });
+      const shortcuts = page.getByRole('button', { name: 'Keyboard shortcuts', exact: true });
+      await shortcuts.click();
+      const dialog = page.getByRole('dialog', { name: 'Keyboard shortcuts' });
+      await expect(dialog.getByText('Copy link', { exact: true })).toBeVisible();
+      await page.keyboard.press('Escape');
+      await expect(dialog).toBeHidden();
+      await expect(shortcuts).toBeFocused();
+      await page.reload();
+      await expect(shortcuts).toBeVisible();
+    });
+  }
+
   test('can navigate to settings page and defaults to the account section', async ({ page }) => {
     setupPageErrorHandler(page);
     await page.goto('/');

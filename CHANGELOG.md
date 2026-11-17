@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.32 - 2026-11-18
+
+- Find keyboard shortcuts and answers about sharing, Trash and device storage in Settings → Help.
+
 ## 0.1.31 - 2026-11-17
 
 - Reveal text, pictures and shapes on click. Select several objects to reveal them together. PowerPoint import and export preserve supported Appear effects.
