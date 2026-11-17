@@ -109,11 +109,11 @@ test.describe('backup', () => {
     await expectNoJargon(page);
 
     await panel.getByLabel('File server address').fill('files.example.com');
-    await panel.getByRole('button', { name: 'Add file server' }).click();
+    await panel.getByRole('button', { name: 'Add backup server' }).click();
     await expect(panel.getByRole('alert')).toHaveText('Enter an address that starts with https://');
 
     await panel.getByLabel('File server address').fill(BACKUP_SERVER);
-    await panel.getByRole('button', { name: 'Add file server' }).click();
+    await panel.getByRole('button', { name: 'Add backup server' }).click();
     const place = panel.getByRole('listitem', { name: BACKUP_HOST });
     await expect(place.getByTestId('backup-status')).toHaveText('Up to date', { timeout: 90_000 });
     const sent = Number((await place.textContent())?.match(/Last backup sent (\d+) new parts/)?.[1] ?? 0);
@@ -131,16 +131,12 @@ test.describe('backup', () => {
     await expect(place.getByTestId('backup-status')).toHaveText('Up to date', { timeout: 60_000 });
     await expect(place.getByTestId('backup-detail')).toContainText('parts read back');
 
-    // Under Advanced, the same server is one the Drive saves to.
-    await page.goto(`${new URL(page.url()).origin}/#/settings/network/servers`);
-    await expect(page.getByText(BACKUP_HOST.split(':')[0]).first()).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByText('Those marked Save keep a backup of your Drive')).toBeVisible();
-
-    await page.getByTestId('settings-nav-storage').click();
-    const reopened = page.getByTestId('backup-settings');
-    await reopened.getByRole('listitem', { name: BACKUP_HOST }).getByRole('button', { name: 'Remove' }).click();
-    await expect(reopened.getByRole('listitem', { name: BACKUP_HOST })).toHaveCount(0);
-    await expect(reopened.getByRole('listitem', { name: 'everyday-files.test' })).toBeVisible();
+    await panel.getByRole('button', { name: 'Manage file servers' }).click();
+    await expect(place.getByRole('checkbox', { name: 'Save backups', exact: true })).toBeChecked();
+    await panel.screenshot({ path: testInfo.outputPath('backup-file-servers-desktop.png') });
+    await place.getByRole('button', { name: 'Remove' }).click();
+    await expect(place).toHaveCount(0);
+    await expect(everyday).toBeVisible();
   });
 
   test('a folder on this computer gets the Drive and a small manifest', async ({ page, relayUrl }) => {
@@ -180,7 +176,7 @@ test.describe('backup', () => {
     await serveFiles(page, slowOrigin, { uploadDelayMs: 1_500 });
     const panel = await openBackup(page);
     await panel.getByLabel('File server address').fill(slowOrigin);
-    await panel.getByRole('button', { name: 'Add file server' }).click();
+    await panel.getByRole('button', { name: 'Add backup server' }).click();
     const place = panel.getByRole('listitem', { name: 'slow-backup.test' });
     const status = place.getByTestId('backup-status');
     await expect(status).toHaveText(/^Backing up [1-9]\d* of \d+$/, { timeout: 60_000 });
@@ -192,7 +188,7 @@ test.describe('backup', () => {
     await expect(status).toHaveText('Up to date', { timeout: 120_000 });
   });
 
-  test('on a phone, Backup is in Settings under Storage and fits the screen', async ({ page, relayUrl }) => {
+  test('on a phone, Backup is in Settings under Storage and fits the screen', async ({ page, relayUrl }, testInfo) => {
     await page.setViewportSize(PHONE);
     await startWithDrive(page, relayUrl);
     await page.goto(`${new URL(page.url()).origin}/#/settings`);
@@ -203,10 +199,18 @@ test.describe('backup', () => {
 
     const panel = page.getByTestId('backup-settings');
     await panel.getByLabel('File server address').fill(BACKUP_SERVER);
-    await panel.getByRole('button', { name: 'Add file server' }).click();
+    await panel.getByRole('button', { name: 'Add backup server' }).click();
     const place = panel.getByRole('listitem', { name: BACKUP_HOST });
     await expect(place.getByTestId('backup-status')).toHaveText('Up to date', { timeout: 90_000 });
     for (const name of ['Back up now', 'Check', 'Remove']) await expect(place.getByRole('button', { name })).toBeVisible();
+    await panel.getByRole('button', { name: 'Manage file servers' }).click();
+    await expect(place.getByRole('checkbox', { name: 'Save backups', exact: true })).toBeChecked();
+    await panel.getByRole('textbox', { name: 'File server address' }).fill('https://shared-files.test');
+    await panel.getByRole('button', { name: 'Add file server' }).click();
+    const readOnly = panel.getByRole('listitem', { name: 'shared-files.test' });
+    await expect(readOnly.getByRole('checkbox', { name: 'Read files' })).toBeChecked();
+    await expect(readOnly.getByRole('checkbox', { name: 'Save backups', exact: true })).not.toBeChecked();
+    await panel.screenshot({ path: testInfo.outputPath('backup-file-servers-mobile.png') });
     await expectNoJargon(page);
     const box = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, view: window.innerWidth }));
     expect(box.scroll).toBeLessThanOrEqual(box.view);

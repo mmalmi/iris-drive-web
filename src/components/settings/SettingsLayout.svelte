@@ -11,7 +11,7 @@
   import KeysSettings from './KeysSettings.svelte';
   import DeveloperSettings from './DeveloperSettings.svelte';
   import P2PSettings from './P2PSettings.svelte';
-  import ServersSettings from './ServersSettings.svelte';
+  import RelaySettings from './RelaySettings.svelte';
   import TransportUsageSettings from './TransportUsageSettings.svelte';
 
   let { onShortcuts }: { onShortcuts: () => void } = $props();
@@ -91,8 +91,8 @@
     },
     {
       id: 'servers',
-      label: 'Servers',
-      description: 'Relays carry messages between devices. File servers keep copies of files.',
+      label: 'Relays',
+      description: 'Relays carry messages between devices.',
     },
     {
       id: 'p2p',
@@ -293,7 +293,7 @@
       {:else if activeNetworkSection === 'traffic'}
         <TransportUsageSettings embedded={true} />
       {:else if activeNetworkSection === 'servers'}
-        <ServersSettings embedded={true} />
+        <RelaySettings />
       {:else}
         <P2PSettings embedded={true} />
       {/if}

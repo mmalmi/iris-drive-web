@@ -66,6 +66,7 @@ test.describe('plain settings', () => {
     await nav.getByTestId('settings-nav-storage').click();
     await expect(page.getByTestId('storage-settings').getByRole('heading', { name: 'On this device' })).toBeVisible();
     await expectNoJargon(page);
+    await expect(page.getByTestId('backup-settings').getByRole('button', { name: 'Manage file servers' })).toBeVisible();
 
     await nav.getByTestId('settings-nav-about').click();
     const about = page.getByTestId('about-settings');
@@ -110,12 +111,13 @@ test.describe('plain settings', () => {
     await expect(page.getByTestId('reveal-secret-key')).toBeVisible();
     await expect(page.getByTestId('secret-key-value')).toHaveCount(0);
 
-    // Network keeps relays, file servers and direct connections together.
+    // Network keeps relays and direct connections together.
     await nav.getByTestId('settings-nav-network').click();
     await expect(page.getByTestId('settings-network-traffic')).toHaveText('Usage');
+    await expect(page.getByTestId('settings-network-servers')).toHaveText('Relays');
     await page.getByTestId('settings-network-servers').click();
     await expect(page.getByRole('heading', { name: /^Relays$/ })).toBeVisible();
-    await expect(page.getByRole('heading', { name: /^File servers \(\d+\)$/ })).toBeVisible();
+    await expect(page.getByText(/^File servers \(/)).toHaveCount(0);
     await page.getByTestId('settings-network-p2p').click();
     await expect(page.getByTestId('settings-fips-peers')).toContainText('Direct connections');
 

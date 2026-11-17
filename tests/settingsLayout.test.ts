@@ -10,7 +10,7 @@ const accountSettingsSource = read('AccountSettings.svelte');
 const aboutSettingsSource = read('AboutSettings.svelte');
 const keysSettingsSource = read('KeysSettings.svelte');
 const storageSettingsSource = read('StorageSettings.svelte');
-const serversSettingsSource = read('ServersSettings.svelte');
+const relaySettingsSource = read('RelaySettings.svelte');
 const transportUsageSettingsSource = read('TransportUsageSettings.svelte');
 const p2pSettingsSource = read('P2PSettings.svelte');
 const userSettingsSource = read('UserSettings.svelte');
@@ -31,9 +31,9 @@ describe('shared settings layout', () => {
     expect(settingsLayoutSource).not.toContain("label: 'App'");
   });
 
-  it('splits Network into usage, servers and direct connections', () => {
+  it('splits Network into usage, relays and direct connections', () => {
     expect(settingsLayoutSource).toContain("id: 'traffic'");
-    expect(settingsLayoutSource).toContain("id: 'servers'");
+    expect(settingsLayoutSource).toMatch(/id: 'servers',\s+label: 'Relays'/);
     expect(settingsLayoutSource).toContain("id: 'p2p'");
     expect(settingsLayoutSource).toContain('/settings/network/${id}');
     expect(settingsLayoutSource).not.toContain('FIPS');
@@ -76,8 +76,8 @@ describe('shared settings layout', () => {
   });
 
   it('shows embedded daemon transport and upstream relays inside one relay section', () => {
-    expect(serversSettingsSource).toContain('Relays');
-    expect(serversSettingsSource).toContain('Configured upstream relays');
-    expect(serversSettingsSource).not.toContain('Local Transport (');
+    expect(relaySettingsSource).toContain('Relays');
+    expect(relaySettingsSource).toContain('Configured upstream relays');
+    expect(relaySettingsSource).not.toContain('Local Transport (');
   });
 });

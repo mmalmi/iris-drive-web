@@ -1,9 +1,9 @@
 /**
  * Where the Drive is kept besides this device, and how each place stands.
  *
- * The file servers the Drive saves to are its backup places, the same list as
- * under Advanced; so is a folder on this computer, where the browser can write
- * to one. What happened with each place is remembered on this device.
+ * The file servers the Drive saves to are its backup places, along with any
+ * folder that the browser can write to. What happened with each place is
+ * remembered on this device.
  *
  * A backup runs in the storage worker and goes on while the page is left; one
  * that was going when the app closed starts again on the next start. A file
@@ -210,18 +210,18 @@ export function checkNow(id: string): Promise<void> {
   return runJob(id, 'check', { ask: true });
 }
 
-/** Adds a file server and backs up to it. Returns what is wrong with the address, or null. */
-export function addServer(input: string): string | null {
+/** Adds a file server, optionally as a backup. Returns what is wrong with the address, or null. */
+export function addServer(input: string, saveBackup = true): string | null {
   const url = normalizeServerUrl(input);
   if (!url) return 'Enter an address that starts with https://';
   const servers = get(settingsStore).network.blossomServers;
   const known = servers.some((server) => normalizeServerUrl(server.url) === url);
   settingsStore.setNetworkSettings({
     blossomServers: known
-      ? servers.map((server) => (normalizeServerUrl(server.url) === url ? { ...server, read: true, write: true } : server))
-      : [...servers, { url, read: true, write: true }],
+      ? servers.map((server) => (normalizeServerUrl(server.url) === url ? { ...server, read: true, write: saveBackup || server.write } : server))
+      : [...servers, { url, read: true, write: saveBackup }],
   });
-  void backUpNow(`${SERVER}${url}`);
+  if (saveBackup && backupsRunHere()) void backUpNow(`${SERVER}${url}`);
   return null;
 }
 
@@ -249,17 +249,17 @@ export async function addFolder(): Promise<void> {
 }
 
 /**
- * Stops backing up to a place. A file server the app comes with stays for
- * reading files; one added here goes from the list altogether.
+ * Stops backing up to a place. Keep default servers for reading unless the
+ * person removes them from their file server settings.
  */
-export async function removePlace(id: string): Promise<void> {
+export async function removePlace(id: string, { removeServer = false } = {}): Promise<void> {
   getWorkerAdapter()?.stopDriveBackup?.(id);
   if (id.startsWith(SERVER)) {
     const url = id.slice(SERVER.length);
-    const isDefault = DEFAULT_NETWORK_SETTINGS.blossomServers.some((server) => normalizeServerUrl(server.url) === url);
+    const keepServer = !removeServer && DEFAULT_NETWORK_SETTINGS.blossomServers.some((server) => normalizeServerUrl(server.url) === url);
     const servers = get(settingsStore).network.blossomServers;
     settingsStore.setNetworkSettings({
-      blossomServers: isDefault
+      blossomServers: keepServer
         ? servers.map((server) => (normalizeServerUrl(server.url) === url ? { ...server, write: false } : server))
         : servers.filter((server) => normalizeServerUrl(server.url) !== url),
     });

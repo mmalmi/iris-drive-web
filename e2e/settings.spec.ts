@@ -91,73 +91,49 @@ test.describe('Settings page', () => {
     await expect(discoveredSection.getByText('relay.discovered.example.com')).toBeVisible({ timeout: 5000 });
   });
 
-  test('can add and remove blossom server', async ({ page }) => {
-    test.setTimeout(60000);
+  test('can add and remove a read-only file server under Backups', async ({ page }) => {
     setupPageErrorHandler(page);
-    await page.goto('/#/settings/network/servers');
+    await page.goto('/#/settings/storage');
 
-    await expect(page.getByRole('heading', { name: /File servers/ })).toBeVisible({ timeout: 10000 });
+    const backups = page.getByTestId('backup-settings');
+    await backups.getByRole('button', { name: 'Manage file servers' }).click();
+    await expect(backups.getByRole('checkbox', { name: 'Save a backup on this server' })).not.toBeChecked();
+    await backups.getByRole('textbox', { name: 'File server address' }).fill('https://test-files.example.com');
+    await backups.getByRole('button', { name: 'Add file server' }).click();
 
-    const blossomSection = page.locator('div').filter({ hasText: /^File servers/ }).first();
-    const editBtn = blossomSection.locator('button', { hasText: 'Edit' });
-    await expect(editBtn).toBeVisible({ timeout: 5000 });
-    await editBtn.click();
-
-    const urlInput = page.locator('input[placeholder="https://blossom.example.com"]');
-    await expect(urlInput).toBeVisible({ timeout: 5000 });
-
-    const testServerUrl = 'https://test-blossom.example.com';
-    const hostText = 'test-blossom.example.com';
-    const removeButtons = page.getByRole('button', { name: 'Remove server' });
-    const initialRemoveCount = await removeButtons.count();
-    const hostSpans = page.locator(`span:has-text("${hostText}")`);
-    const initialHostCount = await hostSpans.count();
-
-    await urlInput.fill(testServerUrl);
-
-    const addBtn = page.locator('button', { hasText: 'Add' });
-    await expect(addBtn).toBeVisible({ timeout: 5000 });
-    await addBtn.click({ timeout: 5000 });
-
-    await expect(removeButtons).toHaveCount(initialRemoveCount + 1, { timeout: 5000 });
-    await expect(hostSpans.first()).toBeVisible({ timeout: 5000 });
-    await expect(hostSpans).toHaveCount(initialHostCount + 2, { timeout: 5000 });
-
-    const removeBtn = removeButtons.nth(initialRemoveCount);
-    await removeBtn.click();
-
-    await expect(removeButtons).toHaveCount(initialRemoveCount, { timeout: 5000 });
-    await expect(hostSpans).toHaveCount(initialHostCount, { timeout: 5000 });
+    const row = backups.getByRole('listitem', { name: 'test-files.example.com' });
+    await expect(row).toHaveCount(1);
+    await expect(row.getByRole('checkbox', { name: 'Read files' })).toBeChecked();
+    await expect(row.getByRole('checkbox', { name: 'Save backups', exact: true })).not.toBeChecked();
+    await expect(row.getByTestId('backup-status')).toHaveCount(0);
+    await row.getByRole('button', { name: 'Remove' }).click();
+    await expect(row).toHaveCount(0);
   });
 
-  test('can toggle blossom server read/write', async ({ page }) => {
-    test.setTimeout(60000);
+  test('can edit permissions for a file server that keeps a backup', async ({ page }) => {
     setupPageErrorHandler(page);
-    await page.goto('/#/settings/network/servers');
+    await page.goto('/#/settings/storage');
     await waitForAppReady(page);
     await configureBlossomServers(page);
 
-    await expect(page.getByRole('heading', { name: /File servers/ })).toBeVisible({ timeout: 10000 });
-    
-    const editBtn = page.locator('h3:has-text("File servers")').locator('..').locator('button', { hasText: 'Edit' });
-    await expect(editBtn).toBeVisible({ timeout: 5000 });
-    await editBtn.click();
+    const backups = page.getByTestId('backup-settings');
+    const row = backups.getByRole('listitem', { name: new URL(getTestBlossomUrl()).host });
+    await expect(row.getByTestId('backup-status')).toBeVisible();
+    await backups.getByRole('button', { name: 'Manage file servers' }).click();
+    const read = row.getByRole('checkbox', { name: 'Read files' });
+    await read.uncheck();
+    await expect(read).not.toBeChecked();
+    await read.check();
+    await expect(read).toBeChecked();
 
-    const blossomHost = new URL(getTestBlossomUrl()).hostname.replace(/\./g, '\\.');
-    const firstServerRow = page.locator('div').filter({ hasText: new RegExp(blossomHost) }).first();
-    await expect(firstServerRow).toBeVisible({ timeout: 5000 });
-
-    const readCheckbox = firstServerRow.locator('input[type="checkbox"]').first();
-    await expect(readCheckbox).toBeVisible({ timeout: 5000 });
-
-    const wasChecked = await readCheckbox.isChecked();
-    await readCheckbox.click();
-
-    const isNowChecked = await readCheckbox.isChecked();
-    expect(isNowChecked).toBe(!wasChecked);
-
-    await readCheckbox.click();
-    expect(await readCheckbox.isChecked()).toBe(wasChecked);
+    const save = row.getByRole('checkbox', { name: 'Save backups', exact: true });
+    await expect(row.getByRole('button', { name: 'Remove' })).toBeDisabled();
+    await expect(save).toBeChecked();
+    await save.uncheck();
+    await expect(read).toBeChecked();
+    await expect(row.getByTestId('backup-status')).toHaveCount(0);
+    await save.check();
+    await expect(row.getByTestId('backup-status')).toBeVisible();
   });
 
   test('settings page does not freeze with rapid interactions', async ({ page }) => {

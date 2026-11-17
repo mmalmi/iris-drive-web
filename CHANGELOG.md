@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.33 - 2026-11-18
+
+- Manage file servers in Settings → Storage → Backups. Choose which servers open files and which keep encrypted backups of your Drive.
+
 ## 0.1.32 - 2026-11-18
 
 - Find keyboard shortcuts and answers about sharing, Trash and device storage in Settings → Help.
