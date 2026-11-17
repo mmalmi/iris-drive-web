@@ -140,8 +140,8 @@ export function moveRecents(path: string, to: string | null): RecentItem[] {
 export function putBackRecents(items: RecentItem[]) {
   if (items.length === 0) return;
   recentsStore.update(current => {
-    const paths = new Set(items.map((item) => item.path));
-    const updated = [...current.filter((item) => !paths.has(item.path)), ...items]
+    const paths = new Set(current.map(item => item.path));
+    const updated = [...current, ...items.filter(item => !paths.has(item.path))]
       .sort((a, b) => b.timestamp - a.timestamp)
       .slice(0, MAX_RECENTS);
     saveRecents(updated);

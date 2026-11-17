@@ -581,6 +581,8 @@
   });
 
   function handleKeyDown(e: KeyboardEvent) {
+    if (e.defaultPrevented || e.isComposing) return;
+    if (e.target instanceof Element && e.target.closest('textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"]')) return;
     const key = e.key.toLowerCase();
     // Space belongs to the checkbox. File actions also work after selecting by checkbox.
     if (e.target instanceof HTMLInputElement && (e.target.type !== 'checkbox' || key === ' ')) return;
@@ -615,7 +617,8 @@
       return;
     }
 
-    if ((key === 'delete' || key === 'backspace') && canEdit) {
+    const hashDelete = key === '#' && !e.metaKey && (!e.ctrlKey || e.getModifierState('AltGraph'));
+    if ((key === 'delete' || key === 'backspace' || hashDelete) && canEdit) {
       if (selecting) {
         e.preventDefault();
         void deleteChosen(selectionEntries, () => clearSelection());
@@ -705,6 +708,7 @@
 
     <div
       bind:this={fileListRef}
+      data-drive-undo
       data-testid="file-list"
       data-scroll-root
       data-layout={grid ? 'grid' : 'list'}

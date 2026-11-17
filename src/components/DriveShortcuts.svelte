@@ -15,7 +15,8 @@
     ['Copy', mod + ' + C'],
     ['Cut', mod + ' + X'],
     ['Paste', mod + ' + V'],
-    ['Delete', 'Delete / Backspace'],
+    ['Delete', 'Delete / Backspace / #'],
+    ['Undo deletion', mod + ' + Z'],
     ['More actions', 'Shift + F10'],
     ['Clear selection', 'Esc'],
   ];

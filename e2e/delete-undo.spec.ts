@@ -1,5 +1,5 @@
 // Deleting asks nothing and says what went, as Google Drive does, with Undo
-// for a while: that puts it back as it was, with what was inside it and the
+// available by button or keyboard: that puts it back with its contents and the
 // link that showed it to anyone.
 import { expect, test, type Page } from './fixtures';
 import { createDriveProfile, prepareFreshSession } from './documents.helpers';
@@ -50,6 +50,48 @@ test.describe('deleting', () => {
     // Kept after a reload, as any change.
     await page.reload();
     await expect(fileRow(page, 'plan.txt')).toBeVisible({ timeout: 30_000 });
+  });
+
+  test('Ctrl or Command Z undoes successive deletions after ten seconds and leaves text editing alone', async ({ page, relayUrl }) => {
+    await prepareFreshSession(page, relayUrl);
+    const owner = await createDriveProfile(page, 'Keyboard Undo');
+    await expectFolderEditable(page);
+    await uploadIntoFolder(page, [text('first.txt', 'one'), text('second.txt', 'two')]);
+
+    await fileRow(page, 'first.txt').getByRole('link').click();
+    await page.keyboard.press('Delete');
+    await expect(fileRow(page, 'first.txt')).toHaveCount(0);
+    await fileRow(page, 'second.txt').getByRole('link').click();
+    await page.keyboard.press('#');
+    await expect(fileRow(page, 'second.txt')).toHaveCount(0);
+    const notice = page.getByRole('status').filter({ hasText: 'Deleted “second.txt”' });
+    await expect(notice).toBeVisible();
+    await expect(undo(page)).toHaveCount(1);
+
+    // The toast's old 10-second timer would have been installed by this point.
+    await expect.poll(() => page.evaluate(() => Date.now()), { intervals: [1000], timeout: 15000 })
+      .toBeGreaterThan(Date.now() + 10000);
+    await expect(notice).toBeVisible();
+    await notice.getByRole('button', { name: 'Dismiss' }).click();
+
+    const field = page.getByTestId('drive-search-input').filter({ visible: true });
+    await field.focus();
+    await field.pressSequentially('words');
+    await field.press('ControlOrMeta+z');
+    await expect(field).toHaveValue('');
+    await expect(fileRow(page, 'second.txt')).toHaveCount(0);
+
+    await page.getByTestId('drive-sidebar').getByRole('link', { name: 'Trash' }).click();
+    const trash = page.getByTestId('trash-route');
+    await expect(trash.getByRole('button', { name: 'Restore second.txt' })).toBeVisible();
+    await page.keyboard.press('ControlOrMeta+z');
+    await expect(trash.getByRole('button', { name: 'Restore second.txt' })).toHaveCount(0);
+    await expect(trash.getByRole('button', { name: 'Restore first.txt' })).toBeVisible();
+
+    await page.goto(`${new URL(page.url()).origin}/#/${owner.profileId}/main`);
+    await expect(fileRow(page, 'second.txt')).toBeVisible();
+    await page.keyboard.press('ControlOrMeta+z');
+    await expect(fileRow(page, 'first.txt')).toBeVisible();
   });
 
   test('Trash restores after a reload, keeps a newer file, and reconstructs a missing parent', async ({ page, relayUrl }) => {

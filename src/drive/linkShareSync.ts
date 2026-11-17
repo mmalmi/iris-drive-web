@@ -20,6 +20,7 @@ import { projectNostrIdentityRoster, sharedFolderKeyRecipientPubkeys } from './p
 import { acceptedShares } from './shareLibrary';
 import {
   buildLinkShareNotes,
+  canSetLinkAccess,
   buildShareLinkNotes,
   LINK_SHARE_LABEL,
   linkShareOf,
@@ -203,11 +204,14 @@ export async function setLinkAccess(subject: LinkSubject, access: LinkAccess | '
   return record;
 }
 
+/** Enough to undo this deletion's permission change. The key stays in the account's link store. */
+export type DeletedLinkAccess = Pick<LinkShare, 'profile' | 'npub' | 'tree' | 'path' | 'share' | 'access'> & { disabledAt: number };
+
 /**
  * Keeps links with their items: one renamed or moved in My Drive on this
  * device takes its link along, and one deleted has its link turned off.
  */
-export function followLinkShares(from: string[], to: string[] | null, share?: string): LinkShare[] {
+export function followLinkShares(from: string[], to: string[] | null, share?: string): DeletedLinkAccess[] {
   const me = account();
   if (!me) return [];
   const at = from.join('/');
@@ -218,20 +222,33 @@ export function followLinkShares(from: string[], to: string[] | null, share?: st
   if (before.length === 0) return [];
   const moved = before.map((record): LinkShare => (to
     ? { ...record, path: to.join('/') + record.path.slice(at.length), at: now }
-    : { ...record, access: 'off', at: now }));
+    : { ...record, access: 'off', at: Math.max(now, record.at + 1) }));
   linkShares.update((items) => mergeLinkShares(items, moved));
   for (const record of moved) {
     if (record.access === 'off' && record.npub === me.npub) void unpublish(record).catch(() => undefined);
     tell(record);
   }
-  return before;
+  return to ? [] : before.map(({ profile, npub, tree, path, share, access }, i) =>
+    ({ profile, npub, tree, path, share, access, disabledAt: moved[i].at }));
 }
 
-/** Sets links followLinkShares changed back as they were: the same links open the same items again. */
-export function putBackLinkShares(records: LinkShare[]): void {
-  if (records.length === 0) return;
-  const now = Date.now();
-  const back = records.map((record) => ({ ...record, at: now }));
+/** Undo may re-enable only the exact access decision this deletion disabled. */
+export function putBackLinkShares(records: DeletedLinkAccess[]): void {
+  if (!records.length) return;
+  const me = account();
+  if (!me) return;
+  const shares = get(acceptedShares);
+  const current = get(linkShares);
+  const back: LinkShare[] = [];
+  for (const item of records) {
+    if (item.profile !== me.profile || (item.access !== 'link' && item.access !== 'public')) continue;
+    const disabled = current.find(record => record.profile === item.profile && record.npub === item.npub && record.tree === item.tree);
+    if (disabled?.access !== 'off' || disabled.at !== item.disabledAt || disabled.path !== item.path || disabled.share !== item.share) continue;
+    const latest = linkShareOf(item.path.split('/').filter(Boolean), me.profile, current, item.share);
+    if (latest !== disabled || !canSetLinkAccess(linkSource(disabled, shares), me.profile, me.pubkey, shares)) continue;
+    back.push({ ...disabled, access: item.access, at: Math.max(Date.now(), disabled.at + 1) });
+  }
+  if (!back.length) return;
   linkShares.update((items) => mergeLinkShares(items, back));
   for (const record of back) tell(record);
 }

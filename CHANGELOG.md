@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.30 - 2026-11-17
+
+- Restore deleted files and folders from Trash for 30 days in the browser where you deleted them. Use Ctrl+Z or ⌘Z in the file list to undo a deletion.
+- Use / to search, F2 to rename, Ctrl/⌘+Enter to open a new tab and Ctrl/⌘+/ to see keyboard shortcuts.
+- Move a selection with cut and paste or drag and drop. If a name is already taken, both items are kept.
+- Filter search by folder and file type and see all matches.
+- See storage by device on narrow screens and keep device storage reports up to date as the account becomes ready.
+
 ## 0.1.28 - 2026-11-16
 
 - Keep a file deleted after another device republishes an older copy of the same folder.
