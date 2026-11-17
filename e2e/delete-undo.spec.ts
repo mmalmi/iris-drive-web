@@ -76,7 +76,8 @@ test.describe('deleting', () => {
 
     const field = page.getByTestId('drive-search-input').filter({ visible: true });
     await field.focus();
-    await field.pressSequentially('words');
+    await field.press('w');
+    await expect(field).toHaveValue('w');
     await field.press('ControlOrMeta+z');
     await expect(field).toHaveValue('');
     await expect(fileRow(page, 'second.txt')).toHaveCount(0);

@@ -8,7 +8,8 @@
   import { cutItems, pastedCut, finishCut } from '../lib/cutClipboard';
   import { open as openRename } from './Modals/RenameModal.svelte';
   import { openNewMenuBeside } from './NewMenu.svelte';
-  import { moveAndTell } from './Modals/MoveModal.svelte';
+  import { copyEntryLinks, shareEntry } from './entrySharing';
+  import { open as openMove, moveAndTell } from './Modals/MoveModal.svelte';
   import SelectionBar, { deleteChosen } from './SelectionBar.svelte';
   import ListSortHeader from './ListSortHeader.svelte';
   import { loadGridView } from './FolderViewSwitch.svelte';
@@ -587,7 +588,24 @@
     // Space belongs to the checkbox. File actions also work after selecting by checkbox.
     if (e.target instanceof HTMLInputElement && (e.target.type !== 'checkbox' || key === ' ')) return;
 
-    if ((e.ctrlKey || e.metaKey) && key === 'a') {
+    if ((e.ctrlKey || e.metaKey) && e.altKey && !e.shiftKey && !e.getModifierState('AltGraph')) {
+      // On Mac, Option can change the letter itself (for example, Option+M is µ).
+      const action = /^[a-z]$/.test(key) ? key : e.code.replace(/^Key/, '').toLowerCase();
+      if (!['a', 'l', 'm'].includes(action)) return;
+      const focused = chosenEntry();
+      const items = selectionEntries.length ? selectionEntries : focused ? [focused] : [];
+      if (!items.length) return;
+      e.preventDefault();
+      if (action === 'l') void copyEntryLinks(items.map(entry => ({ entry, href: entryHref(entry) })), currentPath);
+      if (action === 'm' && canEdit) openMove(items.map(entry => entry.name), currentPath, () => fileListRef?.focus());
+      if (action === 'a') {
+        if (items.length === 1) shareEntry(items[0], entryHref(items[0]), currentPath, canEdit);
+        else toast.info('Select one item to share');
+      }
+      return;
+    }
+
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && key === 'a') {
       e.preventDefault();
       selection.selectAll(entries.map((entry) => entry.name));
       return;

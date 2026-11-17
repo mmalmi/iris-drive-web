@@ -111,3 +111,41 @@ test('search, help, rename and open in a new tab from the keyboard', async ({ pa
   expect(page.url()).toBe(original);
   await tab.close();
 });
+
+test.describe('keyboard actions for selected files', () => {
+  test.use({ permissions: ['clipboard-read', 'clipboard-write'] });
+  test('copies existing links, opens Share, and moves a selection', async ({ page, relayUrl }) => {
+    await prepareFreshSession(page, relayUrl);
+    await createDriveProfile(page, 'Keyboard sharing');
+    await createAndEnterFolder(page, 'Projects');
+    await createFolder(page, 'Invoices');
+    await createFolder(page, 'Receipts');
+    await createFolder(page, 'Archive');
+    const invoices = fileRow(page, 'Invoices').getByRole('link');
+    const receipts = fileRow(page, 'Receipts').getByRole('link');
+    const invoiceUrl = new URL((await invoices.getAttribute('href'))!, page.url()).href;
+    const receiptUrl = new URL((await receipts.getAttribute('href'))!, page.url()).href;
+    await invoices.click();
+    await page.keyboard.press('ControlOrMeta+Alt+l');
+    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(invoiceUrl);
+    await page.keyboard.press('ControlOrMeta+Alt+a');
+    await expect(page.getByTestId('share-modal')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('share-modal')).toBeHidden();
+
+    await invoices.click();
+    await receipts.click({ modifiers: ['ControlOrMeta'] });
+    await expect(page.getByTestId('selection-count')).toHaveText('2 selected');
+    await page.keyboard.press('ControlOrMeta+Alt+l');
+    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe([invoiceUrl, receiptUrl].join('\n'));
+    await page.keyboard.press('ControlOrMeta+Alt+m');
+    const move = page.getByTestId('move-dialog');
+    await expect(move).toBeVisible();
+    await move.getByRole('button', { name: 'Archive' }).click();
+    await move.getByRole('button', { name: 'Move here' }).click();
+    await expect(invoices).toHaveCount(0);
+    await fileRow(page, 'Archive').getByRole('link').dblclick();
+    await expect(invoices).toBeVisible();
+    await expect(receipts).toBeVisible();
+  });
+});
