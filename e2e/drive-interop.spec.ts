@@ -90,10 +90,13 @@ async function prepareFreshPage(
   await page.reload({ waitUntil: 'domcontentloaded' });
   await waitForAppReady(page, 60000);
   if (nsec) {
-    await page.waitForFunction(() => {
-      const store = (window as any).__nostrStore;
-      return store?.getState?.().pubkey?.length === 64;
-    }, { timeout: 30000 });
+    await page.waitForFunction(async (profileId) => {
+      const state = (window as any).__nostrStore?.getState?.();
+      if (state?.pubkey?.length !== 64) return false;
+      if (!profileId) return true;
+      const { activeNostrIdentityRootScope } = await import('/src/drive/profileRoute.ts');
+      return activeNostrIdentityRootScope(state) === profileId;
+    }, nostrIdentitySession?.profileId ?? null, { timeout: 30000 });
   }
   await useLocalRelay(page, relayUrl);
   await configureBlossomServers(page);

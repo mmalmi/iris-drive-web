@@ -681,11 +681,11 @@ test('native owner and restarted web device link quickly through a large roster 
       await page.getByTestId('row-menu-delete').click();
       await expect(file).toHaveCount(0);
     }
-    await expect.poll(() => {
+    await expect(() => {
       runIdriveJson(nativeConfig, ['sync', '--relay', relayUrl, '--timeout', '3']);
-      return (runIdriveJson<{ files: { path: string }[] }>(nativeConfig, ['list'])).files
-        .map((entry) => entry.path).filter((name) => name === webFileName || name === existingFileName);
-    }, { timeout: 30_000 }).toEqual([]);
+      const { files } = runIdriveJson<{ files: { path: string }[] }>(nativeConfig, ['list']);
+      expect(files.filter(({ path }) => path === webFileName || path === existingFileName)).toEqual([]);
+    }).toPass({ timeout: 30_000 });
     await expectNativeProfileFile(nativeConfig, relayUrl, nativeFiles, otherCopyName, otherCopyContent);
 
     // Every CLI invocation reloads native state, so this also covers owner restart recovery.
