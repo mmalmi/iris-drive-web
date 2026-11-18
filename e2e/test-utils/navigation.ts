@@ -220,7 +220,11 @@ export async function clearAllStorage(page: any) {
       req.onerror = () => resolve();
       req.onblocked = () => resolve();
     })));
+    // Startup can finish between this reset and the caller's reload. Preserve its
+    // explicit test mode so signed-out journeys cannot create a throwaway account.
+    const disableAutoCreate = localStorage.getItem('hashtree:disableTestAutoCreate');
     localStorage.clear();
+    if (disableAutoCreate === '1') localStorage.setItem('hashtree:disableTestAutoCreate', '1');
     sessionStorage.clear();
   }, undefined, 6);
 }
