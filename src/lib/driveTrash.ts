@@ -71,8 +71,10 @@ export async function expireTrash(): Promise<void> {
 
 /** Save the actual blocks before removing the originals. Normal cache eviction cannot break Restore. */
 export async function archiveTrash(tree: HashTree, records: TrashItem[]): Promise<void> {
+  // Reserve the entire batch atomically. If an id already exists, this
+  // attempt owns none of those rows and must never clean up their blocks.
+  await db.transaction('rw', items, () => items.bulkAdd(records));
   try {
-    await items.bulkAdd(records);
     for (const record of records) {
       let batch: Block[] = [];
       const keep = async () => {

@@ -21,7 +21,7 @@ import { documentTitle, isDocumentFolderName } from '../lib/documentNames';
 import { toast } from '../stores/toast';
 import { changeDriveRoot } from '../drive/driveRootChange';
 import { linkSubjectAt } from '../drive/linkShares';
-import { acceptedShares } from '../drive/shareLibrary';
+import { acceptedShares, type AcceptedShareRecord } from '../drive/shareLibrary';
 import { get } from 'svelte/store';
 
 type EntryRoute = Pick<ReturnType<typeof parseRoute>, 'npub' | 'treeName'>;
@@ -137,14 +137,16 @@ async function folderAt(tree: HashTree, root: CID, path: string[]): Promise<CID 
   return path.length ? (await tree.resolvePath(root, pathString(path)))?.cid ?? null : root;
 }
 
-function trashAccount(): string | null {
-  const state = nostrStore.getState();
+function trashAccount(state = nostrStore.getState()): string | null {
   return state.isLoggedIn ? activeNostrIdentityRootScope(state) ?? state.npub : null;
 }
 
+export function hasTrashAccess(account: string, scope: string, state = nostrStore.getState(), shares?: AcceptedShareRecord[]): boolean {
+  return trashAccount(state) === account && (state.npub === scope || isEditableDriveRouteScope(scope, state, shares));
+}
+
 function requireTrashAccess(account: string, scope: string): void {
-  const state = nostrStore.getState();
-  if (trashAccount() !== account || (state.npub !== scope && !isEditableDriveRouteScope(scope, state))) {
+  if (!hasTrashAccess(account, scope)) {
     throw new Error('You need edit access to the original Drive');
   }
 }

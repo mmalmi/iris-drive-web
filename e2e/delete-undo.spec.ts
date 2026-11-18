@@ -1,3 +1,4 @@
+import { LinkType } from '@hashtree/core';
 // Deleting asks nothing and says what went, as Google Drive does, with Undo
 // available by button or keyboard: that puts it back with its contents and the
 // link that showed it to anyone.
@@ -95,6 +96,30 @@ test.describe('deleting', () => {
     await expect(fileRow(page, 'first.txt')).toBeVisible();
   });
 
+  test('an old Trash row for a share that no longer grants access stays private', async ({ page, relayUrl }) => {
+    await prepareFreshSession(page, relayUrl);
+    const owner = await createDriveProfile(page, 'Recovery');
+    await expectFolderEditable(page);
+    await page.evaluate(async ({ account, type }) => {
+      const { archiveTrash } = await import('/src/lib/driveTrash.ts');
+      const { getTree } = await import('/src/store.ts');
+      const tree = getTree();
+      const file = await tree.putFile(new TextEncoder().encode('archived'));
+      const archived = (scope: string, name: string) => ({
+        id: crypto.randomUUID(), account, scope, treeName: 'main', path: [],
+        deletedAt: Date.now(), ready: false, entry: { ...file, name, type },
+      });
+      await archiveTrash(tree, [
+        archived(account, 'personal.txt'),
+        archived(crypto.randomUUID(), 'former-share.txt'),
+      ]);
+    }, { account: owner.profileId, type: LinkType.Blob });
+    await page.getByTestId('drive-sidebar').getByRole('link', { name: 'Trash' }).click();
+    const trash = page.getByTestId('trash-route');
+    await expect(trash.getByRole('button', { name: 'Restore personal.txt' })).toBeVisible();
+    await expect(trash).not.toContainText('former-share.txt');
+  });
+
   test('Trash restores after a reload, keeps a newer file, and reconstructs a missing parent', async ({ page, relayUrl }) => {
     await prepareFreshSession(page, relayUrl);
     const owner = await createDriveProfile(page, 'Restorer');
@@ -121,6 +146,19 @@ test.describe('deleting', () => {
       const { listTrash, getTrash, archiveTrash, expireTrash, recoverContents, TRASH_RETENTION } = await import('/src/lib/driveTrash.ts');
       const { getTree } = await import('/src/store.ts');
       const item = (await listTrash(account)).find(row => row.entry.name === 'meeting.txt')!;
+      // A conflicting import can neither replace another account's recovery
+      // row nor remove its only copy of the blocks.
+      const collision = { ...item, account: crypto.randomUUID(), id: item.id };
+      const extra = { ...collision, id: crypto.randomUUID() };
+      let rejected = false;
+      try {
+        await archiveTrash(getTree(), [extra, collision]);
+      } catch {
+        rejected = true;
+      }
+      if (!rejected || await getTrash(extra.id, extra.account) || !await getTrash(item.id, account)) {
+        throw new Error('A conflicting Trash batch changed existing recovery data');
+      }
       await archiveTrash(getTree(), [{ ...item, id: crypto.randomUUID(), deletedAt: Date.now() - TRASH_RETENTION }]);
       await expireTrash();
       const data = new Map();

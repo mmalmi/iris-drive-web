@@ -5,11 +5,12 @@
   import { acceptedShares } from '../drive/shareLibrary';
   import { documentTitle } from '../lib/documentNames';
   import { listTrash, watchTrash, type TrashItem } from '../lib/driveTrash';
-  import { restoreTrashItems } from '../actions/entry';
+  import { hasTrashAccess, restoreTrashItems } from '../actions/entry';
   import { toast } from '../stores/toast';
 
   let account = $derived($nostrStore.isLoggedIn ? activeNostrIdentityRootScope($nostrStore) ?? $nostrStore.npub : null);
   let rows = $state<TrashItem[]>([]);
+  let visibleRows = $derived(rows.filter(item => hasTrashAccess(item.account, item.scope, $nostrStore, $acceptedShares)));
   let status = $state('');
   let restoring = $state<string | null>(null);
 
@@ -69,7 +70,7 @@
     <p class="mt-1 mb-0 text-sm text-text-3">Items deleted in this browser stay here for 30 days.</p>
   </header>
   <div class="flex-1 overflow-auto">
-    {#each rows as item (item.id)}
+    {#each visibleRows as item (item.id)}
       {@const name = itemTitle(item, item.entry.name)}
       {@const place = driveName(item)}
       <div class="flex items-center gap-3 border-b border-surface-2 px-3 py-2.5 lg:px-5" data-testid="trash-item">
