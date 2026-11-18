@@ -72,7 +72,7 @@ test.describe('adding people to a shared folder', () => {
     const url = new URL(relayUrl);
     const control = new URL('http://' + url.host + '/__silence');
     control.searchParams.set('ns', url.pathname);
-    control.searchParams.set('kinds', '0');
+    // A disconnected relay never sends end-of-history; silencing only kind 0 still sends it.
     await page.request.get(control.href);
     await setOwnName(page, 'Local Choice');
     await expect(page.getByRole('button', { name: 'Retry public update' })).toBeVisible({ timeout: 25_000 });
