@@ -58,6 +58,9 @@ export async function openProfile(page: Page, configDir: string, relayUrl: strin
   await waitForAppReady(page);
   await configureBlossomServers(page);
   await waitForRelayConnected(page);
+  // Short invites load a same-origin /htree/ file through the service worker.
+  // A signed-in shell and connected relay can both be ready before it takes control.
+  await page.waitForFunction(() => Boolean(navigator.serviceWorker.controller), undefined, { timeout: 30_000 });
 }
 
 export async function acceptAndOpen(page: Page, invite: string) {
