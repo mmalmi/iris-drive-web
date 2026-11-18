@@ -2,9 +2,9 @@
   /** What this app is and when it was last updated, and a way to load it again. */
   import { buildTimeLabel } from './buildTime';
   import { DRIVE_APP_DOWNLOAD_URL } from '../../lib/appBrand';
-  import { getRuntimeHtreeServerUrl } from '../../lib/htreeRuntime';
+  import { getRuntimeHtreeServerUrl, isSameOriginIrisGatewayRuntime } from '../../lib/htreeRuntime';
 
-  const inNativeApp = Boolean(getRuntimeHtreeServerUrl());
+  const inNativeApp = isSameOriginIrisGatewayRuntime() || Boolean(getRuntimeHtreeServerUrl());
 </script>
 
 <div class="space-y-6" data-testid="about-settings">

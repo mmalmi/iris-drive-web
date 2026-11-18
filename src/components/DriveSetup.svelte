@@ -2,7 +2,7 @@
   import type { Snippet } from 'svelte';
   import UsersPage from './UsersPage.svelte';
   import { DRIVE_APP_DOWNLOAD_URL } from '../lib/appBrand';
-  import { getRuntimeHtreeServerUrl } from '../lib/htreeRuntime';
+  import { getRuntimeHtreeServerUrl, isSameOriginIrisGatewayRuntime } from '../lib/htreeRuntime';
 
   interface Props {
     initialOwnerInput?: string;
@@ -12,7 +12,7 @@
 
   let { initialOwnerInput = '', children }: Props = $props();
   let hasInitialDeviceLink = $derived(Boolean(initialOwnerInput.trim()));
-  const inNativeApp = Boolean(getRuntimeHtreeServerUrl());
+  const inNativeApp = isSameOriginIrisGatewayRuntime() || Boolean(getRuntimeHtreeServerUrl());
 </script>
 
 <div class="flex flex-1 items-center justify-center px-4 py-8 bg-surface-0" data-testid="drive-setup">

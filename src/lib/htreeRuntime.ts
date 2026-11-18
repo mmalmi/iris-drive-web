@@ -1,5 +1,6 @@
 import {
   createHtreeRuntime,
+  getInjectedHtreeServerUrl,
   type BlossomServerConfig as WorkerBlossomServerConfig,
 } from '@hashtree/worker';
 import { get } from 'svelte/store';
@@ -19,6 +20,8 @@ function getConfiguredBlossomServers(): WorkerBlossomServerConfig[] {
 
 const runtime = createHtreeRuntime({
   appId: 'iris-drive-web',
+  // The browser bridge serves public blocks. This app stores its own files in its worker.
+  windowLike: isSameOriginIrisGatewayRuntime() && !getInjectedHtreeServerUrl() ? {} : undefined,
   relays: getConfiguredRelays,
   blossomServers: getConfiguredBlossomServers,
 });
@@ -60,43 +63,18 @@ export function isSameOriginIrisGatewayRuntime(): boolean {
 }
 
 export function getRuntimeHtreeServerUrl(): string | null {
-  return getSameOriginIrisGatewayServerUrl() ?? runtime.endpoints.htreeServerUrl;
+  return runtime.endpoints.htreeServerUrl;
 }
 
 export function getRuntimeBlossomServer(): AppBlossomServerConfig | null {
-  const url = getRuntimeHtreeServerUrl();
-  if (!url) {
-    return null;
-  }
-  return {
-    url,
-    read: true,
-    write: true,
-  };
-}
+  const nativeServer = getRuntimeHtreeServerUrl();
+  if (nativeServer) return { url: nativeServer, read: true, write: true };
 
-function getRuntimeRelayUrl(serverUrl: string): string | null {
-  try {
-    const url = new URL(serverUrl);
-    if (url.protocol === 'http:') {
-      url.protocol = 'ws:';
-    } else if (url.protocol === 'https:') {
-      url.protocol = 'wss:';
-    } else {
-      return null;
-    }
-    url.pathname = '/ws';
-    url.search = '';
-    url.hash = '';
-    return url.toString().replace(/\/$/, '');
-  } catch {
-    return null;
-  }
+  const bridge = getSameOriginIrisGatewayServerUrl();
+  return bridge ? { url: bridge, read: true, write: false } : null;
 }
 
 export function getRuntimeNostrRelays(relays: readonly string[]): string[] {
-  const relay = getRuntimeHtreeServerUrl() ? getRuntimeRelayUrl(getRuntimeHtreeServerUrl()!) : null;
-  if (relay) return [relay];
   return runtime.getEndpoints({ relays }).nostrRelays;
 }
 
@@ -119,7 +97,7 @@ export function getRuntimeBlossomServers(
       merged.set(url, {
         url,
         read: Boolean(existing.read || server.read),
-        write: Boolean(existing.write || server.write),
+        write: url === runtimeServer.url ? runtimeServer.write : Boolean(existing.write || server.write),
       });
     } else {
       merged.set(url, {
