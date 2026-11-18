@@ -31,8 +31,8 @@
 
 {#if hasContent}
   <div
-    class="pointer-events-none flex flex-col items-center gap-2"
-    style="position: fixed; bottom: calc(1rem + var(--drive-tabs-height, 0px) + env(safe-area-inset-bottom)); left: 1rem; right: 1rem; z-index: 9999;"
+    class="pointer-events-none flex flex-col items-center gap-2 z-30"
+    style="position: fixed; bottom: calc(1rem + var(--drive-tabs-height, 0px) + env(safe-area-inset-bottom)); left: 1rem; right: 1rem;"
   >
     <!-- Regular toasts -->
     {#each $toasts as toast (toast.id)}

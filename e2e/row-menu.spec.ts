@@ -155,6 +155,36 @@ test.describe('the menu of a row', () => {
     await expect(page.locator('pre')).toContainText('Buy bread', { timeout: 30_000 });
   });
 
+  test('can delete from a row menu that overlaps an Undo notification', async ({ page, relayUrl }, testInfo) => {
+    await page.setViewportSize(DESKTOP);
+    await startInMyDrive(page, relayUrl);
+    await uploadIntoFolder(page, ['first.txt', 'second.txt'].map(name => ({
+      name, mimeType: 'text/plain', buffer: Buffer.from(name),
+    })));
+
+    await fileRow(page, 'first.txt').getByRole('link').click();
+    await page.keyboard.press('Delete');
+    await expect(fileRow(page, 'first.txt')).toHaveCount(0);
+
+    const notification = page.getByRole('status').filter({ hasText: 'Deleted “first.txt”' });
+    await expect(notification.getByRole('button', { name: 'Undo' })).toBeVisible();
+    const opened = await openRowMenu(page, 'second.txt');
+    const remove = opened.getByRole('menuitem', { name: 'Delete' });
+    const removeBox = (await remove.boundingBox())!;
+    const noticeBox = (await notification.boundingBox())!;
+    // Reproduce the overlap regardless of where the named row lands in the viewport.
+    await notification.evaluate((element, { x, y }) => {
+      element.style.translate = `${x}px ${y}px`;
+    }, {
+      x: removeBox.x + removeBox.width / 2 - (noticeBox.x + noticeBox.width / 2),
+      y: removeBox.y + removeBox.height / 2 - (noticeBox.y + noticeBox.height / 2),
+    });
+    await page.screenshot({ path: testInfo.outputPath('file-menu-over-notification.png') });
+    await remove.click({ timeout: 5000 });
+    await expect(fileRow(page, 'second.txt')).toHaveCount(0);
+    await expect(page.getByRole('status').filter({ hasText: 'Deleted “second.txt”' }).getByRole('button', { name: 'Undo' })).toBeVisible();
+  });
+
   test('on a phone ⋮ opens it from the bottom, and a long press chooses the row instead', async ({ page, relayUrl }, testInfo) => {
     await page.setViewportSize(PHONE);
     await startInMyDrive(page, relayUrl);
