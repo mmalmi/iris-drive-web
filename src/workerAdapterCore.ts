@@ -1,3 +1,6 @@
+import graphBootstrapUrl from 'nostr-social-graph/data/socialGraph.bin?url';
+import graphBootstrapReceipt from 'nostr-social-graph/data/socialGraph.json';
+import type { MobileGraphReceipt } from 'nostr-social-graph/mobileGraphSnapshot';
 import { serveNostrSource } from '@hashtree/worker/nostr-source-port';
 import type { RuntimeSource } from 'nostr-pubsub';
 import type { HistoryStatus } from '@iris/hashtree-app/nostr';
@@ -48,7 +51,7 @@ export type WorkerConstructor = URL | string | (new () => Worker);
 export class WorkerAdapterCore {
   protected worker: Worker | null = null;
   protected workerFactory: WorkerConstructor;
-  protected config: WorkerAdapterConfig & { graphBootstrap: boolean };
+  protected config: WorkerAdapterConfig & { graphBootstrap: boolean; graphBootstrapFallback: { url: string; receipt: MobileGraphReceipt } };
   protected ready = false;
   protected readyPromise: Promise<void> | null = null;
   protected readyResolve: (() => void) | null = null;
@@ -107,7 +110,14 @@ export class WorkerAdapterCore {
    */
   constructor(workerFactory: WorkerConstructor, config: WorkerAdapterConfig) {
     this.workerFactory = workerFactory;
-    this.config = { ...config, graphBootstrap: allowsPublicGraphBootstrap(config.relays) };
+    this.config = {
+      ...config,
+      graphBootstrap: allowsPublicGraphBootstrap(config.relays),
+      graphBootstrapFallback: {
+        url: new URL(graphBootstrapUrl, window.location.href).href,
+        receipt: graphBootstrapReceipt as MobileGraphReceipt,
+      },
+    };
   }
 
   /**

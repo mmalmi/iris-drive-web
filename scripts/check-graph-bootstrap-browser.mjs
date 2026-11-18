@@ -52,6 +52,8 @@ async function bootstrapSnapshot(root) {
   // The discovery-root edge is model data; the
   // independent author lists below are genuine signed synthetic-user events.
   graph.addFollower(root, owner);
+  // Match the minimum viable public mobile projection, using synthetic identities.
+  for (let i = 0; i < 10_000; i++) graph.addFollower(root, (i + 100_000).toString(16).padStart(64, '0'));
   graph.handleEvent([follow(now - 100), mute(now - 99)], true);
   return Buffer.from(await graph.toBinary());
 }
