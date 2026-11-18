@@ -303,7 +303,7 @@
   </section>
 
   <section>
-    <h3 class="text-xs font-medium text-muted uppercase tracking-wide mb-1">If you lose this device</h3>
+    <h3 class="text-xs font-medium text-muted uppercase tracking-wide mb-1">If you lose all your devices</h3>
     <div class="space-y-2 rounded bg-surface-2 p-3 text-sm text-text-2" data-testid="backup-restore">
       {#if recoveryPhrase}
         <p class="flex items-start gap-2 text-text-1" data-testid="backup-recovery-phrase">
@@ -316,7 +316,7 @@
           <span>You have no recovery phrase yet. <a href="#/settings/account/recovery" class="text-accent">Create recovery phrase</a></span>
         </p>
       {/if}
-      <p>Sign in on a new device with your recovery phrase and your files come back from the file servers above. If you added a file server of your own, add it on the new device too.</p>
+      <p>Use your recovery phrase on a new device to restore files backed up to your file servers. Add any custom servers there too.</p>
       {#if folderBackups.length}
         <p>A copy in a folder is encrypted as well; Drive cannot read one back yet.</p>
       {/if}

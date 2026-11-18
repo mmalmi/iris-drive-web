@@ -10,7 +10,7 @@ import {
   type DeviceStorageReport,
 } from '../src/drive/deviceStorageReport';
 import { forgetHolding, measureHolding, type HoldingParts } from '../src/workers/driveHolding';
-import { folderLines, holdersSentence, holdingLabel, spaceLabel, syncState } from '../src/lib/deviceStorageView';
+import { folderLines, fullCopyCount, holdingLabel, spaceLabel, syncState } from '../src/lib/deviceStorageView';
 import { hexToBytes } from '@noble/hashes/utils.js';
 // Built by native Iris Drive (`crates/iris-drive-core/src/device_storage`, test
 // `a_report_built_here_has_the_web_shape_and_opens_for_the_web_device` with NATIVE_EVENT_OUT).
@@ -192,18 +192,22 @@ describe('measuring what a device holds', () => {
 
 describe('what the Storage page says', () => {
   it('says how much a device holds, and how much room it uses', () => {
-    expect(holdingLabel(report({ held_files: 3, held_bytes: 3000 }), format)).toBe('All Drive files available offline');
-    expect(holdingLabel(report(), format)).toBe('1000 B stored · 33% of Drive');
-    expect(holdingLabel(report({ held_bytes: 0, held_files: 0 }), format)).toBe('No Drive data stored');
-    expect(holdingLabel(report({ held_bytes: 1, file_bytes: 1000 }), format)).toBe('1 B stored · under 1% of Drive');
+    expect(holdingLabel(report({ held_files: 3, held_bytes: 3000 }))).toBe('All files offline');
+    expect(holdingLabel(report())).toBe('33% offline');
+    expect(holdingLabel(report({ held_bytes: 0, held_files: 0 }))).toBe('No files offline');
+    expect(holdingLabel(report({ held_bytes: 1, file_bytes: 1000 }))).toBe('<1% offline');
+    expect(holdingLabel(report({ held_bytes: 3000, held_files: 2 }))).toBe('Partial copy');
     expect(spaceLabel(report(), format)).toBe('Uses 5000 B of 10000 B allowed');
   });
 
-  it('names the devices that hold everything', () => {
+  it('counts devices that report holding all their files', () => {
     const all = report({ held_files: 3, held_bytes: 3000 });
-    expect(holdersSentence([{ pubkey: 'a', name: 'Laptop', current: false, report: all }])).toBe('All Drive files are available offline on Laptop.');
-    expect(holdersSentence([{ pubkey: 'a', name: 'Laptop', current: true, report: all }])).toBe('All Drive files are available offline on this device.');
-    expect(holdersSentence([{ pubkey: 'a', name: 'Laptop', current: false, report: report() }])).toBe('');
+    expect(fullCopyCount([
+      { pubkey: 'a', name: 'Laptop', current: true, report: all },
+      { pubkey: 'b', name: 'Phone', current: false, report: all },
+      { pubkey: 'c', name: 'Tablet', current: false, report: report() },
+      { pubkey: 'd', name: 'Desktop', current: false, report: null },
+    ])).toBe(2);
   });
 
   it('lists folders, the files in no folder and the folders too small to list', () => {

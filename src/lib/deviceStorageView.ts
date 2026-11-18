@@ -25,12 +25,13 @@ export function holdsAll(report: DeviceStorageReport): boolean {
 }
 
 /** Local availability of this device’s Drive files. */
-export function holdingLabel(report: DeviceStorageReport, format: Format): string {
+export function holdingLabel(report: DeviceStorageReport): string {
   if (report.files === 0) return report.unread_folders ? 'Storage unavailable' : 'Drive is empty';
-  if (holdsAll(report)) return 'All Drive files available offline';
-  if (report.held_bytes === 0) return 'No Drive data stored';
+  if (holdsAll(report)) return 'All files offline';
+  if (report.held_bytes === 0) return report.held_files > 0 ? 'Some files offline' : 'No files offline';
   const share = Math.floor((report.held_bytes / Math.max(1, report.file_bytes)) * 100);
-  return `${format(report.held_bytes)} stored · ${share < 1 ? 'under 1' : share}% of Drive`;
+  if (share >= 100) return 'Partial copy';
+  return share < 1 ? '<1% offline' : `${share}% offline`;
 }
 
 /** The room a device uses: "Uses 2.3 GB of 5.0 GB allowed". */
@@ -59,12 +60,9 @@ export function driveSize(rows: DeviceRow[]): DeviceStorageReport | null {
     .sort((a, b) => b.measured_at - a.measured_at)[0] ?? null;
 }
 
-/** Which devices hold all of the Drive, in a sentence. */
-export function holdersSentence(rows: DeviceRow[]): string {
-  const holders = rows.filter((row) => row.report && row.report.files > 0 && holdsAll(row.report));
-  if (holders.length === 0) return '';
-  if (holders.length === 1) return holders[0].current ? 'All Drive files are available offline on this device.' : `All Drive files are available offline on ${holders[0].name}.`;
-  return `All Drive files are available offline on ${holders.length} devices.`;
+/** Number of devices that report holding all their files offline. */
+export function fullCopyCount(rows: DeviceRow[]): number {
+  return rows.filter(({ report }) => report && report.files > 0 && holdsAll(report)).length;
 }
 
 /**

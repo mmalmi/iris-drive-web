@@ -18,7 +18,7 @@
     appIcon,
     driveSize,
     folderLines,
-    holdersSentence,
+    fullCopyCount,
     holdingLabel,
     holdsAll,
     spaceLabel,
@@ -59,6 +59,7 @@
         || a.name.localeCompare(b.name));
   });
   let drive = $derived(driveSize(rows));
+  let copies = $derived(fullCopyCount(rows));
   let deviceKeys = $derived(rows.map((row) => row.pubkey));
   let connected = $derived(new Set($appStore.peers.filter((peer) => peer.state === 'connected').map((peer) => peer.pubkey)));
   const SYNC_TONE: Record<SyncState, string> = { 'in-sync': 'text-success', behind: 'text-warning', ahead: 'text-text-2', apart: 'text-warning' };
@@ -93,14 +94,15 @@
     </div>
     {#if drive}
       <p class="text-sm text-text-2" data-testid="device-storage-summary">
-        Your Drive is {formatBytes(drive.file_bytes)} in {drive.files.toLocaleString('en-US')} {drive.files === 1 ? 'file' : 'files'}.
-        {holdersSentence(rows)}
+        {formatBytes(drive.file_bytes)} · {drive.files.toLocaleString('en-US')} {drive.files === 1 ? 'file' : 'files'}
+        {#if copies > 0} · {copies} full {copies === 1 ? 'copy' : 'copies'}{/if}
       </p>
     {/if}
 
-    <ul class="list-none divide-y divide-surface-3 rounded bg-surface-2 overflow-hidden" aria-label="Your devices">
+    <ul class="devices list-none rounded bg-surface-2 overflow-hidden" aria-label="Your devices">
       {#each rows as row (row.pubkey)}
         {@const report = row.report}
+        {@const sync = row.current ? null : syncState(row.pubkey, report, held.versions, deviceKeys)}
         <li data-testid="device-storage-row" aria-label={row.name}>
           <button
             class="w-full p-3 text-left flex items-start gap-3 transition-colors {report ? 'hover:bg-surface-3/40' : 'cursor-default'}"
@@ -116,47 +118,44 @@
                 </span>
                 {#if report || !row.current}
                   <span class="text-sm {report && holdsAll(report) && report.files > 0 ? 'text-success' : 'text-text-2'}" data-testid="device-storage-held">
-                    {#if report}{holdingLabel(report, formatBytes)}{:else}No report yet{/if}
+                    {report ? holdingLabel(report) : 'No report yet'}
                   </span>
                 {/if}
               </span>
-              {#if !row.current}
-                {@const sync = syncState(row.pubkey, report, held.versions, deviceKeys)}
-                <span class="flex flex-wrap items-center gap-x-1.5 text-xs" data-testid="device-storage-status">
-                  <span
-                    class="inline-block h-2 w-2 shrink-0 rounded-full {connected.has(row.pubkey) ? 'bg-success' : 'bg-text-3 opacity-50'}"
-                    aria-hidden="true"
-                  ></span>
-                  <span
-                    class="text-text-3"
-                    data-testid="device-storage-connection"
-                    title={connected.has(row.pubkey) ? 'Linked directly to this device' : 'Not linked directly to this device now; changes still reach it through relays'}
-                  >{connected.has(row.pubkey) ? 'Connected' : 'Not connected'}</span>
-                  {#if sync}
-                    <span class="text-text-3" aria-hidden="true">·</span>
-                    <span class={SYNC_TONE[sync]} data-testid="device-storage-sync" title={SYNC_DETAIL[sync]}>{SYNC_LABEL[sync]}</span>
-                  {/if}
-                </span>
-              {/if}
               {#if report}
                 <span class="block h-1.5 rounded-full bg-surface-3 overflow-hidden" role="presentation">
                   <span class="block h-full bg-accent" style="width: {width(report.held_bytes, scale)}"></span>
                 </span>
-                <span class="flex flex-wrap justify-between gap-x-3 text-xs text-text-3">
-                  {#if row.current}
-                    <span></span>
-                  {:else}
-                    <span data-testid="device-storage-space" title="Everything Drive keeps on that device, and the most it may keep">{spaceLabel(report, formatBytes)}</span>
-                  {/if}
-                  <span>{ageLabel(row.current ? report.measured_at : held.heard[row.pubkey] ?? report.measured_at, now)}</span>
-                </span>
+              {/if}
+              {#if sync && sync !== 'in-sync'}
+                <span class="block text-xs {SYNC_TONE[sync]}" data-testid="device-storage-sync" title={SYNC_DETAIL[sync]}>{SYNC_LABEL[sync]}</span>
               {/if}
             </span>
             {#if report}
               <span class="i-lucide-chevron-down mt-1 shrink-0 text-text-3 transition-transform {open[row.pubkey] ? 'rotate-180' : ''}"></span>
             {/if}
           </button>
+          {#if !row.current && (!report || open[row.pubkey])}
+            <div class="flex flex-wrap items-center gap-x-1.5 pl-11 pr-3 pb-2 text-xs text-text-3" data-testid="device-storage-status">
+              <span class="h-2 w-2 rounded-full {connected.has(row.pubkey) ? 'bg-success' : 'bg-text-3 opacity-50'}" aria-hidden="true"></span>
+              <span
+                data-testid="device-storage-connection"
+                title={connected.has(row.pubkey) ? 'Linked directly to this device' : 'No direct connection. Changes can still arrive through relays.'}
+              >{connected.has(row.pubkey) ? 'Connected' : 'Not connected'}</span>
+              {#if sync === 'in-sync'}
+                <span aria-hidden="true">·</span>
+                <span class={SYNC_TONE[sync]} data-testid="device-storage-sync" title={SYNC_DETAIL[sync]}>{SYNC_LABEL[sync]}</span>
+              {/if}
+            </div>
+          {/if}
           {#if report && open[row.pubkey]}
+            <div class="flex flex-wrap gap-x-3 gap-y-1 pl-11 pr-3 pb-2 text-xs text-text-3">
+              <span>{formatBytes(report.held_bytes)} of {formatBytes(report.file_bytes)} offline</span>
+              {#if !row.current}
+                <span data-testid="device-storage-space" title="Everything Drive keeps on that device, and the most it may keep">{spaceLabel(report, formatBytes)}</span>
+              {/if}
+              <span>{ageLabel(row.current ? report.measured_at : held.heard[row.pubkey] ?? report.measured_at, now)}</span>
+            </div>
             <ul class="list-none space-y-2 px-3 pb-3 pl-11" data-testid="device-storage-folders">
               {#each folderLines(report) as line, index (index)}
                 <li style="padding-left: {line.depth * 0.75}rem">
@@ -183,3 +182,9 @@
     </ul>
   </section>
 {/if}
+
+<style>
+  .devices > li + li {
+    border-top: 1px solid rgb(var(--surface-3));
+  }
+</style>

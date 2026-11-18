@@ -93,10 +93,11 @@ test('a native device and a browser each show how much of the Drive the other ho
     // The browser shows the native device with its numbers once it has measured.
     await page.goto(`${new URL(page.url()).origin}/#/settings/storage`);
     await expect(page.getByTestId('device-storage-row')).toHaveCount(2, { timeout: 60_000 });
-    await expect(webRow(page, true).getByTestId('device-storage-held')).toHaveText('All Drive files available offline', { timeout: 60_000 });
+    await expect(webRow(page, true).getByTestId('device-storage-held')).toHaveText('All files offline', { timeout: 60_000 });
     const native = webRow(page, false);
     await expect(native).toContainText('Native device');
     await expect(native.getByTestId('device-storage-held')).not.toHaveText('No report yet', { timeout: 300_000 });
+    await native.getByRole('button').click();
     await expect(native.getByTestId('device-storage-space')).toContainText(/Uses .+ of .+ allowed/);
     await expect(native.getByTestId('device-storage-sync')).toHaveText('In sync', { timeout: 120_000 });
 
@@ -116,7 +117,6 @@ test('a native device and a browser each show how much of the Drive the other ho
     expect(rows.find((row) => !row.is_current)!.folders.map((folder) => folder.label)).toContain('1 file not in a folder');
     fs.writeFileSync(testInfo.outputPath('native-storage.json'), JSON.stringify(rows, null, 2));
 
-    await native.getByRole('button').first().click();
     await expect(native.getByTestId('device-storage-folders')).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath('web-storage-with-native.png'), fullPage: true });
   } finally {

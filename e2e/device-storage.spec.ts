@@ -80,21 +80,27 @@ test('each device sees how much of the Drive the other holds, and that they are 
     await openStorage(second);
 
     // The first browser added the file: it holds all of the Drive.
-    await expect(row(page, true).getByTestId('device-storage-held')).toHaveText('All Drive files available offline', { timeout: 60_000 });
-    await expect(page.getByTestId('device-storage-summary')).toContainText('All Drive files are available offline on this device.');
+    await expect(row(page, true).getByTestId('device-storage-held')).toHaveText('All files offline', { timeout: 60_000 });
+    await expect(page.getByTestId('device-storage-summary')).toContainText('1 full copy');
     // The second has said how much it holds: not the file it never opened.
     const other = row(page, false);
     await expect(other.getByTestId('device-storage-held')).not.toHaveText('No report yet', { timeout: 90_000 });
-    await expect(other.getByTestId('device-storage-held')).not.toHaveText('All Drive files available offline');
+    await expect(other.getByTestId('device-storage-held')).not.toHaveText('All files offline');
+    await expect(other).toHaveCSS('border-top-style', 'solid');
+    await expect(other).toHaveCSS('border-top-width', '1px');
+    await expect(other.getByTestId('device-storage-space')).toBeHidden();
+    await page.mouse.move(0, 0);
+    await page.getByTestId('device-storage').screenshot({ path: testInfo.outputPath('devices-collapsed.png'), animations: 'disabled' });
+    await other.getByRole('button').click();
     await expect(other.getByTestId('device-storage-sync')).toHaveText('In sync', { timeout: 90_000 });
     await expect(other.getByTestId('device-storage-space')).toContainText(/Uses .+ of .+ allowed/);
 
     // On the second, the first holds all of it; the row opens to the folders.
     const first = row(second, false);
-    await expect(first.getByTestId('device-storage-held')).toHaveText('All Drive files available offline', { timeout: 90_000 });
-    await expect(first.getByTestId('device-storage-sync')).toHaveText('In sync', { timeout: 90_000 });
-    await expect(row(second, true).getByTestId('device-storage-held')).not.toHaveText('All Drive files available offline');
+    await expect(first.getByTestId('device-storage-held')).toHaveText('All files offline', { timeout: 90_000 });
+    await expect(row(second, true).getByTestId('device-storage-held')).not.toHaveText('All files offline');
     await first.getByRole('button').first().click();
+    await expect(first.getByTestId('device-storage-sync')).toHaveText('In sync', { timeout: 90_000 });
     await expect(first.getByTestId('device-storage-folders')).toContainText('1 file not in a folder');
     await page.screenshot({ path: testInfo.outputPath('first-device.png'), fullPage: true });
     await second.screenshot({ path: testInfo.outputPath('second-device.png'), fullPage: true });
@@ -106,9 +112,9 @@ test('each device sees how much of the Drive the other holds, and that they are 
     await second.getByTestId('viewer-back').click();
     await second.goto(`${new URL(second.url()).origin}/#/settings/storage`);
     await second.reload();
-    await expect(row(second, true).getByTestId('device-storage-held')).toHaveText('All Drive files available offline', { timeout: 60_000 });
-    await expect(second.getByTestId('device-storage-summary')).toContainText('All Drive files are available offline on 2 devices.');
-    await expect(row(page, false).getByTestId('device-storage-held')).toHaveText('All Drive files available offline', { timeout: 90_000 });
+    await expect(row(second, true).getByTestId('device-storage-held')).toHaveText('All files offline', { timeout: 60_000 });
+    await expect(second.getByTestId('device-storage-summary')).toContainText('2 full copies');
+    await expect(row(page, false).getByTestId('device-storage-held')).toHaveText('All files offline', { timeout: 90_000 });
 
     // In the dark and at phone width, with a row open.
     await second.emulateMedia({ colorScheme: 'dark' });
@@ -116,8 +122,7 @@ test('each device sees how much of the Drive the other holds, and that they are 
     await row(second, false).getByRole('button').first().click();
     await expect(row(second, false).getByTestId('device-storage-folders')).toBeVisible();
     await second.getByTestId('device-storage').scrollIntoViewIfNeeded();
-    await second.waitForTimeout(300);
-    await second.screenshot({ path: testInfo.outputPath('second-dark-phone.png') });
+    await second.getByTestId('device-storage').screenshot({ path: testInfo.outputPath('second-dark-phone.png'), animations: 'disabled' });
   } finally {
     await secondContext.close();
   }

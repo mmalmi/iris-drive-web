@@ -99,7 +99,8 @@ test.describe('backup', () => {
 
     await expect(page.getByTestId('storage-settings').getByRole('heading', { name: 'On this device' })).toBeVisible();
     await expect(page.getByTestId('storage-size')).toBeVisible();
-    await expect(page.getByTestId('backup-restore')).toContainText('recovery phrase');
+    await expect(page.getByRole('heading', { name: 'If you lose all your devices' })).toBeVisible();
+    await expect(page.getByTestId('backup-restore')).toContainText('restore files backed up to your file servers');
     await expect(panel.getByRole('link', { name: 'Iris Drive app' })).toHaveAttribute('href', 'https://getdrive.iris.to/');
     await panel.screenshot({ path: testInfo.outputPath('backup.png') });
     const everyday = panel.getByRole('listitem', { name: 'everyday-files.test' });
