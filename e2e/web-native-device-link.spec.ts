@@ -904,7 +904,7 @@ test('web and native devices of one account exchange Drive roots over the FIPS f
     });
     // The browser holds the native device as an event peer on its FIPS feed.
     await expect.poll(() => page.evaluate((nativePubkey) => (
-      ((window as any).__driveFipsStats?.().nostrPeerIds ?? []) as string[]
+      ((window as any).__driveFipsStats?.()?.nostrPeerIds ?? []) as string[]
     ).some((peerId) => peerId.slice(2) === nativePubkey), nativePubkey), {
       timeout: 90_000,
       intervals: [500, 1_000, 2_000],
