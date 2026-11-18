@@ -49,7 +49,7 @@ describe('main native backend bootstrap', () => {
 
     expect(initReadonlyBackend).toHaveBeenCalledOnce();
     expect(restoreSession).toHaveBeenCalledOnce();
-    expect(waitForRelayConnection).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(waitForRelayConnection).toHaveBeenCalledOnce());
   });
 
   it('mounts the UI while backend network settings are still loading', async () => {

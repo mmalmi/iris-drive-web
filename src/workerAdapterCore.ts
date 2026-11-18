@@ -114,7 +114,7 @@ export class WorkerAdapterCore {
       ...config,
       graphBootstrap: allowsPublicGraphBootstrap(config.relays),
       graphBootstrapFallback: {
-        url: new URL(graphBootstrapUrl, window.location.href).href,
+        url: new URL(graphBootstrapUrl, globalThis.location?.href ?? import.meta.url).href,
         receipt: graphBootstrapReceipt as MobileGraphReceipt,
       },
     };
