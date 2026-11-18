@@ -61,7 +61,8 @@ test.describe('plain settings', () => {
     await expect(page.getByTestId('user-revoke-admin')).toHaveCount(0);
     const profiles = page.getByLabel('Profiles on this device');
     await expect(profiles.getByRole('link', { name: 'Manage profiles' })).toBeVisible();
-    await expect(profiles.getByRole('button', { name: 'Sign out' })).toBeVisible();
+    await expect(nav.getByRole('button', { name: 'Sign out' })).toBeVisible();
+    await expect(profiles.getByRole('button', { name: 'Sign out' })).toHaveCount(0);
     await expect(profiles.getByRole('button', { name: 'Copy secret key' })).toHaveCount(0);
     await expect(profiles.getByText('Plain Settings', { exact: true })).toBeVisible();
     await expectNoJargon(page);
@@ -132,7 +133,7 @@ test.describe('plain settings', () => {
     await expectAdvancedClosed(page);
   });
 
-  test('on a phone, the settings list leads to plain pages and Advanced starts closed', async ({ page, relayUrl }) => {
+  test('on a phone, the settings list leads to plain pages and Advanced starts closed', async ({ page, relayUrl }, testInfo) => {
     await page.setViewportSize(PHONE);
     await startSignedIn(page, relayUrl);
     await page.goto(`${new URL(page.url()).origin}/#/settings`);
@@ -140,6 +141,9 @@ test.describe('plain settings', () => {
     const nav = page.getByRole('navigation', { name: 'Settings' });
     await expect(nav).toBeVisible({ timeout: 30_000 });
     await expect(page.getByTestId('account-settings')).toBeHidden();
+    const signOut = nav.getByRole('button', { name: 'Sign out' });
+    await expect(signOut).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath('settings-landing.png') });
     await expectAdvancedClosed(page);
     await expectNoJargon(page);
 
@@ -169,5 +173,13 @@ test.describe('plain settings', () => {
     await expect(page.getByTestId('settings-advanced-toggle')).toHaveAttribute('aria-expanded', 'true');
     await page.getByTestId('settings-advanced-toggle').click();
     await expectAdvancedClosed(page);
+
+    await signOut.click();
+    const confirmation = page.getByRole('dialog', { name: 'Log out of Drive?' });
+    await confirmation.getByRole('button', { name: 'Cancel' }).click();
+    await expect(signOut).toBeFocused();
+    await signOut.click();
+    await confirmation.getByRole('button', { name: 'Log out' }).click();
+    await expect(page.getByTestId('drive-setup')).toBeVisible();
   });
 });

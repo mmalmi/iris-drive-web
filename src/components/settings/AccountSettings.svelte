@@ -14,6 +14,7 @@
   import RecoveryPhraseSettings from './RecoveryPhraseSettings.svelte';
   import LogoutDialog from '../Modals/LogoutDialog.svelte';
 
+  let { showSignOut = true }: { showSignOut?: boolean } = $props();
   let logoutDialog = $state<LogoutDialog>();
   let profileToSignOut = $state('');
   let recoverySection = $state<HTMLElement | null>(null);
@@ -107,7 +108,7 @@
   <ProfileSettings
     {profiles}
     {activeProfileId}
-    onSignOut={confirmProfileSignOut}
+    onSignOut={showSignOut ? confirmProfileSignOut : undefined}
     onRemoveProfile={profiles.length > 1 ? confirmProfileSignOut : undefined}
     signInHref="#/users/existing"
     manageProfilesHref="#/users"

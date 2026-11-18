@@ -97,7 +97,7 @@ test.describe('account navigation and logout', () => {
 
     await openAccountMenu(page);
     await page.getByTestId('account-menu-settings').click();
-    const settingsLogout = profiles.getByRole('button', { name: 'Sign out' });
+    const settingsLogout = page.getByRole('navigation', { name: 'Settings' }).getByRole('button', { name: 'Sign out' });
     const confirmation = page.getByRole('dialog', { name: 'Log out of Drive?' });
     await settingsLogout.click();
     await expect(confirmation.getByRole('button', { name: 'Cancel' })).toBeFocused();
