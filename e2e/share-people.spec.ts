@@ -1,4 +1,6 @@
-import { getPublicKey, generateSecretKey, nip19 } from 'nostr-tools';
+import { getPublicKey, generateSecretKey, nip19, verifyEvent } from 'nostr-tools';
+import { NostrRuntime } from 'nostr-pubsub';
+import { WebSocket } from 'ws';
 import { expect, test, type Page } from './fixtures';
 import { createDriveProfile, prepareFreshSession } from './documents.helpers';
 import { chooseNew } from './test-utils';
@@ -32,6 +34,64 @@ async function setOwnName(page: Page, name: string): Promise<void> {
 
 test.describe('adding people to a shared folder', () => {
   test.setTimeout(240_000);
+
+  test('renaming preserves the signed username, custom fields and tags', async ({ page, relayUrl }, testInfo) => {
+    await prepareFreshSession(page, relayUrl);
+    await createDriveProfile(page, 'Starting Name');
+    const original = await page.evaluate(async () => {
+      const { nostr } = await import('/src/nostr/client.ts');
+      return nostr.signEvent({
+        kind: 0, created_at: Math.floor(Date.now() / 1000) + 1,
+        tags: [['custom', 'keep', ''], ['i', 'github:sample', 'proof']],
+        content: '{"name":"stable-handle","display_name":"Starting Name","custom":{"counter":9007199254740995}}',
+      });
+    });
+    const observer = new NostrRuntime({
+      relays: [relayUrl], websocketImplementation: WebSocket as unknown as typeof globalThis.WebSocket,
+    });
+    try {
+      await observer.publish(original, { wait: 'remote', deadline: Date.now() + 5000 });
+      await setOwnName(page, 'New Display');
+      const read = async () => (await observer.query([{ kinds: [0], authors: [original.pubkey] }], {
+        cache: 'network-only', deadline: Date.now() + 1500,
+      })).events.find(event => JSON.parse(event.content).display_name === 'New Display');
+      await expect.poll(async () => (await read())?.id).toBeTruthy();
+      const renamed = (await read())!;
+      expect(verifyEvent(structuredClone(renamed))).toBe(true);
+      expect(renamed.content).toContain('9007199254740995');
+      expect(JSON.parse(renamed.content).name).toBe('stable-handle');
+      expect(renamed.tags).toEqual(original.tags);
+      await expect(page.getByRole('status').filter({ hasText: 'Your public profile update is queued' })).toBeVisible();
+      await page.getByTestId('account-settings').screenshot({ path: testInfo.outputPath('verified-profile-rename.png') });
+    } finally { await observer.close(); }
+  });
+
+  test('an unavailable profile saves the name locally and offers a public retry', async ({ page, relayUrl }) => {
+    await prepareFreshSession(page, relayUrl);
+    const { npub } = await createDriveProfile(page, 'Before');
+    const url = new URL(relayUrl);
+    const control = new URL('http://' + url.host + '/__silence');
+    control.searchParams.set('ns', url.pathname);
+    control.searchParams.set('kinds', '0');
+    await page.request.get(control.href);
+    await setOwnName(page, 'Local Choice');
+    await expect(page.getByRole('button', { name: 'Retry public update' })).toBeVisible({ timeout: 25_000 });
+    await expect(page.getByLabel('Your name')).toHaveValue('Local Choice');
+    control.searchParams.set('off', '1');
+    await page.request.get(control.href);
+    const observer = new NostrRuntime({
+      relays: [relayUrl], websocketImplementation: WebSocket as unknown as typeof globalThis.WebSocket,
+    });
+    try {
+      const pubkey = nip19.decode(npub).data as string;
+      const names = async () => (await observer.query([{ kinds: [0], authors: [pubkey] }], {
+        cache: 'network-only', deadline: Date.now() + 1500,
+      })).events.map(event => JSON.parse(event.content).display_name);
+      expect(await names()).not.toContain('Local Choice');
+      await page.getByRole('button', { name: 'Retry public update' }).click();
+      await expect.poll(names).toContain('Local Choice');
+    } finally { await observer.close(); }
+  });
 
   test('finds a followed person by name, adds them as editor, and they see the folder', async ({ page, browser, relayUrl }, testInfo) => {
     const bobContext = await browser.newContext();

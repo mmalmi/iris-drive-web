@@ -7,7 +7,7 @@
   import { nostrStore } from '../../nostr';
   import { getCurrentNostrIdentitySession } from '../../nostr/auth';
   import { accountsStore } from '../../accounts';
-  import { ownDisplayName, saveOwnName } from '../../drive/ownDisplayName';
+  import { ownDisplayName, readOwnNameBase, saveOwnName } from '../../drive/ownDisplayName';
   import { Avatar } from '../User';
   import UserSettings from './UserSettings.svelte';
   import RecoveryPhraseSettings from './RecoveryPhraseSettings.svelte';
@@ -25,6 +25,27 @@
   let savedName = $derived($accountsStore.accounts.find((account) => account.pubkey === pubkey)?.name?.trim() ?? '');
   let nameDraft = $state('');
   let nameSaved = $state(false);
+  let publishMessage = $state('');
+  let retryPublish = $state(false);
+  let editBase: { pubkey: string; head: ReturnType<typeof readOwnNameBase> } | null = null;
+  let attempt = 0;
+
+  function startNameEdit() {
+    if (!pubkey || editBase?.pubkey === pubkey) return;
+    const head = readOwnNameBase(pubkey);
+    // A read may fail before the user presses Save. Save handles that same rejection.
+    void head.catch(() => {});
+    editBase = { pubkey, head };
+  }
+
+  $effect(() => {
+    void pubkey;
+    editBase = null;
+    nameSaved = false;
+    retryPublish = false;
+    publishMessage = '';
+    attempt++;
+  });
   // Start from the name on this device; an account without one shows the name
   // others find for it, once that lookup answers.
   $effect(() => {
@@ -38,9 +59,22 @@
   });
 
   function saveName(): void {
-    if (!nameDraft.trim() || nameDraft.trim() === savedName) return;
-    saveOwnName(pubkey, nameDraft);
+    if (!nameDraft.trim() || (nameDraft.trim() === savedName && !retryPublish)) return;
+    startNameEdit();
+    if (!editBase) return;
+    const head = editBase.head;
+    editBase = null;
+    const request = ++attempt;
     nameSaved = true;
+    retryPublish = false;
+    publishMessage = 'Saved on this device. Updating your public profile…';
+    void saveOwnName(pubkey, nameDraft, head).then(() => {
+      if (request === attempt) publishMessage = 'Saved on this device. Your public profile update is queued.';
+    }).catch((error: unknown) => {
+      if (request !== attempt) return;
+      retryPublish = true;
+      publishMessage = 'Saved on this device. ' + (error instanceof Error ? error.message : 'Your public profile could not be updated.');
+    });
   }
 
 </script>
@@ -67,20 +101,22 @@
                 autocomplete="name"
                 placeholder="Name"
                 bind:value={nameDraft}
-                oninput={() => (nameSaved = false)}
+                onfocus={startNameEdit}
+                oninput={() => { attempt++; nameSaved = false; retryPublish = false; publishMessage = ''; startNameEdit(); }}
                 data-testid="settings-own-name"
               />
               <button
                 type="submit"
                 class="btn-primary text-sm"
-                disabled={!nameDraft.trim() || nameDraft.trim() === savedName}
+                disabled={!nameDraft.trim() || (nameDraft.trim() === savedName && !retryPublish)}
                 data-testid="settings-own-name-save"
               >
-                {nameSaved && nameDraft.trim() === savedName ? 'Saved' : 'Save'}
+                {retryPublish ? 'Retry public update' : nameSaved && nameDraft.trim() === savedName ? 'Saved' : 'Save'}
               </button>
             </div>
           </div>
         </div>
+        {#if publishMessage}<p class="text-xs text-text-2 mt-2" role="status">{publishMessage}</p>{/if}
         <p class="text-xs text-text-3 mt-2">People you share folders with see this name and picture.</p>
       </form>
     </section>

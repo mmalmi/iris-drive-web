@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.36 - 2026-11-18
+
+- Change your display name in Account settings while preserving your username, custom profile fields and tags. If the public update needs a connection, your local name is saved and you can retry.
+
 ## 0.1.35 - 2026-11-18
 
 - Keep Storage rows in place as device reports, sync warnings and backup details update.

@@ -61,8 +61,8 @@ importers:
         specifier: https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.44/hashtree-worker-0.4.28.tgz
         version: https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.44/hashtree-worker-0.4.28.tgz(nostr-social-graph@https://github.com/mmalmi/nostr-social-graph/releases/download/v4.2.0/nostr-social-graph-4.2.0.tgz(typescript@5.9.3))(typescript@5.9.3)
       '@iris/hashtree-app':
-        specifier: https://github.com/mmalmi/iris-kit/releases/download/runtime-v0.2.10/iris-hashtree-app-0.1.8.tgz
-        version: https://github.com/mmalmi/iris-kit/releases/download/runtime-v0.2.10/iris-hashtree-app-0.1.8.tgz(@hashtree/core@https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.42/hashtree-core-0.4.2.tgz)(nostr-tools@2.25.2(typescript@5.9.3))(svelte@5.57.2(@typescript-eslint/types@8.71.2))
+        specifier: https://github.com/mmalmi/iris-kit/releases/download/runtime-v0.2.14/iris-hashtree-app-0.1.9.tgz
+        version: https://github.com/mmalmi/iris-kit/releases/download/runtime-v0.2.14/iris-hashtree-app-0.1.9.tgz(@hashtree/core@https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.42/hashtree-core-0.4.2.tgz)(nostr-tools@2.25.2(typescript@5.9.3))(svelte@5.57.2(@typescript-eslint/types@8.71.2))
       '@iris/identity':
         specifier: https://github.com/mmalmi/iris-kit/releases/download/runtime-v0.2.9/iris-identity-0.4.0.tgz
         version: https://github.com/mmalmi/iris-kit/releases/download/runtime-v0.2.9/iris-identity-0.4.0.tgz(nostr-social-graph@https://github.com/mmalmi/nostr-social-graph/releases/download/v4.2.0/nostr-social-graph-4.2.0.tgz(typescript@5.9.3))(typescript@5.9.3)
@@ -1052,9 +1052,9 @@ packages:
   '@iconify/utils@3.1.7':
     resolution: {integrity: sha512-JZHlwdID+dy+lTgbYC8NEC4zeugqeYsc6jewvzb4c58kHauJn+X7rNwQjxz5p2qSjqaEeQoLkCIQ9v/H4PK0/w==}
 
-  '@iris/hashtree-app@https://github.com/mmalmi/iris-kit/releases/download/runtime-v0.2.10/iris-hashtree-app-0.1.8.tgz':
-    resolution: {integrity: sha512-WJjmSXHaxakk+NJ/jkT1dEWDteLiwkaZ3xhRbAIAt9uq7VEE4nbH6FowxPkt7FwnKA8rvwFQGAI/xkXwEkhScA==, tarball: https://github.com/mmalmi/iris-kit/releases/download/runtime-v0.2.10/iris-hashtree-app-0.1.8.tgz}
-    version: 0.1.8
+  '@iris/hashtree-app@https://github.com/mmalmi/iris-kit/releases/download/runtime-v0.2.14/iris-hashtree-app-0.1.9.tgz':
+    resolution: {integrity: sha512-Sz1SDmoVGQEnVEpWFAHuYtFjEBy1u0kPSAczuaRHMvXFzd/4rwySdgjCjz97CdPFcGnBiiLDFDN/GNfbprgKCw==, tarball: https://github.com/mmalmi/iris-kit/releases/download/runtime-v0.2.14/iris-hashtree-app-0.1.9.tgz}
+    version: 0.1.9
     peerDependencies:
       '@hashtree/core': '>=0.1.8 <0.5.0'
       nostr-tools: ^2.23.0
@@ -1065,6 +1065,10 @@ packages:
     version: 0.4.0
     peerDependencies:
       nostr-social-graph: '*'
+
+  '@iris/profile-events@https://github.com/mmalmi/iris-kit/releases/download/runtime-v0.2.13/iris-profile-events-0.1.0.tgz':
+    resolution: {integrity: sha512-f61CH/ygvxssR12uvIgWJGcFkYCr4gXoxR/FR2nglqDmHCLtvuR4RPsM47d5ppL8eP64iUK06RjO055ZhwN3Rw==, tarball: https://github.com/mmalmi/iris-kit/releases/download/runtime-v0.2.13/iris-profile-events-0.1.0.tgz}
+    version: 0.1.0
 
   '@iris/release-tools@https://github.com/mmalmi/iris-kit/releases/download/runtime-v0.2.12/iris-release-tools-0.1.2.tgz':
     resolution: {integrity: sha512-ZytyQLbDUYz/IcQ2rvUZZeFvT7FqwhRB3brZtuMwH7ILP/Jvui+ldDnKR8dNxxmIr02+PPyuv+VWKlRyaXCMbg==, tarball: https://github.com/mmalmi/iris-kit/releases/download/runtime-v0.2.12/iris-release-tools-0.1.2.tgz}
@@ -4707,9 +4711,10 @@ snapshots:
       '@iconify/types': 2.0.0
       import-meta-resolve: 4.2.0
 
-  '@iris/hashtree-app@https://github.com/mmalmi/iris-kit/releases/download/runtime-v0.2.10/iris-hashtree-app-0.1.8.tgz(@hashtree/core@https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.42/hashtree-core-0.4.2.tgz)(nostr-tools@2.25.2(typescript@5.9.3))(svelte@5.57.2(@typescript-eslint/types@8.71.2))':
+  '@iris/hashtree-app@https://github.com/mmalmi/iris-kit/releases/download/runtime-v0.2.14/iris-hashtree-app-0.1.9.tgz(@hashtree/core@https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.42/hashtree-core-0.4.2.tgz)(nostr-tools@2.25.2(typescript@5.9.3))(svelte@5.57.2(@typescript-eslint/types@8.71.2))':
     dependencies:
       '@hashtree/core': https://github.com/mmalmi/hashtree/releases/download/hashtree-ts-runtime-v0.5.42/hashtree-core-0.4.2.tgz
+      '@iris/profile-events': https://github.com/mmalmi/iris-kit/releases/download/runtime-v0.2.13/iris-profile-events-0.1.0.tgz
       nostr-tools: 2.25.2(typescript@5.9.3)
       svelte: 5.57.2(@typescript-eslint/types@8.71.2)
 
@@ -4719,6 +4724,8 @@ snapshots:
       nostr-tools: 2.23.5(typescript@5.9.3)
     transitivePeerDependencies:
       - typescript
+
+  '@iris/profile-events@https://github.com/mmalmi/iris-kit/releases/download/runtime-v0.2.13/iris-profile-events-0.1.0.tgz': {}
 
   '@iris/release-tools@https://github.com/mmalmi/iris-kit/releases/download/runtime-v0.2.12/iris-release-tools-0.1.2.tgz': {}
 
