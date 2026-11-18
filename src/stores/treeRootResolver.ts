@@ -145,10 +145,7 @@ export function updateSubscriptionCache(
 }
 
 function driveRootAuthorization(rootScopeId: string, driveId?: string): DriveRootAuthorization {
-  if (driveId === 'trash' && getCurrentNostrIdentitySession()?.profileId !== rootScopeId) {
-    return { active: false, appKeys: new Set(), fingerprint: 'inactive' };
-  }
-  const share = activeShareScope(rootScopeId);
+  const share = driveId === 'trash' ? null : activeShareScope(rootScopeId);
   if (share) return { active: true, appKeys: new Set(share.writers), fingerprint: JSON.stringify([share.record.local_profile_id, share.record.folder.access?.updated_at, share.writers]) };
   const session = getCurrentNostrIdentitySession();
   if (!isActiveDriveRootScopeSession(rootScopeId, session)) {
