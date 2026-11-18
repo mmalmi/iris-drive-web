@@ -216,7 +216,8 @@ export function usage() {
   return `Usage: node ./scripts/release-site.mjs <drive|files|all> [options]
 
 Build once, test the built output, then publish to hashtree and deploy that same
-directory to Cloudflare Workers Static Assets or Cloudflare Pages in parallel.
+directory to Cloudflare only after the native Iris Drive release passes.
+Set IRIS_NATIVE_RELEASE_GATE to the absolute path of the pinned Iris Sites gate.
 
 Options:
   --worker-name <name>    Cloudflare Worker service name for static assets

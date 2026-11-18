@@ -1,7 +1,14 @@
-import { describe, expect, it } from 'vitest';
+import { fileURLToPath } from 'node:url';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPublishPlan } from '../scripts/publish-iris-build.mjs';
 
 describe('publish-iris-build', () => {
+  beforeEach(() => {
+    vi.stubEnv('IRIS_NATIVE_RELEASE_GATE', fileURLToPath(new URL('../scripts/release-site.mjs', import.meta.url)));
+    vi.stubEnv('HTREE_BIN', 'htree');
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
   it('supports the drive portable publish plan', () => {
     expect(createPublishPlan('drive')).toMatchObject({
       name: 'drive',
@@ -12,14 +19,16 @@ describe('publish-iris-build', () => {
   });
 
   it('publishes the selected tree name from the matching dist directory', () => {
-    const command = createPublishPlan('drive').command;
-    expect(command.slice(-4)).toEqual(['add', '.', '--publish', 'drive']);
+    const { command, distPath } = createPublishPlan('drive');
     expect(command).toEqual([
-      process.env.HTREE_BIN || 'htree',
-      'add',
-      '.',
-      '--publish',
+      process.execPath,
+      process.env.IRIS_NATIVE_RELEASE_GATE,
+      '--dist',
+      distPath,
+      '--tree',
       'drive',
+      '--htree',
+      'htree',
     ]);
 
     expect(createPublishPlan('drive').distDir).toMatch(/dist$/);

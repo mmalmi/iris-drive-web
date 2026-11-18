@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
+import { fileURLToPath } from 'node:url';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createReleasePlan,
   parseArgs,
@@ -13,6 +14,12 @@ import {
 } from '../scripts/deploy-worker-assets.mjs';
 
 describe('release-site', () => {
+  beforeEach(() => {
+    vi.stubEnv('IRIS_NATIVE_RELEASE_GATE', fileURLToPath(new URL('../scripts/release-site.mjs', import.meta.url)));
+    vi.stubEnv('HTREE_BIN', 'htree');
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
   const wranglerCommand = `wrangler@${wranglerVersion}`;
 
   it('uses the built-in Worker default for drive', () => {
@@ -218,6 +225,13 @@ describe('release-site', () => {
     };
 
     await expect(runRelease(options, runner)).rejects.toThrow('Build Iris Drive failed with exit code 1');
+  });
+
+  it('requires the native release runner before running any release step', async () => {
+    vi.stubEnv('IRIS_NATIVE_RELEASE_GATE', undefined);
+    const runner = vi.fn();
+    await expect(runRelease(parseArgs(['drive']), runner)).rejects.toThrow('IRIS_NATIVE_RELEASE_GATE');
+    expect(runner).not.toHaveBeenCalled();
   });
 
   it('runs all configured release profiles', async () => {

@@ -1,7 +1,8 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
-import { parsePublishOutput, releaseProfiles } from './release-site.mjs';
+import { createNativeReleaseCommand, parseNativeReleaseOutput } from '@iris/release-tools';
+import { releaseProfiles } from './release-site.mjs';
 import { resolveHtreeCommand } from './hashtreePaths.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -14,13 +15,14 @@ export function createPublishPlan(profileName) {
     throw new Error(`Unknown publish profile: ${profileName}`);
   }
 
+  const distPath = path.join(appDir, profile.distDir);
   return {
     name: profile.name,
     appName: profile.appName,
     treeName: profile.treeName,
     distDir: profile.distDir,
-    distPath: path.join(appDir, profile.distDir),
-    command: resolveHtreeCommand('add', '.', '--publish', profile.treeName),
+    distPath,
+    command: createNativeReleaseCommand({ distDir: distPath, treeName: profile.treeName, resolveHtreeCommand }),
   };
 }
 
@@ -55,7 +57,7 @@ export function runPublish(profileName, runner = defaultRunner) {
 
   return {
     ...plan,
-    publish: parsePublishOutput(`${result.stdout}\n${result.stderr}`),
+    publish: parseNativeReleaseOutput(`${result.stdout}\n${result.stderr}`, plan.treeName),
   };
 }
 
