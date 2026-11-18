@@ -63,7 +63,7 @@
 
     {#if !results.loading && !results.owner}
       <section class="card p-5 text-sm text-text-2" data-testid="form-results-elsewhere">
-        Responses go to the account that made this form.
+        Responses go to the profile that created this form.
       </section>
     {:else if responses.length === 0}
       <section class="card p-8 text-center text-sm text-text-3" data-testid="form-results-empty">

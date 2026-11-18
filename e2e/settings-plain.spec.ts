@@ -40,17 +40,17 @@ test.describe('plain settings', () => {
 
     await page.getByTestId('header-user-avatar').click();
     const accountMenu = page.getByTestId('account-menu');
-    await expect(accountMenu.getByRole('menuitem')).toHaveText(['Accounts', 'Settings', 'Log out']);
+    await expect(accountMenu.getByRole('menuitem')).toHaveText(['Profiles', 'Settings', 'Log out']);
     await accountMenu.getByRole('menuitem', { name: 'Settings' }).click();
     await expect(page).toHaveURL(/#\/settings$/);
 
     const nav = page.getByRole('navigation', { name: 'Settings' });
-    await expect(nav.getByTestId('settings-nav-account')).toHaveText('Account');
+    await expect(nav.getByTestId('settings-nav-account')).toHaveText('Profile');
     await expect(nav.getByTestId('settings-nav-storage')).toHaveText('Storage');
     await expect(nav.getByTestId('settings-nav-about')).toHaveText('About');
     await expectAdvancedClosed(page);
 
-    // Account: name and picture, this device, and switching or leaving.
+    // Profile name and picture, devices, switching and sign-out.
     const account = page.getByTestId('account-settings');
     await expect(account.getByRole('heading', { name: 'Name and picture' })).toBeVisible();
     await expect(account.getByLabel('Your name')).toHaveValue('Plain Settings');
@@ -59,9 +59,14 @@ test.describe('plain settings', () => {
     await expect(page.getByTestId('device-approval-section').getByRole('heading', { name: 'Add a device' })).toBeVisible();
     // The only device keeps the right to manage the account.
     await expect(page.getByTestId('user-revoke-admin')).toHaveCount(0);
-    await expect(page.getByTestId('settings-manage-users')).toHaveText('Switch account');
-    await expect(page.getByTestId('settings-logout')).toHaveText('Log out');
+    const profiles = page.getByLabel('Profiles on this device');
+    await expect(profiles.getByRole('link', { name: 'Manage profiles' })).toBeVisible();
+    await expect(nav.getByRole('button', { name: 'Sign out' })).toBeVisible();
+    await expect(profiles.getByRole('button', { name: 'Sign out' })).toHaveCount(0);
+    await expect(profiles.getByRole('button', { name: 'Copy secret key' })).toHaveCount(0);
+    await expect(profiles.getByText('Plain Settings', { exact: true })).toBeVisible();
     await expectNoJargon(page);
+    await page.screenshot({ path: testInfo.outputPath('profile-settings.png') });
 
     await nav.getByTestId('settings-nav-storage').click();
     await expect(page.getByTestId('storage-settings').getByRole('heading', { name: 'On this device' })).toBeVisible();
@@ -93,7 +98,7 @@ test.describe('plain settings', () => {
     const keys = page.getByTestId('keys-settings');
     await expect(keys.getByRole('heading', { name: 'Your public key' })).toBeVisible();
     await expect(page.getByTestId('settings-public-key')).toContainText(npub.slice(0, 12));
-    await expect(page.getByTestId('secret-key-warning')).toContainText('Anyone with your secret key controls your account');
+    await expect(page.getByTestId('secret-key-warning')).toContainText('Anyone with your secret key can open, change and delete your files');
     await expect(page.getByTestId('secret-key-value')).toHaveCount(0);
     await expect(page.getByTestId('copy-secret-key')).toHaveCount(0);
     await expect(keys).not.toContainText(/nsec1/);
@@ -128,7 +133,7 @@ test.describe('plain settings', () => {
     await expectAdvancedClosed(page);
   });
 
-  test('on a phone, the settings list leads to plain pages and Advanced starts closed', async ({ page, relayUrl }) => {
+  test('on a phone, the settings list leads to plain pages and Advanced starts closed', async ({ page, relayUrl }, testInfo) => {
     await page.setViewportSize(PHONE);
     await startSignedIn(page, relayUrl);
     await page.goto(`${new URL(page.url()).origin}/#/settings`);
@@ -136,6 +141,9 @@ test.describe('plain settings', () => {
     const nav = page.getByRole('navigation', { name: 'Settings' });
     await expect(nav).toBeVisible({ timeout: 30_000 });
     await expect(page.getByTestId('account-settings')).toBeHidden();
+    const signOut = nav.getByRole('button', { name: 'Sign out' });
+    await expect(signOut).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath('settings-landing.png') });
     await expectAdvancedClosed(page);
     await expectNoJargon(page);
 
@@ -165,5 +173,13 @@ test.describe('plain settings', () => {
     await expect(page.getByTestId('settings-advanced-toggle')).toHaveAttribute('aria-expanded', 'true');
     await page.getByTestId('settings-advanced-toggle').click();
     await expectAdvancedClosed(page);
+
+    await signOut.click();
+    const confirmation = page.getByRole('dialog', { name: 'Log out of Drive?' });
+    await confirmation.getByRole('button', { name: 'Cancel' }).click();
+    await expect(signOut).toBeFocused();
+    await signOut.click();
+    await confirmation.getByRole('button', { name: 'Log out' }).click();
+    await expect(page.getByTestId('drive-setup')).toBeVisible();
   });
 });

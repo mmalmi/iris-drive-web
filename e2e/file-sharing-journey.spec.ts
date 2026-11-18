@@ -170,7 +170,7 @@ test.describe('basic file-sharing journeys', () => {
     await page.goto(`${new URL(page.url()).origin}/#/share-invite/${payload}`);
     await expect(page.getByTestId('share-invite-accept')).toBeVisible();
     await page.getByTestId('share-invite-accept').click();
-    await expect(page.getByText('This invite is for another account. Switch accounts to accept it.')).toBeVisible();
+    await expect(page.getByText('This invite is for another profile. Switch profiles to accept it.')).toBeVisible();
     await expect(page.getByText('Accepted', { exact: true })).toHaveCount(0);
     await page.screenshot({ path: testInfo.outputPath('wrong-recipient.png') });
     await page.getByTestId('home-link').click();

@@ -1018,7 +1018,7 @@ export async function removeDriveProfileAppKeyWithAdmin(
   if (!secretKey) throw new Error('No active Drive AppKey secret');
   const target = normalizeHexPubkey(appKeyPubkey);
   if (!target) throw new Error('Invalid Drive key');
-  if (target === session.appKeyPubkey) throw new Error('Use account removal to remove this device');
+  if (target === session.appKeyPubkey) throw new Error('Use another device to unlink this one');
 
   const rosterOps = session.rosterOps;
   const projection = projectNostrIdentityRoster(session.profileId, rosterOps);

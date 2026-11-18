@@ -4,16 +4,19 @@
    * signed in to it, and switching or leaving. Keys live under Advanced.
    */
   import { currentPath, navigate } from '../../lib/router.svelte';
-  import { nostrStore } from '../../nostr';
+  import { logout, nostrStore } from '../../nostr';
   import { getCurrentNostrIdentitySession } from '../../nostr/auth';
-  import { accountsStore } from '../../accounts';
+  import { accountsStore, getAccountDisplayName, getAccountIdentityKey } from '../../accounts';
+  import ProfileSettings from '@iris/svelte-ui/ProfileSettings.svelte';
   import { ownDisplayName, readOwnNameBase, saveOwnName } from '../../drive/ownDisplayName';
   import { Avatar } from '../User';
   import UserSettings from './UserSettings.svelte';
   import RecoveryPhraseSettings from './RecoveryPhraseSettings.svelte';
   import LogoutDialog from '../Modals/LogoutDialog.svelte';
 
+  let { showSignOut = true }: { showSignOut?: boolean } = $props();
   let logoutDialog = $state<LogoutDialog>();
+  let profileToSignOut = $state('');
   let recoverySection = $state<HTMLElement | null>(null);
   // Backup links straight to the recovery phrase.
   $effect(() => {
@@ -22,6 +25,13 @@
 
   let isLoggedIn = $derived($nostrStore.isLoggedIn);
   let pubkey = $derived($nostrStore.pubkey ?? '');
+  let profiles = $derived($accountsStore.accounts.map(account => ({
+    id: getAccountIdentityKey(account),
+    publicKey: account.nostrIdentityId ?? account.pubkey,
+    name: getAccountDisplayName(account),
+    avatarKey: account.pubkey,
+  })));
+  let activeProfileId = $derived(isLoggedIn ? profiles.find(profile => profile.avatarKey === pubkey)?.id ?? null : null);
   let savedName = $derived($accountsStore.accounts.find((account) => account.pubkey === pubkey)?.name?.trim() ?? '');
   let nameDraft = $state('');
   let nameSaved = $state(false);
@@ -77,9 +87,37 @@
     });
   }
 
+  function confirmProfileSignOut(id: string) {
+    profileToSignOut = id;
+    logoutDialog?.open();
+  }
+
+  function signOutProfile() {
+    const account = $accountsStore.accounts.find(candidate => getAccountIdentityKey(candidate) === profileToSignOut);
+    if (!account) return;
+    if (account.pubkey === pubkey) {
+      logout();
+      navigate('/');
+    } else {
+      accountsStore.removeAccount(account.pubkey);
+    }
+  }
 </script>
 
-<div class="space-y-6" data-testid="account-settings">
+<div class="space-y-6" data-testid="account-settings" style="--iris-settings-surface: var(--surface-2)">
+  <ProfileSettings
+    {profiles}
+    {activeProfileId}
+    onSignOut={showSignOut ? confirmProfileSignOut : undefined}
+    onRemoveProfile={profiles.length > 1 ? confirmProfileSignOut : undefined}
+    signInHref="#/users/existing"
+    manageProfilesHref="#/users"
+  >
+    {#snippet profileAvatar(profile)}
+      <Avatar pubkey={profiles.find(row => row.id === profile.id)?.avatarKey ?? ''} size={36} class="shrink-0" />
+    {/snippet}
+  </ProfileSettings>
+  <LogoutDialog bind:this={logoutDialog} onConfirm={signOutProfile} removingSavedProfile={profileToSignOut !== activeProfileId} />
   {#if isLoggedIn}
     <section>
       <h3 class="text-xs font-medium text-muted uppercase tracking-wide mb-3">Name and picture</h3>
@@ -131,29 +169,6 @@
     <section id="recovery-phrase" bind:this={recoverySection} class="scroll-mt-4">
       <h3 class="text-xs font-medium text-muted uppercase tracking-wide mb-3">Recovery phrase</h3>
       <RecoveryPhraseSettings />
-    </section>
-
-    <section>
-      <h3 class="text-xs font-medium text-muted uppercase tracking-wide mb-3">Accounts</h3>
-      <div class="bg-surface-2 rounded p-3 space-y-1">
-        <button
-          class="btn-ghost flex w-full items-center justify-start gap-2 text-sm"
-          onclick={() => navigate('/users')}
-          data-testid="settings-manage-users"
-        >
-          <span class="i-lucide-users"></span>
-          <span>Switch account</span>
-        </button>
-        <button
-          class="btn-ghost flex w-full items-center justify-start gap-2 text-sm text-danger hover:bg-danger/10"
-          onclick={() => logoutDialog?.open()}
-          data-testid="settings-logout"
-        >
-          <span class="i-lucide-log-out"></span>
-          <span>Log out</span>
-        </button>
-      </div>
-      <LogoutDialog bind:this={logoutDialog} />
     </section>
   {/if}
 </div>

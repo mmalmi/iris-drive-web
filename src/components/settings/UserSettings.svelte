@@ -263,7 +263,7 @@
   {:else}
     <div class="rounded-lg bg-surface-2 p-4" data-testid="user-no-session">
       <h3 class="mb-2 text-sm font-semibold text-text-1">Not signed in</h3>
-      <p class="text-sm text-text-3">Sign in or create an account to see its devices.</p>
+      <p class="text-sm text-text-3">Sign in or create a profile to see its devices.</p>
     </div>
   {/if}
 

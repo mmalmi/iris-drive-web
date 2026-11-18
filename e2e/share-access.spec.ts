@@ -132,7 +132,7 @@ test.describe('access to shared folders', () => {
     await page.getByTestId('share-tab-link').click();
     await expect(page.getByTestId('share-tab-link')).toHaveText('Read-only copy');
     await expect(page.getByTestId('share-link-note')).toHaveText(
-      'Anyone with this link can view a copy as it is now, without an account. Later changes are not included.',
+      'Anyone with this link can view a copy as it is now without signing in. Later changes are not included.',
     );
     await page.getByTestId('share-copy-url').click();
     const copyLink = await page.evaluate(() => navigator.clipboard.readText());

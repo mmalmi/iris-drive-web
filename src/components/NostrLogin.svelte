@@ -83,8 +83,8 @@
       bind:this={menuButton}
       onclick={() => (menuOpen = !menuOpen)}
       class="bg-transparent border-none cursor-pointer p-0"
-      title="Account menu"
-      aria-label="Open account menu"
+      title="Profile menu"
+      aria-label="Open profile menu"
       aria-haspopup="menu"
       aria-expanded={menuOpen}
       data-testid="header-user-avatar"
@@ -105,7 +105,7 @@
           data-testid="account-menu-users"
         >
           <span class="i-lucide-users"></span>
-          <span>Accounts</span>
+          <span>Profiles</span>
         </button>
         <button
           class="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-text-1 hover:bg-surface-2"

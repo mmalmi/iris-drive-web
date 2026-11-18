@@ -139,10 +139,10 @@ export async function createRecoveryPhraseRosterOps(
   const existing = projection.active_facets[recoveryPubkey];
   if (existing) {
     if (existing.purposes?.includes('recovery_phrase')) return null;
-    throw new Error('That key is already part of this account');
+    throw new Error('That key is already part of this profile');
   }
   if (projection.tombstones[recoveryPubkey]) {
-    throw new Error('That recovery phrase was removed from this account');
+    throw new Error('That recovery phrase was removed from this profile');
   }
 
   const dckPlaintext = options.dckPlaintext ?? randomDriveContentKey();

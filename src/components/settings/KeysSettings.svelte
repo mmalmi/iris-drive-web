@@ -45,7 +45,7 @@
         <div class="rounded border border-danger/40 bg-danger/8 p-3 space-y-3">
           <p class="flex gap-2 text-sm text-text-1" data-testid="secret-key-warning">
             <span class="i-lucide-triangle-alert mt-0.5 shrink-0 text-danger"></span>
-            <span>Anyone with your secret key controls your account: they can open, change and delete your files. Never share it, and never paste it into a site you do not trust.</span>
+            <span>Anyone with your secret key can open, change and delete your files. Never share it, and never paste it into a site you do not trust.</span>
           </p>
           {#if revealedSecretKey}
             <div

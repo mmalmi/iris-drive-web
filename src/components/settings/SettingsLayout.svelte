@@ -5,6 +5,7 @@
    * the keys behind the account waits under Advanced, closed until asked for.
    */
   import { currentPath, navigate } from '../../lib/router.svelte';
+  import { nostrStore } from '../../nostr';
   import AccountSettings from './AccountSettings.svelte';
   import StorageSettings from './StorageSettings.svelte';
   import AboutSettings from './AboutSettings.svelte';
@@ -13,8 +14,10 @@
   import P2PSettings from './P2PSettings.svelte';
   import RelaySettings from './RelaySettings.svelte';
   import TransportUsageSettings from './TransportUsageSettings.svelte';
+  import LogoutDialog from '../Modals/LogoutDialog.svelte';
 
   let { onShortcuts }: { onShortcuts: () => void } = $props();
+  let logoutDialog = $state<LogoutDialog>();
 
   interface SettingsTab {
     id: string;
@@ -27,7 +30,7 @@
   const mainTabs = [
     {
       id: 'account',
-      label: 'Account',
+      label: 'Profile',
       icon: 'i-lucide-user-round',
       activeRowClass: 'bg-emerald-500/10',
       iconFrameClass: 'bg-emerald-500/12 text-emerald-500 ring-1 ring-emerald-500/20',
@@ -195,8 +198,19 @@
     class={`min-h-0 shrink-0 overflow-auto border-b border-surface-2 bg-surface-1 lg:w-[22rem] lg:border-b-0 lg:border-r ${isSettingsRootRoute ? 'flex flex-col' : 'hidden lg:flex lg:flex-col'}`}
   >
     <nav class="w-full px-4 pb-8 pt-6 lg:px-5 lg:py-6" aria-label="Settings">
-      <div class="mb-6">
+      <div class="mb-6 flex items-center justify-between gap-2">
         <h1 class="text-2xl font-semibold text-text-1">Settings</h1>
+        {#if isSettingsRootRoute && $nostrStore.isLoggedIn}
+          <button
+            type="button"
+            class="btn-ghost flex items-center gap-2 text-sm"
+            onclick={() => logoutDialog?.open()}
+          >
+            <span class="i-lucide-log-out" aria-hidden="true"></span>
+            Sign out
+          </button>
+          <LogoutDialog bind:this={logoutDialog} />
+        {/if}
       </div>
 
       <div class="overflow-hidden rounded-2xl bg-surface-2 shadow-sm ring-1 ring-surface-3/80">
@@ -277,7 +291,7 @@
       {/if}
 
       {#if activeTab === 'account'}
-        <AccountSettings />
+        <AccountSettings showSignOut={!isSettingsRootRoute} />
       {:else if activeTab === 'storage'}
         <StorageSettings />
       {:else if activeTab === 'about'}

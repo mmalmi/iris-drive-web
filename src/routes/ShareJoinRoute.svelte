@@ -80,7 +80,7 @@
         <span class="i-lucide-users text-3xl text-accent"></span>
         <h1 class="text-xl font-semibold text-text-1">“{name}” was shared with you</h1>
         <p class="text-sm text-text-2" data-testid="share-join-signin">
-          Create an account or sign in to open “{name}”.
+          Create a profile or sign in to open “{name}”.
         </p>
       </div>
     </DriveSetup>

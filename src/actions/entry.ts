@@ -362,7 +362,7 @@ export async function moveEntriesTo(
     for (const { entry, destinationName } of result.items) {
       destinations.set(entry.name, destinationName);
     }
-    if (expected && account !== nostrStore.getState().pubkey) throw new Error('The signed-in account changed');
+    if (expected && account !== nostrStore.getState().pubkey) throw new Error('The active profile changed');
     return result.root;
   });
   if (!saved) throw new Error('Nothing is open');
