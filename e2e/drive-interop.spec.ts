@@ -75,6 +75,11 @@ async function prepareFreshPage(
   nostrIdentitySession?: StoredNostrIdentitySessionForTest,
 ): Promise<void> {
   setupPageErrorHandler(page);
+  if (nsec) {
+    // The fixture supplies its own account. A concurrently generated one can win
+    // the first page's storage writes before the seeded page reloads.
+    await page.addInitScript(() => localStorage.setItem('hashtree:disableTestAutoCreate', '1'));
+  }
   await page.goto('/');
   await clearAllStorage(page);
   await presetLocalRelayInDB(page, relayUrl);
@@ -90,13 +95,15 @@ async function prepareFreshPage(
   await page.reload({ waitUntil: 'domcontentloaded' });
   await waitForAppReady(page, 60000);
   if (nsec) {
-    await page.waitForFunction(async (profileId) => {
+    const key = nip19.decode(nsec);
+    if (key.type !== 'nsec') throw new Error('Expected a test account secret key');
+    await page.waitForFunction(async ({ pubkey, profileId }) => {
       const state = (window as any).__nostrStore?.getState?.();
-      if (state?.pubkey?.length !== 64) return false;
+      if (state?.pubkey !== pubkey) return false;
       if (!profileId) return true;
       const { activeNostrIdentityRootScope } = await import('/src/drive/profileRoute.ts');
       return activeNostrIdentityRootScope(state) === profileId;
-    }, nostrIdentitySession?.profileId ?? null, { timeout: 30000 });
+    }, { pubkey: getPublicKey(key.data), profileId: nostrIdentitySession?.profileId ?? null }, { timeout: 30000 });
   }
   await useLocalRelay(page, relayUrl);
   await configureBlossomServers(page);
