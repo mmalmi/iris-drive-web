@@ -79,6 +79,29 @@ describe('main native backend bootstrap', () => {
     await vi.waitFor(() => expect(waitForRelayConnection).toHaveBeenCalledOnce());
   });
 
+  it('waits for a restored signer before choosing an anonymous graph identity', async () => {
+    let finishRestore!: (restored: boolean) => void;
+    restoreSession.mockReturnValue(new Promise<boolean>(resolve => { finishRestore = resolve; }));
+    initServiceWorker.mockResolvedValue(undefined);
+    initHtreeApi.mockResolvedValue(undefined);
+    waitForRelayConnection.mockResolvedValue(true);
+
+    vi.doMock('svelte', () => ({ mount }));
+    vi.doMock('../src/lib/swInit', () => ({ initServiceWorker, keepAppForOffline }));
+    vi.doMock('../src/nostr/auth', () => ({ initReadonlyBackend, restoreSession }));
+    vi.doMock('../src/appType', () => ({ setAppType }));
+    vi.doMock('../src/lib/htreeApi', () => ({ initHtreeApi }));
+    vi.doMock('../src/lib/workerInit', () => ({ waitForRelayConnection }));
+    vi.doMock('../src/App.svelte', () => ({ default: {} }));
+
+    await import('../src/main');
+    expect(mount).toHaveBeenCalledOnce();
+    expect(initReadonlyBackend).not.toHaveBeenCalled();
+    finishRestore(true);
+    await vi.waitFor(() => expect(waitForRelayConnection).toHaveBeenCalledOnce());
+    expect(initReadonlyBackend).not.toHaveBeenCalled();
+  });
+
   it('starts the account and backend while the service worker is still installing', async () => {
     let installed!: () => void;
     initServiceWorker.mockImplementation(() => new Promise<void>(resolve => { installed = resolve; }));

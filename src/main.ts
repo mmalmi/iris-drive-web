@@ -33,8 +33,10 @@ async function init() {
   // came up with a throwaway key and had to be torn down and started again.
   const sessionPromise = restoreSession({ autoCreate: shouldAutoCreateTestSession() })
     .finally(() => sessionRestored.set(true));
-  const backendPromise = initReadonlyBackend();
-  await Promise.all([backendPromise, sessionPromise, swPromise]);
+  const backendPromise = sessionPromise.then(restored => {
+    if (!restored) return initReadonlyBackend();
+  });
+  await Promise.all([backendPromise, swPromise]);
   await htreePromise;
   keepAppForOffline();
   await waitForRelayConnection();
