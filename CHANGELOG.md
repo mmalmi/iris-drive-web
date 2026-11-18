@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.34 - 2026-11-18
+
+- See offline coverage for each device in Settings → Storage. Expand a row for connection and storage details.
+- Clarify how to restore backed-up files if you lose all your devices.
+
 ## 0.1.33 - 2026-11-18
 
 - Manage file servers in Settings → Storage → Backups. Choose which servers open files and which keep encrypted backups of your Drive.
