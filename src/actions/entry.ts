@@ -263,7 +263,8 @@ export function undoLastDeletion(): boolean {
 /** Restore one selection to its original Drive, including after leaving that folder or restarting. */
 export async function restoreTrashItems(account: string, ids: string[], skipMissing = false): Promise<Map<string, string[]>> {
   const { getTrash, recoverContents, rememberDestinations, forgetTrash } = await import('../lib/driveTrash');
-  const first = (await Promise.all(ids.map(id => getTrash(id, account)))).find(Boolean);
+  const selected = await Promise.all(ids.map(id => getTrash(id, account)));
+  const first = selected.find(Boolean);
   if (!first) {
     if (!skipMissing) throw new Error('This item is no longer in Trash');
     forgetDeletionHistory(ids);
@@ -271,7 +272,7 @@ export async function restoreTrashItems(account: string, ids: string[], skipMiss
   }
   const { scope, treeName } = first;
   requireTrashAccess(account, scope);
-  const privateSync = first.sync ? await import('../drive/privateTrashSync') : null;
+  const privateSync = selected.some(row => row?.sync) ? await import('../drive/privateTrashSync') : null;
   if (privateSync) {
     if (!privateSync.canReadPrivateTrash(account)) throw new Error('This device no longer has access to Trash');
     const { getTreeRootSync, waitForTreeRoot } = await import('../stores/treeRoot');
@@ -337,7 +338,7 @@ export async function restoreTrashItems(account: string, ids: string[], skipMiss
     }
     await rememberDestinations(account, restored);
     return next === root ? null : next;
-  }, { verifyRestore: !!first.sync });
+  }, { verifyRestore: !!privateSync });
   await forgetTrash([...restored.keys()], true);
   forgetDeletionHistory(ids);
   return restored;

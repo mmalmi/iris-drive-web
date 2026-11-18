@@ -80,7 +80,7 @@
       <div class="flex items-center gap-3 border-b border-surface-2 px-3 py-2.5 lg:px-5" data-testid="trash-item">
         <div class="flex-1 min-w-0">
           <div class="truncate text-sm font-medium text-text-1">{name}</div>
-          <div class="truncate text-xs text-text-3">{[place, ...item.path].join(' / ')} · {new Date(item.deletedAt).toLocaleDateString()}</div>
+          <div class="truncate text-xs text-text-3">{[place, ...item.path].join(' / ')} · {new Date(item.deletedAt).toLocaleDateString()}{item.sync ? '' : ' · This browser only'}</div>
         </div>
         <button class="btn-ghost text-sm" aria-label={`Restore ${name}`} disabled={!!restoring} onclick={() => void restore(item)}>{restoring === item.id ? 'Restoring…' : 'Restore'}</button>
       </div>

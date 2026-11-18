@@ -96,6 +96,23 @@ test.describe('deleting', () => {
     await expect(fileRow(page, 'first.txt')).toBeVisible();
   });
 
+  test('labels browser-only filenames and restores a mixed selection with Undo', async ({ page, relayUrl }) => {
+    await prepareFreshSession(page, relayUrl);
+    await createDriveProfile(page, 'Mixed filenames');
+    await expectFolderEditable(page);
+    await uploadIntoFolder(page, [text('first:local.txt', 'Browser copy'), text('second.txt', 'Account copy')]);
+    await page.evaluate(async () => {
+      const { deleteEntries } = await import('/src/actions/entry.ts');
+      await deleteEntries(['first:local.txt', 'second.txt'], []);
+    });
+    await page.getByTestId('drive-sidebar').getByRole('link', { name: 'Trash' }).click();
+    const rows = page.getByTestId('trash-item');
+    await expect(rows.filter({hasText:'first:local.txt'})).toContainText('This browser only');
+    await expect(rows.filter({hasText:'second.txt'})).not.toContainText('This browser only');
+    await page.keyboard.press('ControlOrMeta+z');
+    await expect(rows).toHaveCount(0);
+  });
+
   test('an old Trash row for a share that no longer grants access stays private', async ({ page, relayUrl }) => {
     await prepareFreshSession(page, relayUrl);
     const owner = await createDriveProfile(page, 'Recovery');
