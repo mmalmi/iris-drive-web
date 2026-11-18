@@ -262,7 +262,7 @@ export function undoLastDeletion(): boolean {
 
 /** Restore one selection to its original Drive, including after leaving that folder or restarting. */
 export async function restoreTrashItems(account: string, ids: string[], skipMissing = false): Promise<Map<string, string[]>> {
-  const { getTrash, recoverContents, rememberDestination, forgetTrash } = await import('../lib/driveTrash');
+  const { getTrash, recoverContents, rememberDestinations, forgetTrash } = await import('../lib/driveTrash');
   const first = (await Promise.all(ids.map(id => getTrash(id, account)))).find(Boolean);
   if (!first) {
     if (!skipMissing) throw new Error('This item is no longer in Trash');
@@ -289,7 +289,6 @@ export async function restoreTrashItems(account: string, ids: string[], skipMiss
       const record = await getTrash(id, account);
       if (!record) continue;
       if (record.sync && privateSync) {
-        if (!privateSync.canReadPrivateTrash(account)) throw new Error('This device no longer has access to Trash');
         if (!privateSync.isUnsharedTrashPath(account, [...record.path, record.entry.name])) throw new Error('The original folder is now shared');
       }
       if (record.scope !== scope || record.treeName !== treeName) throw new Error('The selection belongs to several Drives');
@@ -326,7 +325,6 @@ export async function restoreTrashItems(account: string, ids: string[], skipMiss
       const taken = new Set(siblings.map(item => item.name));
       const name = identical ? entry.name : freeName(entry.name, taken, entry.type !== LinkType.Dir || isDocumentFolderName(entry.name));
       const destination = [...parent, name];
-      await rememberDestination(id, destination, account);
       next = identical
         ? await mutateProfileDriveRoot(tree, next, { type: 'set-entry', path: destination.join('/'), entry })
         : await setEntryForDriveRoute(tree, next, parent, name, entry, { npub: scope, treeName }, nostrStore.getState());
@@ -337,6 +335,7 @@ export async function restoreTrashItems(account: string, ids: string[], skipMiss
       || [...restored.values()].some(path => !privateSync.isUnsharedTrashPath(account, path)))) {
       throw new Error('Access to the restore destination changed');
     }
+    await rememberDestinations(account, restored);
     return next === root ? null : next;
   }, { verifyRestore: !!first.sync });
   await forgetTrash([...restored.keys()], true);

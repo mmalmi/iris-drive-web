@@ -60,11 +60,12 @@ export async function forgetTrash(ids: string[], consume = false): Promise<void>
   if (!ids.length) return;
   await db.transaction('rw', items, blocks, refs, trashMarkers, async () => {
     if (consume) {
+      const pending: TrashMarker[] = [];
+      const at = Math.floor(Date.now() / 1000);
       for (const item of await items.bulkGet(ids)) {
-        if (item?.sync && item.sync !== 'prepared') await trashMarkers.put({
-          account: item.account, id: item.id, at: Math.floor(Date.now() / 1000), pending: true,
-        });
+        if (item?.sync && item.sync !== 'prepared') pending.push({ account: item.account, id: item.id, at, pending: true });
       }
+      await trashMarkers.bulkPut(pending);
     }
     const entries = refs.where('item').anyOf(ids);
     const affected = new Set((await entries.toArray()).map(ref => ref.hash));
@@ -118,11 +119,19 @@ export async function getTrash(id: string, account: string): Promise<TrashItem |
   return row?.ready && row.sync !== 'prepared' && row.account === account && row.deletedAt > Date.now() - TRASH_RETENTION ? row : undefined;
 }
 
-export async function rememberDestination(id: string, destination: string[], account: string): Promise<void> {
+export async function rememberDestinations(account: string, destinations: Map<string, string[]>): Promise<void> {
+  if (!destinations.size) return;
   await db.transaction('rw', items, trashMarkers, async () => {
-    const row = await items.get(id);
-    if (!row || row.account !== account || await trashMarkers.get([account, id])) throw new Error('This item is no longer in Trash');
-    await items.update(id, { destination });
+    const ids = [...destinations.keys()];
+    const [rows, markers] = await Promise.all([
+      items.bulkGet(ids), trashMarkers.bulkGet(ids.map(id => [account, id])),
+    ]);
+    if (markers.some(Boolean)) throw new Error('This item is no longer in Trash');
+    const updated = rows.map(row => {
+      if (!row || row.account !== account) throw new Error('This item is no longer in Trash');
+      return { ...row, destination: destinations.get(row.id)! };
+    });
+    await items.bulkPut(updated);
   });
 }
 

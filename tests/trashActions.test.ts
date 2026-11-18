@@ -43,7 +43,9 @@ vi.mock('../src/lib/driveTrash', () => ({
     return row?.account === account ? row : undefined;
   },
   recoverContents: vi.fn(),
-  rememberDestination: (id: string, path: string[]) => { state.records.get(id)!.destination = path; },
+  rememberDestinations: (_account: string, paths: Map<string, string[]>) => {
+    for (const [id, path] of paths) state.records.get(id)!.destination = path;
+  },
 }));
 
 import { setDeletionHistoryOwner } from '../src/actions/deletionHistory';

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.40 - 2026-11-19
+
+- Restore personal My Drive files from Trash on an approved device or after signing in with a recovery phrase. Offline deletions sync when the device reconnects.
+- Earlier browser-only deletions remain recoverable for their original 30 days on the device that deleted them. Shared items stay in place when file ownership cannot be verified.
+
 ## 0.1.36 - 2026-11-18
 
 - Change your display name in Account settings while preserving your username, custom profile fields and tags. If the public update needs a connection, your local name is saved and you can retry.
