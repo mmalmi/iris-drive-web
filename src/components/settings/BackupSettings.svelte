@@ -153,7 +153,7 @@
       {#if editingServers}
         <strong>Read files</strong> lets Drive open your files and files shared with you. <strong>Save backups</strong> keeps an encrypted copy of your Drive on the server.
       {:else}
-        Only your account can open these encrypted copies of your Drive.
+        Sign in with this profile to open these encrypted copies of your Drive.
       {/if}
     </p>
     {#if !runsHere}

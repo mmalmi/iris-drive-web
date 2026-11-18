@@ -55,7 +55,7 @@
 
   const HINT: Record<LinkAccess | 'off', string> = {
     off: 'Only people added can open it',
-    link: 'Anyone with the link can view it, without an account',
+    link: 'Anyone with the link can view it without signing in',
     public: 'Anyone can find it and view it',
   };
   const STATE: Record<LinkAccess, string> = { link: 'Anyone with the link can view', public: 'Anyone can find it and view it' };

@@ -444,7 +444,7 @@ export class DriveDocument {
       for (let attempt = 0; attempt < 4; attempt += 1) {
         const base = getTreeRootSync(scope, treeName);
         const root = await change(base ?? (await tree.putDirectory([])).cid);
-        if (!this.#canWriteOpened()) throw new Error('The account changed before the document could be saved');
+        if (!this.#canWriteOpened()) throw new Error('The active profile changed before the document could be saved');
         // Another write landed while this one was prepared: redo it on the newer Drive.
         if (!sameCid(getTreeRootSync(scope, treeName), base)) continue;
         if (!saveOwnTreeRoot(scope, treeName, root)) throw new Error('This document cannot be edited here');

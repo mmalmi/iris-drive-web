@@ -68,7 +68,7 @@ describe('shared settings layout', () => {
       expect(source).not.toMatch(/getNsec|nsec|npub|secret key/i);
     }
     expect(keysSettingsSource).toContain('let revealedSecretKey = $state<string | null>(null);');
-    expect(keysSettingsSource).toContain('controls your account');
+    expect(keysSettingsSource).toContain('can open, change and delete your files');
   });
 
   it('does not offer to take away the last device that can manage the account', () => {

@@ -134,7 +134,7 @@
     </section>
 
     <section>
-      <h3 class="text-xs font-medium text-muted uppercase tracking-wide mb-3">Accounts</h3>
+      <h3 class="text-xs font-medium text-muted uppercase tracking-wide mb-3">Profiles</h3>
       <div class="bg-surface-2 rounded p-3 space-y-1">
         <button
           class="btn-ghost flex w-full items-center justify-start gap-2 text-sm"
@@ -142,7 +142,7 @@
           data-testid="settings-manage-users"
         >
           <span class="i-lucide-users"></span>
-          <span>Switch account</span>
+          <span>Switch profile</span>
         </button>
         <button
           class="btn-ghost flex w-full items-center justify-start gap-2 text-sm text-danger hover:bg-danger/10"

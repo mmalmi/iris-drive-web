@@ -71,7 +71,7 @@
   let isCreateMode = $derived(mode === 'create');
   let isNoExistingMode = $derived(mode === 'no_existing');
   let isSecondaryMode = $derived(isExistingMode || isCreateMode || isNoExistingMode);
-  let headerTitle = $derived(isCreateMode || isNoExistingMode ? 'Create account' : isExistingMode ? 'Sign in' : 'Accounts');
+  let headerTitle = $derived(isCreateMode || isNoExistingMode ? 'Create profile' : isExistingMode ? 'Sign in' : 'Profiles');
   let backHref = $derived(isNoExistingMode ? '/users/existing' : '/users');
   let initialRecoveryRequest = $derived<IdentityRecoveryRequest | null>(
     initialDeviceLink.trim()
@@ -192,7 +192,7 @@
       const profile = await createDriveProfile({ name });
       navigate(driveRootPath(profile.profileId));
     } catch (error) {
-      recoveryError = error instanceof Error ? error.message : 'Could not create the account';
+      recoveryError = error instanceof Error ? error.message : 'Could not create the profile';
     } finally {
       creatingProfile = false;
     }
@@ -351,7 +351,7 @@
       <button
         type="button"
         class="btn-circle btn-ghost shrink-0"
-        aria-label="Back to accounts"
+        aria-label="Back"
         title="Back"
         onclick={() => navigate(backHref)}
         disabled={recoveryBusy || creatingProfile}
@@ -362,7 +362,7 @@
       <h1 class="text-xl font-semibold">{headerTitle}</h1>
     {:else}
       <BackButton href="/" />
-      <h1 class="text-xl font-semibold">Accounts</h1>
+      <h1 class="text-xl font-semibold">Profiles</h1>
     {/if}
   </div>
   {/if}
@@ -374,7 +374,7 @@
           <h2 class="text-sm font-semibold text-text-1">Use a device you are signed in on</h2>
           <span class="i-lucide-loader-2 animate-spin text-text-3 shrink-0" title="Waiting for approval"></span>
         </div>
-        <p class="text-sm text-text-2">There, open Settings › Account and scan this code, or paste the link.</p>
+        <p class="text-sm text-text-2">On that device, open Settings and find the device controls. Scan this code or paste the link.</p>
         {#if approvalLink}
           <div class="grid gap-3 justify-items-center">
             {#if approvalQrUrl}
@@ -425,7 +425,7 @@
     <div class="identity-recovery-shell bg-surface-1 rounded-lg p-4 space-y-3" data-testid="identity-recovery-create-screen">
       {#if isNoExistingMode}
         <p class="text-sm font-semibold text-text-1" data-testid="identity-recovery-create-new-view">
-          No Drive account found for that key
+          No Drive profile found for that key
         </p>
       {/if}
       <form class="space-y-3" onsubmit={submitCreateProfile}>
@@ -456,7 +456,7 @@
           {:else}
             <span class="i-lucide-plus"></span>
           {/if}
-          <span>Create account</span>
+          <span>Create profile</span>
         </button>
       </form>
     </div>
@@ -483,7 +483,7 @@
         {:else}
           <span class="i-lucide-plus"></span>
         {/if}
-        Create account
+        Create profile
       </button>
 
       <button

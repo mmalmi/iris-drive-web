@@ -268,7 +268,7 @@
           <h3 class="px-4 pt-4 text-sm font-medium text-text-1">Read-only copy</h3>
         {/if}
         <p class="px-4 pt-3 text-sm text-text-2" data-testid="share-link-note">
-          Anyone with this link can view a copy as it is now, without an account. Later changes are not included.
+          Anyone with this link can view a copy as it is now without signing in. Later changes are not included.
         </p>
       {/if}
 

@@ -70,7 +70,7 @@ async function openAccountMenu(page: Page): Promise<void> {
 test.describe('account navigation and logout', () => {
   test.setTimeout(180_000);
 
-  test('opens Accounts from settings and stays logged out after reload', async ({ page, relayUrl }) => {
+  test('opens Profiles from settings and stays logged out after reload', async ({ page, relayUrl }) => {
     await openFreshSetup(page, relayUrl);
     await createProfile(page);
     await uploadTextFile(page, 'private-before-logout.txt', 'must disappear after logout');
@@ -91,7 +91,7 @@ test.describe('account navigation and logout', () => {
 
     await page.getByTestId('settings-manage-users').click();
     await expect(page).toHaveURL(/#\/users$/);
-    await expect(page.getByRole('heading', { name: 'Accounts' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Profiles' })).toBeVisible();
 
     await openAccountMenu(page);
     await page.getByTestId('account-menu-settings').click();
