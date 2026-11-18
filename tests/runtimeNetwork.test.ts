@@ -53,7 +53,7 @@ describe('runtime blossom server selection', () => {
     ]);
   });
 
-  it('uses the Iris Drive same-origin gateway as the runtime endpoint on iris.localhost apps', async () => {
+  it('reads blocks through the Iris Drive gateway and keeps its separate relay', async () => {
     installWindow(undefined, '', {
       protocol: 'http:',
       hostname: 'video.npub1example.iris.localhost',
@@ -64,7 +64,7 @@ describe('runtime blossom server selection', () => {
     expect(getEffectiveBlossomServers([
       { url: 'https://upload.iris.to', read: false, write: true },
     ])).toEqual([
-      { url: 'http://video.npub1example.iris.localhost:17321', read: true, write: true },
+      { url: 'http://video.npub1example.iris.localhost:17321', read: true, write: false },
       { url: 'https://upload.iris.to', read: false, write: true },
     ]);
     expect(getEffectiveNostrRelays(['wss://relay.example'])).toEqual([

@@ -27,7 +27,7 @@ describe('Drive through the Iris Drive browser bridge', () => {
       blossomServers: [{ url: `${location.origin}/`, read: false, write: true }, blossom],
     })).toEqual({
       htreeServerUrl: null,
-      nostrRelays: [relay],
+      nostrRelays: ['ws://drive.publisher.iris.localhost:17321/ws'],
       blossomServers: [{ url: location.origin, read: true, write: false }, blossom],
     });
     expect(getHtreeRuntime().urls.request({

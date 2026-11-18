@@ -185,7 +185,7 @@ describe('native htree policy', () => {
     expect(registerSWMock).not.toHaveBeenCalled();
   });
 
-  it('skips the service worker on local Iris gateway app pages', async () => {
+  it('registers the service worker for browser files on local Iris gateway app pages', async () => {
     installWindow(
       'http:',
       'drive.npub1example.iris.localhost',
@@ -199,8 +199,8 @@ describe('native htree policy', () => {
     const { initServiceWorker } = await import('../src/lib/swInit');
     await initServiceWorker();
 
-    expect(mediaUrl.getHtreePrefix()).toBe('http://drive.npub1example.iris.localhost:17321');
-    expect(registerSWMock).not.toHaveBeenCalled();
+    expect(mediaUrl.getHtreePrefix()).toBe('');
+    expect(registerSWMock).toHaveBeenCalledTimes(1);
   });
 
   it('skips the service worker on loopback child-webview pages that preserve htree identity', async () => {

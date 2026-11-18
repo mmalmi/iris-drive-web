@@ -4,7 +4,7 @@ import {
   createNostrIdentitySignerFromNip07,
 } from '@iris/identity/signers';
 import type { EventTemplate } from 'nostr-tools';
-import { getRuntimeHtreeServerUrl, getRuntimeNostrRelays } from '../lib/htreeRuntime';
+import { getRuntimeHtreeServerUrl, getRuntimeNostrRelays, isSameOriginIrisGatewayRuntime } from '../lib/htreeRuntime';
 import { settingsStore } from '../stores/settings';
 
 export const nostr = new AppNostrClient();
@@ -21,7 +21,7 @@ export function signEvent(event: EventTemplate) {
 }
 
 export function getNativeDaemonRelayUrl(): string | null {
-  return getRuntimeHtreeServerUrl() ? getRuntimeNostrRelays([])[0] ?? null : null;
+  return getRuntimeHtreeServerUrl() || isSameOriginIrisGatewayRuntime() ? getRuntimeNostrRelays([])[0] ?? null : null;
 }
 
 export function getEffectiveNostrRelayUrls(relays: string[]): string[] {

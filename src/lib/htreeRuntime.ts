@@ -75,6 +75,12 @@ export function getRuntimeBlossomServer(): AppBlossomServerConfig | null {
 }
 
 export function getRuntimeNostrRelays(relays: readonly string[]): string[] {
+  const bridge = getRuntimeHtreeServerUrl() ? null : getSameOriginIrisGatewayServerUrl();
+  if (bridge) {
+    const relay = new URL('/ws', bridge);
+    relay.protocol = 'ws:';
+    return [relay.href];
+  }
   return runtime.getEndpoints({ relays }).nostrRelays;
 }
 
