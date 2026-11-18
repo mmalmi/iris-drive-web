@@ -41,6 +41,7 @@
   let focused = $state(false);
   let showDropdown = $state(false);
   let selectedIndex = $state(0);
+  let choosingResult = $state(false);
   let searching = $state(false);
   let found = $state.raw<Result[]>([]);
   let search: typeof import('../lib/driveSearch') | null = $state(null);
@@ -88,18 +89,21 @@
   function refresh() {
     const query = value.trim().toLowerCase();
     if (!search) return;
-    const roots = currentRoots();
-    search.startDriveSearch(roots);
     if (!filtering) {
       more = false;
       found = [];
       searching = false;
       return;
     }
+    const roots = currentRoots();
+    search.startDriveSearch(roots);
     const limit = allResults ? Infinity : SHOWN;
     const within = location;
     const relevant = within ? roots.filter(root => root.scope === within.scope || within.nestedShares.includes(root.scope)) : roots;
     const unread = search.hasMoreFolders(relevant, allResults);
+    searching = !search.driveSearchDone(relevant);
+    // Finish the scan, but hold the visible rows while someone chooses one.
+    if (choosingResult) return;
     const drive = search.searchDrive(relevant, query, limit + 1, { type: fileType, folder: location })
       .map((item) => ({ name: item.name, icon: item.icon, href: item.href, detail: item.where }));
     const hrefs = new Set(drive.map((item) => item.href));
@@ -107,7 +111,6 @@
     const matches = [...drive, ...recent];
     more = unread || matches.length > limit;
     found = matches.slice(0, limit);
-    searching = !search.driveSearchDone(relevant);
   }
 
   let results = $derived(filtering ? found : recents.slice(0, 8));
@@ -116,7 +119,20 @@
   let pageStart = $derived(Math.floor(Math.min(selectedIndex, Math.max(0, results.length - 1)) / PAGE_SIZE) * PAGE_SIZE);
   let pageResults = $derived(results.slice(pageStart, pageStart + PAGE_SIZE));
 
-  // The search code and the walk start the first time the box is used.
+  $effect(() => {
+    void value;
+    void location;
+    void fileType;
+    void showDropdown;
+    void ownProfileId;
+    void $nostrStore.npub;
+    void $acceptedShares;
+    allResults = false;
+    selectedIndex = 0;
+    choosingResult = false;
+  });
+
+  // Load filter controls on focus. Only a query or filter starts the walk.
   $effect(() => {
     if (!showDropdown) return;
     if (!search) {
@@ -136,14 +152,6 @@
       frame = requestAnimationFrame(() => { frame = 0; refresh(); });
     });
     return () => { stop(); cancelAnimationFrame(frame); };
-  });
-
-  $effect(() => {
-    void value;
-    void inFolder;
-    void fileType;
-    allResults = false;
-    selectedIndex = 0;
   });
 
   $effect(() => {
@@ -197,8 +205,13 @@
     showDropdown = true;
   }
 
-  async function selectResult(index: number) {
+  function highlightResult(index: number) {
+    choosingResult = true;
     selectedIndex = index;
+  }
+
+  async function selectResult(index: number) {
+    highlightResult(index);
     await tick();
     containerRef?.querySelector<HTMLElement>(`[data-result-index="${index}"]`)?.scrollIntoView({ block: 'nearest' });
   }
@@ -249,9 +262,8 @@
       class="bg-transparent border-none outline-none text-base text-text-1 placeholder:text-muted flex-1 min-w-0"
       data-testid="drive-search-input"
     />
-    {#if searching}
-      <span class="i-lucide-loader-2 animate-spin text-sm text-muted shrink-0" title="Still looking"></span>
-    {/if}
+    <span class="i-lucide-loader-2 text-sm text-muted shrink-0 {searching ? 'animate-spin' : 'invisible'}"
+      title={searching ? 'Still looking' : undefined} aria-hidden="true"></span>
   </div>
 
   {#if showDropdown}
@@ -278,7 +290,9 @@
           {@const index = pageStart + offset}
           <button
             onclick={() => open(result)}
-            onmouseenter={() => (selectedIndex = index)}
+            onmouseenter={() => highlightResult(index)}
+            onfocus={() => highlightResult(index)}
+            onpointerdown={() => highlightResult(index)}
             class="w-full text-left flex items-center gap-3 px-3 py-2 {index === selectedIndex ? 'bg-surface-2' : 'hover:bg-surface-1'}"
             data-result-index={index}
             data-testid="drive-search-result"
@@ -297,7 +311,7 @@
       </div>
       {#if filtering && more && !allResults}
         <button type="button" class="w-full shrink-0 border-t border-surface-2 py-2 text-sm text-accent hover:bg-surface-1"
-          onclick={() => { allResults = true; focus(); }}>Show all results</button>
+          onclick={() => { choosingResult = false; allResults = true; focus(); }}>Show all results</button>
       {:else if allResults && results.length > PAGE_SIZE}
         <div class="flex items-center justify-between px-3 py-1 border-t border-surface-2 text-sm">
           <button type="button" disabled={pageStart === 0} class="p-1 text-accent disabled:opacity-40"
