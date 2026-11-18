@@ -40,9 +40,6 @@ function shouldIgnoreConsoleError(text) {
   if (text.startsWith('[Worker] Failed to send WebRTC signaling: Error: rate-limited:')) {
     return true;
   }
-  if (text.startsWith('Failed to publish initial profile: NDKPublishError: Not enough relays received the event')) {
-    return true;
-  }
   return false;
 }
 
