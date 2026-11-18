@@ -5,6 +5,7 @@
  */
 import { writable, get } from 'svelte/store';
 import { nip19, getPublicKey } from 'nostr-tools';
+import { coolName, fallbackIdentityName } from '@iris/svelte-ui/profile';
 import { removeStoredNostrIdentitySession } from './nostr/identitySessionStorage';
 
 // Storage key for accounts list
@@ -139,6 +140,10 @@ export const accountsStore = createAccountsStore();
 
 export function getAccountIdentityKey(account: Pick<Account, 'nostrIdentityId' | 'pubkey' | 'type'>): string {
   return account.nostrIdentityId ? `iris-profile:${account.nostrIdentityId}` : `${account.type}:${account.pubkey}`;
+}
+
+export function getAccountDisplayName(account: Pick<Account, 'name' | 'nostrIdentityId' | 'pubkey'>): string {
+  return account.name?.trim() || (account.nostrIdentityId ? fallbackIdentityName(account.nostrIdentityId) : coolName(account.pubkey));
 }
 
 function isSameAccountIdentity(a: Account, b: Account): boolean {

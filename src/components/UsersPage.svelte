@@ -12,10 +12,10 @@
     IdentityCreateRequest,
     IdentityRecoveryRequest,
   } from '@iris/svelte-ui/identityRecovery';
-  import { coolName, fallbackIdentityName } from '@iris/svelte-ui/profile';
   import { navigate } from '../utils/navigate';
   import {
     accountsStore,
+    getAccountDisplayName,
     getAccountIdentityKey,
     saveActiveAccountToStorage,
     hasNostrExtension,
@@ -273,19 +273,12 @@
     const isActive = account.pubkey === activeAccountPubkey;
     return {
       id: getAccountIdentityKey(account),
-      name: accountDisplayName(account),
-      description: account.nostrIdentityId ? 'Drive account' : 'Signed in with a key',
+      name: getAccountDisplayName(account),
+      description: account.nostrIdentityId ? 'Drive profile' : 'Signed in with a key',
       avatarKey: account.pubkey,
       current: isActive,
       removable: accounts.length > 1 && !isActive,
     };
-  }
-
-  function accountDisplayName(account: Account): string {
-    const explicitName = account.name?.trim();
-    if (explicitName) return explicitName;
-    if (account.nostrIdentityId) return fallbackIdentityName(account.nostrIdentityId);
-    return coolName(account.pubkey);
   }
 
   async function selectAccount(option: AccountSwitcherItem): Promise<void> {

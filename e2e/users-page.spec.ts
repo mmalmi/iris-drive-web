@@ -51,6 +51,22 @@ test.describe('the Users page', () => {
     await expect(page).not.toHaveURL(/users/);
   });
 
+  test('settings lists active and saved profiles and removes only the selected saved profile', async ({ page }) => {
+    await page.goto('/#/settings/account');
+    const profiles = page.getByLabel('Profiles on this device');
+    const active = profiles.getByRole('listitem').filter({ hasText: 'Electric Fountain' });
+    const saved = profiles.getByRole('listitem').filter({ hasText: 'Verdant Field' });
+    await expect(active.getByText('Signed in', { exact: true })).toBeVisible();
+    await expect(saved.getByText('Saved', { exact: true })).toBeVisible();
+    await saved.getByRole('button', { name: 'Remove' }).click();
+    const confirmation = page.getByRole('dialog', { name: 'Remove saved profile?' });
+    await confirmation.getByRole('button', { name: 'Remove', exact: true }).click();
+    await expect(saved).toHaveCount(0);
+    await expect(active).toBeVisible();
+    await expect(page).toHaveURL(/#\/settings\/account$/);
+    expect(await page.evaluate(() => localStorage.getItem('hashtree:activeAccount'))).toBe(accounts[0].pubkey);
+  });
+
   test('signing in offers the recovery methods one under another, and goes back to the first choices', async ({ page }) => {
     await expect(page.getByTestId('identity-recovery-section')).toHaveCount(0);
     await page.getByTestId('add-existing-profile').click();

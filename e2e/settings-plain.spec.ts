@@ -59,8 +59,11 @@ test.describe('plain settings', () => {
     await expect(page.getByTestId('device-approval-section').getByRole('heading', { name: 'Add a device' })).toBeVisible();
     // The only device keeps the right to manage the account.
     await expect(page.getByTestId('user-revoke-admin')).toHaveCount(0);
-    await expect(page.getByTestId('settings-manage-users')).toHaveText('Switch profile');
-    await expect(page.getByTestId('settings-logout')).toHaveText('Log out');
+    const profiles = page.getByLabel('Profiles on this device');
+    await expect(profiles.getByRole('link', { name: 'Manage profiles' })).toBeVisible();
+    await expect(profiles.getByRole('button', { name: 'Sign out' })).toBeVisible();
+    await expect(profiles.getByRole('button', { name: 'Copy secret key' })).toHaveCount(0);
+    await expect(profiles.getByText('Plain Settings', { exact: true })).toBeVisible();
     await expectNoJargon(page);
     await page.screenshot({ path: testInfo.outputPath('profile-settings.png') });
 

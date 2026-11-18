@@ -87,15 +87,17 @@ test.describe('account navigation and logout', () => {
     await openAccountMenu(page);
     await page.getByTestId('account-menu-settings').click();
     await expect(page).toHaveURL(/#\/settings$/);
-    await expect(page.getByTestId('settings-manage-users')).toBeVisible();
+    const profiles = page.getByLabel('Profiles on this device');
+    await expect(profiles.getByText('Account Test', { exact: true })).toBeVisible();
+    await expect(profiles.getByText(firstProfile.id, { exact: true })).toBeVisible();
 
-    await page.getByTestId('settings-manage-users').click();
+    await profiles.getByRole('link', { name: 'Manage profiles' }).click();
     await expect(page).toHaveURL(/#\/users$/);
     await expect(page.getByRole('heading', { name: 'Profiles' })).toBeVisible();
 
     await openAccountMenu(page);
     await page.getByTestId('account-menu-settings').click();
-    const settingsLogout = page.getByTestId('settings-logout');
+    const settingsLogout = profiles.getByRole('button', { name: 'Sign out' });
     const confirmation = page.getByRole('dialog', { name: 'Log out of Drive?' });
     await settingsLogout.click();
     await expect(confirmation.getByRole('button', { name: 'Cancel' })).toBeFocused();
