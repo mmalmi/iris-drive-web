@@ -1,4 +1,4 @@
-/** Recoverable contents stay on this browser, outside every shared tree and snapshot. */
+/** Durable local recovery copies and the pending changes to the account’s encrypted Trash. */
 import Dexie, { type Table } from 'dexie';
 import { fromHex, toHex, type HashTree, type TreeEntry } from '@hashtree/core';
 
@@ -13,6 +13,8 @@ export interface TrashItem {
   entry: TreeEntry;
   deletedAt: number;
   ready: boolean;
+  /** Existing browser-only rows keep their old recovery policy. */
+  sync?: 'prepared' | 'outgoing' | 'published' | 'remote';
   /** Written before restoring the tree, so retrying after an interruption is idempotent. */
   destination?: string[];
 }
@@ -24,6 +26,10 @@ interface Block {
 
 const db = new Dexie('iris-drive-trash');
 db.version(1).stores({ items: 'id, account, deletedAt', blocks: 'hash', refs: '[item+hash], item, hash' });
+db.version(2).stores({ markers: '[account+id], account', heads: '[account+writer]' });
+interface TrashMarker { account: string; id: string; at: number; pending: boolean }
+export const trashMarkers: Table<TrashMarker, [string, string]> = db.table('markers');
+export const trashHeads: Table<{ account: string; writer: string; root: import('@hashtree/core').CID }, [string, string]> = db.table('heads');
 const items: Table<TrashItem, string> = db.table('items');
 const blocks: Table<Block, string> = db.table('blocks');
 const refs: Table<{ item: string; hash: string }, [string, string]> = db.table('refs');
@@ -46,13 +52,20 @@ export function watchTrash(run: (removedIds: string[]) => void): () => void {
 
 export async function listTrash(account: string): Promise<TrashItem[]> {
   return (await items.where('account').equals(account).toArray())
-    .filter(item => item.ready && item.deletedAt > Date.now() - TRASH_RETENTION)
+    .filter(item => item.sync !== 'prepared' && item.ready && item.deletedAt > Date.now() - TRASH_RETENTION)
     .sort((a, b) => b.deletedAt - a.deletedAt || a.entry.name.localeCompare(b.entry.name));
 }
 
-export async function forgetTrash(ids: string[]): Promise<void> {
+export async function forgetTrash(ids: string[], consume = false): Promise<void> {
   if (!ids.length) return;
-  await db.transaction('rw', items, blocks, refs, async () => {
+  await db.transaction('rw', items, blocks, refs, trashMarkers, async () => {
+    if (consume) {
+      for (const item of await items.bulkGet(ids)) {
+        if (item?.sync && item.sync !== 'prepared') await trashMarkers.put({
+          account: item.account, id: item.id, at: Math.floor(Date.now() / 1000), pending: true,
+        });
+      }
+    }
     const entries = refs.where('item').anyOf(ids);
     const affected = new Set((await entries.toArray()).map(ref => ref.hash));
     await entries.delete();
@@ -66,7 +79,7 @@ export async function forgetTrash(ids: string[]): Promise<void> {
 
 export async function expireTrash(): Promise<void> {
   const ids = await items.where('deletedAt').belowOrEqual(Date.now() - TRASH_RETENTION).primaryKeys();
-  await forgetTrash(ids);
+  await forgetTrash(ids, true);
 }
 
 /** Save the actual blocks before removing the originals. Normal cache eviction cannot break Restore. */
@@ -102,15 +115,26 @@ export async function archiveTrash(tree: HashTree, records: TrashItem[]): Promis
 
 export async function getTrash(id: string, account: string): Promise<TrashItem | undefined> {
   const row = await items.get(id);
-  return row?.ready && row.account === account && row.deletedAt > Date.now() - TRASH_RETENTION ? row : undefined;
+  return row?.ready && row.sync !== 'prepared' && row.account === account && row.deletedAt > Date.now() - TRASH_RETENTION ? row : undefined;
 }
 
-export async function rememberDestination(id: string, destination: string[]): Promise<void> {
-  await items.update(id, { destination });
+export async function rememberDestination(id: string, destination: string[], account: string): Promise<void> {
+  await db.transaction('rw', items, trashMarkers, async () => {
+    const row = await items.get(id);
+    if (!row || row.account !== account || await trashMarkers.get([account, id])) throw new Error('This item is no longer in Trash');
+    await items.update(id, { destination });
+  });
 }
 
 /** Copy back blocks a storage limit might have evicted since deletion. */
 export async function recoverContents(tree: HashTree, item: TrashItem): Promise<void> {
+  if (item.sync === 'remote') {
+    // Fetch and verify the complete retained graph before consuming this item.
+    for await (const block of tree.walkBlocks(item.entry.cid)) {
+      if (!block.data) throw new Error('The saved content is unavailable');
+    }
+    return;
+  }
   const store = tree.getStore();
   const keys = (await refs.where('item').equals(item.id).toArray()).map(ref => ref.hash);
   if (!keys.length) throw new Error('The saved content is unavailable');
@@ -122,4 +146,43 @@ export async function recoverContents(tree: HashTree, item: TrashItem): Promise<
       if (!await store.has(hash)) await store.put(hash, row.data);
     }
   }
+}
+
+export function privateTrashRows(account: string): Promise<TrashItem[]> {
+  return items.where('account').equals(account).filter(item => !!item.sync).toArray();
+}
+
+export async function commitTrashDeletion(ids: string[]): Promise<void> {
+  if (await items.where('id').anyOf(ids).filter(item => item.sync === 'prepared').modify({ sync: 'outgoing' })) notify();
+}
+
+/** The archive and the destination journal survive separately from the remotely fetched listing. */
+export async function applyTrashListing(account: string, rows: TrashItem[], removed: Map<string, number>): Promise<void> {
+  let dirty = false;
+  const forgotten: string[] = [];
+  await db.transaction('rw', items, trashMarkers, blocks, refs, async () => {
+    const now = Math.floor(Date.now() / 1000);
+    for (const [id, at] of removed) {
+      const marker = await trashMarkers.get([account, id]);
+      if (!marker) await trashMarkers.put({ account, id, at, pending: false });
+      const row = await items.get(id);
+      if (row?.account === account && row.sync) forgotten.push(id);
+    }
+    for (const row of rows) {
+      if (row.deletedAt <= (now * 1000) - TRASH_RETENTION || await trashMarkers.get([account, row.id])) continue;
+      const existing = await items.get(row.id);
+      if (!existing) { await items.add(row); dirty = true; }
+    }
+    if (forgotten.length) await forgetTrash(forgotten);
+  });
+  if (dirty || forgotten.length) notify(forgotten);
+}
+export async function publishedTrash(account: string, rows: TrashItem[], markers: TrashMarker[]): Promise<void> {
+  await db.transaction('rw', items, trashMarkers, async () => {
+    for (const row of rows) {
+      const current = await items.get(row.id);
+      if (current?.account === account && current.sync === 'outgoing') await items.update(row.id, { sync: 'published' });
+    }
+    for (const mark of markers) await trashMarkers.update([account, mark.id], { pending: false });
+  });
 }

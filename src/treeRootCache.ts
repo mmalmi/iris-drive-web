@@ -89,7 +89,8 @@ export async function initializePublishFn(): Promise<void> {
     });
 
     if (!result?.success) return false;
-    return publishNostrIdentityDriveRootIfAvailable(treeName, rootCid);
+    // A legacy named tree has its own namespace. Never mirror it into the account recovery root.
+    return treeName === 'trash' || publishNostrIdentityDriveRootIfAvailable(treeName, rootCid);
   });
 
   // What an earlier page left unpublished may have been tried before this

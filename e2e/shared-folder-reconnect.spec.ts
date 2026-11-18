@@ -5,7 +5,7 @@ import { configureNativeRelay, runIdriveJson } from './native-idrive';
 import { openProfile, acceptAndOpen, waitForSharedFolderPublished } from './shared-folder.helpers';
 import { chooseFileAction, getTestBlossomUrl, openListedFile, waitForRelayConnected } from './test-utils';
 
-test('trip collaborators add, rename and delete files while a reader reconnects and reopens an old invite', async ({ page, browser, relayUrl }, testInfo) => {
+test('trip collaborators edit while a reader reconnects and a shared file with unknown ownership stays recoverable', async ({ page, browser, relayUrl }, testInfo) => {
   test.setTimeout(240_000);
   const root = testInfo.outputPath('profiles');
   fs.mkdirSync(root, { recursive: true });
@@ -101,14 +101,14 @@ test('trip collaborators add, rename and delete files while a reader reconnects 
     await readerPage.screenshot({ path: testInfo.outputPath('reconnected-reader-mobile.png') });
 
     await chooseFileAction(page, 'viewer-delete');
-    await expect(page.getByRole('link', { name: /^Plan\.txt\b/ })).toBeVisible();
-    await waitForSharedFolderPublished(page, share.share_id, { lacks: ['Packing final.txt'] });
+    await expect(page.getByText('This shared item must stay in its folder until its file owner can recover it.', { exact: false })).toBeVisible();
+    await waitForSharedFolderPublished(page, share.share_id, { has: ['Packing final.txt'] });
     await readerPage.goto(folderUrl);
     await expect(readerPage.getByRole('link', { name: /^Plan\.txt\b/ })).toBeVisible();
-    await expect(readerPage.getByRole('link', { name: /^Packing final\.txt\b/ })).toHaveCount(0);
+    await expect(readerPage.getByRole('link', { name: /^Packing final\.txt\b/ })).toBeVisible();
     runIdriveJson(profiles.alice!, ['sync', '--relay', relayUrl, '--timeout', '2']);
     const listing = runIdriveJson(profiles.alice!, ['provider', 'list']);
-    expect(listing.entries.some((entry: { path: string }) => entry.path === 'Trip/Packing final.txt')).toBe(false);
+    expect(listing.entries.some((entry: { path: string }) => entry.path === 'Trip/Packing final.txt')).toBe(true);
 
     await readerContext.setOffline(true);
     runIdriveJson(profiles.alice!, ['shares', 'revoke', share.share_id, reader.profileId]);

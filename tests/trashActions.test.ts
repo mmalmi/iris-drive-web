@@ -12,6 +12,7 @@ vi.mock('../src/nostr', () => ({
 }));
 vi.mock('../src/utils/navigate', () => ({ navigate: vi.fn() }));
 vi.mock('../src/utils/route', () => ({
+  isNostrIdentityId: () => false,
   parseRoute: () => ({ npub: state.owner, treeName: 'main', path: state.path, params: new URLSearchParams() }),
 }));
 vi.mock('../src/actions/route', () => ({ getCurrentPathFromUrl: () => state.path, buildRouteUrl: vi.fn() }));
@@ -31,6 +32,7 @@ vi.mock('../src/drive/driveRootChange', () => ({
   },
 }));
 vi.mock('../src/lib/driveTrash', () => ({
+  commitTrashDeletion: vi.fn(),
   archiveTrash: async (_tree: HashTree, rows: TrashItem[]) => {
     if (state.failArchive) throw new Error('out of space');
     for (const row of rows) state.records.set(row.id, row);

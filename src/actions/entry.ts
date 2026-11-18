@@ -2,7 +2,7 @@
  * Entry operations - rename, delete, move entries
  */
 import { navigate } from '../utils/navigate';
-import { parseRoute } from '../utils/route';
+import { isNostrIdentityId, parseRoute } from '../utils/route';
 import { autosaveIfOwn, nostrStore } from '../nostr';
 import { getTree } from '../store';
 import { LinkType, toHex, type CID, type HashTree, type TreeEntry } from '@hashtree/core';
@@ -164,7 +164,17 @@ export async function deleteEntries(names: string[], parentPath: string[] = getC
   const treeName = route.treeName;
   if (!account || !scope || !treeName) throw new Error('Sign in to move items to Trash');
   requireTrashAccess(account, scope);
-  const { archiveTrash, forgetTrash } = await import('../lib/driveTrash');
+  const profile = isNostrIdentityId(account);
+  const privateSync = profile ? await import('../drive/privateTrashSync') : null;
+  const { canEncodeTrashPath } = await import('../drive/privateTrashTree');
+  const checkSource = () => {
+    if (privateSync && treeName === 'main' && (scope !== account
+      || names.some(name => !privateSync.isUnsharedTrashPath(account, [...parentPath, name])))) {
+      throw new Error('This shared item must stay in its folder until its file owner can recover it.');
+    }
+  };
+  checkSource();
+  const { archiveTrash, commitTrashDeletion, forgetTrash } = await import('../lib/driveTrash');
   const tree = getTree();
   const records: TrashItem[] = [];
   let archived = false;
@@ -178,8 +188,11 @@ export async function deleteEntries(names: string[], parentPath: string[] = getC
         for (const name of new Set(names)) {
           const entry = here.get(name);
           if (albumScope && entry?.type !== LinkType.Dir) throw new Error('This folder no longer exists');
+          const sync = entry && privateSync && treeName === 'main' && scope === account
+            && canEncodeTrashPath([...parentPath, name]) ? 'prepared' : undefined;
+          if (sync && !privateSync?.canReadPrivateTrash(account)) throw new Error('This device no longer has access to Trash');
           if (entry) records.push({ id: crypto.randomUUID(), account, scope, treeName, path: parentPath.slice(), entry,
-            deletedAt: Date.now(), ready: false });
+            deletedAt: Date.now(), ready: false, sync });
         }
         if (!records.length) return null;
         try {
@@ -195,6 +208,7 @@ export async function deleteEntries(names: string[], parentPath: string[] = getC
         if (!current || !sameEntry(current, entry)) throw new Error('The selection changed before it could be deleted');
         next = await removeIn(next, parentPath, entry.name, route);
       }
+      checkSource();
       requireTrashAccess(account, scope);
       return next;
     });
@@ -202,6 +216,7 @@ export async function deleteEntries(names: string[], parentPath: string[] = getC
     if (archived) await forgetTrash(records.map(record => record.id));
     throw error;
   }
+  if (records.some(record => record.sync)) await commitTrashDeletion(records.map(row => row.id));
   if (!records.length || account !== trashAccount()) return;
   const deleted = records.map(({ id, entry }) => {
     const original = [...parentPath, entry.name];
@@ -256,6 +271,14 @@ export async function restoreTrashItems(account: string, ids: string[], skipMiss
   }
   const { scope, treeName } = first;
   requireTrashAccess(account, scope);
+  const privateSync = first.sync ? await import('../drive/privateTrashSync') : null;
+  if (privateSync) {
+    if (!privateSync.canReadPrivateTrash(account)) throw new Error('This device no longer has access to Trash');
+    const { getTreeRootSync, waitForTreeRoot } = await import('../stores/treeRoot');
+    if (!getTreeRootSync(scope, treeName) && !await waitForTreeRoot(scope, treeName, 20000)) {
+      throw new Error('My Drive is still loading. Try Restore again.');
+    }
+  }
   const tree = getTree();
   const restored = new Map<string, string[]>();
   await changeDriveRoot(scope, treeName, async root => {
@@ -265,6 +288,10 @@ export async function restoreTrashItems(account: string, ids: string[], skipMiss
     for (const id of ids) {
       const record = await getTrash(id, account);
       if (!record) continue;
+      if (record.sync && privateSync) {
+        if (!privateSync.canReadPrivateTrash(account)) throw new Error('This device no longer has access to Trash');
+        if (!privateSync.isUnsharedTrashPath(account, [...record.path, record.entry.name])) throw new Error('The original folder is now shared');
+      }
       if (record.scope !== scope || record.treeName !== treeName) throw new Error('The selection belongs to several Drives');
       await recoverContents(tree, record);
       const { entry } = record;
@@ -289,17 +316,30 @@ export async function restoreTrashItems(account: string, ids: string[], skipMiss
         }
       }
       const folder = await folderAt(tree, next, parent);
-      const taken = new Set(folder ? (await tree.listDirectory(folder)).map(item => item.name) : []);
-      const name = freeName(entry.name, taken, entry.type !== LinkType.Dir || isDocumentFolderName(entry.name));
+      const siblings = folder ? await tree.listDirectory(folder) : [];
+      const original = siblings.find(file => file.name === entry.name);
+      // The signed Trash and My Drive roots can arrive in either order. If the
+      // original bytes are already at their path, affirm that entry in this
+      // restore instead of manufacturing a second, suffixed copy.
+      const identical = record.sync === 'remote' && original && sameEntry(original, entry)
+        && parent.length === record.path.length;
+      const taken = new Set(siblings.map(item => item.name));
+      const name = identical ? entry.name : freeName(entry.name, taken, entry.type !== LinkType.Dir || isDocumentFolderName(entry.name));
       const destination = [...parent, name];
-      await rememberDestination(id, destination);
-      next = await setEntryForDriveRoute(tree, next, parent, name, entry, { npub: scope, treeName }, nostrStore.getState());
+      await rememberDestination(id, destination, account);
+      next = identical
+        ? await mutateProfileDriveRoot(tree, next, { type: 'set-entry', path: destination.join('/'), entry })
+        : await setEntryForDriveRoute(tree, next, parent, name, entry, { npub: scope, treeName }, nostrStore.getState());
       restored.set(id, destination);
     }
     requireTrashAccess(account, scope);
+    if (privateSync && (!privateSync.canReadPrivateTrash(account)
+      || [...restored.values()].some(path => !privateSync.isUnsharedTrashPath(account, path)))) {
+      throw new Error('Access to the restore destination changed');
+    }
     return next === root ? null : next;
-  });
-  await forgetTrash([...restored.keys()]);
+  }, { verifyRestore: !!first.sync });
+  await forgetTrash([...restored.keys()], true);
   forgetDeletionHistory(ids);
   return restored;
 }

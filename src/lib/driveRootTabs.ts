@@ -89,6 +89,16 @@ export function announceLocalRoot(scope: string, treeName: string, hash: Hash, r
   return writing;
 }
 
+/** Verify the exact destination is committed before releasing a recovery copy. Caller holds this Drive's lock. */
+export async function keepRestoredDriveRoot(scope: string, treeName: string, hash: Hash, rootKey?: Hash): Promise<void> {
+  const key = rootKeyOf(scope, treeName);
+  await pending.get(key);
+  const matches = (row?: SharedRoot) => row?.hash === toHex(hash) && row.rootKey === (rootKey ? toHex(rootKey) : undefined);
+  if (matches(await store.get(key))) return;
+  await announceLocalRoot(scope, treeName, hash, rootKey, 'private');
+  if (!matches(await store.get(key))) throw new Error('Could not save the restored item on this device');
+}
+
 /**
  * Runs `write` while no other tab of this browser writes the same Drive, after
  * taking over the newest version any tab saved. `write` reads the Drive, saves

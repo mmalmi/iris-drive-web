@@ -9,7 +9,7 @@ import { toHex, type CID } from '@hashtree/core';
 import { saveOwnTreeRoot } from '../nostr';
 import { getTreeRootSync } from '../stores/treeRoot';
 import { flushPendingPublishes } from '../treeRootCache';
-import { withDriveRootLock } from '../lib/driveRootTabs';
+import { keepRestoredDriveRoot, withDriveRootLock } from '../lib/driveRootTabs';
 import { inTurn } from '../lib/driveWrites';
 
 const ATTEMPTS = 4;
@@ -24,16 +24,21 @@ function sameCid(left: CID | null, right: CID | null): boolean {
  * nothing. Never writes over a Drive this device has not loaded: that would
  * replace it. Resolves whether a new root was saved.
  */
-export function changeDriveRoot(scope: string, treeName: string, change: (root: CID) => Promise<CID | null>): Promise<boolean> {
+export function changeDriveRoot(scope: string, treeName: string, change: (root: CID) => Promise<CID | null>, options: { verifyRestore?: boolean } = {}): Promise<boolean> {
   return inTurn(() => withDriveRootLock(scope, treeName, async () => {
     for (let attempt = 0; attempt < ATTEMPTS; attempt += 1) {
       const base = getTreeRootSync(scope, treeName);
       if (!base) throw new Error('The Drive has not loaded yet');
       const root = await change(base);
-      if (!root) return false;
+      if (!root && !options.verifyRestore) return false;
       // Another write landed while this one was worked out: work it out again on the newer Drive.
       if (!sameCid(getTreeRootSync(scope, treeName), base)) continue;
+      if (!root) {
+        await keepRestoredDriveRoot(scope, treeName, base.hash, base.key);
+        return false;
+      }
       if (!saveOwnTreeRoot(scope, treeName, root)) throw new Error('This Drive cannot be changed here');
+      if (options.verifyRestore) await keepRestoredDriveRoot(scope, treeName, root.hash, root.key);
       void flushPendingPublishes().catch(() => {});
       return true;
     }

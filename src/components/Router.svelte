@@ -8,6 +8,7 @@
 
   // Only the Drive itself is part of the first download; every other page
   // loads when it is first opened.
+  import { isNostrIdentityId } from '../utils/route';
   import HomeRoute from '../routes/HomeRoute.svelte';
   import TreeRoute from '../routes/TreeRoute.svelte';
 
@@ -82,6 +83,9 @@
     for (const route of routePatterns) {
       const match = matchRoute(route.pattern, path);
       if (match.matched) {
+        if (route.id === 'tree' && match.params.treeName === 'trash' && isNostrIdentityId(match.params.npub)) {
+          return { id: 'trash', params: {} };
+        }
         return { id: route.id, params: { ...match.params, ...(route.staticParams ?? {}) } };
       }
     }

@@ -4,7 +4,7 @@
 
 ### How do I restore a deleted file?
 
-In the browser where you deleted the file, open [Trash](#/trash) with the same account. Select **Restore** to put it back in its original folder. Trash keeps deleted items for 30 days.
+Open [Trash](#/trash) and select **Restore** to return an item to its original folder. Personal My Drive items stay in Trash for 30 days and sync across approved devices. Signing in with your recovery phrase also gives you access. For items deleted before Trash synced, use the browser where you deleted them.
 
 ### Which device has a copy of my files?
 

@@ -4,7 +4,7 @@
 // words through Sign in > Recovery phrase and finds the Drive's files.
 import { expect, test, type Page } from './fixtures';
 import { createDriveProfile, prepareFreshSession } from './documents.helpers';
-import { expectFolderEditable, fileRow } from './test-utils';
+import { expectFolderEditable, fileRow, openRowMenu } from './test-utils';
 import WebSocket from 'ws';
 import { getPublicKey } from 'nostr-tools';
 import { privateKeyFromSeedWords } from 'nostr-tools/nip06';
@@ -52,11 +52,11 @@ async function createRecoveryPhrase(page: Page, screenshot?: (name: string) => P
 }
 
 /** The Drive roots the relay holds from `author`: who each one's key is wrapped for. */
-function rootWraps(relayUrl: string, author: string): Promise<string[][]> {
+function rootWraps(relayUrl: string, author: string, d?: string): Promise<string[][]> {
   return new Promise((resolve) => {
     const ws = new WebSocket(relayUrl);
     const found: string[][] = [];
-    ws.on('open', () => ws.send(JSON.stringify(['REQ', 'roots', { kinds: [30078], authors: [author] }])));
+    ws.on('open', () => ws.send(JSON.stringify(['REQ', 'roots', { kinds: [30078], authors: [author], ...(d ? { '#d': [d] } : {}) }])));
     ws.on('message', (raw) => {
       const message = JSON.parse(String(raw));
       if (message[0] === 'EVENT') {
@@ -133,6 +133,9 @@ test.describe('recovery phrase', () => {
     await prepareFreshSession(page, relayUrl);
     const { profileId } = await createDriveProfile(page, 'Lost Devices');
     await uploadFile(page, 'only-here.txt');
+    await uploadFile(page, 'restore-this.txt');
+    await (await openRowMenu(page, 'restore-this.txt')).getByRole('menuitem', { name: 'Delete' }).click();
+    await expect(fileRow(page, 'restore-this.txt')).toHaveCount(0);
     const device = await page.evaluate(() => (window as unknown as { __nostrStore: { getState: () => { pubkey: string } } }).__nostrStore.getState().pubkey);
 
     await page.goto(`${new URL(page.url()).origin}/#/settings/account/recovery`);
@@ -143,6 +146,8 @@ test.describe('recovery phrase', () => {
     // Drive wrapped for the phrase too. Then the device is gone.
     await expect(page.getByTestId('recovery-phrase-saved')).toBeVisible({ timeout: 60_000 });
     expect((await rootWraps(relayUrl, device)).some((wraps) => wraps.includes(recoveryKey))).toBe(true);
+    const trashTag = `iris-drive/${profileId}/trash/root`;
+    await expect.poll(async () => (await rootWraps(relayUrl, device, trashTag)).some(wraps => wraps.includes(recoveryKey))).toBe(true);
     await page.close();
 
     const fresh = await browser.newContext();
@@ -161,6 +166,13 @@ test.describe('recovery phrase', () => {
       await expect.poll(async () => (await rootWraps(relayUrl, await other.evaluate(() => (window as unknown as { __nostrStore: { getState: () => { pubkey: string } } }).__nostrStore.getState().pubkey))).length, { timeout: 60_000 }).toBeGreaterThan(0);
       await other.reload();
       await expect(fileRow(other, 'only-here.txt')).toBeVisible({ timeout: 90_000 });
+      await other.evaluate(() => { location.hash = '/trash'; });
+      const restore = other.getByRole('button', { name: 'Restore restore-this.txt' });
+      await expect(restore).toBeVisible({ timeout: 30000 });
+      await restore.click();
+      await expect(restore).toHaveCount(0);
+      await other.evaluate(id => { location.hash = '/' + id + '/main'; }, profileId);
+      await expect(fileRow(other, 'restore-this.txt')).toBeVisible();
     } finally {
       await fresh.close();
     }

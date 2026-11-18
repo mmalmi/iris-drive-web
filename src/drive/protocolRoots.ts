@@ -114,6 +114,10 @@ export function buildDriveRootEvent(options: BuildDriveRootEventOptions): Event 
     rootKeyWraps[recipient] = nip44.v2.encrypt(rootKeyHex, conversationKey);
   }
 
+  if (options.driveId === 'trash') {
+    const references = [...(options.parents ?? []), ...Object.values(options.observed ?? {})];
+    if (references.some(ref => !isHex32(ref.root_cid))) throw new Error('Trash history references must contain only a hash');
+  }
   const content: DriveRootWireContent = {
     root_hash: toHex(options.root.hash),
     root_key_wraps: rootKeyWraps,

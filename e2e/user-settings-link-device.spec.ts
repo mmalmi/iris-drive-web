@@ -1,3 +1,4 @@
+import { openRowMenu, fileRow } from './test-utils';
 import { expect, test, type Browser, type BrowserContext, type Page } from './fixtures';
 import {
   addFileViaTreeAPI,
@@ -825,6 +826,35 @@ async function createLinkedDriveBrowsers(
 }
 
 test.describe('Drive user settings link device', () => {
+  test('restores a deletion from private Trash on another approved browser', async ({ page, browser, relayUrl }) => {
+    test.setTimeout(180000);
+    const { deviceContext, devicePage, profileId } = await createLinkedDriveBrowsers(page, browser as Browser, relayUrl);
+    try {
+      await gotoMain(page, relayUrl);
+      const ownerContext = page.context();
+      const originalUrl = page.url();
+      await ownerContext.setOffline(true);
+      await (await openRowMenu(page, 'before-device-link.txt')).getByRole('menuitem', { name: 'Delete' }).click();
+      await expect(fileRow(page, 'before-device-link.txt')).toHaveCount(0);
+      await page.close();
+      await ownerContext.setOffline(false);
+      const restarted = await ownerContext.newPage();
+      await restarted.goto(originalUrl);
+      await waitForAppReady(restarted);
+      await expectMainFileMissing(devicePage, relayUrl, 'before-device-link.txt');
+      await devicePage.evaluate(() => { location.hash = '/trash'; });
+      const restore = devicePage.getByRole('button', { name: 'Restore before-device-link.txt' });
+      await expect(restore).toBeVisible({ timeout: 45000 });
+      await restarted.close();
+      await devicePage.reload({ waitUntil: 'domcontentloaded' });
+      await expect(restore).toBeVisible();
+      await restore.click();
+      await expect(restore).toHaveCount(0);
+      await devicePage.evaluate(id => { location.hash = '/' + id + '/main'; }, profileId);
+      await expectMainFileContent(devicePage, relayUrl, 'before-device-link.txt', 'present before approval');
+    } finally { await deviceContext.close(); }
+  });
+
   test('links an existing Drive user through an approval QR/link from another Drive instance', async ({ page, browser, relayUrl }) => {
     test.setTimeout(300000);
     const { deviceContext, devicePage } = await createLinkedDriveBrowsers(page, browser as Browser, relayUrl);

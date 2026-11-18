@@ -718,6 +718,8 @@ export async function approveDriveDeviceApprovalBootstrap(
   // logical root after updating the roster, then publish the receipt last: a
   // device that sees the receipt can immediately resolve the adopted Drive.
   await republishCurrentDriveRootForApproval(currentDriveRoot);
+  const { handPrivateTrashToDevice } = await import('../drive/privateTrashSync');
+  await handPrivateTrashToDevice(session.profileId);
   await publishRawNostrEvent(receiptEvent);
   saveStoredDeviceLabels(updated.profileId, deviceLabels);
   return updated;

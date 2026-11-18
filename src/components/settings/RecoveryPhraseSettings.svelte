@@ -13,6 +13,7 @@
   import { privateKeyFromSeedWords } from 'nostr-tools/nip06';
   import { whenRelaysHold } from '../../lib/relayHolds';
   import { KIND_DRIVE_ROOT } from '../../drive/protocolTypes';
+  import { driveRootDTag } from '../../drive/protocolRoots';
   import { rootWrapRecipients } from '../../drive/recoveryRootKeys';
   import { profileDriveProjection } from '../../drive/profileDriveProjection';
   import CopyButton from '@iris/svelte-ui/CopyButton.svelte';
@@ -103,17 +104,17 @@
     for (const stop of stopWatching) stop();
     saving = 'saving';
     // A device that has saved nothing yet has no Drive to wrap; its first save is wrapped for the phrase.
-    const hasDrive = !!profileDriveProjection.contributionRoot(profileId, 'main', device);
-    let waiting = hasDrive ? 2 : 1;
+    const drives = ['main', 'trash'].filter(drive => !!profileDriveProjection.contributionRoot(profileId, drive, device));
+    let waiting = 1 + drives.length;
     const held = () => {
       waiting -= 1;
       if (waiting === 0) saving = 'saved';
     };
-    const ownRoot = (event: Event) => event.tags.some(([name, value]) => name === 'd' && value?.startsWith(`iris-drive/${profileId}/main`))
-      && rootWrapRecipients(event).has(recoveryPubkey);
     stopWatching = [
       whenRelaysHold({ authors: [recoveryPubkey] }, () => true, held),
-      ...(hasDrive ? [whenRelaysHold({ kinds: [KIND_DRIVE_ROOT], authors: [device] }, ownRoot, held)] : []),
+      ...drives.map(drive => whenRelaysHold({
+        kinds: [KIND_DRIVE_ROOT], authors: [device], '#d': [driveRootDTag(profileId, drive)],
+      }, event => rootWrapRecipients(event as Event).has(recoveryPubkey), held)),
     ];
   }
 

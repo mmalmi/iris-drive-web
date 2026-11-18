@@ -2,6 +2,8 @@
   import { LinkType } from '@hashtree/core';
   import { nostrStore } from '../nostr';
   import { activeNostrIdentityRootScope } from '../drive/profileRoute';
+  import { subscribeToTreeRoot } from '../stores/treeRoot';
+  import { canReadPrivateTrash } from '../drive/privateTrashSync';
   import { acceptedShares } from '../drive/shareLibrary';
   import { documentTitle } from '../lib/documentNames';
   import { listTrash, watchTrash, type TrashItem } from '../lib/driveTrash';
@@ -10,7 +12,7 @@
 
   let account = $derived($nostrStore.isLoggedIn ? activeNostrIdentityRootScope($nostrStore) ?? $nostrStore.npub : null);
   let rows = $state<TrashItem[]>([]);
-  let visibleRows = $derived(rows.filter(item => hasTrashAccess(item.account, item.scope, $nostrStore, $acceptedShares)));
+  let visibleRows = $derived(rows.filter(item => (!item.sync || canReadPrivateTrash(item.account)) && hasTrashAccess(item.account, item.scope, $nostrStore, $acceptedShares)));
   let status = $state('');
   let restoring = $state<string | null>(null);
 
@@ -31,9 +33,11 @@
         if (turn === generation) status = 'Could not load Trash.';
       }
     };
+    // Keep the restore destination current even while the file browser is closed.
+    const stopDrive = canReadPrivateTrash(owner) ? subscribeToTreeRoot(owner, 'main', () => {}) : undefined;
     const unsubscribe = watchTrash(refresh);
     void refresh();
-    return () => { generation++; unsubscribe(); };
+    return () => { generation++; unsubscribe(); stopDrive?.(); };
   });
 
   function driveName(item: TrashItem): string {
@@ -67,7 +71,7 @@
 <main class="flex-1 min-w-0 flex flex-col bg-surface-0" data-drive-undo data-testid="trash-route">
   <header class="shrink-0 border-b border-surface-2 px-3 py-3 lg:px-5">
     <h1 class="m-0 flex items-center gap-2 text-base lg:text-xl font-medium text-text-1"><span class="i-lucide-trash-2 text-accent"></span>Trash</h1>
-    <p class="mt-1 mb-0 text-sm text-text-3">Items deleted in this browser stay here for 30 days.</p>
+    <p class="mt-1 mb-0 text-sm text-text-3">You can restore deleted items for 30 days.</p>
   </header>
   <div class="flex-1 overflow-auto">
     {#each visibleRows as item (item.id)}

@@ -244,6 +244,16 @@ export class ProfileDriveProjection {
     const roots = this.authorizedRoots(rootScopeId, driveId, authorizedAppKeys);
     if (roots.length === 0) return null;
 
+    if (driveId === 'trash') {
+      const { readPrivateTrash, writePrivateTrash } = await import('./privateTrashTree');
+      const view = await readPrivateTrash(tree, rootScopeId, roots.map(r => r.parsed.root), signal);
+      return {
+        root: await writePrivateTrash(tree, view),
+        updatedAt: Math.max(...roots.map(r => r.parsed.published_at)),
+        sourceRootCount: roots.length,
+      };
+    }
+
     const settledSnapshots = await Promise.allSettled(
       roots.map((root) => walkProfileDriveRoot(tree, root, signal)),
     );

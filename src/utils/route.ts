@@ -92,7 +92,7 @@ export function parseRouteFromHash(hash: string): RouteInfo {
   }
 
   // Special routes (no tree context)
-  if (NON_TREE_ROUTES.has(parts[0])) {
+  if (NON_TREE_ROUTES.has(parts[0]) || (isNostrIdentityId(parts[0]) && parts[1] === 'trash')) {
     return { npub: null, treeName: null, cid: null, path: [], isPermalink: false, params: emptyParams };
   }
 

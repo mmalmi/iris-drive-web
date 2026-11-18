@@ -144,7 +144,10 @@ export function updateSubscriptionCache(
   }));
 }
 
-function driveRootAuthorization(rootScopeId: string): DriveRootAuthorization {
+function driveRootAuthorization(rootScopeId: string, driveId?: string): DriveRootAuthorization {
+  if (driveId === 'trash' && getCurrentNostrIdentitySession()?.profileId !== rootScopeId) {
+    return { active: false, appKeys: new Set(), fingerprint: 'inactive' };
+  }
   const share = activeShareScope(rootScopeId);
   if (share) return { active: true, appKeys: new Set(share.writers), fingerprint: JSON.stringify([share.record.local_profile_id, share.record.folder.access?.updated_at, share.writers]) };
   const session = getCurrentNostrIdentitySession();
@@ -188,7 +191,7 @@ function syncDriveRootAuthorization(
   driveId: string,
 ): { authorization: DriveRootAuthorization; changed: boolean; projectionChanged: boolean } {
   const state = projectionState(key);
-  const authorization = driveRootAuthorization(rootScopeId);
+  const authorization = driveRootAuthorization(rootScopeId, driveId);
   const previousFingerprint = state.authorizationFingerprint;
   const changed = shouldResetDriveRootProjection(
     previousFingerprint,
@@ -279,7 +282,7 @@ function applyDriveRootEvent(
   if (parsed.root_scope_id !== rootScopeId || parsed.drive_id !== driveId) return false;
 
   const accepted = profileDriveProjection.add(event, parsed);
-  if (accepted) afterRootCameIn(rootScopeId, event, secretKey);
+  if (accepted) afterRootCameIn(rootScopeId, event, secretKey, driveId);
   if ((accepted || changed || projectionChanged) && options.rebuild !== false) {
     scheduleDriveRootProjection(key, rootScopeId, driveId);
   }

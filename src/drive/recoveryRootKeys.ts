@@ -38,9 +38,9 @@ export function recoveryPhraseRecipients(projection: NostrIdentityRosterProjecti
 }
 
 /** After a root came in: see `recoveryKeysAfterRoot` in profileDriveRootPublish.ts. */
-export function afterRootCameIn(rootScopeId: string, event: Event, deviceSecretKey: Uint8Array): void {
+export function afterRootCameIn(rootScopeId: string, event: Event, deviceSecretKey: Uint8Array, driveId = 'main'): void {
   void import('./profileDriveRootPublish')
-    .then((publish) => publish.recoveryKeysAfterRoot(rootScopeId, event, deviceSecretKey))
+    .then((publish) => publish.recoveryKeysAfterRoot(rootScopeId, event, deviceSecretKey, driveId))
     .catch(() => {});
 }
 

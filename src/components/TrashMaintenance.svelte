@@ -8,6 +8,18 @@
     setDeletionHistoryOwner($nostrStore.isLoggedIn ? activeNostrIdentityRootScope($nostrStore) ?? $nostrStore.npub : null);
   });
 
+  let profile = $derived(activeNostrIdentityRootScope($nostrStore));
+  $effect(() => {
+    const owner = profile;
+    if (!owner) return;
+    let active = true;
+    let stop: (() => void) | undefined;
+    void import('../drive/privateTrashSync').then(({ watchPrivateTrash }) => {
+      if (active) stop = watchPrivateTrash(owner);
+    });
+    return () => { active = false; stop?.(); };
+  });
+
   onMount(() => {
     let closed = false;
     let unsubscribe: (() => void) | undefined;

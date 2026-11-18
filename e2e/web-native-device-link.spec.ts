@@ -1,12 +1,15 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { generateSecretKey, getPublicKey, nip19, verifyEvent } from 'nostr-tools';
 import { expect, type Page } from './fixtures';
 import { fipsTest as test } from './fips-devices';
 import {
   addFileViaTreeAPI,
+  openRowMenu,
+  expectFolderEditable,
+  fileRow,
   clearAllStorage,
   configureBlossomServers,
   flushPendingPublishes,
@@ -206,12 +209,12 @@ async function expectProfileFile(
     intervals: [500, 1_000, 2_000],
   }).toBe(expectedContent);
 
-  expect(await page.evaluate(async (profile) => {
+  await expect.poll(() => page.evaluate(async (profile) => {
     const { getTreeRootSync } = await import('/src/stores');
     const { getTree } = await import('/src/store');
     const root = getTreeRootSync(profile, 'main');
     return root ? (await getTree().listDirectory(root)).map((entry) => entry.name) : [];
-  }, profileId)).not.toContain('.hashtree');
+  }, profileId), { timeout: 30000 }).not.toContain('.hashtree');
 }
 
 async function expectNativeProfileFile(
@@ -699,6 +702,57 @@ test('native owner and restarted web device link quickly through a large roster 
     fs.rmSync(nativeConfig, { recursive: true, force: true });
     fs.rmSync(nativeFiles, { recursive: true, force: true });
   }
+});
+
+test('web and native restore each other’s private Trash after linking', async ({ page, relayUrl }) => {
+  test.skip(!irisDriveAvailable(), 'Requires the native Drive binary');
+  test.setTimeout(180000);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'iris-drive-trash-link-'));
+  const sync = () => runIdriveJson(dir, ['sync', '--relay', relayUrl, '--timeout', '2']);
+  const publish = () => runIdriveJson(dir, ['publish', '--relay', relayUrl, '--timeout', '2']);
+  const name = 'Personal notes.txt';
+  const body = 'Device-independent recovery.\n';
+  try {
+    await prepareJoiningBrowser(page, relayUrl);
+    const owner = await page.evaluate(async () => {
+      const { createDriveProfile, getCurrentNostrIdentitySession } = await import('/src/nostr');
+      const { profileId } = await createDriveProfile({ name: 'Trash owner' });
+      return { profileId, writer: getCurrentNostrIdentitySession()!.appKeyPubkey };
+    });
+    await page.goto('/#/' + owner.profileId + '/main');
+    await expectFolderEditable(page);
+    await page.getByTestId('upload-files-input').setInputFiles({ name, mimeType: 'text/plain', buffer: Buffer.from(body) });
+    await expect(fileRow(page, name)).toBeVisible();
+    await (await openRowMenu(page, name)).getByRole('menuitem', { name: 'Delete' }).click();
+    await expect(fileRow(page, name)).toHaveCount(0);
+    const request = runIdriveJson<{ app_key_link_request: { url: string } }>(dir,
+      ['link', nativeLinkInvite(owner.profileId, owner.writer), '--label', 'Native Trash test']);
+    configureNativeRelay(dir, relayUrl);
+    configureNativeBlossom(dir);
+    await page.goto('/#/settings/user');
+    await page.getByTestId('device-approval-input').fill(request.app_key_link_request.url);
+    await page.getByTestId('approve-device-request').click();
+    await expect(page.getByTestId('user-key-row')).toHaveCount(2);
+    const nativeList = () => runIdriveJson<{ id: string; path: string[] }[]>(dir, ['trash', 'list']);
+    await expect.poll(() => { sync(); return nativeList().map(row => row.path); }, { timeout: 45000 }).toEqual([[name]]);
+    execFileSync(idriveBin(), ['trash', 'restore', nativeList()[0].id], { env: { ...process.env, IRIS_DRIVE_CONFIG_DIR: dir } });
+    expect(readNativeFile(dir, dir, name)).toBe(body);
+    publish();
+    await expectProfileFile(page, owner.profileId, name, body);
+    await page.goto('/#/trash');
+    await expect(page.getByRole('button', { name: 'Restore ' + name })).toHaveCount(0);
+    const archived = runIdriveJson<{ id: string }>(dir, ['trash', 'put', name]);
+    expect(archived.id).toBeTruthy();
+    publish();
+    const restore = page.getByRole('button', { name: 'Restore ' + name });
+    await expect(restore).toBeVisible({ timeout: 45000 });
+    await restore.click();
+    await expect(restore).toHaveCount(0);
+    await expectProfileFile(page, owner.profileId, name, body);
+    await expect(fileRow(page, 'Personal notes (2).txt')).toHaveCount(0);
+    await expect.poll(() => { sync(); return nativeList(); }, { timeout: 45000 }).toEqual([]);
+    expect(readNativeFile(dir, dir, name)).toBe(body);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
 test('web owner approves a native device that durably activates and acknowledges', async ({

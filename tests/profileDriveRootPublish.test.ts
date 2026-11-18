@@ -101,6 +101,27 @@ describe('profile Drive root durability before publish', () => {
     shared.publish.mockResolvedValue(undefined);
   });
 
+  it('only publishes private Trash for an authorized owner key and keeps history keys out of its envelope', async () => {
+    const { secretKey, appKeyPubkey } = activateProfile();
+    const tree = new HashTree({ store: new MemoryStore() });
+    const root = (await tree.putDirectory([])).cid;
+    shared.tree = tree;
+    shared.adapter = { pushToBlossom: vi.fn(async () => ({ pushed: 1, skipped: 0, failed: 0 })) };
+    const { publishNostrIdentityDriveRootIfAvailable } = await import('../src/drive/profileDriveRootPublish');
+    await expect(publishNostrIdentityDriveRootIfAvailable('trash', root, { rootScopeId: PROFILE_ID })).resolves.toBe(true);
+    const event = shared.publish.mock.calls[0][0];
+    expect(Object.keys(JSON.parse(event.content).root_key_wraps)).toEqual([appKeyPubkey]);
+    expect(event.content).not.toContain(toHex(root.key!));
+    expect(() => parseDriveRootEventForDevice(event, generateSecretKey())).toThrow();
+    expect(() => buildDriveRootEvent({
+      deviceSecretKey: secretKey, rootScopeId: PROFILE_ID, driveId: 'trash', root, dckGeneration: 0,
+      parents: [{ root_cid: toHex(root.hash) + ':' + toHex(root.key!) }],
+    })).toThrow('only a hash');
+    shared.session!.rosterOps = [];
+    await expect(publishNostrIdentityDriveRootIfAvailable('trash', root, { rootScopeId: PROFILE_ID })).resolves.toBe(false);
+    expect(shared.publish).toHaveBeenCalledTimes(1);
+  });
+
   it('uploads every exact root before announcing it', async () => {
     const order: string[] = [];
     const { appKeyPubkey } = activateProfile();

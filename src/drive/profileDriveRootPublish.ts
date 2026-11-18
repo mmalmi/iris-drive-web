@@ -112,6 +112,7 @@ export function scheduleShareRootRewrap(shareId: string): void {
  */
 export function scheduleDriveRootRewrap(profileId: string): void {
   scheduleRootRewrap(profileId);
+  scheduleRootRewrap(profileId, 'trash');
 }
 
 /**
@@ -120,12 +121,12 @@ export function scheduleDriveRootRewrap(profileId: string): void {
  * root published before the phrase was added or before roots were wrapped for
  * recovery keys at all.
  */
-export function wrapOwnRootForRecoveryKeys(rootScopeId: string, event: Pick<Event, 'pubkey' | 'content'>): void {
+export function wrapOwnRootForRecoveryKeys(rootScopeId: string, event: Pick<Event, 'pubkey' | 'content'>, driveId = 'main'): void {
   const session = getCurrentNostrIdentitySession();
   if (!session || session.status !== 'active' || rootScopeId !== session.profileId || event.pubkey !== session.appKeyPubkey) return;
   const wrapped = rootWrapRecipients(event);
   if (projectSession(session).recoveryPubkeys.every((pubkey) => wrapped.has(pubkey))) return;
-  scheduleDriveRootRewrap(rootScopeId);
+  scheduleRootRewrap(rootScopeId, driveId);
 }
 
 /**
@@ -133,13 +134,13 @@ export function wrapOwnRootForRecoveryKeys(rootScopeId: string, event: Pick<Even
  * lacks a recovery wrap, and one opened only through a held recovery key makes
  * this device keep the Drive as its own.
  */
-export function recoveryKeysAfterRoot(rootScopeId: string, event: Pick<Event, 'pubkey' | 'content'>, deviceSecretKey: Uint8Array): void {
-  wrapOwnRootForRecoveryKeys(rootScopeId, event);
-  if (heldRecoveryKeys().length > 0 && !rootWrapRecipients(event).has(getPublicKey(deviceSecretKey))) adoptRecoveredDrive(rootScopeId);
+export function recoveryKeysAfterRoot(rootScopeId: string, event: Pick<Event, 'pubkey' | 'content'>, deviceSecretKey: Uint8Array, driveId = 'main'): void {
+  wrapOwnRootForRecoveryKeys(rootScopeId, event, driveId);
+  if (heldRecoveryKeys().length > 0 && !rootWrapRecipients(event).has(getPublicKey(deviceSecretKey))) adoptRecoveredDrive(rootScopeId, driveId);
 }
 
 const ADOPT_AFTER_MS = 1500;
-let adoptTimer: ReturnType<typeof setTimeout> | undefined;
+const adoptTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 /**
  * A device signed in with the recovery phrase opened the other devices' roots
@@ -147,38 +148,41 @@ let adoptTimer: ReturnType<typeof setTimeout> | undefined;
  * have come in, it publishes the Drive it now sees as its own root, wrapped
  * for itself, so it keeps the files without the phrase.
  */
-export function adoptRecoveredDrive(profileId: string): void {
-  clearTimeout(adoptTimer);
-  adoptTimer = setTimeout(() => {
+export function adoptRecoveredDrive(profileId: string, driveId = 'main'): void {
+  const key = `${profileId}/${driveId}`;
+  clearTimeout(adoptTimers.get(key));
+  adoptTimers.set(key, setTimeout(() => {
+    adoptTimers.delete(key);
     void (async () => {
       const session = getCurrentNostrIdentitySession();
       if (!session || session.status !== 'active' || session.profileId !== profileId) return;
       const { getTreeRootSync } = await import('../stores/treeRoot');
-      const root = getTreeRootSync(profileId, 'main');
-      if (root?.key) await publishNostrIdentityDriveRootIfAvailable('main', root, { rootScopeId: profileId });
+      const root = getTreeRootSync(profileId, driveId);
+      if (root?.key) await publishNostrIdentityDriveRootIfAvailable(driveId, root, { rootScopeId: profileId });
     })().catch((error) => console.warn('[driveRoot] Could not keep the recovered Drive:', error));
-  }, ADOPT_AFTER_MS);
+  }, ADOPT_AFTER_MS));
 }
 
-function scheduleRootRewrap(rootScopeId: string): void {
-  const pending = rewrapTimers.get(rootScopeId);
+function scheduleRootRewrap(rootScopeId: string, driveId = 'main'): void {
+  const key = `${rootScopeId}/${driveId}`;
+  const pending = rewrapTimers.get(key);
   if (pending) clearTimeout(pending);
-  rewrapTimers.set(rootScopeId, setTimeout(() => {
-    rewrapTimers.delete(rootScopeId);
-    void rewrapRoot(rootScopeId).catch((error) => {
+  rewrapTimers.set(key, setTimeout(() => {
+    rewrapTimers.delete(key);
+    void rewrapRoot(rootScopeId, driveId).catch((error) => {
       console.warn('[driveRoot] Could not publish a Drive again for its new devices:', error);
     });
   }, 500));
 }
 
-async function rewrapRoot(rootScopeId: string): Promise<void> {
+async function rewrapRoot(rootScopeId: string, driveId: string): Promise<void> {
   const session = getCurrentNostrIdentitySession();
   if (!session || session.status !== 'active') return;
   if (rootScopeId !== session.profileId && !activeShareScope(rootScopeId)?.canWrite) return;
-  if (!profileDriveProjection.contributionRoot(rootScopeId, 'main', session.appKeyPubkey)) return;
+  if (!profileDriveProjection.contributionRoot(rootScopeId, driveId, session.appKeyPubkey)) return;
   const { getTreeRootSync } = await import('../stores/treeRoot');
-  const root = getTreeRootSync(rootScopeId, 'main');
-  if (root?.key) await publishNostrIdentityDriveRootIfAvailable('main', root, { rootScopeId });
+  const root = getTreeRootSync(rootScopeId, driveId);
+  if (root?.key) await publishNostrIdentityDriveRootIfAvailable(driveId, root, { rootScopeId });
 }
 
 interface DriveRootPublishOptions {
@@ -241,7 +245,7 @@ async function publishDriveRootNow(
 ): Promise<boolean> {
   const session = getCurrentNostrIdentitySession();
   const secretKey = getSecretKey();
-  if (!session || session.status !== 'active' || !secretKey) return true;
+  if (!session || session.status !== 'active' || !secretKey) return driveId !== 'trash';
   if (!rootCid.key) {
     console.warn('[driveRoot] Skipping NostrIdentity Drive root publish without encrypted root key', {
       profileId: session.profileId,
@@ -261,6 +265,10 @@ async function publishDriveRootNow(
   const share = rootScopeId !== session.profileId ? activeShareScope(rootScopeId) : null;
   if (rootScopeId !== session.profileId && (!share?.canWrite || driveId !== 'main')) return false;
   const projected = share ? { projection: null, activeAppKeyPubkeys: share.recipients, keyEpoch: share.epoch, recoveryPubkeys: [] } : projectSession(session);
+  if (driveId === 'trash') {
+    const signer = projected.projection?.active_facets[appKeyPubkey];
+    if (rootScopeId !== session.profileId || !signer?.purposes?.includes('app_key') || !signer.capabilities?.can_write_roots) return false;
+  }
   const writers = share?.writers ?? projected.activeAppKeyPubkeys;
   if (projected.projection && !projected.projection.active_facets[appKeyPubkey]) {
     console.warn('[driveRoot] Skipping NostrIdentity Drive root publish because AppKey is not active in roster');
@@ -276,7 +284,7 @@ async function publishDriveRootNow(
     import('../store'),
     import('./profileDriveMutation'),
   ]);
-  const publishRoot = await prepareProfileDriveRootForPublish(
+  const publishRoot = driveId === 'trash' ? rootCid : await prepareProfileDriveRootForPublish(
     getTree(),
     rootCid,
     previousContribution,
@@ -307,6 +315,14 @@ async function publishDriveRootNow(
     if (!current?.canWrite || current.record.folder.access?.updated_at !== share.record.folder.access?.updated_at) {
       return false;
     }
+  }
+  if (driveId === 'trash') {
+    const current = getCurrentNostrIdentitySession();
+    if (current?.status !== 'active' || current.profileId !== rootScopeId || current.appKeyPubkey !== appKeyPubkey) return false;
+    const latest = projectSession(current);
+    if (!latest.projection?.active_facets[appKeyPubkey]?.capabilities?.can_write_roots
+      || JSON.stringify([latest.activeAppKeyPubkeys, latest.recoveryPubkeys, latest.keyEpoch])
+        !== JSON.stringify([projected.activeAppKeyPubkeys, projected.recoveryPubkeys, projected.keyEpoch])) return false;
   }
   const rawEvent = buildDriveRootEvent({
     deviceSecretKey: secretKey,
