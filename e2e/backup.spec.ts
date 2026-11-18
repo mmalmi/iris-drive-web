@@ -183,10 +183,13 @@ test.describe('backup', () => {
     await expect(status).toHaveText(/^Backing up [1-9]\d* of \d+$/, { timeout: 60_000 });
     const [, done, total] = (await status.textContent())!.match(/(\d+) of (\d+)/)!.map(Number);
     expect(done).toBeLessThan(total);
+    const runningHeight = (await place.boundingBox())?.height;
 
     // Only the backup that was going can finish it: nothing else starts a first backup.
     await page.reload({ waitUntil: 'domcontentloaded' });
     await expect(status).toHaveText('Up to date', { timeout: 120_000 });
+    await expect(place).toContainText('Last backup sent');
+    expect((await place.boundingBox())?.height).toBe(runningHeight);
   });
 
   test('on a phone, Backup is in Settings under Storage and fits the screen', async ({ page, relayUrl }, testInfo) => {

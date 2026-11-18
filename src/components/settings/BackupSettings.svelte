@@ -118,14 +118,12 @@
   {@const live = view.live[place.id]}
   {@const status = backupStatus(record, view.root, live, now, place.kind)}
   <div class="text-sm {TONE[status.tone]}" data-testid="backup-status">{status.label}</div>
-  {#if status.detail}
-    <div class="text-xs text-text-3" data-testid="backup-detail">{status.detail}</div>
-  {/if}
-  {#if record?.backedUp && !live}
-    <div class="text-xs text-text-3">
+  <div class="min-h-4 text-xs text-text-3" data-testid="backup-detail">{status.detail}</div>
+  <div class="min-h-4 text-xs text-text-3">
+    {#if record?.backedUp}
       Last backup sent {record.backedUp.sent} new {record.backedUp.sent === 1 ? 'part' : 'parts'} ({formatBytes(record.backedUp.bytesSent)})
-    </div>
-  {/if}
+    {/if}
+  </div>
 {/snippet}
 
 {#snippet backupActions(place: BackupPlace, lastServer = false)}

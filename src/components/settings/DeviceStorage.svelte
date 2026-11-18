@@ -47,16 +47,15 @@
         return { pubkey: facet.pubkey, label, addedAt: facet.added_at, current };
       }));
     return devices
+      .sort((a, b) => Number(b.current) - Number(a.current)
+        || (a.addedAt ?? 0) - (b.addedAt ?? 0)
+        || a.pubkey.localeCompare(b.pubkey))
       .map((device) => ({
         pubkey: device.pubkey,
         name: userSettingsKeyLabel(device),
         current: device.current,
         report: held.reports[device.pubkey] ?? null,
-      }))
-      .sort((a, b) => Number(b.current) - Number(a.current)
-        || Number(!!b.report) - Number(!!a.report)
-        || (b.report?.held_bytes ?? 0) - (a.report?.held_bytes ?? 0)
-        || a.name.localeCompare(b.name));
+      }));
   });
   let drive = $derived(driveSize(rows));
   let copies = $derived(fullCopyCount(rows));
@@ -86,18 +85,33 @@
   });
 </script>
 
+{#snippet connection(pubkey: string, sync: SyncState | null = null)}
+  {@const linked = connected.has(pubkey)}
+  <span class="flex items-center gap-1.5 text-xs text-text-3" data-testid="device-storage-status">
+    <span class="h-2 w-2 shrink-0 rounded-full {linked ? 'bg-success' : 'bg-text-3 opacity-50'}" aria-hidden="true"></span>
+    <span
+      data-testid="device-storage-connection"
+      title={linked ? 'Linked directly to this device' : 'No direct connection. Changes can still arrive through relays.'}
+    >{linked ? 'Connected' : 'Not connected'}</span>
+    {#if sync === 'in-sync'}
+      <span aria-hidden="true">·</span>
+      <span class={SYNC_TONE[sync]} data-testid="device-storage-sync" title={SYNC_DETAIL[sync]}>{SYNC_LABEL[sync]}</span>
+    {/if}
+  </span>
+{/snippet}
+
 {#if rows.length > 0}
   <section class="space-y-3" data-testid="device-storage">
     <div class="flex items-center justify-between">
       <h3 class="text-xs font-medium text-muted uppercase tracking-wide">Your devices</h3>
       <a href="#/settings/user" class="btn-ghost text-xs no-underline">Manage</a>
     </div>
-    {#if drive}
-      <p class="text-sm text-text-2" data-testid="device-storage-summary">
+    <p class="min-h-5 text-sm text-text-2" data-testid="device-storage-summary">
+      {#if drive}
         {formatBytes(drive.file_bytes)} · {drive.files.toLocaleString('en-US')} {drive.files === 1 ? 'file' : 'files'}
         {#if copies > 0} · {copies} full {copies === 1 ? 'copy' : 'copies'}{/if}
-      </p>
-    {/if}
+      {/if}
+    </p>
 
     <ul class="devices list-none rounded bg-surface-2 overflow-hidden" aria-label="Your devices">
       {#each rows as row (row.pubkey)}
@@ -110,45 +124,38 @@
             aria-expanded={report ? !!open[row.pubkey] : undefined}
             onclick={() => { open = { ...open, [row.pubkey]: !open[row.pubkey] }; }}
           >
-            <span class="{appIcon(report?.app ?? '')} mt-0.5 shrink-0 text-lg text-text-3"></span>
-            <span class="min-w-0 flex-1 space-y-1.5">
-              <span class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
-                <span class="min-w-0 truncate text-sm font-medium text-text-1">
-                  {row.name}{#if row.current}<span class="ml-2 text-xs font-normal text-text-3">This device</span>{/if}
+            <span class="{appIcon(report?.app ?? '')} mt-0.5 shrink-0 text-lg text-text-3" aria-hidden="true"></span>
+            <span class="device-body min-w-0 flex-1 space-y-1.5">
+              <span class="device-heading grid items-center gap-x-3 gap-y-0.5">
+                <span class="flex min-w-0 items-baseline gap-2 text-sm font-medium text-text-1">
+                  <span class="truncate" title={row.name}>{row.name}</span>
+                  {#if row.current}<span class="shrink-0 text-xs font-normal text-text-3">This device</span>{/if}
                 </span>
-                {#if report || !row.current}
-                  <span class="text-sm {report && holdsAll(report) && report.files > 0 ? 'text-success' : 'text-text-2'}" data-testid="device-storage-held">
-                    {report ? holdingLabel(report) : 'No report yet'}
-                  </span>
-                {/if}
+                <span class="min-h-5 text-sm {report && holdsAll(report) && report.files > 0 ? 'text-success' : 'text-text-2'}" data-testid="device-storage-held">
+                  {report ? holdingLabel(report) : row.current ? '' : 'No report yet'}
+                </span>
               </span>
-              {#if report}
-                <span class="block h-1.5 rounded-full bg-surface-3 overflow-hidden" role="presentation">
-                  <span class="block h-full bg-accent" style="width: {width(report.held_bytes, scale)}"></span>
+              <span class="block h-1.5 rounded-full bg-surface-3 overflow-hidden" class:invisible={!report} aria-hidden="true">
+                <span class="block h-full bg-accent" style="width: {width(report?.held_bytes ?? 0, scale)}"></span>
+              </span>
+              {#if !row.current}
+                <span class="block min-h-4 text-xs">
+                  {#if !report}
+                    {@render connection(row.pubkey)}
+                  {:else if sync && sync !== 'in-sync'}
+                    <span class={SYNC_TONE[sync]} data-testid="device-storage-sync" title={SYNC_DETAIL[sync]}>{SYNC_LABEL[sync]}</span>
+                  {/if}
                 </span>
-              {/if}
-              {#if sync && sync !== 'in-sync'}
-                <span class="block text-xs {SYNC_TONE[sync]}" data-testid="device-storage-sync" title={SYNC_DETAIL[sync]}>{SYNC_LABEL[sync]}</span>
               {/if}
             </span>
-            {#if report}
-              <span class="i-lucide-chevron-down mt-1 shrink-0 text-text-3 transition-transform {open[row.pubkey] ? 'rotate-180' : ''}"></span>
-            {/if}
+            <span class="i-lucide-chevron-down mt-1 shrink-0 text-text-3 transition-transform {open[row.pubkey] ? 'rotate-180' : ''}" class:invisible={!report} aria-hidden="true"></span>
           </button>
-          {#if !row.current && (!report || open[row.pubkey])}
-            <div class="flex flex-wrap items-center gap-x-1.5 pl-11 pr-3 pb-2 text-xs text-text-3" data-testid="device-storage-status">
-              <span class="h-2 w-2 rounded-full {connected.has(row.pubkey) ? 'bg-success' : 'bg-text-3 opacity-50'}" aria-hidden="true"></span>
-              <span
-                data-testid="device-storage-connection"
-                title={connected.has(row.pubkey) ? 'Linked directly to this device' : 'No direct connection. Changes can still arrive through relays.'}
-              >{connected.has(row.pubkey) ? 'Connected' : 'Not connected'}</span>
-              {#if sync === 'in-sync'}
-                <span aria-hidden="true">·</span>
-                <span class={SYNC_TONE[sync]} data-testid="device-storage-sync" title={SYNC_DETAIL[sync]}>{SYNC_LABEL[sync]}</span>
-              {/if}
-            </div>
-          {/if}
           {#if report && open[row.pubkey]}
+            {#if !row.current}
+              <div class="pl-11 pr-3 pb-2">
+                {@render connection(row.pubkey, sync)}
+              </div>
+            {/if}
             <div class="flex flex-wrap gap-x-3 gap-y-1 pl-11 pr-3 pb-2 text-xs text-text-3">
               <span>{formatBytes(report.held_bytes)} of {formatBytes(report.file_bytes)} offline</span>
               {#if !row.current}
@@ -184,6 +191,20 @@
 {/if}
 
 <style>
+  .device-body {
+    container-type: inline-size;
+  }
+
+  .device-heading {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  @container (min-width: 20rem) {
+    .device-heading {
+      grid-template-columns: minmax(0, 1fr) auto;
+    }
+  }
+
   .devices > li + li {
     border-top: 1px solid rgb(var(--surface-3));
   }

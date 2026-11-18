@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.35 - 2026-11-18
+
+- Keep Storage rows in place as device reports, sync warnings and backup details update.
+
 ## 0.1.34 - 2026-11-18
 
 - See offline coverage for each device in Settings → Storage. Expand a row for connection and storage details.

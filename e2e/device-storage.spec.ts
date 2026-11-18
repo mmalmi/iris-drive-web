@@ -29,6 +29,53 @@ function row(page: Page, current: boolean) {
   return page.getByTestId('device-storage-row').filter(current ? { hasText: 'This device' } : { hasNotText: 'This device' });
 }
 
+async function expectStableStorageRows(page: Page) {
+  const states = await page.evaluate(async () => {
+    const { deviceStorage } = await import('/src/lib/deviceStorage.ts');
+    const original = (() => {
+      let snapshot!: Parameters<typeof deviceStorage.set>[0];
+      deviceStorage.subscribe((state) => { snapshot = state; })();
+      return snapshot;
+    })();
+    const measure = async (state: typeof original) => {
+      deviceStorage.set(state);
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      const rows = [...document.querySelectorAll('[data-testid="device-storage-row"], [data-testid="backup-settings"]')];
+      const bounds = rows.map((element) => {
+        const { top, height } = element.getBoundingClientRect();
+        return { top, height };
+      });
+      return {
+        bounds,
+        warning: document.querySelector('[data-testid="device-storage-sync"]')?.textContent?.trim() ?? null,
+      };
+    };
+    const remote = Object.keys(original.reports).find((key) => key !== original.device)!;
+    const version = { seq: 1, publishedAt: 1 };
+    try {
+      return {
+        unreported: await measure({ ...original, reports: {} }),
+        behind: await measure({
+          ...original,
+          reports: { ...original.reports, [remote]: { ...original.reports[remote], seen: {} } },
+          versions: { [original.device!]: version },
+        }),
+        synced: await measure({
+          ...original,
+          reports: { ...original.reports, [remote]: { ...original.reports[remote], seen: { [original.device!]: 1 } } },
+          versions: { [original.device!]: version },
+        }),
+      };
+    } finally {
+      deviceStorage.set(original);
+    }
+  });
+  expect(states.behind.warning).toBe('Missing recent changes');
+  expect(states.synced.warning).toBeNull();
+  expect(states.unreported.bounds).toEqual(states.synced.bounds);
+  expect(states.behind.bounds).toEqual(states.synced.bounds);
+}
+
 test('Storage measures a profile that becomes active while the page is open', async ({ page, relayUrl }) => {
   await prepareFreshSession(page, relayUrl);
   await page.goto(`${new URL(page.url()).origin}/#/settings/storage`);
@@ -115,10 +162,12 @@ test('each device sees how much of the Drive the other holds, and that they are 
     await expect(row(second, true).getByTestId('device-storage-held')).toHaveText('All files offline', { timeout: 60_000 });
     await expect(second.getByTestId('device-storage-summary')).toContainText('2 full copies');
     await expect(row(page, false).getByTestId('device-storage-held')).toHaveText('All files offline', { timeout: 90_000 });
+    await expectStableStorageRows(second);
 
     // In the dark and at phone width, with a row open.
     await second.emulateMedia({ colorScheme: 'dark' });
     await second.setViewportSize({ width: 390, height: 844 });
+    await expectStableStorageRows(second);
     await row(second, false).getByRole('button').first().click();
     await expect(row(second, false).getByTestId('device-storage-folders')).toBeVisible();
     await second.getByTestId('device-storage').scrollIntoViewIfNeeded();
