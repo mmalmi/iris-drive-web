@@ -14,10 +14,14 @@
     if (!owner) return;
     let active = true;
     let stop: (() => void) | undefined;
+    let stopReturns: (() => void) | undefined;
     void import('../drive/privateTrashSync').then(({ watchPrivateTrash }) => {
       if (active) stop = watchPrivateTrash(owner);
     });
-    return () => { active = false; stop?.(); };
+    void import('../drive/sharedFileReturn').then(({ watchFileReturns }) => {
+      if (active) stopReturns = watchFileReturns(owner);
+    });
+    return () => { active = false; stop?.(); stopReturns?.(); };
   });
 
   onMount(() => {

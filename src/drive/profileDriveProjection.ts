@@ -9,6 +9,7 @@ import type { Event } from 'nostr-tools';
 import {
   isDriveRootEventNewer,
   type ParsedDriveRootEvent,
+  type SharedFolder,
   type RootObservation,
 } from './protocol';
 import { rootReferenceCovers } from './protocolRoots';
@@ -26,14 +27,7 @@ import { DirectoryBuilder } from './directoryBuilder';
 
 const META_DIR = '.hashtree';
 const TOMBSTONES_DIR = 'tombstones';
-const IGNORED_NAMES = new Set([
-  '.ds_store',
-  '.hashtree',
-  '.trash',
-  '$recycle.bin',
-  'thumbs.db',
-  'desktop.ini',
-]);
+const IGNORED_NAMES = new Set(['.ds_store', '.hashtree', '.trash', '$recycle.bin', 'thumbs.db', 'desktop.ini']);
 
 export type ProfileDriveRootCandidate = {
   event: Event;
@@ -75,11 +69,12 @@ export type SuppressedSnapshotDirectory = {
   tombstone: SnapshotTombstone;
 };
 
-type ProfileDriveSnapshot = {
+export type ProfileDriveSnapshot = {
   files: SnapshotFile[];
   tombstones: SnapshotTombstone[];
   directories: SnapshotDirectory[];
   pathKindReplacements: Map<string, number>;
+  returnDirectory?: CID;
   pathKindMetadataPresent: boolean;
   source: ProfileDriveRootCandidate;
 };
@@ -227,11 +222,13 @@ export class ProfileDriveProjection {
     rootScopeId: string,
     driveId: string,
     appKeyPubkey: string,
+    seen?: Record<string, number>,
   ): CID | null {
-    return this.roots
-      .get(projectionKey(rootScopeId, driveId))
-      ?.get(appKeyPubkey)
-      ?.parsed.root ?? null;
+    const head = this.roots.get(projectionKey(rootScopeId, driveId))?.get(appKeyPubkey)?.parsed;
+    if (!head) return null;
+    if (seen && !Object.entries(seen).every(([writer, seq]) =>
+      writer === appKeyPubkey ? seq < head.app_key_seq : seq <= (head.rootRef.observed[writer]?.app_key_seq ?? 0))) return null;
+    return head.root;
   }
 
   async materialize(
@@ -240,6 +237,7 @@ export class ProfileDriveProjection {
     driveId: string,
     authorizedAppKeys: ReadonlySet<string>,
     signal?: AbortSignal,
+    folder?: SharedFolder,
   ): Promise<MaterializedProfileDrive | null> {
     const roots = this.authorizedRoots(rootScopeId, driveId, authorizedAppKeys);
     if (roots.length === 0) return null;
@@ -268,6 +266,11 @@ export class ProfileDriveProjection {
       result.status === 'fulfilled' ? [result.value] : []
     ));
     if (snapshots.length === 0) throw new Error('No readable profile Drive roots');
+    const builder = new DirectoryBuilder();
+    if (folder?.share_id === rootScopeId && driveId === 'main' && snapshots.some(snapshot => snapshot.returnDirectory)) {
+      const { applyFileReturns } = await import('./fileReturnMarker');
+      await applyFileReturns(tree, snapshots, folder, builder, signal);
+    }
     const pathKindSourceStates = new Map(snapshots.map((snapshot) => [
       sourceRootKey(snapshot.source),
       {
@@ -295,7 +298,6 @@ export class ProfileDriveProjection {
     );
     const { files, directories } = merged;
     // Explicit directories keep their link metadata; parents of files are implied.
-    const builder = new DirectoryBuilder();
     for (const [path, directory] of directories) {
       builder.directory(splitPath(path)).meta = directory.entry.meta;
     }
@@ -388,6 +390,7 @@ async function walkMetadataDirectory(
   signal?: AbortSignal,
 ): Promise<void> {
   const entries = await tree.listDirectory(directory, signal);
+  snapshot.returnDirectory = entries.find(entry => entry.name === 'file-returns-v1' && entry.type === LinkType.Dir)?.cid;
   const tombstones = entries.find((entry) => entry.name === TOMBSTONES_DIR && entry.type === LinkType.Dir);
   if (tombstones) {
     await walkTombstones(tree, tombstones.cid, '', source, snapshot, signal);

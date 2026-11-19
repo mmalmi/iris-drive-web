@@ -12,6 +12,7 @@ import {
   replacePathKindReplacements,
   type PathKindReplacementOperation,
 } from './profileDrivePathKindMetadata';
+import { withoutReturnRequest } from './fileOwnershipMetadata';
 import { moveEntriesInTree, type MoveResult } from '../lib/moveEntries';
 
 const META_DIRECTORY = '.hashtree';
@@ -189,7 +190,7 @@ export async function mutateProfileDriveRoot(
       source.cid,
       source.size,
       source.type,
-      source.meta,
+      withoutReturnRequest(source.meta),
     );
   }
 
@@ -538,7 +539,7 @@ async function ensureParentDirectories(
   return { root: nextRoot, replacedFiles };
 }
 
-async function resolveEntry(
+export async function resolveEntry(
   tree: HashTree,
   root: CID,
   parts: string[],

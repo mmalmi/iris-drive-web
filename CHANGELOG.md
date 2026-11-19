@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.41 - 2026-11-19
+
+- Removing another person’s file from a shared folder returns the latest version to their My Drive. The shared entry stays visible until the owner’s copy is saved.
+- Moving your own file from a shared folder to Trash keeps a private recovery copy. Files with unverified ownership stay in place.
+
 ## 0.1.40 - 2026-11-19
 
 - Restore personal My Drive files from Trash on an approved device or after signing in with a recovery phrase. Offline deletions sync when the device reconnects.

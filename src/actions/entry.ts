@@ -9,7 +9,7 @@ import { LinkType, toHex, type CID, type HashTree, type TreeEntry } from '@hasht
 import { getCurrentRootCid, getCurrentPathFromUrl, buildRouteUrl, updateRoute } from './route';
 import { activeNostrIdentityRootScope, isEditableDriveRouteScope } from '../drive/profileRoute';
 import { followLinkShares, putBackLinkShares } from '../drive/linkShareSync';
-import { moveProfileDriveEntries, mutateProfileDriveRoot } from '../drive/profileDriveMutation';
+import { moveProfileDriveEntries, mutateProfileDriveRoot, resolveEntry } from '../drive/profileDriveMutation';
 import { moveEntriesInTree } from '../lib/moveEntries';
 import { setEntryForDriveRoute } from '../drive/profileDriveRouteEntry';
 import { moveRecents, putBackRecents } from '../stores/recents';
@@ -119,7 +119,12 @@ export async function renameEntry(oldName: string, newName: string, folderPath?:
     parentPath = folderPath ?? getCurrentPathFromUrl();
   }
 
-  if (!await changeOpenTree(root => renameIn(root, parentPath, oldName, newName))) return;
+  if (!await changeOpenTree(async root => {
+    const account = trashAccount();
+    if (account && route.npub !== account && isProfileDriveMutation(route)
+      && await resolveEntry(getTree(), root, [...parentPath, newName])) throw new Error('That name is already used in this shared folder');
+    return renameIn(root, parentPath, oldName, newName);
+  })) return;
   followInRecents([...parentPath, oldName], [...parentPath, newName]);
 
   // Update URL if renamed file/dir was selected or we're inside it
@@ -167,6 +172,16 @@ export async function deleteEntries(names: string[], parentPath: string[] = getC
   const profile = isNostrIdentityId(account);
   const privateSync = profile ? await import('../drive/privateTrashSync') : null;
   const { canEncodeTrashPath } = await import('../drive/privateTrashTree');
+  if (profile && treeName === 'main') {
+    const { ownedShareAtPath } = await import('../drive/sharePeople');
+    const mount = scope === account ? ownedShareAtPath(parentPath, account, get(acceptedShares)) : null;
+    if (scope !== account || mount) {
+      const { removeSharedFiles } = await import('../drive/sharedFileReturn');
+      await removeSharedFiles(account, mount?.record.share_id ?? scope, mount?.rest ?? parentPath, names);
+      toast.info('Removal requested. The file stays here until its owner has a copy.');
+      return;
+    }
+  }
   const checkSource = () => {
     if (privateSync && treeName === 'main' && (scope !== account
       || names.some(name => !privateSync.isUnsharedTrashPath(account, [...parentPath, name])))) {

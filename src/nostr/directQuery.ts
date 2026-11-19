@@ -99,3 +99,19 @@ export function queryConfiguredRelaysDirectly(filters: Filter[], onEvent: (event
     stop();
   };
 }
+
+/** A queued publication alone cannot confirm that a replacement device can discover a returned file. */
+export async function confirmRelayEvent(id: string): Promise<boolean> {
+  for (const timeout of [400, 1200, 3600]) {
+    const found = await new Promise<boolean>(resolve => {
+      const timer = setTimeout(() => { stop(); resolve(false); }, timeout);
+      const stop = queryConfiguredRelaysDirectly([{ ids: [id] }], () => {
+        clearTimeout(timer);
+        stop();
+        resolve(true);
+      }, timeout);
+    });
+    if (found) return true;
+  }
+  return false;
+}

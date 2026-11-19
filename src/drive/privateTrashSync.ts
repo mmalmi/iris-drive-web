@@ -39,9 +39,13 @@ function noteFor(row: TrashItem): PrivateTrashNote {
     path: [...row.path, row.entry.name], deleted_at: Math.floor(row.deletedAt / 1000) };
 }
 
-async function synchronize(account: string, alive: () => boolean, signal: AbortSignal, handoff = false): Promise<void> {
+async function synchronize(account: string, alive: () => boolean, signal: AbortSignal, handoff = false, confirmId?: string): Promise<void> {
+  let confirmed = false;
   const session = ownerSession(account);
-  if (!session || !alive()) return;
+  if (!session || !alive()) {
+    if (confirmId) throw new Error('The active profile changed');
+    return;
+  }
   const writer = session.appKeyPubkey;
   const current = () => alive() && ownerSession(account)?.appKeyPubkey === writer;
   const tree = getTree();
@@ -104,6 +108,9 @@ async function synchronize(account: string, alive: () => boolean, signal: AbortS
     for (const { note } of view.items.values()) {
       if (now >= note.deleted_at + TRASH_SECONDS) { await removePrivateTrash(tree, view, note.id, now); changed = true; }
     }
+    if (confirmId && (!view.items.has(confirmId) || view.removed.has(confirmId))) {
+      throw new Error('The saved Trash item is no longer available');
+    }
     const pending = markers.filter(mark => mark.pending);
     // If our signed head still advertises a consumed payload, compact it too.
     const own = profileDriveProjection.contributionRoot(account, PRIVATE_TRASH, writer) ?? saved?.root;
@@ -114,15 +121,31 @@ async function synchronize(account: string, alive: () => boolean, signal: AbortS
     const root = await writePrivateTrash(tree, view);
     if (!current()) return;
     await trashHeads.put({ account, writer, root });
-    if (!await publishNostrIdentityDriveRootIfAvailable(PRIVATE_TRASH, root, { rootScopeId: account, awaitRelay: handoff })) {
+    if (!await publishNostrIdentityDriveRootIfAvailable(PRIVATE_TRASH, root, { rootScopeId: account, awaitRelay: handoff, confirmStored: !!confirmId })) {
       throw new Error('Private Trash is waiting to sync');
     }
+    confirmed = true;
     await publishedTrash(account, local, pending);
   });
+  if (confirmId && !confirmed) throw new Error('Waiting for private Trash to sync');
 }
 
 export async function handPrivateTrashToDevice(account: string): Promise<void> {
   await synchronize(account, () => true, AbortSignal.timeout(20000), true);
+}
+
+export async function confirmOwnerTrashItem(account: string, item: TrashItem): Promise<void> {
+  const { archiveTrash, getTrash } = await import('../lib/driveTrash');
+  if (await trashMarkers.get([account, item.id])) throw new Error('This Trash item was already restored or removed');
+  const previous = (await privateTrashRows(account)).find(row => row.id === item.id);
+  if (previous && (!sameTrashContent(previous.entry, item.entry) || previous.deletedAt !== item.deletedAt)) {
+    throw new Error('The saved file has changed');
+  }
+  if (!previous) await archiveTrash(getTree(), [item]);
+  if (!ownerSession(account)) throw new Error('The active profile changed');
+  await commitTrashDeletion([item.id]);
+  await synchronize(account, () => !!ownerSession(account), AbortSignal.timeout(30000), true, item.id);
+  if (!await getTrash(item.id, account)) throw new Error('The saved Trash item is unavailable');
 }
 
 /** Account changes cancel outstanding reads. Retry pending work on reconnect, change, and while the tab is open. */

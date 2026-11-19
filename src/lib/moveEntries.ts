@@ -1,5 +1,6 @@
 import { LinkType, toHex, type CID, type HashTree, type TreeEntry } from '@hashtree/core';
 
+import { withoutReturnRequest } from '../drive/fileOwnershipMetadata';
 import { freeName } from './driveClipboard';
 import { documentTitle, isDocumentFolderName } from './documentNames';
 
@@ -70,7 +71,7 @@ export async function moveEntriesInTree(
     items.push({ entry, destinationName });
   }
   source.entries = source.entries.filter(entry => !chosen.has(entry.name));
-  target.entries = [...target.entries, ...items.map(({ entry, destinationName }) => ({ ...entry, name: destinationName }))];
+  target.entries = [...target.entries, ...items.map(({ entry, destinationName }) => ({ ...entry, name: destinationName, meta: withoutReturnRequest(entry.meta) }))];
 
   async function rebuild(path: string[]): Promise<{ cid: CID; size: number }> {
     const folder = await read(path);

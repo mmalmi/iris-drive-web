@@ -158,8 +158,7 @@ function driveRootAuthorization(rootScopeId: string, driveId?: string): DriveRoo
       .map(([pubkey]) => pubkey));
     const appKeys = new Set(Object.entries(projection.active_facets)
       .filter(([pubkey, facet]) => (
-        activeAppKeys.has(pubkey)
-        && facet.capabilities?.can_write_roots
+        activeAppKeys.has(pubkey) && facet.capabilities?.can_write_roots
       ))
       .map(([pubkey]) => pubkey));
     return {
@@ -343,6 +342,7 @@ async function rebuildDriveRootProjection(
           driveId,
           authorization.appKeys,
           controller.signal,
+          driveId === 'main' ? activeShareScope(rootScopeId)?.record.folder : undefined,
         );
       } finally {
         clearTimeout(timeout);

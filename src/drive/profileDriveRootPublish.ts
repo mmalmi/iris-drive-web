@@ -192,6 +192,8 @@ interface DriveRootPublishOptions {
   appKeySeq?: number;
   /** Wait until the root is stored for sending (no relay is waited for): for handing a Drive to a device being approved. */
   awaitRelay?: boolean;
+  /** Require readback of the exact signed root from a configured relay before a cross-account removal. */
+  confirmStored?: boolean;
 }
 
 const publishQueues = new Map<string, Promise<unknown>>();
@@ -245,7 +247,7 @@ async function publishDriveRootNow(
 ): Promise<boolean> {
   const session = getCurrentNostrIdentitySession();
   const secretKey = getSecretKey();
-  if (!session || session.status !== 'active' || !secretKey) return driveId !== 'trash';
+  if (!session || session.status !== 'active' || !secretKey) return driveId !== 'trash' && !options.confirmStored;
   if (!rootCid.key) {
     console.warn('[driveRoot] Skipping NostrIdentity Drive root publish without encrypted root key', {
       profileId: session.profileId,
@@ -265,7 +267,7 @@ async function publishDriveRootNow(
   const share = rootScopeId !== session.profileId ? activeShareScope(rootScopeId) : null;
   if (rootScopeId !== session.profileId && (!share?.canWrite || driveId !== 'main')) return false;
   const projected = share ? { projection: null, activeAppKeyPubkeys: share.recipients, keyEpoch: share.epoch, recoveryPubkeys: [] } : projectSession(session);
-  if (driveId === 'trash') {
+  if (driveId === 'trash' || options.confirmStored) {
     const signer = projected.projection?.active_facets[appKeyPubkey];
     if (rootScopeId !== session.profileId || !signer?.purposes?.includes('app_key') || !signer.capabilities?.can_write_roots) return false;
   }
@@ -284,11 +286,15 @@ async function publishDriveRootNow(
     import('../store'),
     import('./profileDriveMutation'),
   ]);
-  const publishRoot = driveId === 'trash' ? rootCid : await prepareProfileDriveRootForPublish(
+  let publishRoot = driveId === 'trash' ? rootCid : await prepareProfileDriveRootForPublish(
     getTree(),
     rootCid,
     previousContribution,
   );
+  if (share && previousContribution) {
+    const { retainFileReturns } = await import('./fileReturnMarker');
+    publishRoot = await retainFileReturns(getTree(), publishRoot, previousContribution);
+  }
   // A relay root is useful to another device only after its exact block graph
   // is durable. Keep the registry dirty so its normal retry loop can try again
   // instead of announcing an unreadable root.
@@ -316,7 +322,7 @@ async function publishDriveRootNow(
       return false;
     }
   }
-  if (driveId === 'trash') {
+  if (driveId === 'trash' || options.confirmStored) {
     const current = getCurrentNostrIdentitySession();
     if (current?.status !== 'active' || current.profileId !== rootScopeId || current.appKeyPubkey !== appKeyPubkey) return false;
     const latest = projectSession(current);
@@ -355,7 +361,11 @@ async function publishDriveRootNow(
   // again when it next opens. Counting it published too early brought the
   // Drive back from relays without the last edits.
   const publishing = publishEvent(rawEvent);
-  if (options.awaitRelay) {
+  if (options.confirmStored) {
+    if (!await heldForSending(publishing)) return false;
+    const { confirmRelayEvent } = await import('../nostr/directQuery');
+    if (!await confirmRelayEvent(rawEvent.id)) return false;
+  } else if (options.awaitRelay) {
     await publishing;
   } else if (!await heldForSending(publishing)) {
     return false;

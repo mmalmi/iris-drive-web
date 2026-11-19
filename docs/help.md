@@ -4,7 +4,9 @@
 
 ### How do I restore a deleted file?
 
-Open [Trash](#/trash) and select **Restore** to return an item to its original folder. Personal My Drive items stay in Trash for 30 days and sync across approved devices. Signing in with your recovery phrase also gives you access. Items marked **This browser only**, including earlier deletions and files with names other devices cannot use, can be restored in the browser that deleted them. Shared items stay in their folder when Drive cannot verify who owns them.
+Open [Trash](#/trash) and select **Restore** to return an item to its original folder. Personal My Drive items stay in Trash for 30 days and sync across approved devices. Signing in with your recovery phrase also gives you access. Items marked **This browser only**, including earlier deletions and files with names other devices cannot use, can be restored in the browser that deleted them.
+
+When an editor removes someone else’s file from a shared folder, it stays there until its owner has a copy in My Drive. Removing your own file sends it to your private Trash. Files whose owner Drive cannot verify stay in place.
 
 ### Which device has a copy of my files?
 

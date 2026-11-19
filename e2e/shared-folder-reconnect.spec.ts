@@ -100,6 +100,8 @@ test('trip collaborators edit while a reader reconnects and a shared file with u
     await readerPage.setViewportSize({ width: 390, height: 844 });
     await readerPage.screenshot({ path: testInfo.outputPath('reconnected-reader-mobile.png') });
 
+    await page.goto(folderUrl);
+    await openListedFile(page, 'Plan.txt');
     await chooseFileAction(page, 'viewer-delete');
     await expect(page.getByText('This shared item must stay in its folder until its file owner can recover it.', { exact: false })).toBeVisible();
     await waitForSharedFolderPublished(page, share.share_id, { has: ['Packing final.txt'] });

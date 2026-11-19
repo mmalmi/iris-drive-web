@@ -1,5 +1,5 @@
 import { expect, test, type Page } from './fixtures';
-import { chooseNew, flushPendingPublishes } from './test-utils';
+import { chooseNew, chooseFileAction, openListedFile, flushPendingPublishes } from './test-utils';
 import {
   createDocument,
   createDriveProfile,
@@ -111,6 +111,128 @@ test.describe('sharing from the browser', () => {
       await expect(guest.getByTestId('document-toolbar')).toHaveCount(0, { timeout: 60_000 });
     } finally {
       await guestContext.close();
+    }
+  });
+
+  test('removing an editor’s file returns the exact edited bytes to its owner across devices', async ({
+    page,
+    browser,
+    relayUrl,
+  }, testInfo) => {
+    test.setTimeout(180_000);
+    await prepareFreshSession(page, relayUrl);
+    await createDriveProfile(page, 'Folder admin');
+    await chooseNew(page, 'Folder');
+    await page.getByPlaceholder('Folder name...').fill('Trip');
+    await page.getByPlaceholder('Folder name...').press('Enter');
+    await openListedFile(page, 'Trip');
+    await page.locator('button[title="Share"]').filter({ visible: true }).first().click();
+    const link = await inviteLink(page);
+    await page.keyboard.press('Escape');
+    const creator = await browser.newContext();
+    const replacement = await browser.newContext();
+    try {
+      const guest = await creator.newPage();
+      await prepareFreshSession(guest, relayUrl);
+      const owner = await createDriveProfile(guest, 'File owner');
+      await guest
+        .getByTestId('upload-files-input')
+        .setInputFiles({ name: 'Notes.txt', mimeType: 'text/plain', buffer: Buffer.from('Personal file') });
+      await expect(guest.getByRole('link', { name: /^Notes.txt/ })).toBeVisible();
+      await guest.goto(onThisOrigin(guest, link));
+      await expect(guest.getByTestId('upload-files-input')).toBeAttached({ timeout: 90000 });
+      // The invite navigates into the shared folder after admission.
+      await guest.waitForFunction(
+        async () => {
+          const { parseRoute } = await import('/src/utils/route.ts');
+          const { activeShareScope } = await import('/src/drive/shareScope.ts');
+          const route = parseRoute();
+          return route.treeName === 'main' && !route.path.length && activeShareScope(route.npub)?.canWrite;
+        },
+        undefined,
+        { timeout: 90000 },
+      );
+      await guest
+        .getByTestId('upload-files-input')
+        .setInputFiles({ name: 'Packing.txt', mimeType: 'text/plain', buffer: Buffer.from('Original contents') });
+      await expect(guest.getByRole('link', { name: /^Packing.txt/ })).toBeVisible();
+      const sharedUrl = guest.url();
+      await page.goto(sharedUrl);
+      await openListedFile(page, 'Packing.txt');
+      await chooseFileAction(page, 'viewer-rename');
+      await page.getByPlaceholder('New name...').fill('Notes.txt');
+      await page.getByRole('button', { name: 'Rename', exact: true }).last().click();
+      await expect(page.getByTestId('viewer-header')).toContainText('Notes.txt');
+      await page.getByRole('link', { name: 'Back to folder' }).click();
+      await expect(page.getByTestId('file-list')).toBeVisible();
+      const bytes = Buffer.from('Updated by another person. Café and maps.');
+      await page
+        .getByTestId('upload-files-input')
+        .setInputFiles({ name: 'Notes.txt', mimeType: 'text/plain', buffer: bytes });
+      await openListedFile(page, 'Notes.txt');
+      await expect(page.getByText(bytes.toString(), { exact: true })).toBeVisible();
+      await flushPendingPublishes(page);
+      await creator.setOffline(true);
+      await chooseFileAction(page, 'viewer-delete');
+      await expect(page.getByText(/Removal requested/)).toBeVisible();
+      await page.goto(sharedUrl);
+      await expect(page.getByRole('link', { name: /^Notes.txt/ })).toBeVisible();
+      await creator.setOffline(false);
+      await guest.waitForFunction(
+        async (id) => {
+          const { getTreeRootSync } = await import('/src/stores/treeRoot.ts');
+          const { getTree } = await import('/src/store.ts');
+          const root = getTreeRootSync(id, 'main');
+          return (
+            !!root &&
+            (await getTree().listDirectory(root)).some(
+              (entry) => entry.name === 'Notes (2).txt' && entry.meta?.iris_returned_from,
+            )
+          );
+        },
+        owner.profileId,
+        { timeout: 90000 },
+      );
+      const { waitForSharedFolderPublished } = await import('./shared-folder.helpers');
+      await waitForSharedFolderPublished(page, new URL(sharedUrl).hash.split('/')[1], { lacks: ['Notes.txt'] });
+      await expect(page.getByRole('link', { name: /^Notes.txt/ })).toHaveCount(0, { timeout: 30000 });
+      await guest.goto(new URL(guest.url()).origin + '/#/' + owner.profileId + '/main');
+      await openListedFile(guest, 'Notes (2).txt');
+      await expect(guest.getByText(bytes.toString(), { exact: true })).toBeVisible();
+      await creator.setOffline(true);
+      await guest.getByRole('link', { name: 'Back to folder' }).click();
+      await openListedFile(guest, 'Notes (2).txt');
+      await expect(guest.getByText(bytes.toString(), { exact: true })).toBeVisible();
+      await creator.setOffline(false);
+      const second = await replacement.newPage();
+      const { linkSecondDevice } = await import('./documents.helpers');
+      await linkSecondDevice(guest, second, relayUrl, owner.profileId);
+      await second.goto(new URL(second.url()).origin + '/#/' + owner.profileId + '/main');
+      await openListedFile(second, 'Notes (2).txt');
+      await expect(second.getByText(bytes.toString(), { exact: true })).toBeVisible();
+      await second.screenshot({ path: testInfo.outputPath('returned-file-on-new-device.png') });
+
+      const ownName = 'Own packing list.txt';
+      await guest.goto(sharedUrl);
+      await guest.getByTestId('upload-files-input').setInputFiles({
+        name: ownName,
+        mimeType: 'text/plain',
+        buffer: Buffer.from('My private packing list'),
+      });
+      await openListedFile(guest, ownName);
+      await chooseFileAction(guest, 'viewer-delete');
+      await waitForSharedFolderPublished(guest, new URL(sharedUrl).hash.split('/')[1], { lacks: [ownName] });
+      await second.goto(new URL(sharedUrl).origin + '/#/trash');
+      const restore = second.getByRole('button', { name: 'Restore ' + ownName });
+      await expect(restore).toBeVisible({ timeout: 60000 });
+      await restore.click();
+      await expect(restore).toHaveCount(0);
+      await second.goto(new URL(sharedUrl).origin + '/#/' + owner.profileId + '/main');
+      await openListedFile(second, ownName);
+      await expect(second.getByText('My private packing list', { exact: true })).toBeVisible();
+    } finally {
+      await creator.close();
+      await replacement.close();
     }
   });
 

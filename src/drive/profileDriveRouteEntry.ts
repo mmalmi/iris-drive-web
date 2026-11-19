@@ -4,8 +4,9 @@ import {
   type HashTree,
   type TreeEntry,
 } from '@hashtree/core';
-import { mutateProfileDriveRoot } from './profileDriveMutation';
+import { mutateProfileDriveRoot, resolveEntry } from './profileDriveMutation';
 import { isEditableDriveRouteScope } from './profileRoute';
+import { activeShareScope } from './shareScope';
 import { withModifiedAt } from '../lib/modifiedAt';
 
 type DriveRoute = {
@@ -35,12 +36,35 @@ export async function setEntryForDriveRoute(
 ): Promise<CID> {
   const entry = { ...written, meta: withModifiedAt(written.meta) };
   if (route.treeName && isEditableDriveRouteScope(route.npub, state)) {
+    const share = route.treeName === 'main' ? activeShareScope(route.npub, state) : null;
     if (entry.type === LinkType.Dir) {
       const existing = await tree.resolvePath(root, [...parentPath, name]);
       // Directory-upload setup and document initialization are ensure-style
       // writes. Never replace an existing profile directory with a fresh empty
       // directory and silently discard its children.
       if (existing?.type === LinkType.Dir) return root;
+      if (share && existing) throw new Error('A shared file already uses this folder name');
+    }
+    if (share?.canWrite) {
+      const { getSecretKey } = await import('../nostr/auth');
+      const { claimCopiedDirectory, claimNewFile, OWNER_META, REQUEST_META, RETURNED_META } = await import('./fileReturnProtocol');
+      const key = getSecretKey();
+      if (!key) throw new Error('Sign in to change this shared file');
+      delete entry.meta[OWNER_META];
+      delete entry.meta[REQUEST_META];
+      delete entry.meta[RETURNED_META];
+      if (entry.type === LinkType.Dir) {
+        entry.cid = await claimCopiedDirectory(tree, entry.cid, share.record.share_id, share.record.local_profile_id, key);
+      } else {
+        const previous = await resolveEntry(tree, root, [...parentPath, name]);
+        if (!previous) {
+          entry.meta[OWNER_META] = claimNewFile(share.record.share_id, share.record.local_profile_id, entry.cid, key);
+        } else if (previous.type === LinkType.Blob && typeof previous.meta?.[OWNER_META] === 'string') {
+          entry.meta[OWNER_META] = previous.meta[OWNER_META];
+        } else if (previous.type === LinkType.Dir) {
+          throw new Error('Choose another name. A shared folder already uses this one.');
+        }
+      }
     }
     return mutateProfileDriveRoot(tree, root, {
       type: 'set-entry',
