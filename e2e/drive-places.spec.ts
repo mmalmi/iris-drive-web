@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { expect, test, type Page } from './fixtures';
 import { createDocument, createDriveProfile, prepareFreshSession } from './documents.helpers';
+import { createAndEnterFolder, createTextFile, fileRow } from './test-utils';
 
 const shots = process.env.PLACES_SHOTS;
 
@@ -81,5 +82,34 @@ test.describe('places in Drive', () => {
     await createDocument(page, 'Phone notes');
     await expect(page.getByTestId('document-title')).toBeVisible({ timeout: 30_000 });
     await expect(tabs).toHaveCount(0);
+  });
+
+  test('the browser tab names the open place, folder, file or document, as Google Drive does', async ({ page, relayUrl }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await prepareFreshSession(page, relayUrl);
+    await expect(page).toHaveTitle('Iris Drive');
+    await createDriveProfile(page);
+    await expect(page).toHaveTitle('My Drive - Iris Drive');
+
+    await createAndEnterFolder(page, 'Taxes');
+    await expect(page).toHaveTitle('Taxes - Iris Drive');
+    await createTextFile(page, 'notes.txt', 'Due in April');
+    await fileRow(page, 'notes.txt').dblclick();
+    await expect(page).toHaveTitle('notes.txt - Iris Drive');
+    await page.getByTestId('viewer-back').click();
+    await expect(page).toHaveTitle('Taxes - Iris Drive');
+
+    await sidebar(page).getByRole('link', { name: 'Recent' }).click();
+    await expect(page).toHaveTitle('Recent - Iris Drive');
+    await sidebar(page).getByRole('link', { name: 'Trash' }).click();
+    await expect(page).toHaveTitle('Trash - Iris Drive');
+    await sidebar(page).getByRole('link', { name: 'My Drive' }).click();
+    await expect(page).toHaveTitle('My Drive - Iris Drive');
+
+    await createDocument(page, 'Plans');
+    await expect(page).toHaveTitle('Plans - Iris Drive');
+    // A reload keeps it: the title comes from the address, not from how the page was reached.
+    await page.reload();
+    await expect(page).toHaveTitle('Plans - Iris Drive');
   });
 });

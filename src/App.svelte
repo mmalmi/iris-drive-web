@@ -21,7 +21,8 @@
   import { currentPath, initRouter } from './lib/router.svelte';
   import { settingsStore } from './stores/settings';
   import { nostrStore } from './nostr';
-  import { activeDriveRootPath } from './drive/profileRoute';
+  import { activeDriveRootPath, activeNostrIdentityRootScope } from './drive/profileRoute';
+  import { pageTitle } from './lib/pageTitle';
   import { acceptedShares } from './drive/shareLibrary';
   import { PENDING_JOIN_KEY, PENDING_OPEN_KEY } from './drive/sharePeople';
   import { navigate } from './lib/router.svelte';
@@ -79,6 +80,11 @@
       window.removeEventListener('dragover', keepPage);
       window.removeEventListener('drop', keepPage);
     };
+  });
+
+  // The tab names what is open, as Google Drive's does.
+  $effect(() => {
+    document.title = pageTitle($currentPath, $routeStore, activeNostrIdentityRootScope($nostrStore), $acceptedShares);
   });
 
   // A join link or shared folder opened before signing in: go back to it once there is an account.

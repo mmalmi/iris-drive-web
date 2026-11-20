@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.42 - 2026-11-20
+
+- The browser tab shows the name of the open file, folder, document or place, for example "Taxes - Iris Drive" or "Recent - Iris Drive".
+
 ## 0.1.41 - 2026-11-19
 
 - Removing another person’s file from a shared folder returns the latest version to their My Drive. The shared entry stays visible until the owner’s copy is saved.
