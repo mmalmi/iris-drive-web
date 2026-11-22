@@ -156,6 +156,26 @@ describe('Drive FIPS provider authorization', () => {
     await runtime.stop();
   });
 
+  test('counts both key parities under one peer and retains a surviving carrier', async () => {
+    const peerId = getPublicKey(secretKey(12));
+    const wsKey = `03${peerId}`, rtcKey = `02${peerId}`;
+    const fake = installBrowserProviderFake(undefined, [wsKey]);
+    const runtime = new DriveFipsRuntime({
+      relays: ['wss://relay.example'], deviceSecretKey: secretKey(11),
+      authorizedAppKeyPubkeys: () => [peerId],
+    });
+    await runtime.start();
+    try {
+      await fake.emit('peer', { peerId, remotePubkey: rtcKey, state: 'connected' });
+      await fake.emit('session', { peerId, remotePubkey: rtcKey, state: 'established' });
+      await fake.emit('datagram', { peerId, src: wsKey });
+      await fake.emit('peer', { peerId, remotePubkey: rtcKey, state: 'disconnected' });
+      expect(runtime.getStats().peers).toEqual([expect.objectContaining({
+        peerId: wsKey, xOnlyPubkey: peerId, sessionsEstablished: 1, connected: true,
+      })]);
+    } finally { await runtime.stop(); }
+  });
+
   test('keeps shared block links while revoking private event peers', async () => {
     vi.useFakeTimers();
     const localSecret = secretKey(21);

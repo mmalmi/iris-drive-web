@@ -313,7 +313,10 @@ export class DriveFipsRuntime {
         void this.handlePeerEvent(event as PeerEvent);
       }),
       provider.node.on('session', (event) => this.handleSessionEvent(event as SessionEvent)),
-      provider.node.on('datagram', (event) => this.recordAuthenticatedActivity((event as DatagramEvent).src)),
+      provider.node.on('datagram', (value) => {
+        const event = value as DatagramEvent & { peerId?: string };
+        this.recordAuthenticatedActivity(event.src, event.peerId);
+      }),
       provider.node.on('error', (event) => {
         if (this.options.log === true) {
           console.warn('[drive-fips] node error', event);
@@ -411,11 +414,12 @@ export class DriveFipsRuntime {
     };
   }
 
-  private async handlePeerEvent(event: PeerEvent): Promise<void> {
+  private async handlePeerEvent(event: PeerEvent & { peerId?: string }): Promise<void> {
     const remotePubkey = normalizeCompressedPeerId(event.remotePubkey);
     if (!remotePubkey) return;
-    const stats = this.ensurePeerStats(remotePubkey);
-    stats.connected = event.state === 'connected';
+    const stats = this.ensurePeerStats(remotePubkey, event.peerId);
+    stats.connected = event.state === 'connected' || !!this.provider?.listConnectedPeerIds()
+      .some((address) => compressedPubkeyHexToXOnly(address) === stats.xOnlyPubkey);
     stats.lastStateAt = Date.now();
     await this.refreshNostrPeerAuthorization();
   }
@@ -490,29 +494,30 @@ export class DriveFipsRuntime {
     }));
   }
 
-  private handleSessionEvent(event: SessionEvent): void {
+  private handleSessionEvent(event: SessionEvent & { peerId?: string }): void {
     const remotePubkey = normalizeCompressedPeerId(event.remotePubkey);
     if (!remotePubkey) return;
     if (event.state === 'closed') {
-      const peer = this.peerStats.get(remotePubkey);
+      const peer = this.peerStats.get(event.peerId ?? compressedPubkeyHexToXOnly(remotePubkey));
       if (peer) {
         peer.lastAuthenticatedAt = undefined;
         void this.refreshNostrPeerAuthorization();
       }
     } else if (event.state === 'established') {
-      const stats = this.ensurePeerStats(remotePubkey);
+      const stats = this.ensurePeerStats(remotePubkey, event.peerId);
       stats.sessionsEstablished += 1;
       stats.lastSessionAt = Date.now();
-      this.recordAuthenticatedActivity(remotePubkey);
+      this.recordAuthenticatedActivity(remotePubkey, stats.xOnlyPubkey);
     }
   }
 
-  private recordAuthenticatedActivity(remotePubkey: string): void {
-    let peer = this.peerStats.get(remotePubkey);
+  private recordAuthenticatedActivity(remotePubkey: string, peerId?: string): void {
+    const pubkey = peerId ?? fipsPeerAppKeyPubkey(remotePubkey);
+    if (!pubkey) return;
+    let peer = this.peerStats.get(pubkey);
     if (!peer) {
-      const pubkey = fipsPeerAppKeyPubkey(remotePubkey);
-      if (!pubkey || !this.peerPolicy?.ownDevices().includes(pubkey)) return;
-      peer = this.ensurePeerStats(remotePubkey);
+      if (!this.peerPolicy?.ownDevices().includes(pubkey)) return;
+      peer = this.ensurePeerStats(remotePubkey, pubkey);
     }
     const now = Date.now();
     const wasReachable = peer.connected || (peer.lastAuthenticatedAt !== undefined && now - peer.lastAuthenticatedAt < ROUTED_PRESENCE_MS);
@@ -520,18 +525,18 @@ export class DriveFipsRuntime {
     if (!wasReachable) void this.refreshNostrPeerAuthorization();
   }
 
-  private ensurePeerStats(peerId: string): MutablePeerStats {
-    let stats = this.peerStats.get(peerId);
+  private ensurePeerStats(peerId: string, xOnlyPubkey = compressedPubkeyHexToXOnly(peerId)): MutablePeerStats {
+    let stats = this.peerStats.get(xOnlyPubkey);
     if (!stats) {
       stats = {
         peerId,
-        xOnlyPubkey: compressedPubkeyHexToXOnly(peerId),
-        npub: compressedPubkeyHexToNpub(peerId),
+        xOnlyPubkey,
+        npub: npubFromHex(xOnlyPubkey),
         connected: false,
         lastStateAt: Date.now(),
         sessionsEstablished: 0,
       };
-      this.peerStats.set(peerId, stats);
+      this.peerStats.set(xOnlyPubkey, stats);
     }
     return stats;
   }
