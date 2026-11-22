@@ -75,6 +75,10 @@ Run them with `pnpm run test:e2e:native-release`. The gate builds the native
 checkout with its lockfile or uses the supplied binary, and prints the binary’s
 SHA-256. Set `IRIS_DRIVE_BIN_SHA256` to verify a packaged candidate’s digest.
 
+The shared-file return test needs a native CLI that fetches each shared-folder
+writer’s root and returns edited files to their owner. The full suite passed
+with the 0.1.49 CLI built from `03b3fa496fd5cf754a1f6481ae057044758c7057`.
+
 The Docker wrapper builds `scripts/Dockerfile.e2e-linux`, mounts the repo into `/workspace`, and keeps Linux-only `node_modules`, the pnpm store, and Rust build caches in Docker volumes. Pass a custom command to the wrapper when you want a narrower run, for example:
 
 ```bash
