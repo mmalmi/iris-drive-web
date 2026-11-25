@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.43 - 2026-11-25
+
+- An upload that has to wait to put a file in its folder now says so after ten seconds, and the notice stays until the wait ends. It used to stand still at "Uploading 1 of 2" without a word.
+
 ## 0.1.42 - 2026-11-20
 
 - The browser tab shows the name of the open file, folder, document or place, for example "Taxes - Iris Drive" or "Recent - Iris Drive".

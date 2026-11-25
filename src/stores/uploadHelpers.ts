@@ -1,4 +1,4 @@
-import { toast } from './toast';
+import { dismissToast, showToast, toast } from './toast';
 
 const VIDEO_EXTENSIONS = new Set(['.mp4', '.webm', '.mkv', '.mov', '.avi', '.m4v', '.ogv', '.3gp']);
 const STALL_TIMEOUT_MS = 10000;
@@ -12,17 +12,19 @@ export async function withStallDetection<T>(
   operation: Promise<T>,
   message: string,
 ): Promise<T> {
-  let toastShown = false;
+  // The notice stays for as long as the wait does: one that left after a few
+  // seconds made a long wait look like nothing was wrong.
+  let noticeId: string | null = null;
   const timeoutId = setTimeout(() => {
-    toastShown = true;
-    toast.warning(message);
+    noticeId = showToast('warning', message, 0);
   }, STALL_TIMEOUT_MS);
 
   try {
     return await operation;
   } finally {
     clearTimeout(timeoutId);
-    if (toastShown) {
+    if (noticeId !== null) {
+      dismissToast(noticeId);
       toast.success('Operation resumed');
     }
   }

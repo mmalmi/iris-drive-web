@@ -188,14 +188,16 @@ function saveEntry(
   entry: { cid: CID; size: number; type: LinkType },
 ): Promise<CID | null> {
   const { route } = origin;
-  return inTurn(async () => {
+  // This waits for the page's earlier changes to the Drive. One that never
+  // ended left the upload standing still without a word.
+  return withStallDetection(inTurn(async () => {
     if (!upload.isCurrent()) return null;
     const latest = getTreeRootSync(route.npub, route.treeName) ?? root;
     const next = await setEntryForDriveRoute(getTree(), latest, parentPath, name, entry, route, nostrStore.getState());
     if (!upload.isCurrent()) return null;
     origin.save(next);
     return next;
-  });
+  }), `Saving ${name} is taking longer than expected...`);
 }
 
 /**
