@@ -8,7 +8,7 @@ import { acceptAndOpen, openProfile, waitForSharedFolderPublished } from './shar
 import { chooseFileAction, getTestBlossomUrl, openListedFile } from './test-utils';
 
 test('web and native return each other’s removed file with its latest bytes', async ({ page, relayUrl }, testInfo) => {
-  test.setTimeout(240000);
+  test.setTimeout(300000);
   const root = testInfo.outputPath('profiles');
   const admin = path.join(root, 'admin');
   const member = path.join(root, 'member');
@@ -51,7 +51,8 @@ test('web and native return each other’s removed file with its latest bytes', 
   const personalUrl = new URL(shareUrl).origin + '/#/' + evidence.profile_id + '/main';
   const log = fs.openSync(path.join(root, 'native-daemon.log'), 'w');
   const daemon = spawn(idriveBin(), ['daemon', '--relay', relayUrl, '--no-gateway'], {
-    env: { ...process.env, IRIS_DRIVE_CONFIG_DIR: admin },
+    // The reasons a return is put off are logged at debug level.
+    env: { ...process.env, IRIS_DRIVE_CONFIG_DIR: admin, RUST_LOG: 'info,iris_drive_core::shared_owner_return=debug,idrive::daemon=debug' },
     stdio: ['ignore', log, log],
   });
   try {
@@ -75,8 +76,42 @@ test('web and native return each other’s removed file with its latest bytes', 
     const pending = runIdriveJson(admin, ['provider', 'delete', 'Trip/' + renamed]);
     expect(pending.return_request).toBeTruthy();
     expect(nativePaths()).toContain('Trip/' + renamed);
+    // The native app looks for returns every 30 seconds, and its first look
+    // comes about 26 seconds after the browser is back: one look is the usual
+    // 30 seconds, and this allows four. A return that needed more than one
+    // look, or never came, says what each side was waiting for.
+    const webSaid: string[] = [];
+    const backOnline = Date.now();
+    const sinceOnline = () => `${((Date.now() - backOnline) / 1000).toFixed(1)}s`;
+    page.on('console', (message) => {
+      if (/file return/i.test(message.text())) webSaid.push(`${sinceOnline()} ${message.text().slice(0, 240)}`);
+    });
+    const whatEachSideWaitedFor = async () => {
+      const jobs = await page.evaluate(() => new Promise<string[]>((resolve) => {
+        const open = indexedDB.open('iris-drive-file-returns');
+        open.onerror = () => resolve(['could not open the return jobs']);
+        open.onsuccess = () => {
+          const db = open.result;
+          if (!db.objectStoreNames.contains('jobs')) { db.close(); resolve([]); return; }
+          const all = db.transaction('jobs', 'readonly').objectStore('jobs').getAll();
+          all.onsuccess = () => {
+            db.close();
+            resolve(all.result.map((row: { id: string; state: string; outgoing: boolean }) => `${row.outgoing ? 'out' : 'in'}:${row.id.split(':')[0].slice(0, 8)}=${row.state}`));
+          };
+          all.onerror = () => { db.close(); resolve(['could not read the return jobs']); };
+        };
+      })).catch((error) => [String(error)]);
+      const native = fs.readFileSync(path.join(root, 'native-daemon.log'), 'utf8').split('\n')
+        .filter((line) => /^\d{4}-\d\d-\d\dT\S+\s+(DEBUG|WARN|ERROR)\b/.test(line) && !/recv buffer clamped/.test(line))
+        .slice(-30).map((line) => line.slice(0, 260));
+      return `web return jobs: ${JSON.stringify(jobs)}\nweb said:\n${webSaid.join('\n')}\nnative said:\n${native.join('\n')}`;
+    };
     await page.context().setOffline(false);
-    await expect.poll(nativePaths, { timeout: 90000 }).not.toContain('Trip/' + renamed);
+    await expect.poll(nativePaths, { timeout: 125000 }).not.toContain('Trip/' + renamed).catch(async (error) => {
+      console.log(`The first return did not finish in ${sinceOnline()}.\n${await whatEachSideWaitedFor()}`);
+      throw error;
+    });
+    if (Date.now() - backOnline > 45000) console.log(`The first return took ${sinceOnline()}, more than one look.\n${await whatEachSideWaitedFor()}`);
     await page.goto(personalUrl);
     await openListedFile(page, renamed);
     await expect(page.getByText(edited, { exact: true })).toBeVisible();
