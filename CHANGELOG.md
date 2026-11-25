@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.44 - 2026-11-25
+
+- A file uploaded to a shared folder before the folder has loaded, as right after joining it, now waits for the folder and lands in it. It used to be saved as your own My Drive instead, which then listed only that file.
+- New folder and New file in a shared folder that has not loaded say so instead of starting a new folder in its place.
+
 ## 0.1.43 - 2026-11-25
 
 - An upload that has to wait to put a file in its folder now says so after ten seconds, and the notice stays until the wait ends. It used to stand still at "Uploading 1 of 2" without a word.

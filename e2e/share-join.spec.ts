@@ -114,6 +114,74 @@ test.describe('sharing from the browser', () => {
     }
   });
 
+  test('a file uploaded before a shared folder has loaded lands in it, and My Drive keeps its files', async ({
+    page,
+    browser,
+    relayUrl,
+  }) => {
+    test.setTimeout(180_000);
+    await prepareFreshSession(page, relayUrl);
+    await createDriveProfile(page, 'Folder admin');
+    await chooseNew(page, 'Folder');
+    await page.getByPlaceholder('Folder name...').fill('Trip');
+    await page.getByPlaceholder('Folder name...').press('Enter');
+    await openListedFile(page, 'Trip');
+    await page.locator('button[title="Share"]').filter({ visible: true }).first().click();
+    const link = await inviteLink(page);
+    await page.keyboard.press('Escape');
+    const context = await browser.newContext();
+    try {
+      const guest = await context.newPage();
+      await prepareFreshSession(guest, relayUrl);
+      const member = await createDriveProfile(guest, 'Member');
+      await guest
+        .getByTestId('upload-files-input')
+        .setInputFiles({ name: 'Notes.txt', mimeType: 'text/plain', buffer: Buffer.from('Personal file') });
+      await expect(guest.getByRole('link', { name: /^Notes.txt/ })).toBeVisible();
+      await guest.goto(onThisOrigin(guest, link));
+      await expect(guest.getByTestId('upload-files-input')).toBeAttached({ timeout: 90000 });
+      await guest.waitForFunction(
+        async () => {
+          const { parseRoute } = await import('/src/utils/route.ts');
+          const { activeShareScope } = await import('/src/drive/shareScope.ts');
+          const route = parseRoute();
+          return route.treeName === 'main' && !route.path.length && activeShareScope(route.npub)?.canWrite;
+        },
+        undefined,
+        { timeout: 90000 },
+      );
+
+      // The file is chosen at a moment the folder's contents are not known here, as right after joining.
+      await guest.evaluate(async () => {
+        const { parseRoute } = await import('/src/utils/route.ts');
+        const { invalidateTreeRoot, getTreeRootSync } = await import('/src/stores/treeRoot.ts');
+        const route = parseRoute();
+        const input = document.querySelector<HTMLInputElement>('[data-testid="upload-files-input"]')!;
+        const chosen = new DataTransfer();
+        chosen.items.add(new File(['Original contents'], 'Packing.txt', { type: 'text/plain' }));
+        void invalidateTreeRoot(route.npub, route.treeName);
+        if (getTreeRootSync(route.npub, route.treeName)) throw new Error('The shared folder is still loaded');
+        input.files = chosen.files;
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+
+      await expect(guest.getByRole('link', { name: /^Packing.txt/ })).toBeVisible({ timeout: 60_000 });
+      const mine = await guest.evaluate(async (profileId) => {
+        const { getTreeRootSync } = await import('/src/stores/treeRoot.ts');
+        const { getTree } = await import('/src/store.ts');
+        const root = getTreeRootSync(profileId, 'main');
+        return root ? (await getTree().listDirectory(root)).map((entry) => entry.name) : null;
+      }, member.profileId);
+      expect(mine).toContain('Notes.txt');
+      expect(mine).not.toContain('Packing.txt');
+      // The other person gets it too.
+      await page.goto(guest.url());
+      await expect(page.getByRole('link', { name: /^Packing.txt/ })).toBeVisible({ timeout: 60_000 });
+    } finally {
+      await context.close();
+    }
+  });
+
   test('removing an editor’s file returns the exact edited bytes to its owner across devices', async ({
     page,
     browser,

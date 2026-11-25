@@ -14,6 +14,7 @@ import { getCurrentRootCid, getCurrentPathFromUrl } from './route';
 import { getLocalRootCache, updateLocalRootCache } from '../treeRootCache';
 import { activeNostrIdentityRootScope, isEditableDriveRouteScope } from '../drive/profileRoute';
 import { setEntryForDriveRoute } from '../drive/profileDriveRouteEntry';
+import { activeShareScope } from '../drive/shareScope';
 import { captureRouteWriteGuard } from '../lib/routeWriteGuard';
 import { inTurn } from '../lib/driveWrites';
 import { freeName } from '../lib/driveClipboard';
@@ -31,6 +32,12 @@ export async function initVirtualTree(entries: DirectoryEntryInput[]): Promise<C
 
   const tree = getTree();
   const nostrStore = useNostrStore.getState();
+
+  // A shared folder that has not loaded yet is not an empty one: a new tree would stand in for it.
+  if (activeShareScope(route.npub, nostrStore)) {
+    toast.error('This shared folder is still loading. Try again in a moment.');
+    return null;
+  }
 
   const isProfileDriveRoute = isEditableDriveRouteScope(route.npub, nostrStore);
   let routePubkey: string;

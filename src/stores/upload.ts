@@ -17,12 +17,13 @@ import { open as openExtractModal } from '../components/Modals/ExtractModal.svel
 import { open as openGitignoreModal } from '../components/Modals/GitignoreModal.svelte';
 import type { FileWithPath, DirectoryReadResult } from '@iris/hashtree-app/directory';
 import { findGitignoreFile, parseGitignoreFromFile, applyGitignoreFilter, applyDefaultIgnoreFilter } from '@iris/hashtree-app/directory';
-import { getTreeRootSync } from './treeRoot';
+import { getTreeRootSync, waitForTreeRoot } from './treeRoot';
 import { settingsStore } from '../stores/settings';
 import { toast } from '../stores/toast';
 import { isVideoFile, withStallDetection } from './uploadHelpers';
 import { editableTreeRoutePubkey, isEditableDriveRouteScope } from '../drive/profileRoute';
 import { setEntryForDriveRoute } from '../drive/profileDriveRouteEntry';
+import { activeShareScope } from '../drive/shareScope';
 import { captureIdentityWriteGuard, captureRouteWriteGuard } from '../lib/routeWriteGuard';
 import { inTurn } from '../lib/driveWrites';
 import { withModifiedAt } from '../lib/modifiedAt';
@@ -168,11 +169,38 @@ function runUploadBatch(files: File[], target: UploadTarget, work: (batch: Uploa
     if (!batch.isCurrent()) return;
     batch.progress(0, files[0]!.name, 0, 'preparing');
     try {
+      if (!await sharedFolderLoaded(origin)) {
+        if (batch.isCurrent()) toast.error('This shared folder is still loading. Try again in a moment.');
+        return;
+      }
+      if (!batch.isCurrent()) return;
       await work(batch, origin);
     } finally {
       batch.clear();
     }
   });
+}
+
+const SHARED_FOLDER_LOAD_MS = 20_000;
+
+/** Whether the upload goes into a folder shared between people, which has contents of its own once loaded. */
+function intoSharedFolder(origin: UploadOrigin): boolean {
+  const { npub, treeName } = origin.route;
+  return Boolean(treeName && activeShareScope(npub, nostrStore.getState()));
+}
+
+/**
+ * A shared folder that has not loaded yet is not an empty one. An upload that
+ * came before its contents started a new tree instead, and a new tree is
+ * saved as the person's own My Drive: the file landed there, in place of all
+ * that was in it. The upload waits for the folder; false when it does not come.
+ */
+async function sharedFolderLoaded(origin: UploadOrigin): Promise<boolean> {
+  if (!intoSharedFolder(origin)) return true;
+  const { npub, treeName } = origin.route;
+  if (getTreeRootSync(npub, treeName)?.hash) return true;
+  await waitForTreeRoot(npub!, treeName!, SHARED_FOLDER_LOAD_MS);
+  return Boolean(getTreeRootSync(npub, treeName)?.hash);
 }
 
 /**
@@ -219,6 +247,7 @@ async function uploadFilesNow(filesArray: File[], target: UploadTarget, origin: 
   let currentRootCid: CID | null = getTreeRootSync(route.npub, route.treeName);
 
   // Check if we need to initialize a new tree (virtual directory case)
+  if (!currentRootCid?.hash && intoSharedFolder(origin)) return;
   let needsTreeInit = Boolean(!currentRootCid?.hash && route.npub && route.treeName);
   const routePubkey = needsTreeInit
     ? editableTreeRoutePubkey(route.npub, nostrStore.getState())
@@ -413,6 +442,7 @@ async function uploadFilesWithPathsNow(filesWithPaths: FileWithPath[], origin: U
   let currentRootCid: CID | null = getTreeRootSync(route.npub, route.treeName);
 
   // Check if we need to initialize a new tree
+  if (!currentRootCid?.hash && intoSharedFolder(origin)) return;
   let needsTreeInit = Boolean(!currentRootCid?.hash && route.npub && route.treeName);
   const routePubkey = needsTreeInit
     ? editableTreeRoutePubkey(route.npub, nostrStore.getState())
