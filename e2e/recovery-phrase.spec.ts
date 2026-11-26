@@ -47,6 +47,8 @@ async function createRecoveryPhrase(page: Page, screenshot?: (name: string) => P
   await expect(add).toBeEnabled();
   await add.click();
   await expect(section.getByTestId('recovery-phrase-status')).toContainText('Recovery phrase added on', { timeout: 30_000 });
+  // The page asks us to stay until the recovery record and wrapped files are saved.
+  await expect(section.getByTestId('recovery-phrase-saved')).toBeVisible({ timeout: 60_000 });
   await expect(section.getByTestId('recovery-phrase-word')).toHaveCount(0);
   return words;
 }
