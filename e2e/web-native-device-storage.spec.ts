@@ -11,7 +11,7 @@ import { generateSecretKey, getPublicKey, nip19 } from 'nostr-tools';
 import { expect, test, type Page } from './fixtures';
 import { createDriveProfile, prepareFreshSession } from './documents.helpers';
 import { expectFolderEditable, fileRow, getTestBlossomUrl } from './test-utils';
-import { configureNativeRelay, idriveBin, irisDriveAvailable, runIdriveJson } from './native-idrive';
+import { configureNativeRelay, idriveBin, irisDriveAvailable, nativeEnvironment, runIdriveJson } from './native-idrive';
 
 const FILE = { name: 'native-storage-notes.txt', line: 'Notes the browser wrote for the native device to hold. ' };
 
@@ -86,7 +86,7 @@ test('a native device and a browser each show how much of the Drive the other ho
     expect(sync.device_approval_receipts_applied).toBe(1);
 
     daemon = spawn(idriveBin(), ['daemon', '--relay', relayUrl, '--no-gateway'], {
-      env: { ...process.env, IRIS_DRIVE_CONFIG_DIR: nativeConfig },
+      env: nativeEnvironment(nativeConfig),
       stdio: 'ignore',
     });
 

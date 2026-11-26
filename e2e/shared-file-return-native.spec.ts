@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import path from 'node:path';
 import { test, expect } from './fixtures';
-import { configureNativeRelay, idriveBin, runIdriveJson } from './native-idrive';
+import { configureNativeRelay, idriveBin, nativeEnvironment, runIdriveJson } from './native-idrive';
 import { acceptAndOpen, openProfile, waitForSharedFolderPublished } from './shared-folder.helpers';
 import { chooseFileAction, getTestBlossomUrl, openListedFile } from './test-utils';
 
@@ -52,7 +52,7 @@ test('web and native return each other’s removed file with its latest bytes', 
   const log = fs.openSync(path.join(root, 'native-daemon.log'), 'w');
   const daemon = spawn(idriveBin(), ['daemon', '--relay', relayUrl, '--no-gateway'], {
     // The reasons a return is put off are logged at debug level.
-    env: { ...process.env, IRIS_DRIVE_CONFIG_DIR: admin, RUST_LOG: 'info,iris_drive_core::shared_owner_return=debug,idrive::daemon=debug' },
+    env: { ...nativeEnvironment(admin), RUST_LOG: 'info,iris_drive_core::shared_owner_return=debug,idrive::daemon=debug' },
     stdio: ['ignore', log, log],
   });
   try {

@@ -51,10 +51,24 @@ function useBinary(bin: string): string {
   return cachedIdriveBin;
 }
 
+export function nativeEnvironment(configDir: string): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    IRIS_DRIVE_CONFIG_DIR: configDir,
+    // Each test device needs its own shared store, separate from the Blossom
+    // server and any real native profile on the test host.
+    HTREE_CONFIG_DIR: path.join(configDir, 'shared-hashtree-config'),
+    HTREE_DATA_DIR: path.join(configDir, 'shared-hashtree'),
+  };
+}
+
 export function runIdriveJson<T = any>(configDir: string, args: string[]): T {
   return JSON.parse(execFileSync(idriveBin(), args, {
-    env: { ...process.env, IRIS_DRIVE_CONFIG_DIR: configDir },
+    env: nativeEnvironment(configDir),
     encoding: 'utf8',
+    timeout: 60_000,
+    killSignal: 'SIGKILL',
+    maxBuffer: 8 * 1024 * 1024,
   }));
 }
 

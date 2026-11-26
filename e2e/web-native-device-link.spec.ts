@@ -24,6 +24,7 @@ import {
   configureNativeRelay,
   idriveBin,
   irisDriveAvailable,
+  nativeEnvironment,
   runIdriveJson,
 } from './native-idrive';
 import { applyMainActionMutations } from './profile-drive-actions';
@@ -607,7 +608,7 @@ test('native owner and restarted web device link quickly through a large roster 
       relayUrl,
       '--no-gateway',
     ], {
-      env: { ...process.env, IRIS_DRIVE_CONFIG_DIR: nativeConfig },
+      env: nativeEnvironment(nativeConfig),
       stdio: 'ignore',
     });
     await expect.poll(() => {
@@ -735,7 +736,7 @@ test('web and native restore each other’s private Trash after linking', async 
     await expect(page.getByTestId('user-key-row')).toHaveCount(2);
     const nativeList = () => runIdriveJson<{ id: string; path: string[] }[]>(dir, ['trash', 'list']);
     await expect.poll(() => { sync(); return nativeList().map(row => row.path); }, { timeout: 45000 }).toEqual([[name]]);
-    execFileSync(idriveBin(), ['trash', 'restore', nativeList()[0].id], { env: { ...process.env, IRIS_DRIVE_CONFIG_DIR: dir } });
+    execFileSync(idriveBin(), ['trash', 'restore', nativeList()[0].id], { env: nativeEnvironment(dir), timeout: 60_000, killSignal: 'SIGKILL' });
     expect(readNativeFile(dir, dir, name)).toBe(body);
     publish();
     await expectProfileFile(page, owner.profileId, name, body);
@@ -838,7 +839,7 @@ test('web owner approves a native device that durably activates and acknowledges
     for (const transport of ['mesh', 'direct'] as const) {
       daemon = spawn(idriveBin(), ['daemon', '--relay', relayUrl, '--no-gateway'], {
         env: {
-          ...process.env, IRIS_DRIVE_CONFIG_DIR: nativeConfig,
+          ...nativeEnvironment(nativeConfig),
           IRIS_DRIVE_FIPS_ENABLE_WEBRTC: transport === 'direct' ? '1' : '0',
           IRIS_FIPS_WEBSOCKET_SEED_URLS: fipsSeedUrl,
         },
@@ -953,7 +954,7 @@ test('web and native devices of one account exchange Drive roots over the FIPS f
       (window as typeof window & { __feedSync?: unknown }).__feedSync = recordFeedSyncFrames();
     });
     daemon = spawn(idriveBin(), ['daemon', '--relay', relayUrl, '--no-gateway'], {
-      env: { ...process.env, IRIS_DRIVE_CONFIG_DIR: nativeConfig, IRIS_FIPS_WEBSOCKET_SEED_URLS: fipsSeedUrl },
+      env: { ...nativeEnvironment(nativeConfig), IRIS_FIPS_WEBSOCKET_SEED_URLS: fipsSeedUrl },
       stdio: 'ignore',
     });
     // The browser holds the native device as an event peer on its FIPS feed.
