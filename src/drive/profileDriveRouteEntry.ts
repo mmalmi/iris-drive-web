@@ -91,7 +91,7 @@ export async function setEntriesForDriveRoute(
         ...item.entry,
         meta: item.preserveModifiedAt ? item.entry.meta : withModifiedAt(item.entry.meta),
       };
-      const path = [...item.parentPath, item.name].filter(Boolean);
+      const path = [...item.parentPath, item.name].flatMap((part) => part.split('/')).filter(Boolean);
       const name = path.at(-1)!;
       const parentPath = path.slice(0, -1);
       if (entry.type === LinkType.Dir) {
@@ -140,7 +140,7 @@ export async function setEntriesForDriveRoute(
 
   for (const item of items) {
     writes.push({
-      path: [...item.parentPath, item.name].filter(Boolean),
+      path: [...item.parentPath, item.name].flatMap((part) => part.split('/')).filter(Boolean),
       entry: {
         ...item.entry,
         type: item.entry.type ?? LinkType.Blob,

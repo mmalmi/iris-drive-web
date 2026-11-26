@@ -180,7 +180,7 @@ export async function spliceEntriesInTree(
 }> {
   const trie: WriteNode = { children: new Map(), path: [] };
   for (const write of writes) {
-    const parts = write.path.filter(Boolean);
+    const parts = write.path.flatMap((part) => part.split('/')).filter(Boolean);
     if (parts.length === 0) throw new Error('write path is empty');
     let node = trie;
     for (let i = 0; i < parts.length; i += 1) {
@@ -226,7 +226,13 @@ export async function spliceEntriesInTree(
         } else if (!existing) {
           roleOperations.push({ op: 'clear', path: pathStr });
         }
-        byName.set(name, { name, ...entry });
+        byName.set(name, {
+          name,
+          cid: entry.cid,
+          size: entry.size,
+          type: entry.type,
+          ...(entry.meta !== undefined ? { meta: entry.meta } : {}),
+        });
         changed = true;
         return;
       }

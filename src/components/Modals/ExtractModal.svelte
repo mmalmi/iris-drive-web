@@ -72,6 +72,8 @@
       await uploadExtractedFiles(archiveData, archiveName, subdirName);
     } catch (e) {
       console.error('Failed to extract files:', e);
+    } finally {
+      isProcessing = false;
     }
   }
 

@@ -147,6 +147,36 @@ describe('performance and scaling regressions', () => {
     expect(toHex(batched.hash)).toBe(toHex(sequential.hash));
   });
 
+  it('ignores stale .name properties on TreeEntry writes and splits slash-separated paths', async () => {
+    const tree = new HashTree({ store: new MemoryStore() });
+    const blob = await tree.putFile(new TextEncoder().encode('original'));
+    const initial = await mutateProfileDriveRoot(tree, (await tree.putDirectory([])).cid, {
+      type: 'set-entry',
+      path: 'Notes/meeting.txt',
+      entry: { cid: blob.cid, size: blob.size, type: LinkType.Blob },
+    });
+    const existing = (await tree.listDirectory((await tree.resolvePath(initial, ['Notes']))!.cid))[0]!;
+    expect(existing.name).toBe('meeting.txt');
+
+    // Passing a full TreeEntry (with runtime `.name = 'meeting.txt'`) under a new name must not duplicate `meeting.txt`.
+    const restored = await setProfileDriveEntries(tree, initial, [{
+      path: ['Notes', 'meeting (2).txt'],
+      entry: existing,
+    }]);
+    const names = (await tree.listDirectory((await tree.resolvePath(restored, ['Notes']))!.cid))
+      .map((e) => e.name)
+      .sort();
+    expect(names).toEqual(['meeting (2).txt', 'meeting.txt']);
+
+    // Slash-separated entry paths passed as a single element must create nested folders, not a literal slash filename.
+    const nested = await setProfileDriveEntries(tree, restored, [{
+      path: ['kind-folder/old.txt'],
+      entry: { cid: blob.cid, size: blob.size, type: LinkType.Blob },
+    }]);
+    expect((await tree.resolvePath(nested, ['kind-folder']))?.type).toBe(LinkType.Dir);
+    expect((await tree.resolvePath(nested, ['kind-folder', 'old.txt']))?.type).toBe(LinkType.Blob);
+  });
+
   it('passes through unchanged directories and reuses cached subtree walks on materialize', async () => {
     const store = new MeteredStore();
     const tree = new HashTree({ store });
