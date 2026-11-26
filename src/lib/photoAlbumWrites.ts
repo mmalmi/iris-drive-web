@@ -7,7 +7,7 @@ import { LinkType } from '@hashtree/core';
 import { getTree } from '../store';
 import { nostrStore } from '../nostr';
 import { changeDriveRoot } from '../drive/driveRootChange';
-import { setEntryForDriveRoute } from '../drive/profileDriveRouteEntry';
+import { setEntriesForDriveRoute, setEntryForDriveRoute } from '../drive/profileDriveRouteEntry';
 import { albumAdditions, validAlbumName, type Photo } from './photos';
 import { DRIVE_TREE_NAME } from './driveWalk';
 
@@ -37,19 +37,18 @@ export async function addToAlbum(album: { scope: string; path: string[] }, photo
     const there = folder?.type === LinkType.Dir ? await tree.listDirectory(folder.cid) : [];
     const additions = albumAdditions(there, photos);
     added = additions.map(({ photo }) => photo);
-    let next = root;
-    for (const { name, photo } of additions) {
-      next = await setEntryForDriveRoute(
-        tree,
-        next,
-        album.path,
+    if (additions.length === 0) return null;
+    return setEntriesForDriveRoute(
+      tree,
+      root,
+      additions.map(({ name, photo }) => ({
+        parentPath: album.path,
         name,
-        { cid: photo.cid, size: photo.size, type: photo.type },
-        { npub: album.scope, treeName: DRIVE_TREE_NAME },
-        nostrStore.getState(),
-      );
-    }
-    return additions.length > 0 ? next : null;
+        entry: { cid: photo.cid, size: photo.size, type: photo.type },
+      })),
+      { npub: album.scope, treeName: DRIVE_TREE_NAME },
+      nostrStore.getState(),
+    );
   });
   return added;
 }

@@ -1,5 +1,4 @@
 import {
-  LinkType,
   toHex,
   type CID,
   type HashTree,
@@ -14,20 +13,21 @@ import {
 } from './protocol';
 import { rootReferenceCovers } from './protocolRoots';
 import { recoverSuppressedPathKindCandidates } from './profileDrivePathKindRecovery';
-import {
-  decodePathKindReplacements,
-  PATH_KIND_REPLACEMENTS_FILE,
-} from './profileDrivePathKindMetadata';
+import { sameCid } from './profileDrivePathKindMetadata';
 import {
   preferredKindFromActiveRole,
   type PathKindSourceState,
 } from './profileDrivePathKindPreference';
 import { conflictPath } from './profileDriveConflictPath';
 import { DirectoryBuilder } from './directoryBuilder';
-
-const META_DIR = '.hashtree';
-const TOMBSTONES_DIR = 'tombstones';
-const IGNORED_NAMES = new Set(['.ds_store', '.hashtree', '.trash', '$recycle.bin', 'thumbs.db', 'desktop.ini']);
+import {
+  comparePathsByDepth,
+  findPassthroughDirectories,
+  hasAncestorIn,
+  META_DIR,
+  splitPath,
+  walkProfileDriveRoot,
+} from './profileDriveSnapshotWalk';
 
 export type ProfileDriveRootCandidate = {
   event: Event;
@@ -262,25 +262,60 @@ export class ProfileDriveProjection {
       // Keep every candidate retained and retry the entire projection later.
       throw failure.reason;
     }
-    const snapshots = settledSnapshots.flatMap((result) => (
+    const walked = settledSnapshots.flatMap((result) => (
       result.status === 'fulfilled' ? [result.value] : []
     ));
-    if (snapshots.length === 0) throw new Error('No readable profile Drive roots');
+    if (walked.length === 0) throw new Error('No readable profile Drive roots');
+    const snapshots = walked.map((item) => item.snapshot);
     const builder = new DirectoryBuilder();
-    if (folder?.share_id === rootScopeId && driveId === 'main' && snapshots.some(snapshot => snapshot.returnDirectory)) {
+    const hasReturns = folder?.share_id === rootScopeId
+      && driveId === 'main'
+      && snapshots.some((snapshot) => snapshot.returnDirectory);
+    if (hasReturns) {
       const { applyFileReturns } = await import('./fileReturnMarker');
       await applyFileReturns(tree, snapshots, folder, builder, signal);
     }
-    const pathKindSourceStates = new Map(snapshots.map((snapshot) => [
-      sourceRootKey(snapshot.source),
-      {
-        metadataPresent: snapshot.pathKindMetadataPresent,
-        activeReplacementPaths: new Set(snapshot.tombstones
-          .filter((tombstone) => isActiveReplacementBarrier(snapshot, tombstone))
-          .map((tombstone) => tombstone.path)),
-      },
-    ]));
-    const tombstones = mergeSnapshotTombstones(snapshots);
+
+    const snapshotPathSets = new Map(snapshots.map((snapshot) => {
+      const paths = new Set<string>();
+      for (const file of snapshot.files) paths.add(file.path);
+      for (const directory of snapshot.directories) paths.add(directory.path);
+      return [snapshot, paths] as const;
+    }));
+    const tombstones = mergeSnapshotTombstones(snapshots, snapshotPathSets);
+
+    // Single-root fast path: a root's own tombstones never suppress its own
+    // entries and a single tree has no cross-writer conflicts. When there are
+    // no ignored names or return markers, keep every subtree CID unchanged.
+    if (walked.length === 1 && !hasReturns && !walked[0]!.parsed.hasIgnored) {
+      const only = walked[0]!;
+      signal?.throwIfAborted();
+      const root = only.parsed.hasTopMeta
+        ? (await tree.putDirectory(only.parsed.topEntries.filter((entry) => entry.name !== META_DIR))).cid
+        : only.snapshot.source.parsed.root;
+      this.deletions.set(projectionKey(rootScopeId, driveId), {
+        root: toHex(root.hash),
+        at: new Map([...tombstones].map(([path, tombstone]) => [path, tombstone.tombstonedAt])),
+      });
+      return {
+        root,
+        updatedAt: only.snapshot.source.parsed.published_at,
+        sourceRootCount: 1,
+      };
+    }
+
+    const pathKindSourceStates = new Map(snapshots.map((snapshot) => {
+      const pathSet = snapshotPathSets.get(snapshot)!;
+      return [
+        sourceRootKey(snapshot.source),
+        {
+          metadataPresent: snapshot.pathKindMetadataPresent,
+          activeReplacementPaths: new Set(snapshot.tombstones
+            .filter((tombstone) => isActiveReplacementBarrier(snapshot, tombstone, pathSet))
+            .map((tombstone) => tombstone.path)),
+        },
+      ] as const;
+    }));
     const fileMerge = mergeSnapshotFiles(snapshots, tombstones);
     const directoryMerge = mergeSnapshotDirectories(snapshots, tombstones);
     const recovered = recoverSuppressedPathKindCandidates(
@@ -297,11 +332,25 @@ export class ProfileDriveProjection {
       pathKindSourceStates,
     );
     const { files, directories } = merged;
-    // Explicit directories keep their link metadata; parents of files are implied.
+
+    // Subtree pass-through: any merged directory whose immutable CID is clean
+    // and identical across every snapshot touching it needs zero putDirectory calls.
+    const passthrough = hasReturns
+      ? new Set<string>()
+      : findPassthroughDirectories(walked, directories, files, tombstones);
+
     for (const [path, directory] of directories) {
-      builder.directory(splitPath(path)).meta = directory.entry.meta;
+      if (hasAncestorIn(path, passthrough)) continue;
+      if (passthrough.has(path)) {
+        const segments = splitPath(path);
+        const name = segments.pop();
+        if (name) builder.directory(segments).setLeaf(name, { ...directory.entry, size: 0 });
+      } else {
+        builder.directory(splitPath(path)).meta = directory.entry.meta;
+      }
     }
     for (const file of files.sort((left, right) => left.path.localeCompare(right.path))) {
+      if (hasAncestorIn(file.path, passthrough)) continue;
       const segments = splitPath(file.path);
       const name = segments.pop();
       if (!name) continue;
@@ -337,107 +386,15 @@ export class ProfileDriveProjection {
 
 export const profileDriveProjection = new ProfileDriveProjection();
 
-async function walkProfileDriveRoot(
-  tree: HashTree,
-  source: ProfileDriveRootCandidate,
-  signal?: AbortSignal,
-): Promise<ProfileDriveSnapshot> {
-  const snapshot: ProfileDriveSnapshot = {
-    files: [],
-    tombstones: [],
-    directories: [],
-    pathKindReplacements: new Map(),
-    pathKindMetadataPresent: false,
-    source,
-  };
-  await walkVisibleDirectory(tree, source.parsed.root, '', source, snapshot, signal);
-  return snapshot;
-}
-
-async function walkVisibleDirectory(
-  tree: HashTree,
-  directory: CID,
-  prefix: string,
-  source: ProfileDriveRootCandidate,
-  snapshot: ProfileDriveSnapshot,
-  signal?: AbortSignal,
-): Promise<void> {
-  const entries = await tree.listDirectory(directory, signal);
-  for (const entry of entries) {
-    if (!prefix && entry.name === META_DIR) {
-      if (entry.type === LinkType.Dir) {
-        await walkMetadataDirectory(tree, entry.cid, source, snapshot, signal);
-      }
-      continue;
-    }
-    if (shouldIgnoreName(entry.name)) continue;
-
-    const path = prefix ? `${prefix}/${entry.name}` : entry.name;
-    if (entry.type === LinkType.Dir) {
-      snapshot.directories.push({ path, entry, source });
-      await walkVisibleDirectory(tree, entry.cid, path, source, snapshot, signal);
-    } else {
-      snapshot.files.push({ path, entry, source });
-    }
-  }
-}
-
-async function walkMetadataDirectory(
-  tree: HashTree,
-  directory: CID,
-  source: ProfileDriveRootCandidate,
-  snapshot: ProfileDriveSnapshot,
-  signal?: AbortSignal,
-): Promise<void> {
-  const entries = await tree.listDirectory(directory, signal);
-  snapshot.returnDirectory = entries.find(entry => entry.name === 'file-returns-v1' && entry.type === LinkType.Dir)?.cid;
-  const tombstones = entries.find((entry) => entry.name === TOMBSTONES_DIR && entry.type === LinkType.Dir);
-  if (tombstones) {
-    await walkTombstones(tree, tombstones.cid, '', source, snapshot, signal);
-  }
-  const replacements = entries.find((entry) => entry.name === PATH_KIND_REPLACEMENTS_FILE);
-  if (replacements) {
-    if (replacements.type === LinkType.Dir) {
-      throw new Error('path-kind replacement metadata must be a file');
-    }
-    const raw = await tree.readFile(replacements.cid);
-    if (!raw) throw new Error('path-kind replacement metadata is unavailable');
-    snapshot.pathKindReplacements = decodePathKindReplacements(raw);
-    snapshot.pathKindMetadataPresent = true;
-  }
-}
-
-async function walkTombstones(
-  tree: HashTree,
-  directory: CID,
-  prefix: string,
-  source: ProfileDriveRootCandidate,
-  snapshot: ProfileDriveSnapshot,
-  signal?: AbortSignal,
-): Promise<void> {
-  const entries = await tree.listDirectory(directory, signal);
-  for (const entry of entries) {
-    const path = prefix ? `${prefix}/${entry.name}` : entry.name;
-    if (entry.type === LinkType.Dir) {
-      await walkTombstones(tree, entry.cid, path, source, snapshot, signal);
-      continue;
-    }
-    const raw = await tree.readFile(entry.cid);
-    if (!raw) continue;
-    const tombstonedAt = Number(new TextDecoder().decode(raw).trim());
-    if (Number.isSafeInteger(tombstonedAt)) {
-      snapshot.tombstones.push({ path, tombstonedAt, source });
-    }
-  }
-}
-
 function mergeSnapshotTombstones(
   snapshots: ProfileDriveSnapshot[],
+  snapshotPathSets: ReadonlyMap<ProfileDriveSnapshot, ReadonlySet<string>>,
 ): Map<string, SnapshotTombstone> {
   const tombstones = new Map<string, SnapshotTombstone>();
   for (const snapshot of snapshots) {
+    const pathSet = snapshotPathSets.get(snapshot)!;
     for (const tombstone of snapshot.tombstones) {
-      if (isActiveReplacementBarrier(snapshot, tombstone)) continue;
+      if (isActiveReplacementBarrier(snapshot, tombstone, pathSet)) continue;
       const current = tombstones.get(tombstone.path);
       if (!current || tombstoneWins(tombstone, current)) {
         tombstones.set(tombstone.path, tombstone);
@@ -450,10 +407,10 @@ function mergeSnapshotTombstones(
 function isActiveReplacementBarrier(
   snapshot: ProfileDriveSnapshot,
   tombstone: SnapshotTombstone,
+  pathSet: ReadonlySet<string>,
 ): boolean {
   if (snapshot.pathKindReplacements.get(tombstone.path) !== tombstone.tombstonedAt) return false;
-  return snapshot.files.some((file) => file.path === tombstone.path)
-    || snapshot.directories.some((directory) => directory.path === tombstone.path);
+  return pathSet.has(tombstone.path);
 }
 
 function mergeSnapshotFiles(
@@ -768,14 +725,8 @@ function sameFileIdentity(left: SnapshotFile, right: SnapshotFile): boolean {
 function sameEntryIdentity(left: TreeEntry, right: TreeEntry): boolean {
   return left.type === right.type
     && left.size === right.size
-    && toHex(left.cid.hash) === toHex(right.cid.hash)
-    && optionalBytesEqual(left.cid.key, right.cid.key)
+    && sameCid(left.cid, right.cid)
     && JSON.stringify(left.meta ?? null) === JSON.stringify(right.meta ?? null);
-}
-
-function optionalBytesEqual(left?: Uint8Array, right?: Uint8Array): boolean {
-  if (!left || !right) return !left && !right;
-  return toHex(left) === toHex(right);
 }
 
 function fileIdentity(entry: TreeEntry): string {
@@ -891,22 +842,4 @@ function rootObserves(
   }
   const observed = newer.parsed.rootRef.observed[candidate.event.pubkey];
   return !!observed && rootReferenceCovers(observed, candidate.parsed.app_key_seq, hash);
-}
-
-function shouldIgnoreName(name: string): boolean {
-  const lower = name.toLowerCase();
-  return IGNORED_NAMES.has(lower)
-    || name.startsWith('._')
-    || lower.startsWith('.trash-')
-    || name.endsWith('~')
-    || (name.startsWith('#') && name.endsWith('#'))
-    || lower.endsWith('.sbak');
-}
-
-function splitPath(path: string): string[] {
-  return path.split('/').filter(Boolean);
-}
-
-function comparePathsByDepth(left: string, right: string): number {
-  return splitPath(left).length - splitPath(right).length || left.localeCompare(right);
 }

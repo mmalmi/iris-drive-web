@@ -3,7 +3,8 @@
  * Kept free of UI so lists and headers answer the question the same way.
  */
 import type { TreeVisibility } from '@hashtree/core';
-import { projectSharedFolderView } from './protocol';
+import { projectSharedFolderKeys } from './protocolShareSnapshot';
+import { shareMembers } from './protocolShareAccess';
 import type { NostrIdentityId } from './protocolTypes';
 import type { AcceptedShareRecord } from './shareLibrary';
 import { ownDrivePathInShare, ownedShareAtPath } from './sharePeople';
@@ -44,11 +45,14 @@ export interface ItemAccessOptions {
   treeVisibility?: TreeVisibility;
 }
 
-function sharedAccess(record: AcceptedShareRecord, appKeyPubkey: string | null | undefined): ItemAccess & { kind: 'people' } {
+type PeopleAccess = { kind: 'people' } & SharedWithPeople;
+
+function sharedAccess(record: AcceptedShareRecord): PeopleAccess {
   let people = 0;
   try {
-    const view = projectSharedFolderView(record.folder, [], appKeyPubkey ?? '');
-    people = Math.max(0, view.participant_count - 1);
+    const members = shareMembers(record.folder, projectSharedFolderKeys(record.folder));
+    const activeCount = Object.values(members).filter((member) => member.status === 'active').length;
+    people = Math.max(0, activeCount - 1);
   } catch {
     // A folder whose member list cannot be read is still a shared one.
   }
@@ -58,7 +62,7 @@ function sharedAccess(record: AcceptedShareRecord, appKeyPubkey: string | null |
 }
 
 /** Shared with people and open to anyone with the link: the link is the wider access, so it leads. */
-function withLink(access: ItemAccess & { kind: 'people' }, link: LinkShare | null): ItemAccess {
+function withLink(access: PeopleAccess, link: LinkShare | null): ItemAccess {
   if (!link) return access;
   const shared: SharedWithPeople = { people: access.people, ...(access.invite ? { invite: true } : {}) };
   return { kind: link.access === 'public' ? 'public' : 'link', shared };
@@ -70,28 +74,51 @@ function shareLinkCovering(record: AcceptedShareRecord, inner: string[], profile
   return (own ? linkShareCovering(own, profileId, links) : null) ?? linkShareCovering(inner, profileId, links, record.share_id);
 }
 
+/**
+ * Reusable lookup for one folder/view render so each shared folder's access is
+ * resolved once across all rows instead of once per row.
+ */
+export function createItemAccessLookup(
+  base: Omit<ItemAccessOptions, 'path'>,
+): (path: string[]) => ItemAccess | null {
+  const { scope, treeName, profileId, records } = base;
+  const links = base.linkShares ?? [];
+  const cache = new Map<AcceptedShareRecord, PeopleAccess>();
+  const accessForShare = (record: AcceptedShareRecord): PeopleAccess => {
+    const cached = cache.get(record);
+    if (cached) return cached;
+    const next = sharedAccess(record);
+    cache.set(record, next);
+    return next;
+  };
+  const joined = profileId && treeName === 'main' && scope && scope !== profileId
+    ? records.find((record) => record.share_id === scope && record.local_profile_id === profileId)
+    : undefined;
+
+  return (path: string[]): ItemAccess | null => {
+    if (!scope) return null;
+    if (profileId && treeName === 'main') {
+      if (scope === profileId) {
+        const owned = ownedShareAtPath(path, profileId, records);
+        if (owned) return withLink(accessForShare(owned.record), shareLinkCovering(owned.record, owned.rest, profileId, links));
+        const link = linkShareCovering(path, profileId, links);
+        if (link) return { kind: link.access === 'public' ? 'public' : 'link' };
+        return { kind: 'private' };
+      }
+      if (joined) return withLink(accessForShare(joined), shareLinkCovering(joined, path, profileId, links));
+    }
+    switch (base.treeVisibility) {
+      case 'public': return { kind: 'public' };
+      case 'link-visible': return { kind: 'link' };
+      case 'private': return { kind: 'private' };
+      default: return null;
+    }
+  };
+}
+
 /** Null when it is not known, such as a snapshot opened from a link. */
 export function itemAccess(options: ItemAccessOptions): ItemAccess | null {
-  const { scope, treeName, path, profileId, records } = options;
-  const links = options.linkShares ?? [];
-  if (!scope) return null;
-  if (profileId && treeName === 'main') {
-    if (scope === profileId) {
-      const owned = ownedShareAtPath(path, profileId, records);
-      if (owned) return withLink(sharedAccess(owned.record, options.appKeyPubkey), shareLinkCovering(owned.record, owned.rest, profileId, links));
-      const link = linkShareCovering(path, profileId, links);
-      if (link) return { kind: link.access === 'public' ? 'public' : 'link' };
-      return { kind: 'private' };
-    }
-    const joined = records.find((record) => record.share_id === scope && record.local_profile_id === profileId);
-    if (joined) return withLink(sharedAccess(joined, options.appKeyPubkey), shareLinkCovering(joined, path, profileId, links));
-  }
-  switch (options.treeVisibility) {
-    case 'public': return { kind: 'public' };
-    case 'link-visible': return { kind: 'link' };
-    case 'private': return { kind: 'private' };
-    default: return null;
-  }
+  return createItemAccessLookup(options)(options.path);
 }
 
 /** A word or two for a badge, and a sentence for its tooltip. */

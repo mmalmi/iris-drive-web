@@ -30,7 +30,7 @@
   import FolderHeader from './FolderHeader.svelte';
   import EntryMenu, { type EntryMenuRequest } from './EntryMenu.svelte';
   import { longPress } from '../lib/longPress';
-  import { itemAccess } from '../drive/itemAccess';
+  import { createItemAccessLookup } from '../drive/itemAccess';
   import { linkShares } from '../drive/linkShares';
   import ProtectedTreeNotice from './ProtectedTreeNotice.svelte';
   import { treeRootStore, routeStore, createTreesStore, type TreeEntry, currentDirCidStore, isViewingFileStore, resolvingPathStore, directoryEntriesStore, permalinkSnapshotStore } from '../stores';
@@ -113,19 +113,19 @@
   let currentTreeVisibility = $derived(effectiveTree?.visibility ?? 'public');
 
   /** Who can open the item at a path of the place being browsed. */
-  function accessAt(path: string[]) {
-    if (route.isPermalink) return null;
-    return itemAccess({
-      scope: viewedNpub,
-      treeName: currentTreeName,
-      path,
-      profileId: activeNostrIdentityRootScope($nostrStore),
-      appKeyPubkey: $nostrStore.pubkey,
-      records: $acceptedShares,
-      linkShares: $linkShares,
-      treeVisibility: effectiveTree?.visibility,
-    });
-  }
+  let accessAt = $derived(
+    route.isPermalink
+      ? () => null
+      : createItemAccessLookup({
+        scope: viewedNpub,
+        treeName: currentTreeName,
+        profileId: activeNostrIdentityRootScope($nostrStore),
+        appKeyPubkey: $nostrStore.pubkey,
+        records: $acceptedShares,
+        linkShares: $linkShares,
+        treeVisibility: effectiveTree?.visibility,
+      }),
+  );
   let currentAccess = $derived(accessAt(currentPath));
 
   let isProtectedTreeWithoutAccess = $derived(

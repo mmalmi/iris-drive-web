@@ -1,4 +1,7 @@
 import { LinkType, type CID, type DirEntry, type HashTree, type TreeEntry } from '@hashtree/core';
+import { createLimiter } from './profileDriveMutation';
+
+const PUT_CONCURRENCY = 8;
 
 /**
  * A directory tree assembled in memory and stored bottom-up.
@@ -42,13 +45,18 @@ export class DirectoryBuilder {
     this.leaves.set(name, { cid: entry.cid, size: entry.size, type: entry.type, meta: entry.meta });
   }
 
-  /** Store this directory and everything below it, children first. */
-  async put(tree: HashTree): Promise<CID> {
+  /** Store this directory and everything below it, children first, in bounded parallel. */
+  async put(tree: HashTree, limit = createLimiter(PUT_CONCURRENCY)): Promise<CID> {
     const entries: DirEntry[] = [];
     for (const [name, leaf] of this.leaves) entries.push({ name, ...leaf });
-    for (const [name, child] of this.directories) {
-      entries.push({ name, cid: await child.put(tree), size: 0, type: LinkType.Dir, meta: child.meta });
-    }
-    return (await tree.putDirectory(entries)).cid;
+    const dirEntries = await Promise.all([...this.directories].map(async ([name, child]): Promise<DirEntry> => ({
+      name,
+      cid: await child.put(tree, limit),
+      size: 0,
+      type: LinkType.Dir,
+      meta: child.meta,
+    })));
+    entries.push(...dirEntries);
+    return (await limit(() => tree.putDirectory(entries))).cid;
   }
 }

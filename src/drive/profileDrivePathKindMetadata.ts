@@ -1,8 +1,11 @@
-import { LinkType, type CID, type HashTree, type TreeEntry } from '@hashtree/core';
+import { LinkType, toHex, type CID, type HashTree, type TreeEntry } from '@hashtree/core';
 
 export const PROFILE_DRIVE_METADATA_DIRECTORY = '.hashtree';
 export const PATH_KIND_REPLACEMENTS_FILE = 'path-kind-replacements';
 export const PATH_KIND_REPLACEMENT_DELTA_FILE = 'path-kind-replacement-delta.json';
+
+const utf8Encoder = new TextEncoder();
+const fatalUtf8Decoder = new TextDecoder('utf-8', { fatal: true });
 
 export type PathKindReplacementOperation =
   | { op: 'set'; path: string; generation: number }
@@ -13,6 +16,74 @@ export type PathKindReplacementDelta = {
   operations: PathKindReplacementOperation[];
 };
 
+export type MetadataDirectoryState = {
+  dir: TreeEntry | null;
+  entries: Map<string, TreeEntry>;
+};
+
+function bytesEqual(left: Uint8Array | undefined, right: Uint8Array | undefined): boolean {
+  if (!left || !right) return !left && !right;
+  if (left.length !== right.length) return false;
+  for (let i = 0; i < left.length; i += 1) {
+    if (left[i] !== right[i]) return false;
+  }
+  return true;
+}
+
+export function sameCid(left: CID | undefined, right: CID | undefined): boolean {
+  return (!left && !right) || (!!left && !!right && bytesEqual(left.hash, right.hash) && bytesEqual(left.key, right.key));
+}
+
+export function cidCacheKey(cid: CID): string {
+  return cid.key ? `${toHex(cid.hash)}:${toHex(cid.key)}` : toHex(cid.hash);
+}
+
+/** Read `.hashtree` entries from `root` in a single pass. */
+export async function readMetadataEntries(
+  tree: HashTree,
+  root: CID,
+  signal?: AbortSignal,
+): Promise<MetadataDirectoryState> {
+  const rootEntries = await tree.listDirectory(root, signal);
+  const dir = rootEntries.find((entry) => entry.name === PROFILE_DRIVE_METADATA_DIRECTORY) ?? null;
+  if (!dir || dir.type !== LinkType.Dir) return { dir, entries: new Map() };
+  const listed = await tree.listDirectory(dir.cid, signal);
+  return { dir, entries: new Map(listed.map((entry) => [entry.name, entry])) };
+}
+
+/** Apply all `.hashtree` additions/updates/removals in a single directory write. */
+export async function writeMetadataEntries(
+  tree: HashTree,
+  root: CID,
+  meta: MetadataDirectoryState,
+  updates: Record<string, TreeEntry | null>,
+): Promise<CID> {
+  const next = new Map(meta.entries);
+  for (const [name, entry] of Object.entries(updates)) {
+    if (entry === null) next.delete(name);
+    else next.set(name, entry);
+  }
+  if (meta.dir?.type === LinkType.Dir && next.size === meta.entries.size) {
+    let unchanged = true;
+    for (const [name, entry] of next) {
+      const prev = meta.entries.get(name);
+      if (!prev || prev.type !== entry.type || prev.size !== entry.size || !sameCid(prev.cid, entry.cid)) {
+        unchanged = false;
+        break;
+      }
+    }
+    if (unchanged) return root;
+  }
+  if (next.size === 0) {
+    return meta.dir ? tree.removeEntry(root, [], PROFILE_DRIVE_METADATA_DIRECTORY) : root;
+  }
+  if (meta.dir && meta.dir.type !== LinkType.Dir) {
+    root = await tree.removeEntry(root, [], PROFILE_DRIVE_METADATA_DIRECTORY);
+  }
+  const metadataRoot = (await tree.putDirectory([...next.values()])).cid;
+  return tree.setEntry(root, [], PROFILE_DRIVE_METADATA_DIRECTORY, metadataRoot, 0, LinkType.Dir);
+}
+
 export function encodePathKindReplacements(roles: ReadonlyMap<string, number>): Uint8Array {
   const replacements = [...roles]
     .map(([path, generation]) => {
@@ -21,13 +92,13 @@ export function encodePathKindReplacements(roles: ReadonlyMap<string, number>): 
       return { path, generation };
     })
     .sort((left, right) => compareUtf8(left.path, right.path));
-  return new TextEncoder().encode(JSON.stringify({ schema: 1, replacements }));
+  return utf8Encoder.encode(JSON.stringify({ schema: 1, replacements }));
 }
 
 export function decodePathKindReplacements(raw: Uint8Array): Map<string, number> {
   let value: unknown;
   try {
-    value = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(raw));
+    value = JSON.parse(fatalUtf8Decoder.decode(raw));
   } catch {
     throw new Error('invalid path-kind replacement metadata');
   }
@@ -58,14 +129,10 @@ export function decodePathKindReplacements(raw: Uint8Array): Map<string, number>
   return roles;
 }
 
-export async function readPathKindReplacements(
+export async function readPathKindReplacementsEntry(
   tree: HashTree,
-  root: CID,
+  entry: TreeEntry | undefined,
 ): Promise<{ present: boolean; roles: Map<string, number> }> {
-  const entry = await resolveEntry(tree, root, [
-    PROFILE_DRIVE_METADATA_DIRECTORY,
-    PATH_KIND_REPLACEMENTS_FILE,
-  ]);
   if (!entry) return { present: false, roles: new Map() };
   if (entry.type === LinkType.Dir) throw new Error('path-kind replacement metadata must be a file');
   const raw = await tree.readFile(entry.cid);
@@ -73,34 +140,42 @@ export async function readPathKindReplacements(
   return { present: true, roles: decodePathKindReplacements(raw) };
 }
 
+export async function readPathKindReplacements(
+  tree: HashTree,
+  root: CID,
+): Promise<{ present: boolean; roles: Map<string, number> }> {
+  const meta = await readMetadataEntries(tree, root);
+  return readPathKindReplacementsEntry(tree, meta.entries.get(PATH_KIND_REPLACEMENTS_FILE));
+}
+
 export async function replacePathKindReplacements(
   tree: HashTree,
   root: CID,
   roles: ReadonlyMap<string, number>,
 ): Promise<CID> {
-  return replaceMetadataFile(
-    tree,
-    root,
-    PATH_KIND_REPLACEMENTS_FILE,
-    encodePathKindReplacements(roles),
-  );
+  const meta = await readMetadataEntries(tree, root);
+  const file = await tree.putFile(encodePathKindReplacements(roles));
+  return writeMetadataEntries(tree, root, meta, {
+    [PATH_KIND_REPLACEMENTS_FILE]: {
+      name: PATH_KIND_REPLACEMENTS_FILE,
+      cid: file.cid,
+      size: file.size,
+      type: LinkType.Blob,
+    },
+  });
 }
 
-export async function readPathKindReplacementDelta(
+export async function readPathKindReplacementDeltaEntry(
   tree: HashTree,
-  root: CID,
+  entry: TreeEntry | undefined,
 ): Promise<PathKindReplacementDelta | null> {
-  const entry = await resolveEntry(tree, root, [
-    PROFILE_DRIVE_METADATA_DIRECTORY,
-    PATH_KIND_REPLACEMENT_DELTA_FILE,
-  ]);
   if (!entry) return null;
   if (entry.type === LinkType.Dir) throw new Error('path-kind replacement delta must be a file');
   const raw = await tree.readFile(entry.cid);
   if (!raw) throw new Error('path-kind replacement delta is unavailable');
   let value: unknown;
   try {
-    value = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(raw));
+    value = JSON.parse(fatalUtf8Decoder.decode(raw));
   } catch {
     throw new Error('invalid path-kind replacement delta');
   }
@@ -117,27 +192,20 @@ export async function readPathKindReplacementDelta(
   };
 }
 
-export async function replacePathKindReplacementDelta(
-  tree: HashTree,
-  root: CID,
-  delta: PathKindReplacementDelta | null,
-): Promise<CID> {
-  if (!delta) return removeMetadataFile(tree, root, PATH_KIND_REPLACEMENT_DELTA_FILE);
+export function encodePathKindReplacementDelta(delta: PathKindReplacementDelta): Uint8Array {
   const operations = delta.operations.map((operation) => {
+    assertLogicalPath(operation.path);
     if (operation.op === 'set') {
-      assertLogicalPath(operation.path);
       assertGeneration(operation.generation);
       return { op: operation.op, path: operation.path, generation: operation.generation };
     }
-    assertLogicalPath(operation.path);
     return { op: operation.op, path: operation.path };
   });
-  const raw = new TextEncoder().encode(JSON.stringify({
+  return utf8Encoder.encode(JSON.stringify({
     schema: 1,
     inherit_previous: delta.inheritPrevious,
     operations,
   }));
-  return replaceMetadataFile(tree, root, PATH_KIND_REPLACEMENT_DELTA_FILE, raw);
 }
 
 export function applyPathKindReplacementOperations(
@@ -148,22 +216,18 @@ export function applyPathKindReplacementOperations(
   for (const operation of operations) {
     if (operation.op === 'set') {
       next.set(operation.path, operation.generation);
-      continue;
-    }
-    if (operation.op === 'clear') {
+    } else if (operation.op === 'clear') {
       for (const path of next.keys()) {
-        if (pathIsAtOrBelow(path, operation.path)) next.delete(path);
+        if (path === operation.path || path.startsWith(`${operation.path}/`)) next.delete(path);
       }
-      continue;
     }
   }
   return next;
 }
 
 export function compareUtf8(left: string, right: string): number {
-  const encoder = new TextEncoder();
-  const leftBytes = encoder.encode(left);
-  const rightBytes = encoder.encode(right);
+  const leftBytes = utf8Encoder.encode(left);
+  const rightBytes = utf8Encoder.encode(right);
   const length = Math.min(leftBytes.length, rightBytes.length);
   for (let index = 0; index < length; index += 1) {
     if (leftBytes[index] !== rightBytes[index]) return leftBytes[index] - rightBytes[index];
@@ -211,64 +275,10 @@ function assertLogicalPath(path: string): void {
   }
 }
 
-async function replaceMetadataFile(
-  tree: HashTree,
-  root: CID,
-  name: string,
-  raw: Uint8Array,
-): Promise<CID> {
-  const metadata = await resolveEntry(tree, root, [PROFILE_DRIVE_METADATA_DIRECTORY]);
-  let metadataRoot = metadata?.type === LinkType.Dir
-    ? metadata.cid
-    : (await tree.putDirectory([])).cid;
-  if (metadata && metadata.type !== LinkType.Dir) {
-    root = await tree.removeEntry(root, [], PROFILE_DRIVE_METADATA_DIRECTORY);
-  }
-  const existing = await resolveEntry(tree, metadataRoot, [name]);
-  if (existing) metadataRoot = await tree.removeEntry(metadataRoot, [], name);
-  const file = await tree.putFile(raw);
-  metadataRoot = await tree.setEntry(metadataRoot, [], name, file.cid, file.size, LinkType.Blob);
-  return tree.setEntry(root, [], PROFILE_DRIVE_METADATA_DIRECTORY, metadataRoot, 0, LinkType.Dir);
-}
-
-async function removeMetadataFile(tree: HashTree, root: CID, name: string): Promise<CID> {
-  const metadata = await resolveEntry(tree, root, [PROFILE_DRIVE_METADATA_DIRECTORY]);
-  if (!metadata || metadata.type !== LinkType.Dir) return root;
-  const existing = await resolveEntry(tree, metadata.cid, [name]);
-  if (!existing) return root;
-  const metadataRoot = await tree.removeEntry(metadata.cid, [], name);
-  if ((await tree.listDirectory(metadataRoot)).length === 0) {
-    return tree.removeEntry(root, [], PROFILE_DRIVE_METADATA_DIRECTORY);
-  }
-  return tree.setEntry(root, [], PROFILE_DRIVE_METADATA_DIRECTORY, metadataRoot, 0, LinkType.Dir);
-}
-
-async function resolveEntry(
-  tree: HashTree,
-  root: CID,
-  parts: string[],
-): Promise<TreeEntry | null> {
-  const name = parts.at(-1);
-  if (!name) return null;
-  const parentParts = parts.slice(0, -1);
-  const parent = parentParts.length > 0
-    ? await tree.resolvePath(root, parentParts)
-    : { cid: root, type: LinkType.Dir };
-  if (!parent?.cid || parent.type !== LinkType.Dir) return null;
-  const entries = await tree.listDirectory(parent.cid);
-  return entries.find((entry) => entry.name === name) ?? null;
-}
-
-function pathIsAtOrBelow(path: string, prefix: string): boolean {
-  return path === prefix || path.startsWith(`${prefix}/`);
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
 function hasExactKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
-  const actual = Object.keys(value).sort();
-  return actual.length === keys.length
-    && [...keys].sort().every((key, index) => actual[index] === key);
+  return Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key));
 }

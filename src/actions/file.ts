@@ -9,9 +9,14 @@ import { setUploadProgress } from '../stores/upload';
 import { parseRoute } from '../utils/route';
 import { getCurrentRootCid, getCurrentPathFromUrl, updateRoute } from './route';
 import { initVirtualTree } from './tree';
-import { setEntryForDriveRoute } from '../drive/profileDriveRouteEntry';
+import { DirectoryBuilder } from '../drive/directoryBuilder';
+import { createLimiter } from '../drive/profileDriveMutation';
+import { setEntriesForDriveRoute, setEntryForDriveRoute, type DriveEntryWrite } from '../drive/profileDriveRouteEntry';
 import { captureRouteWriteGuard } from '../lib/routeWriteGuard';
 import { inTurn } from '../lib/driveWrites';
+import { withModifiedAt } from '../lib/modifiedAt';
+
+const EXTRACT_PUT_CONCURRENCY = 8;
 
 async function setCurrentRouteEntry(
   root: CID,
@@ -166,12 +171,13 @@ export async function uploadSingleFile(fileName: string, data: Uint8Array): Prom
   }
 }
 
-// Upload extracted files from an archive
-// archiveData is the raw ZIP, archiveName is for extractArchive
-// If subdirName is provided, files will be extracted into a subdirectory with that name
+/**
+ * Extract files from a ZIP archive and splice them into the open folder in one
+ * queued tree update so concurrent edits are preserved and each directory is
+ * written once.
+ */
 export async function uploadExtractedFiles(archiveData: Uint8Array, archiveName: string, subdirName?: string): Promise<void> {
-  let isCurrent = captureRouteWriteGuard();
-  // Show extracting status
+  const isCurrent = captureRouteWriteGuard();
   setUploadProgress({
     current: 0,
     total: 1,
@@ -181,173 +187,88 @@ export async function uploadExtractedFiles(archiveData: Uint8Array, archiveName:
     status: 'writing',
   });
 
-  // Allow UI to update before heavy sync extraction
-  await new Promise(r => setTimeout(r, 50));
-  if (!isCurrent()) return;
-
-  // Extract all files at once (ZIP format requires this - sync operation)
-  const { extractArchive } = await import('../utils/compression');
-  if (!isCurrent()) return;
-  const extractedFiles = extractArchive(archiveData, archiveName);
-  if (extractedFiles.length === 0) {
-    setUploadProgress(null);
-    return;
-  }
-
-  const tree = getTree();
-  const currentPath = getCurrentPathFromUrl();
-  const total = extractedFiles.length;
-  const totalBytes = extractedFiles.reduce((sum, f) => sum + f.data.length, 0);
-  let bytesProcessed = 0;
-
-  let rootCid: CID | null = getCurrentRootCid();
-
-  // If extracting to subdirectory, create it first
-  if (subdirName) {
-    setUploadProgress({
-      current: 0,
-      total,
-      fileName: `Creating ${subdirName}/`,
-      bytes: 0,
-      totalBytes,
-      status: 'writing',
-    });
-
-    const { cid: emptyDirCid } = await tree.putDirectory([]);
-
-    if (rootCid) {
-      // Add subdirectory to existing tree
-      if (!isCurrent()) return;
-      const newRootCid = await setCurrentRouteEntry(
-        rootCid,
-        currentPath,
-        subdirName,
-        emptyDirCid,
-        0,
-        LinkType.Dir
-      );
-      rootCid = newRootCid;
-    } else {
-      // Initialize virtual tree with the subdirectory
-      if (!isCurrent()) return;
-      const result = await initVirtualTree([{ name: subdirName, cid: emptyDirCid, size: 0, type: LinkType.Dir }]);
-      if (result) {
-        rootCid = result;
-        // Initialization intentionally selects the newly created tree.
-        isCurrent = captureRouteWriteGuard();
-      }
-    }
-  }
-
-  // Base path for extraction (includes subdirName if provided)
-  const basePath = subdirName ? [...currentPath, subdirName] : currentPath;
-
-  // Collect all unique directory paths that need to be created
-  const dirsToCreate = new Set<string>();
-  for (const file of extractedFiles) {
-    const pathParts = file.name.split('/');
-    pathParts.pop(); // Remove filename
-    // Add all parent paths
-    for (let i = 1; i <= pathParts.length; i++) {
-      dirsToCreate.add(pathParts.slice(0, i).join('/'));
-    }
-  }
-
-  // Sort directories by depth (shallowest first)
-  const sortedDirs = Array.from(dirsToCreate).sort((a, b) =>
-    a.split('/').length - b.split('/').length
-  );
-
-  // Create all directories first
-  const createdDirs = new Set<string>();
-  for (const dirPathStr of sortedDirs) {
-    if (createdDirs.has(dirPathStr)) continue;
-
-    const parts = dirPathStr.split('/');
-    const dirName = parts.pop()!;
-    const parentPath = [...basePath, ...parts];
-
-    // Create empty directory
-    const { cid: emptyDirCid } = await tree.putDirectory([]);
-
-    if (rootCid) {
-      if (!isCurrent()) return;
-      const newRootCid = await setCurrentRouteEntry(
-        rootCid,
-        parentPath,
-        dirName,
-        emptyDirCid,
-        0,
-        LinkType.Dir
-      );
-      rootCid = newRootCid;
-    } else {
-      // First item - create an encrypted tree with this directory
-      const result = await tree.putDirectory([{ name: dirName, cid: emptyDirCid, size: 0, type: LinkType.Dir }]);
-      rootCid = result.cid;
-    }
-
-    createdDirs.add(dirPathStr);
-  }
-
-  // Process each extracted file
-  for (let i = 0; i < extractedFiles.length; i++) {
-    const file = extractedFiles[i];
-
-    // Update progress
-    setUploadProgress({
-      current: i + 1,
-      total,
-      fileName: file.name,
-      bytes: bytesProcessed,
-      totalBytes,
-      status: 'writing',
-    });
-
-    // Yield to UI every 10 files to keep it responsive
-    if (i % 10 === 0) {
-      await new Promise(r => setTimeout(r, 0));
-    }
-
-    // Store the file
-    const { cid: fileCid, size } = await tree.putFile(file.data);
-    bytesProcessed += file.data.length;
-
-    // Parse path to handle nested directories
-    const pathParts = file.name.split('/');
-    const fileName = pathParts.pop()!;
-    const targetPath = pathParts.length > 0 ? [...basePath, ...pathParts] : basePath;
-
-    if (rootCid) {
-      if (!isCurrent()) return;
-      const newRootCid = await setCurrentRouteEntry(
-        rootCid,
-        targetPath,
-        fileName,
-        fileCid,
-        size,
-        LinkType.Blob
-      );
-      rootCid = newRootCid;
-    } else {
-      // First file - create an encrypted tree
-      const result = await tree.putDirectory([{ name: fileName, cid: fileCid, size, type: LinkType.Blob }]);
-      rootCid = result.cid;
-    }
-
-    // Publish periodically (every 50 files) so UI updates without overwhelming
-    if (rootCid && (i % 50 === 0 || i === extractedFiles.length - 1)) {
-      if (!isCurrent()) return;
-      autosaveIfOwn(rootCid);
-    }
-  }
-
-  // Final publish to ensure all files are saved
-  if (rootCid) {
+  try {
+    // Allow UI to render progress before sync archive decompression.
+    await new Promise((r) => setTimeout(r, 50));
     if (!isCurrent()) return;
-    autosaveIfOwn(rootCid);
-  }
 
-  // Clear progress
-  setUploadProgress(null);
+    const { extractArchive } = await import('../utils/compression');
+    if (!isCurrent()) return;
+    const extractedFiles = extractArchive(archiveData, archiveName);
+    if (extractedFiles.length === 0) return;
+
+    const tree = getTree();
+    const currentPath = getCurrentPathFromUrl();
+    const basePath = subdirName ? [...currentPath, subdirName] : currentPath;
+    const total = extractedFiles.length;
+    const totalBytes = extractedFiles.reduce((sum, f) => sum + f.data.length, 0);
+
+    let completed = 0;
+    let bytesProcessed = 0;
+    const limit = createLimiter(EXTRACT_PUT_CONCURRENCY);
+    const writes: DriveEntryWrite[] = [];
+
+    await Promise.all(extractedFiles.map((file) => limit(async () => {
+      if (!isCurrent()) return;
+      const { cid: fileCid, size } = await tree.putFile(file.data);
+      completed += 1;
+      bytesProcessed += file.data.length;
+      if (isCurrent()) {
+        setUploadProgress({
+          current: completed,
+          total,
+          fileName: file.name,
+          bytes: bytesProcessed,
+          totalBytes,
+          status: 'writing',
+        });
+      }
+      const parts = file.name.split('/').filter(Boolean);
+      const name = parts.pop();
+      if (!name) return;
+      writes.push({
+        parentPath: [...basePath, ...parts],
+        name,
+        entry: { cid: fileCid, size, type: LinkType.Blob },
+      });
+    })));
+
+    if (!isCurrent() || writes.length === 0) return;
+
+    await inTurn(async () => {
+      if (!isCurrent()) return;
+      const rootCid = getCurrentRootCid();
+      if (rootCid) {
+        const nextRoot = await setEntriesForDriveRoute(tree, rootCid, writes, parseRoute(), nostrStore.getState());
+        if (!isCurrent()) return;
+        autosaveIfOwn(nextRoot);
+        return;
+      }
+
+      // Uninitialized tree: assemble the extracted subtree bottom-up once.
+      const builder = new DirectoryBuilder();
+      for (const write of writes) {
+        builder.directory(write.parentPath).setLeaf(write.name, {
+          ...write.entry,
+          meta: withModifiedAt(write.entry.meta),
+        });
+      }
+      const builtRoot = await builder.put(tree);
+      if (!isCurrent()) return;
+      const topEntries = await tree.listDirectory(builtRoot);
+      const route = parseRoute();
+      if (route.npub && route.treeName) {
+        await initVirtualTree(topEntries.map((entry) => ({
+          name: entry.name,
+          cid: entry.cid,
+          size: entry.size,
+          type: entry.type,
+        })));
+      } else {
+        autosaveIfOwn(builtRoot);
+      }
+    });
+  } finally {
+    setUploadProgress(null);
+  }
 }

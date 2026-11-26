@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.45 - 2026-11-26
+
+- Uploading multiple files or folders, unpacking a ZIP archive, deleting a selection, restoring from Trash and adding photos to an album now update the Drive in batches instead of rewriting folders and deletion history once per item.
+- Saving or publishing a change no longer re-reads and rewrites past deletion history, and syncing changes across devices skips unchanged folders.
+- Opening a large shared folder no longer stalls while computing access badges for each row, and browsing large photo libraries formats date groups faster.
+- Downloading folders or selections as a ZIP reads files in parallel and stores already-compressed photos, videos and archives without wasting time re-compressing them.
+- Unpacking a ZIP archive now queues safely behind other Drive edits and always clears its progress bar on error; uploading files into an empty Drive now saves them reliably.
+
 ## 0.1.44 - 2026-11-25
 
 - A file uploaded to a shared folder before the folder has loaded, as right after joining it, now waits for the folder and lands in it. It used to be saved as your own My Drive instead, which then listed only that file.

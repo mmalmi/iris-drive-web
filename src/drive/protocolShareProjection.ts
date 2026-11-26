@@ -10,10 +10,20 @@ import { projectNostrIdentityRoster } from './protocolProfileProjection';
 import { signedShareMemberRosterOpIsValid } from './protocolShareValidation';
 import { profileIdForAppKey, shareRoleRank } from './protocolShareBase';
 
+const MAX_CACHED_MEMBER_PROJECTIONS = 16;
+const memberProjections = new Map<string, ShareMemberRosterProjection>();
+
 export function projectSharedFolderMemberRoster(
   folder: SharedFolder,
   keyProjection = projectNostrIdentityRoster(folder.share_id, folder.roster_ops ?? []),
 ): ShareMemberRosterProjection {
+  const key = JSON.stringify([folder.share_id, folder.owner_profile_id, folder.roster_ops ?? [], folder.member_ops ?? [], keyProjection]);
+  const cached = memberProjections.get(key);
+  if (cached) {
+    memberProjections.delete(key);
+    memberProjections.set(key, cached);
+    return structuredClone(cached);
+  }
   const projection: ShareMemberRosterProjection = {
     share_id: folder.share_id,
     members: {},
@@ -37,7 +47,11 @@ export function projectSharedFolderMemberRoster(
     projection.accepted_op_ids.push(signed.op_id);
     accepted.set(signed.op_id, signed);
   }
-  return projection;
+  if (memberProjections.size >= MAX_CACHED_MEMBER_PROJECTIONS) {
+    memberProjections.delete(memberProjections.keys().next().value!);
+  }
+  memberProjections.set(key, projection);
+  return structuredClone(projection);
 }
 
 export function applyShareMemberRosterOp(

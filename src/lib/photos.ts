@@ -120,26 +120,59 @@ export function uniquePhotos(photos: readonly Photo[]): Photo[] {
   return [...kept.values()];
 }
 
+const dateFormatCache = new Map<string, {
+  sameYear: Intl.DateTimeFormat;
+  otherYear: Intl.DateTimeFormat;
+  monthYear: Intl.DateTimeFormat;
+}>();
+
+function dateFormatters(locale?: string) {
+  const key = locale ?? '';
+  let cached = dateFormatCache.get(key);
+  if (!cached) {
+    if (dateFormatCache.size >= 16) dateFormatCache.delete(dateFormatCache.keys().next().value!);
+    cached = {
+      sameYear: new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'short' }),
+      otherYear: new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'short', year: 'numeric' }),
+      monthYear: new Intl.DateTimeFormat(locale, { month: 'long', year: 'numeric' }),
+    };
+    dateFormatCache.set(key, cached);
+  }
+  return cached;
+}
+
 function startOfDay(date: Date): number {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
 }
 
-/** The heading a date is shown under: "Today", "Yesterday", "12 Nov", or "October 2026" before the last month. */
-export function dateHeading(seconds: number | null, now = new Date(), locale?: string): { key: string; label: string } {
-  if (seconds === null) return { key: 'none', label: 'No date' };
+function headingForDate(
+  seconds: number | null,
+  nowDayStart: number,
+  nowYear: number,
+  formatters: ReturnType<typeof dateFormatters>,
+  reuseKey?: string,
+): { key: string; label: string } | null {
+  if (seconds === null) return reuseKey === 'none' ? null : { key: 'none', label: 'No date' };
   const date = new Date(seconds * 1000);
-  const daysAgo = Math.round((startOfDay(now) - startOfDay(date)) / 86_400_000);
+  const year = date.getFullYear();
+  const month = date.getMonth();
+  const day = date.getDate();
+  const daysAgo = Math.round((nowDayStart - new Date(year, month, day).getTime()) / 86_400_000);
   if (daysAgo < DAYS_SHOWN) {
-    const key = `d:${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`;
+    const key = `d:${year}-${month + 1}-${day}`;
+    if (key === reuseKey) return null;
     if (daysAgo === 0) return { key, label: 'Today' };
     if (daysAgo === 1) return { key, label: 'Yesterday' };
-    const sameYear = date.getFullYear() === now.getFullYear();
-    return { key, label: date.toLocaleDateString(locale, sameYear ? { day: 'numeric', month: 'short' } : { day: 'numeric', month: 'short', year: 'numeric' }) };
+    return { key, label: (year === nowYear ? formatters.sameYear : formatters.otherYear).format(date) };
   }
-  return {
-    key: `m:${date.getFullYear()}-${date.getMonth() + 1}`,
-    label: date.toLocaleDateString(locale, { month: 'long', year: 'numeric' }),
-  };
+  const key = `m:${year}-${month + 1}`;
+  if (key === reuseKey) return null;
+  return { key, label: formatters.monthYear.format(date) };
+}
+
+/** The heading a date is shown under: "Today", "Yesterday", "12 Nov", or "October 2026" before the last month. */
+export function dateHeading(seconds: number | null, now = new Date(), locale?: string): { key: string; label: string } {
+  return headingForDate(seconds, startOfDay(now), now.getFullYear(), dateFormatters(locale))!;
 }
 
 /** Newest first; those with no date last. */
@@ -152,10 +185,13 @@ function newestFirst(photos: readonly Photo[], dateOf: PhotoDating): Array<{ pho
 /** The photos newest first under their date headings; those with no date last. */
 export function arrangePhotos(photos: readonly Photo[], dateOf: PhotoDating, now = new Date(), locale?: string): PhotoGroup[] {
   const groups: PhotoGroup[] = [];
+  const nowDayStart = startOfDay(now);
+  const nowYear = now.getFullYear();
+  const formatters = dateFormatters(locale);
   for (const { photo, date } of newestFirst(photos, dateOf)) {
-    const heading = dateHeading(date, now, locale);
     const last = groups[groups.length - 1];
-    if (last?.key === heading.key) last.photos.push(photo);
+    const heading = headingForDate(date, nowDayStart, nowYear, formatters, last?.key);
+    if (!heading) last!.photos.push(photo);
     else groups.push({ ...heading, photos: [photo] });
   }
   return groups;

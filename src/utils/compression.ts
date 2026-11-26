@@ -4,6 +4,15 @@
 import { zip, unzipSync, type AsyncZippable, type Unzipped } from 'fflate';
 import type { HashTree, CID, TreeEntry } from '@hashtree/core';
 import { LinkType } from '@hashtree/core';
+import { createLimiter } from '../drive/profileDriveMutation';
+
+const ZIP_IO_CONCURRENCY = 6;
+/** Formats that are already compressed: store directly in ZIP instead of wasting CPU re-deflating. */
+const PRECOMPRESSED_EXTENSIONS = new Set([
+  'jpg', 'jpeg', 'jfif', 'png', 'gif', 'webp', 'avif', 'heic', 'heif',
+  'mp4', 'm4v', 'mov', 'webm', 'mkv', 'mp3', 'm4a', 'ogg', 'opus', 'aac', 'flac',
+  'zip', 'gz', 'bz2', 'xz', '7z', 'zst', 'br', 'woff2', 'pdf',
+]);
 
 export interface ZipProgress {
   current: number;
@@ -24,6 +33,11 @@ function throwIfAborted(signal?: AbortSignal): void {
   if (signal?.aborted) {
     throw new ZipCancelledError();
   }
+}
+
+function isPrecompressed(path: string): boolean {
+  const dot = path.lastIndexOf('.');
+  return dot >= 0 && PRECOMPRESSED_EXTENSIONS.has(path.slice(dot + 1).toLowerCase());
 }
 
 /**
@@ -47,14 +61,15 @@ async function collectFiles(
   dirCid: CID,
   basePath: string,
   items: Map<string, CollectedItem>,
+  limit: ReturnType<typeof createLimiter>,
   onProgress?: ProgressCallback,
   signal?: AbortSignal,
-  counter = { value: 0 }
+  counter = { value: 0 },
 ): Promise<boolean> {
   throwIfAborted(signal);
-  const entries = await tree.listDirectory(dirCid);
+  const entries = await limit(() => tree.listDirectory(dirCid));
   throwIfAborted(signal);
-  return collectEntries(tree, entries, basePath, items, onProgress, signal, counter);
+  return collectEntries(tree, entries, basePath, items, limit, onProgress, signal, counter);
 }
 
 /** Collects the given entries and all below them; false when there are none. */
@@ -63,28 +78,18 @@ async function collectEntries(
   entries: TreeEntry[],
   basePath: string,
   items: Map<string, CollectedItem>,
+  limit: ReturnType<typeof createLimiter>,
   onProgress?: ProgressCallback,
   signal?: AbortSignal,
-  counter = { value: 0 }
+  counter = { value: 0 },
 ): Promise<boolean> {
-  // If directory is empty, return false to indicate it should be added as empty dir
-  if (entries.length === 0) {
-    return false;
-  }
+  if (entries.length === 0) return false;
 
-  let hasContent = false;
-
+  const subdirs: Array<{ entry: TreeEntry; fullPath: string }> = [];
   for (const entry of entries) {
     const fullPath = basePath ? `${basePath}/${entry.name}` : entry.name;
-
     if (entry.type === LinkType.Dir) {
-      // Recursively collect from subdirectory
-      const subdirHasContent = await collectFiles(tree, entry.cid, fullPath, items, onProgress, signal, counter);
-      if (!subdirHasContent) {
-        // Empty directory - add it with trailing slash
-        items.set(fullPath + '/', { cid: entry.cid, isDirectory: true });
-      }
-      hasContent = true;
+      subdirs.push({ entry, fullPath });
     } else {
       items.set(fullPath, { cid: entry.cid, size: entry.size, isDirectory: false });
       counter.value++;
@@ -94,11 +99,18 @@ async function collectEntries(
         fileName: fullPath,
       });
       throwIfAborted(signal);
-      hasContent = true;
     }
   }
 
-  return hasContent;
+  await Promise.all(subdirs.map(async ({ entry, fullPath }) => {
+    const subdirHasContent = await collectFiles(tree, entry.cid, fullPath, items, limit, onProgress, signal, counter);
+    if (!subdirHasContent) {
+      // Empty directory - add it with trailing slash
+      items.set(fullPath + '/', { cid: entry.cid, isDirectory: true });
+    }
+  }));
+
+  return true;
 }
 
 /**
@@ -109,7 +121,7 @@ export async function createZipFromDirectory(
   dirCid: CID,
   dirName: string,
   onProgress?: ProgressCallback,
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ): Promise<Uint8Array> {
   throwIfAborted(signal);
   const entries = await tree.listDirectory(dirCid);
@@ -124,42 +136,44 @@ export async function createZipFromEntries(
   tree: HashTree,
   entries: TreeEntry[],
   onProgress?: ProgressCallback,
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ): Promise<Uint8Array> {
   throwIfAborted(signal);
 
-  // Collect all files and empty directories
+  const limit = createLimiter(ZIP_IO_CONCURRENCY);
   const items = new Map<string, CollectedItem>();
-  await collectEntries(tree, entries, '', items, onProgress, signal);
+  await collectEntries(tree, entries, '', items, limit, onProgress, signal);
   throwIfAborted(signal);
 
-  // Count only files for progress (not empty dirs)
-  const fileCount = Array.from(items.values()).filter(i => !i.isDirectory).length;
+  const fileItems: Array<[string, CollectedItem]> = [];
   const zipFiles: AsyncZippable = {};
-  let current = 0;
-
-  // Read and add each item to the zip
   for (const [path, info] of items) {
     if (info.isDirectory) {
-      // Empty directory - add as empty Uint8Array with trailing slash path
-      zipFiles[path] = new Uint8Array(0);
+      zipFiles[path] = [new Uint8Array(0), { level: 0 }];
     } else {
-      throwIfAborted(signal);
-      current++;
-      onProgress?.({
-        current,
-        total: fileCount,
-        fileName: path,
-      });
-      throwIfAborted(signal);
-
-      const data = await tree.readFile(info.cid);
-      throwIfAborted(signal);
-      if (data) {
-        zipFiles[path] = data;
-      }
+      fileItems.push([path, info]);
     }
   }
+
+  const fileCount = fileItems.length;
+  let current = 0;
+
+  await Promise.all(fileItems.map(([path, info]) => limit(async () => {
+    throwIfAborted(signal);
+    current++;
+    onProgress?.({
+      current,
+      total: fileCount,
+      fileName: path,
+    });
+    throwIfAborted(signal);
+
+    const data = await tree.readFile(info.cid);
+    throwIfAborted(signal);
+    if (data) {
+      zipFiles[path] = isPrecompressed(path) ? [data, { level: 0 }] : data;
+    }
+  })));
 
   // Create the ZIP
   return new Promise((resolve, reject) => {

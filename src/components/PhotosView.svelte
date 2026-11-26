@@ -15,7 +15,7 @@
   import { nostrStore } from '../nostr';
   import { acceptedShares } from '../drive/shareLibrary';
   import { linkShares } from '../drive/linkShares';
-  import { itemAccess } from '../drive/itemAccess';
+  import { createItemAccessLookup, type ItemAccess } from '../drive/itemAccess';
   import { activeNostrIdentityRootScope, isEditableDriveRouteScope } from '../drive/profileRoute';
   import { ownedShareAtPath, sharePeopleTarget } from '../drive/sharePeople';
   import { currentFullHash, currentPath, getQueryParamsFromHash } from '../lib/router.svelte';
@@ -113,17 +113,29 @@
       .map(({ entry }) => entry.name));
   });
 
-  function accessOf(item: { scope: string; path: string[] }) {
-    return itemAccess({
-      scope: item.scope,
-      treeName: DRIVE_TREE_NAME,
-      path: item.path,
-      profileId: ownProfileId,
-      appKeyPubkey: $nostrStore.pubkey,
-      records: $acceptedShares,
-      linkShares: $linkShares,
-    });
-  }
+  let accessByScope = $derived.by(() => {
+    const lookups = new Map<string, (path: string[]) => ItemAccess | null>();
+    const profileId = ownProfileId;
+    const appKeyPubkey = $nostrStore.pubkey;
+    const records = $acceptedShares;
+    const links = $linkShares;
+    return (item: { scope: string; path: string[] }) => {
+      let lookup = lookups.get(item.scope);
+      if (!lookup) {
+        lookup = createItemAccessLookup({
+          scope: item.scope,
+          treeName: DRIVE_TREE_NAME,
+          profileId,
+          appKeyPubkey,
+          records,
+          linkShares: links,
+        });
+        lookups.set(item.scope, lookup);
+      }
+      return lookup(item.path);
+    };
+  });
+  const accessOf = (item: { scope: string; path: string[] }) => accessByScope(item);
 
   function collect(list: DriveRoot[]) {
     // Direct subfolders of My Drive/Photos are albums even before their first photo.

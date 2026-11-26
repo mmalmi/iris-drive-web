@@ -4,7 +4,12 @@ import {
   type HashTree,
   type TreeEntry,
 } from '@hashtree/core';
-import { mutateProfileDriveRoot, resolveEntry } from './profileDriveMutation';
+import {
+  mutateProfileDriveRoot,
+  setProfileDriveEntries,
+  spliceEntriesInTree,
+  type TreeEntryWrite,
+} from './profileDriveMutation';
 import { isEditableDriveRouteScope } from './profileRoute';
 import { activeShareScope } from './shareScope';
 import { withModifiedAt } from '../lib/modifiedAt';
@@ -19,13 +24,137 @@ type EditableNostrState = {
   pubkey: string | null;
 };
 
+export interface DriveEntryWrite {
+  parentPath: string[];
+  name: string;
+  entry: Omit<TreeEntry, 'name'>;
+  /** Keep existing `meta.modified_at` untouched (used when affirming an identical remote Trash entry). */
+  preserveModifiedAt?: boolean;
+}
+
 /**
- * Route every entry write through the durable profile-Drive mutation protocol
- * when the current tree is scoped to the active profile UUID. Legacy npub,
- * permalink, and local trees retain the HashTree setEntry behavior unchanged.
- * What is written is marked as changed now, for the list's Last modified.
+ * Route entry writes through the durable profile-Drive mutation protocol when
+ * the current tree is scoped to the active profile UUID, splicing all entries
+ * bottom-up in one pass. Legacy npub, permalink, and local trees retain plain
+ * HashTree behavior while also batching parent creation and folder writes.
  */
-export async function setEntryForDriveRoute(
+export async function setEntriesForDriveRoute(
+  tree: HashTree,
+  root: CID,
+  items: readonly DriveEntryWrite[],
+  route: DriveRoute,
+  state: EditableNostrState,
+): Promise<CID> {
+  if (items.length === 0) return root;
+  const writes: TreeEntryWrite[] = [];
+
+  if (route.treeName && isEditableDriveRouteScope(route.npub, state)) {
+    const share = route.treeName === 'main' ? activeShareScope(route.npub, state) : null;
+    let shareTools: {
+      key: Uint8Array;
+      claimCopiedDirectory: typeof import('./fileReturnProtocol').claimCopiedDirectory;
+      claimNewFile: typeof import('./fileReturnProtocol').claimNewFile;
+      OWNER_META: string;
+      REQUEST_META: string;
+      RETURNED_META: string;
+    } | null = null;
+
+    if (share?.canWrite) {
+      const [{ getSecretKey }, proto] = await Promise.all([
+        import('../nostr/auth'),
+        import('./fileReturnProtocol'),
+      ]);
+      const key = getSecretKey();
+      if (!key) throw new Error('Sign in to change this shared file');
+      shareTools = { key, ...proto };
+    }
+
+    const parentCache = new Map<string, Promise<Map<string, TreeEntry> | null>>();
+    const lookupExisting = async (parentPath: string[], name: string): Promise<TreeEntry | null> => {
+      const key = parentPath.join('\0');
+      let pending = parentCache.get(key);
+      if (!pending) {
+        pending = (async () => {
+          const parent = parentPath.length > 0
+            ? await tree.resolvePath(root, parentPath)
+            : { cid: root, type: LinkType.Dir };
+          if (!parent?.cid || parent.type !== LinkType.Dir) return null;
+          return new Map((await tree.listDirectory(parent.cid)).map((e) => [e.name, e]));
+        })();
+        parentCache.set(key, pending);
+      }
+      return (await pending)?.get(name) ?? null;
+    };
+
+    for (const item of items) {
+      const entry = {
+        ...item.entry,
+        meta: item.preserveModifiedAt ? item.entry.meta : withModifiedAt(item.entry.meta),
+      };
+      const path = [...item.parentPath, item.name].filter(Boolean);
+      const name = path.at(-1)!;
+      const parentPath = path.slice(0, -1);
+      if (entry.type === LinkType.Dir) {
+        const existing = await lookupExisting(parentPath, name);
+        // Directory-upload setup and document initialization are ensure-style
+        // writes. Never replace an existing profile directory with a fresh empty
+        // directory and silently discard its children.
+        if (existing?.type === LinkType.Dir) continue;
+        if (share && existing) throw new Error('A shared file already uses this folder name');
+      }
+      if (share?.canWrite && shareTools) {
+        const meta = { ...entry.meta };
+        delete meta[shareTools.OWNER_META];
+        delete meta[shareTools.REQUEST_META];
+        delete meta[shareTools.RETURNED_META];
+        entry.meta = meta;
+        if (entry.type === LinkType.Dir) {
+          entry.cid = await shareTools.claimCopiedDirectory(
+            tree,
+            entry.cid,
+            share.record.share_id,
+            share.record.local_profile_id,
+            shareTools.key,
+          );
+        } else {
+          const previous = await lookupExisting(parentPath, name);
+          if (!previous) {
+            meta[shareTools.OWNER_META] = shareTools.claimNewFile(
+              share.record.share_id,
+              share.record.local_profile_id,
+              entry.cid,
+              shareTools.key,
+            );
+          } else if (previous.type === LinkType.Blob && typeof previous.meta?.[shareTools.OWNER_META] === 'string') {
+            meta[shareTools.OWNER_META] = previous.meta[shareTools.OWNER_META];
+          } else if (previous.type === LinkType.Dir) {
+            throw new Error('Choose another name. A shared folder already uses this one.');
+          }
+        }
+      }
+      writes.push({ path, entry, ensureDir: entry.type === LinkType.Dir });
+    }
+    if (writes.length === 0) return root;
+    return setProfileDriveEntries(tree, root, writes);
+  }
+
+  for (const item of items) {
+    writes.push({
+      path: [...item.parentPath, item.name].filter(Boolean),
+      entry: {
+        ...item.entry,
+        type: item.entry.type ?? LinkType.Blob,
+        meta: item.preserveModifiedAt ? item.entry.meta : withModifiedAt(item.entry.meta),
+      },
+    });
+  }
+  return (await spliceEntriesInTree(tree, root, writes)).root;
+}
+
+/**
+ * Route a single entry write through `setEntriesForDriveRoute`.
+ */
+export function setEntryForDriveRoute(
   tree: HashTree,
   root: CID,
   parentPath: string[],
@@ -34,60 +163,7 @@ export async function setEntryForDriveRoute(
   route: DriveRoute,
   state: EditableNostrState,
 ): Promise<CID> {
-  const entry = { ...written, meta: withModifiedAt(written.meta) };
-  if (route.treeName && isEditableDriveRouteScope(route.npub, state)) {
-    const share = route.treeName === 'main' ? activeShareScope(route.npub, state) : null;
-    if (entry.type === LinkType.Dir) {
-      const existing = await tree.resolvePath(root, [...parentPath, name]);
-      // Directory-upload setup and document initialization are ensure-style
-      // writes. Never replace an existing profile directory with a fresh empty
-      // directory and silently discard its children.
-      if (existing?.type === LinkType.Dir) return root;
-      if (share && existing) throw new Error('A shared file already uses this folder name');
-    }
-    if (share?.canWrite) {
-      const { getSecretKey } = await import('../nostr/auth');
-      const { claimCopiedDirectory, claimNewFile, OWNER_META, REQUEST_META, RETURNED_META } = await import('./fileReturnProtocol');
-      const key = getSecretKey();
-      if (!key) throw new Error('Sign in to change this shared file');
-      delete entry.meta[OWNER_META];
-      delete entry.meta[REQUEST_META];
-      delete entry.meta[RETURNED_META];
-      if (entry.type === LinkType.Dir) {
-        entry.cid = await claimCopiedDirectory(tree, entry.cid, share.record.share_id, share.record.local_profile_id, key);
-      } else {
-        const previous = await resolveEntry(tree, root, [...parentPath, name]);
-        if (!previous) {
-          entry.meta[OWNER_META] = claimNewFile(share.record.share_id, share.record.local_profile_id, entry.cid, key);
-        } else if (previous.type === LinkType.Blob && typeof previous.meta?.[OWNER_META] === 'string') {
-          entry.meta[OWNER_META] = previous.meta[OWNER_META];
-        } else if (previous.type === LinkType.Dir) {
-          throw new Error('Choose another name. A shared folder already uses this one.');
-        }
-      }
-    }
-    return mutateProfileDriveRoot(tree, root, {
-      type: 'set-entry',
-      path: [...parentPath, name].filter(Boolean).join('/'),
-      entry,
-    });
-  }
-  // The profile-Drive mutation creates missing parents itself; a plain tree needs them first.
-  for (let depth = 1; depth <= parentPath.length; depth += 1) {
-    const prefix = parentPath.slice(0, depth);
-    if (await tree.resolvePath(root, prefix)) continue;
-    const empty = await tree.putDirectory([]);
-    root = await tree.setEntry(root, prefix.slice(0, -1), prefix[prefix.length - 1], empty.cid, 0, LinkType.Dir);
-  }
-  return tree.setEntry(
-    root,
-    parentPath,
-    name,
-    entry.cid,
-    entry.size,
-    entry.type ?? LinkType.Blob,
-    entry.meta,
-  );
+  return setEntriesForDriveRoute(tree, root, [{ parentPath, name, entry: written }], route, state);
 }
 
 /**

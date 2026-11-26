@@ -3,6 +3,7 @@ import type { PendingShareInviteView, ShareShortcut, SharedFolder, SharedFolderV
 import {
   activeShareKeyRecipients,
   shareKeyStatus,
+  shareMembers,
   shareMemberViews,
   sharedFolderAppKeyCanAdmin,
   sharedFolderAppKeyWriteAuthorizationWithProjection,
@@ -21,21 +22,23 @@ export function projectSharedFolderView(
   currentAppKeyPubkey: string,
 ): SharedFolderView {
   const projection = projectSharedFolderKeys(folder);
+  const resolvedMembers = shareMembers(folder, projection);
   const epochNumbers = Object.keys(projection.secret_epochs).map((epoch) => Number(epoch));
   const currentKeyEpoch = epochNumbers.length ? Math.max(...epochNumbers) : undefined;
   const missing = currentKeyEpoch === undefined
     ? []
-    : activeShareKeyRecipients(folder, projection)
+    : activeShareKeyRecipients(folder, projection, resolvedMembers)
       .filter((pubkey) => !projection.secret_epochs[String(currentKeyEpoch)]?.wrapped_secrets[pubkey]);
-  const keyStatus = shareKeyStatus(folder, projection, currentAppKeyPubkey, currentKeyEpoch, missing);
+  const keyStatus = shareKeyStatus(folder, projection, currentAppKeyPubkey, currentKeyEpoch, missing, resolvedMembers);
   const writeAuthorization = sharedFolderAppKeyWriteAuthorizationWithProjection(
     folder,
     projection,
     currentAppKeyPubkey,
+    resolvedMembers,
   );
-  const canAdmin = sharedFolderAppKeyCanAdmin(folder, projection, currentAppKeyPubkey);
+  const canAdmin = sharedFolderAppKeyCanAdmin(folder, projection, currentAppKeyPubkey, resolvedMembers);
   const localRole = canAdmin ? 'admin' : writeAuthorization === 'authorized' ? 'editor' : 'reader';
-  const members = shareMemberViews(folder, projection, currentAppKeyPubkey, canAdmin);
+  const members = shareMemberViews(folder, projection, currentAppKeyPubkey, canAdmin, resolvedMembers);
   const shortcutPaths = shortcuts
     .filter((shortcut) => shortcut.share_id === folder.share_id)
     .map((shortcut) => shortcut.path)

@@ -2,7 +2,7 @@ import { get } from 'svelte/store';
 import { getCurrentNostrIdentitySession } from '../nostr/auth';
 import { acceptedShares, isOwnShare, type AcceptedShareRecord } from './shareLibrary';
 import { projectSharedFolderKeys } from './protocolShareSnapshot';
-import { sharedFolderAuthorizedWriterPubkeys, sharedFolderKeyRecipientPubkeys } from './protocol';
+import { activeShareKeyRecipients, shareMembers, sharedFolderAuthorizedWriterPubkeys } from './protocol';
 import { driveRootPath } from './setup';
 
 /**
@@ -35,11 +35,12 @@ export function activeShareScope(
   const projection = projectSharedFolderKeys(record.folder);
   const facet = projection.active_facets[session.appKeyPubkey];
   if (!facet?.capabilities?.can_decrypt_secret_epochs) return null;
+  const members = shareMembers(record.folder, projection);
   return {
     record,
     canWrite: facet.capabilities.can_write_roots,
-    writers: sharedFolderAuthorizedWriterPubkeys(record.folder),
-    recipients: sharedFolderKeyRecipientPubkeys(record.folder),
+    writers: sharedFolderAuthorizedWriterPubkeys(record.folder, projection, members),
+    recipients: activeShareKeyRecipients(record.folder, projection, members),
     epoch: Math.max(0, ...Object.keys(projection.secret_epochs).map(Number)),
   };
 }

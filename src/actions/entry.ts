@@ -5,13 +5,20 @@ import { navigate } from '../utils/navigate';
 import { isNostrIdentityId, parseRoute } from '../utils/route';
 import { autosaveIfOwn, nostrStore } from '../nostr';
 import { getTree } from '../store';
-import { LinkType, toHex, type CID, type HashTree, type TreeEntry } from '@hashtree/core';
+import { LinkType, type CID, type HashTree, type TreeEntry } from '@hashtree/core';
+import { sameCid } from '../drive/profileDrivePathKindMetadata';
 import { getCurrentRootCid, getCurrentPathFromUrl, buildRouteUrl, updateRoute } from './route';
 import { activeNostrIdentityRootScope, isEditableDriveRouteScope } from '../drive/profileRoute';
 import { followLinkShares, putBackLinkShares } from '../drive/linkShareSync';
-import { moveProfileDriveEntries, mutateProfileDriveRoot, resolveEntry } from '../drive/profileDriveMutation';
+import {
+  deleteEntriesInFolder,
+  deleteProfileDriveEntries,
+  moveProfileDriveEntries,
+  mutateProfileDriveRoot,
+  resolveEntry,
+} from '../drive/profileDriveMutation';
 import { moveEntriesInTree } from '../lib/moveEntries';
-import { setEntryForDriveRoute } from '../drive/profileDriveRouteEntry';
+import { setEntriesForDriveRoute, type DriveEntryWrite } from '../drive/profileDriveRouteEntry';
 import { moveRecents, putBackRecents } from '../stores/recents';
 import type { TrashItem } from '../lib/driveTrash';
 import { forgetDeletionHistory, latestDeletion, rememberDeletion } from './deletionHistory';
@@ -91,14 +98,6 @@ function renameIn(root: CID, parentPath: string[], oldName: string, newName: str
     : tree.renameEntry(root, parentPath, oldName, newName);
 }
 
-/** Removes an entry of `root` from the folder at `parentPath`. */
-function removeIn(root: CID, parentPath: string[], name: string, route: EntryRoute = parseRoute()): Promise<CID> {
-  const tree = getTree();
-  return isProfileDriveMutation(route)
-    ? mutateProfileDriveRoot(tree, root, { type: 'delete', path: pathString([...parentPath, name]) })
-    : tree.removeEntry(root, parentPath, name);
-}
-
 // Rename entry
 export async function renameEntry(oldName: string, newName: string, folderPath?: string[]) {
   if (!newName || oldName === newName) return;
@@ -157,8 +156,7 @@ function requireTrashAccess(account: string, scope: string): void {
 }
 
 function sameEntry(a: Pick<TreeEntry, 'cid' | 'type'>, b: Pick<TreeEntry, 'cid' | 'type'>): boolean {
-  return a.type === b.type && toHex(a.cid.hash) === toHex(b.cid.hash)
-    && (a.cid.key ? toHex(a.cid.key) : '') === (b.cid.key ? toHex(b.cid.key) : '');
+  return a.type === b.type && sameCid(a.cid, b.cid);
 }
 
 /** Archive everything before unlinking it, including files inside deleted folders. */
@@ -217,12 +215,14 @@ export async function deleteEntries(names: string[], parentPath: string[] = getC
         }
         archived = true;
       }
-      let next = root;
       for (const { entry } of records) {
         const current = here.get(entry.name);
         if (!current || !sameEntry(current, entry)) throw new Error('The selection changed before it could be deleted');
-        next = await removeIn(next, parentPath, entry.name, route);
       }
+      const deletedNames = records.map(({ entry }) => entry.name);
+      const next = isProfileDriveMutation(route)
+        ? await deleteProfileDriveEntries(tree, root, parentPath, deletedNames)
+        : (await deleteEntriesInFolder(tree, root, parentPath, deletedNames)).root;
       checkSource();
       requireTrashAccess(account, scope);
       return next;
@@ -300,7 +300,22 @@ export async function restoreTrashItems(account: string, ids: string[], skipMiss
   await changeDriveRoot(scope, treeName, async root => {
     requireTrashAccess(account, scope);
     restored.clear();
-    let next = root;
+    const writes: DriveEntryWrite[] = [];
+    const parentListings = new Map<string, { siblings: Map<string, TreeEntry>; taken: Set<string> }>();
+    const readParent = async (parent: string[]) => {
+      const key = parent.join('\0');
+      let cached = parentListings.get(key);
+      if (!cached) {
+        const folder = await folderAt(tree, root, parent);
+        const list = folder ? await tree.listDirectory(folder) : [];
+        cached = {
+          siblings: new Map(list.map((item) => [item.name, item])),
+          taken: new Set(list.map((item) => item.name)),
+        };
+        parentListings.set(key, cached);
+      }
+      return cached;
+    };
     for (const id of ids) {
       const record = await getTrash(id, account);
       if (!record) continue;
@@ -313,7 +328,7 @@ export async function restoreTrashItems(account: string, ids: string[], skipMiss
       // A saved tree and its Trash row are in different stores. If the tab closed
       // between those commits, finish the pending restore without adding a second copy.
       if (record.destination) {
-        const existing = await tree.resolvePath(next, record.destination);
+        const existing = await tree.resolvePath(root, record.destination);
         if (existing && sameEntry(existing, entry)) {
           restored.set(id, record.destination);
           continue;
@@ -323,29 +338,29 @@ export async function restoreTrashItems(account: string, ids: string[], skipMiss
       // Recreate missing parents. If a file took a parent's name, keep that file
       // and restore to the nearest containing folder instead.
       for (let depth = 1; depth <= parent.length; depth++) {
-        const ancestor = await tree.resolvePath(next, parent.slice(0, depth));
+        const ancestor = await tree.resolvePath(root, parent.slice(0, depth));
         if (!ancestor) break;
         if (ancestor.type !== LinkType.Dir) {
           parent = parent.slice(0, depth - 1);
           break;
         }
       }
-      const folder = await folderAt(tree, next, parent);
-      const siblings = folder ? await tree.listDirectory(folder) : [];
-      const original = siblings.find(file => file.name === entry.name);
+      const { siblings, taken } = await readParent(parent);
+      const original = siblings.get(entry.name);
       // The signed Trash and My Drive roots can arrive in either order. If the
       // original bytes are already at their path, affirm that entry in this
       // restore instead of manufacturing a second, suffixed copy.
-      const identical = record.sync === 'remote' && original && sameEntry(original, entry)
+      const identical = record.sync === 'remote' && !!original && sameEntry(original, entry)
         && parent.length === record.path.length;
-      const taken = new Set(siblings.map(item => item.name));
       const name = identical ? entry.name : freeName(entry.name, taken, entry.type !== LinkType.Dir || isDocumentFolderName(entry.name));
+      taken.add(name);
       const destination = [...parent, name];
-      next = identical
-        ? await mutateProfileDriveRoot(tree, next, { type: 'set-entry', path: destination.join('/'), entry })
-        : await setEntryForDriveRoute(tree, next, parent, name, entry, { npub: scope, treeName }, nostrStore.getState());
+      writes.push({ parentPath: parent, name, entry, preserveModifiedAt: identical });
       restored.set(id, destination);
     }
+    const next = writes.length > 0
+      ? await setEntriesForDriveRoute(tree, root, writes, { npub: scope, treeName }, nostrStore.getState())
+      : root;
     requireTrashAccess(account, scope);
     if (privateSync && (!privateSync.canReadPrivateTrash(account)
       || [...restored.values()].some(path => !privateSync.isUnsharedTrashPath(account, path)))) {
