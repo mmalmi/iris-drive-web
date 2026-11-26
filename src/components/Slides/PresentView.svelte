@@ -145,6 +145,13 @@
     }
   }
 
+  function onExitPointerUp(event: PointerEvent): void {
+    // A browser can suppress the compatibility click after a swipe. End on
+    // the touch release too; exit() also makes a later click harmless.
+    if (event.pointerType === 'mouse' || !touch) return;
+    if (Math.hypot(event.clientX - touch.x, event.clientY - touch.y) < 12) exit();
+  }
+
   onMount(() => {
     root?.focus();
     // Asked for while the click that started presenting still counts as the user's doing.
@@ -209,7 +216,7 @@
     <button class="control" onclick={toggleFullscreen} title="Full screen" aria-label="Full screen">
       <span class="i-lucide-maximize"></span>
     </button>
-    <button class="control" onclick={exit} title="Exit" aria-label="Exit presentation" data-testid="present-exit">
+    <button class="control" onclick={exit} onpointerup={onExitPointerUp} title="Exit" aria-label="Exit presentation" data-testid="present-exit">
       <span class="i-lucide-x"></span>
     </button>
   </div>

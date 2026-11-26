@@ -151,10 +151,10 @@
     currentDirHashKey !== null && dirEntries.loadedHashKey !== currentDirHashKey
   );
   let loadingEntries = $derived(dirEntries.loading || entriesAreStale);
-  // A new revision of the open folder can update its keyed rows in place.
-  // On navigation, wait for the destination before showing any rows.
+  // A new revision keeps the open folder in place, including an empty
+  // folder's New menu. Only navigation waits for a different folder.
   let waitingForFolder = $derived(loadingEntries && (
-    !dirEntries.loadedHashKey || !entries.length || shownFolder !== folderKey(currentPath)
+    !dirEntries.loadedHashKey || shownFolder !== folderKey(currentPath)
   ));
 
   let isDraggingOver = $state(false);
