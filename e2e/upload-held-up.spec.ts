@@ -67,12 +67,18 @@ test.describe('an upload that is held up', () => {
   });
 
   test('an upload waiting for an earlier change says so, and goes on when that change ends', async ({ page }) => {
+    // Initialize the Drive before testing changes to its existing root.
+    await uploadFilesInput(page).setInputFiles([text('before.txt')]);
+    await expect(fileRow(page, 'before.txt')).toBeVisible({ timeout: 30_000 });
     // A change to the Drive that does not end until it is let go.
     await page.evaluate(async () => {
       const { inTurn } = await import('/src/lib/driveWrites.ts');
-      void inTurn(() => new Promise<void>((resolve) => {
-        (window as unknown as { __endEarlierChange: () => void }).__endEarlierChange = resolve;
-      }));
+      await new Promise<void>((started) => {
+        void inTurn(() => new Promise<void>((resolve) => {
+          (window as unknown as { __endEarlierChange: () => void }).__endEarlierChange = resolve;
+          started();
+        }));
+      });
     });
 
     await uploadFilesInput(page).setInputFiles([text('first.txt'), text('second.txt')]);
