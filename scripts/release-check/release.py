@@ -80,6 +80,9 @@ with tarfile.open(OUT / 'dist.tar.gz', 'w:gz') as archive:
 receipt['distArchiveSHA256'] = sha(OUT / 'dist.tar.gz')
 run('portable', ['node', 'scripts/smoke-files-iris-portable.mjs'])
 run('graph', ['node', 'scripts/check-graph-bootstrap-browser.mjs', '--evidence', str(OUT / 'graph.json')])
+if os.environ.get('DRIVE_CHECK_SCOPE') == 'recovery':
+    run('recovery', ['pnpm', 'exec', 'playwright', 'test', 'e2e/recovery-phrase.spec.ts', '--project=chromium', '--retries=0', '-g', 'fits a phone', '--repeat-each=5'])
+    raise SystemExit(0)
 run('recovery', ['pnpm', 'exec', 'playwright', 'test', 'e2e/recovery-phrase.spec.ts', '--project=chromium', '--retries=0'])
 if os.environ.get('DRIVE_CHECK_SCOPE') == 'documents':
     run('browser', ['pnpm', 'exec', 'playwright', 'test', 'e2e/documents-tabs.spec.ts', '--project=chromium', '--retries=0', '--repeat-each=3'])

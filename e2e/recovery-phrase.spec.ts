@@ -48,7 +48,40 @@ async function createRecoveryPhrase(page: Page, screenshot?: (name: string) => P
   await add.click();
   await expect(section.getByTestId('recovery-phrase-status')).toContainText('Recovery phrase added on', { timeout: 30_000 });
   // The page asks us to stay until the recovery record and wrapped files are saved.
-  if (waitForSaved) await expect(section.getByTestId('recovery-phrase-saved')).toBeVisible({ timeout: 60_000 });
+  if (waitForSaved) {
+    try {
+      await expect(section.getByTestId('recovery-phrase-saved')).toBeVisible({ timeout: 60_000 });
+    } catch (error) {
+      // Keep metadata only: the phrase and decryption keys never enter the diagnostic.
+      const recoveryPubkey = getPublicKey(privateKeyFromSeedWords(words.join(' ')));
+      const diagnostic = await page.evaluate(async (recovery) => {
+        const { getCurrentNostrIdentitySession } = await import('/src/nostr/auth.ts');
+        const { treeRootRegistry } = await import('/src/TreeRootRegistry.ts');
+        const { profileDriveProjection } = await import('/src/drive/profileDriveProjection.ts');
+        const { getWorkerAdapter } = await import('/src/workerAdapter.ts');
+        const { getNostrRelayUrls } = await import('/src/nostr/client.ts');
+        const session = getCurrentNostrIdentitySession()!;
+        const hex = (bytes?: Uint8Array) => bytes && Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+        const roots = Object.fromEntries(['main', 'trash'].map(drive => {
+          const root = treeRootRegistry.get(session.profileId, drive);
+          return [drive, { local: root && { hash: hex(root.hash), source: root.source, dirty: root.dirty },
+            contribution: hex(profileDriveProjection.contributionRoot(session.profileId, drive, session.appKeyPubkey)?.hash),
+            versions: profileDriveProjection.heldVersions(session.profileId, drive, new Set([session.appKeyPubkey])) }];
+        }));
+        const relays = getNostrRelayUrls();
+        const result = await getWorkerAdapter()!.queryEvents!([
+          { authors: [recovery] }, { authors: [session.appKeyPubkey], kinds: [30078] },
+        ], { cache: 'network-only', localEcho: false, sources: [], relays, deadline: Date.now() + 5000 });
+        return { roots, relays, events: result.events.map(event => ({ id: event.id, authorIsRecovery: event.pubkey === recovery,
+          kind: event.kind, tags: event.tags, wrappedForRecovery: (() => { try {
+            return Object.hasOwn(JSON.parse(event.content).root_key_wraps ?? {}, recovery);
+          } catch { return false; } })() })) };
+      }, recoveryPubkey).catch(diagnosticError => ({ diagnosticError: String(diagnosticError) }));
+      await test.info().attach('recovery-confirmation.json', { body: JSON.stringify(diagnostic, null, 2), contentType: 'application/json' });
+      console.log('Recovery confirmation diagnostic:', JSON.stringify(diagnostic));
+      throw error;
+    }
+  }
   await expect(section.getByTestId('recovery-phrase-word')).toHaveCount(0);
   return words;
 }
