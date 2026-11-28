@@ -6,7 +6,7 @@ on:
     inputs:
       scope:
         type: choice
-        options: [review, performance, cohort-performance, lock, documents, recovery, release]
+        options: [review, performance, cohort-performance, lock, documents, recovery, linking, release]
         default: release
 permissions:
   contents: read
@@ -25,7 +25,7 @@ jobs:
       - name: Qualify pinned toolchain
         run: python3 scripts/release-check/toolchain.py
       - name: Verify source within 2 CPUs and 3 GiB
-        if: inputs.scope != 'release' && inputs.scope != 'documents' && inputs.scope != 'recovery' && github.event_name == 'workflow_dispatch'
+        if: inputs.scope != 'release' && inputs.scope != 'documents' && inputs.scope != 'recovery' && inputs.scope != 'linking' && github.event_name == 'workflow_dispatch'
         run: |
           sudo systemd-run --wait --pipe --collect --unit=drive-review \
             -p CPUQuota=200% -p MemoryMax=3G -p MemorySwapMax=0 \
@@ -37,7 +37,7 @@ jobs:
             --setenv=CI=true --setenv=NODE_OPTIONS=--max-old-space-size=2304 \
             python3 scripts/release-check/qualify.py
       - name: Qualify complete release in the pinned browser environment
-        if: inputs.scope == 'release' || inputs.scope == 'documents' || inputs.scope == 'recovery' || github.event_name == 'push'
+        if: inputs.scope == 'release' || inputs.scope == 'documents' || inputs.scope == 'recovery' || inputs.scope == 'linking' || github.event_name == 'push'
         run: |
           image=mcr.microsoft.com/playwright@sha256:ee15712262f017b8157421b212b12099146645f44b1bc5c0514cbbe6a229b1d0
           docker pull "$image"

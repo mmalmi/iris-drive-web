@@ -7,7 +7,7 @@ if scope in ('review', 'performance'):
     runpy.run_path('scripts/release-check/review.py', run_name='__main__')
 elif scope == 'lock':
     runpy.run_path('scripts/release-check/lock.py', run_name='__main__')
-elif scope in ('release', 'documents', 'recovery'):
+elif scope in ('release', 'documents', 'recovery', 'linking'):
     runpy.run_path('scripts/release-check/release.py', run_name='__main__')
 elif scope == 'cohort-performance':
     runpy.run_path('scripts/release-check/cohort-performance.py', run_name='__main__')

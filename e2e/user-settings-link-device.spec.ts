@@ -146,7 +146,31 @@ async function approveDeviceApprovalRequest(page: Page, approvalUrl: string, exp
   await expect(page.getByTestId('user-add-device-section')).toHaveCount(0);
   await page.getByTestId('device-approval-input').fill(approvalUrl);
   await page.getByTestId('approve-device-request').click();
-  await expectDeviceAdminBadges(page, expectedRowsAfterApproval, 1);
+  try {
+    await expectDeviceAdminBadges(page, expectedRowsAfterApproval, 1);
+  } catch (error) {
+    const state = await page.evaluate(async () => {
+      const { getCurrentNostrIdentitySession } = await import('/src/nostr');
+      const { treeRootRegistry } = await import('/src/TreeRootRegistry');
+      const { profileDriveProjection } = await import('/src/drive/profileDriveProjection');
+      const { keyValueStore } = await import('/src/lib/keyValueStore');
+      const session = getCurrentNostrIdentitySession();
+      if (!session) return { activeSession: false };
+      const hex = (value?: Uint8Array) => value ? Array.from(value, byte => byte.toString(16).padStart(2, '0')).join('') : null;
+      const root = treeRootRegistry.get(session.profileId, 'main');
+      const shared = await keyValueStore<{ key: string; hash: string; rootKey?: string; seq: number }>('iris-drive-tab-roots', 'roots').get(`${session.profileId}/main`);
+      const contribution = profileDriveProjection.contributionRoot(session.profileId, 'main', session.appKeyPubkey);
+      return {
+        activeSession: session.status,
+        root: root ? { hash: hex(root.hash), source: root.source, dirty: root.dirty, updatedAt: root.updatedAt } : null,
+        shared: shared ? { hash: shared.hash, seq: shared.seq, keyMatches: shared.rootKey === hex(root?.key) } : null,
+        contributionHash: hex(contribution?.hash),
+      };
+    });
+    await test.info().attach('approval-root-state.json', { body: JSON.stringify(state, null, 2), contentType: 'application/json' });
+    console.log('[approval-root-state]', JSON.stringify(state));
+    throw error;
+  }
   await expectPrivateDeviceLabel(page.getByTestId('user-key-row').nth(0).locator('strong'));
   await expectLinkedDeviceLabel(page);
   await expect(page.getByTestId('user-key-row').nth(1).getByTestId('user-grant-admin')).toBeVisible();
