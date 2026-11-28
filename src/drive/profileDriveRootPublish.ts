@@ -246,7 +246,7 @@ export function publishNostrIdentityDriveRootIfAvailable(
   const queueKey = `${scope}/${driveId}`;
   const publishing = (publishQueues.get(queueKey) ?? Promise.resolve())
     .catch(() => {})
-    .then(() => {
+    .then(async () => {
       const run = () => publishDriveRootNow(driveId, rootCid, options);
       // Tabs share a signing key and relay slot. Their separate in-memory
       // queues cannot keep uploads or the persistent sequence counter ordered.
