@@ -65,7 +65,7 @@ test.describe('one account in two tabs', () => {
         const { treeRootRegistry } = await import('/src/TreeRootRegistry.ts');
         const { getWorkerAdapter } = await import('/src/workerAdapter.ts');
         const { profileDriveProjection } = await import('/src/drive/profileDriveProjection.ts');
-        const { toHex } = await import('@hashtree/core');
+        const toHex = (bytes: Uint8Array) => Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
         const log = (kind: string, details: unknown) => console.log('[tab-save]', label, kind, JSON.stringify(details));
         for (const method of ['setLocal', 'setFromResolver'] as const) {
           const original = treeRootRegistry[method].bind(treeRootRegistry);
