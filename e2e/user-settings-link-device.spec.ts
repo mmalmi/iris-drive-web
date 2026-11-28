@@ -22,6 +22,8 @@ import {
 } from './profile-drive-actions.js';
 import { expectProfilePathKindActionConvergence } from './profile-drive-path-kind.js';
 
+test.use({ trace: 'retain-on-failure' });
+
 async function prepareDriveInstance(page: Page, relayUrl: string): Promise<void> {
   setupPageErrorHandler(page);
   await page.addInitScript(() => {
@@ -856,7 +858,6 @@ async function createLinkedDriveBrowsers(
 }
 
 test.describe('Drive user settings link device', () => {
-  test.use({ trace: 'retain-on-failure' });
   test('restores a deletion from private Trash on another approved browser', async ({ page, browser, relayUrl }) => {
     test.setTimeout(180000);
     const { deviceContext, devicePage, profileId } = await createLinkedDriveBrowsers(page, browser as Browser, relayUrl);
