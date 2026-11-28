@@ -6,8 +6,8 @@ on:
     inputs:
       scope:
         type: choice
-        options: [review, performance]
-        default: review
+        options: [review, performance, lock, release]
+        default: release
 permissions:
   contents: read
 concurrency:
@@ -16,7 +16,7 @@ concurrency:
 jobs:
   review:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -24,7 +24,7 @@ jobs:
           persist-credentials: false
       - name: Qualify pinned toolchain
         run: python3 scripts/release-check/toolchain.py
-      - name: Verify review fixes within 2 CPUs and 3 GiB
+      - name: Verify source within 2 CPUs and 3 GiB
         run: |
           sudo systemd-run --wait --pipe --collect --unit=drive-review \
             -p CPUQuota=200% -p MemoryMax=3G -p MemorySwapMax=0 \
@@ -32,9 +32,9 @@ jobs:
             --setenv="PATH=$RUNNER_TEMP/drive-tools/bin:$PATH" \
             --setenv="DRIVE_CHECK_TOOLS=$RUNNER_TEMP/drive-tools" \
             --setenv="TMPDIR=$RUNNER_TEMP/drive-tools/tmp" \
-            --setenv="DRIVE_CHECK_SCOPE=${{ inputs.scope || 'review' }}" \
+            --setenv="DRIVE_CHECK_SCOPE=${{ inputs.scope || 'release' }}" \
             --setenv=CI=true --setenv=NODE_OPTIONS=--max-old-space-size=2304 \
-            python3 scripts/release-check/review.py
+            python3 scripts/release-check/qualify.py
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
