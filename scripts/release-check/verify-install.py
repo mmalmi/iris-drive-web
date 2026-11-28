@@ -25,6 +25,8 @@ for key, integrity, url in re.findall(pattern, lock, re.M):
         assert integrity == by_url[url]['integrity'], name
         assert hashlib.sha256(data).hexdigest() == by_url[url]['sha256'], name
     with tarfile.open(fileobj=io.BytesIO(data), mode='r:gz') as tar:
+        published = json.loads(tar.extractfile('package/package.json').read())
+        assert published['name'] == name
         files = {}
         for member in tar.getmembers():
             if not member.isfile():
@@ -32,7 +34,8 @@ for key, integrity, url in re.findall(pattern, lock, re.M):
             relative = pathlib.PurePosixPath(member.name)
             assert relative.parts[0] == 'package' and '..' not in relative.parts
             files[str(relative.relative_to('package'))] = hashlib.sha256(tar.extractfile(member).read()).hexdigest()
-    installed = sorted(pathlib.Path('node_modules/.pnpm').glob('*/node_modules/' + name))
+    installed = sorted(directory for directory in pathlib.Path('node_modules/.pnpm').glob('*/node_modules/' + name)
+                       if json.loads((directory / 'package.json').read_text())['version'] == published['version'])
     assert installed, 'Missing installed package: ' + name
     copies = []
     for directory in installed:
@@ -40,7 +43,7 @@ for key, integrity, url in re.findall(pattern, lock, re.M):
             actual = directory / filename
             assert actual.is_file() and hashlib.sha256(actual.read_bytes()).hexdigest() == expected_sha, str(actual)
         copies.append(str(directory))
-    records.append({'package': name, 'url': url, 'archiveSHA256': hashlib.sha256(data).hexdigest(),
+    records.append({'package': name, 'version': published['version'], 'url': url, 'archiveSHA256': hashlib.sha256(data).hexdigest(),
                     'integrity': integrity, 'installedPaths': copies, 'files': files})
 assert not re.search(r'fips-ts/releases/download/runtime-v0\.0\.(63|65|66)/', lock)
 for name, pin in pins.items():
