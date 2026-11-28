@@ -16,7 +16,7 @@
   import { driveRootDTag } from '../../drive/protocolRoots';
   import { rootWrapRecipients } from '../../drive/recoveryRootKeys';
   import { profileDriveProjection } from '../../drive/profileDriveProjection';
-  import { getLocalRootCache } from '../../treeRootCache';
+  import { getLocalRootEntry } from '../../treeRootCache';
   import CopyButton from '@iris/svelte-ui/CopyButton.svelte';
   import { addDriveRecoveryPhrase, getCurrentNostrIdentitySession, nostrStore } from '../../nostr';
   import { projectNostrIdentityRoster } from '../../drive/protocol';
@@ -107,7 +107,7 @@
     // The first local files may still be uploading and have no published
     // contribution yet. They must be recoverable before this page says saved.
     const drives = ['main', 'trash'].filter(drive =>
-      !!getLocalRootCache(profileId, drive) || !!profileDriveProjection.contributionRoot(profileId, drive, device));
+      !!getLocalRootEntry(profileId, drive)?.dirty || !!profileDriveProjection.contributionRoot(profileId, drive, device));
     let waiting = 1 + drives.length;
     const held = () => {
       waiting -= 1;
