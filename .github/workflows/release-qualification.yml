@@ -6,7 +6,7 @@ on:
     inputs:
       scope:
         type: choice
-        options: [review, performance, lock, release]
+        options: [review, performance, cohort-performance, lock, release]
         default: release
 permissions:
   contents: read
@@ -25,6 +25,7 @@ jobs:
       - name: Qualify pinned toolchain
         run: python3 scripts/release-check/toolchain.py
       - name: Verify source within 2 CPUs and 3 GiB
+        if: inputs.scope != 'release' && github.event_name == 'workflow_dispatch'
         run: |
           sudo systemd-run --wait --pipe --collect --unit=drive-review \
             -p CPUQuota=200% -p MemoryMax=3G -p MemorySwapMax=0 \
@@ -35,6 +36,20 @@ jobs:
             --setenv="DRIVE_CHECK_SCOPE=${{ inputs.scope || 'release' }}" \
             --setenv=CI=true --setenv=NODE_OPTIONS=--max-old-space-size=2304 \
             python3 scripts/release-check/qualify.py
+      - name: Qualify complete release in the pinned browser environment
+        if: inputs.scope == 'release' || github.event_name == 'push'
+        run: |
+          image=mcr.microsoft.com/playwright@sha256:ee15712262f017b8157421b212b12099146645f44b1bc5c0514cbbe6a229b1d0
+          docker pull "$image"
+          docker run --rm --init --cpus=2 --memory=3g --memory-swap=3g --shm-size=768m \
+            --user="$(id -u):$(id -g)" \
+            -v "$GITHUB_WORKSPACE:$GITHUB_WORKSPACE" -v "$RUNNER_TEMP/drive-tools:$RUNNER_TEMP/drive-tools" \
+            -w "$GITHUB_WORKSPACE" \
+            -e "PATH=$RUNNER_TEMP/drive-tools/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
+            -e "DRIVE_CHECK_TOOLS=$RUNNER_TEMP/drive-tools" -e "TMPDIR=$RUNNER_TEMP/drive-tools/tmp" \
+            -e PLAYWRIGHT_BROWSERS_PATH=/ms-playwright -e DRIVE_CHECK_SCOPE=release \
+            -e CI=true -e NODE_OPTIONS=--max-old-space-size=2304 \
+            "$image" python3 scripts/release-check/qualify.py
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:

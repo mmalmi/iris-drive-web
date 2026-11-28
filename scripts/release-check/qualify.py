@@ -9,5 +9,7 @@ elif scope == 'lock':
     runpy.run_path('scripts/release-check/lock.py', run_name='__main__')
 elif scope == 'release':
     runpy.run_path('scripts/release-check/release.py', run_name='__main__')
+elif scope == 'cohort-performance':
+    runpy.run_path('scripts/release-check/cohort-performance.py', run_name='__main__')
 else:
     raise ValueError(f'Unknown qualification scope: {scope}')

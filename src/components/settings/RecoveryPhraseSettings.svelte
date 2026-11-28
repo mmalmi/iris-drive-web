@@ -16,6 +16,7 @@
   import { driveRootDTag } from '../../drive/protocolRoots';
   import { rootWrapRecipients } from '../../drive/recoveryRootKeys';
   import { profileDriveProjection } from '../../drive/profileDriveProjection';
+  import { getLocalRootCache } from '../../treeRootCache';
   import CopyButton from '@iris/svelte-ui/CopyButton.svelte';
   import { addDriveRecoveryPhrase, getCurrentNostrIdentitySession, nostrStore } from '../../nostr';
   import { projectNostrIdentityRoster } from '../../drive/protocol';
@@ -103,8 +104,10 @@
   function watchSaved(recoveryPubkey: string, device: string, profileId: string): void {
     for (const stop of stopWatching) stop();
     saving = 'saving';
-    // A device that has saved nothing yet has no Drive to wrap; its first save is wrapped for the phrase.
-    const drives = ['main', 'trash'].filter(drive => !!profileDriveProjection.contributionRoot(profileId, drive, device));
+    // The first local files may still be uploading and have no published
+    // contribution yet. They must be recoverable before this page says saved.
+    const drives = ['main', 'trash'].filter(drive =>
+      !!getLocalRootCache(profileId, drive) || !!profileDriveProjection.contributionRoot(profileId, drive, device));
     let waiting = 1 + drives.length;
     const held = () => {
       waiting -= 1;

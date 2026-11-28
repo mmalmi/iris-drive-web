@@ -23,7 +23,7 @@ async function uploadFile(page: Page, name: string): Promise<void> {
 }
 
 /** Makes a recovery phrase in Settings and returns its words. */
-async function createRecoveryPhrase(page: Page, screenshot?: (name: string) => Promise<void>): Promise<string[]> {
+async function createRecoveryPhrase(page: Page, screenshot?: (name: string) => Promise<void>, waitForSaved = true): Promise<string[]> {
   const section = page.getByTestId('recovery-phrase-settings');
   await section.getByTestId('create-recovery-phrase').click();
   const words = await section.getByTestId('recovery-phrase-word').allTextContents();
@@ -48,7 +48,7 @@ async function createRecoveryPhrase(page: Page, screenshot?: (name: string) => P
   await add.click();
   await expect(section.getByTestId('recovery-phrase-status')).toContainText('Recovery phrase added on', { timeout: 30_000 });
   // The page asks us to stay until the recovery record and wrapped files are saved.
-  await expect(section.getByTestId('recovery-phrase-saved')).toBeVisible({ timeout: 60_000 });
+  if (waitForSaved) await expect(section.getByTestId('recovery-phrase-saved')).toBeVisible({ timeout: 60_000 });
   await expect(section.getByTestId('recovery-phrase-word')).toHaveCount(0);
   return words;
 }
@@ -77,6 +77,55 @@ function rootWraps(relayUrl: string, author: string, d?: string): Promise<string
 }
 
 test.describe('recovery phrase', () => {
+  test('waits for the first pending files before saying the phrase is saved', async ({ page, browser, relayUrl }) => {
+    test.setTimeout(240_000);
+    await prepareFreshSession(page, relayUrl);
+    await page.evaluate(async () => {
+      const { getWorkerAdapter } = await import('/src/workerAdapter.ts');
+      const adapter = getWorkerAdapter()!;
+      const state = window as unknown as {
+        releaseRecoveryUpload: () => void;
+        recoveryReads: Array<{ authors: string[]; events: number }>;
+      };
+      const held = new Promise<void>(resolve => { state.releaseRecoveryUpload = resolve; });
+      const upload = adapter.pushToBlossom.bind(adapter);
+      adapter.pushToBlossom = async (...args) => { await held; return upload(...args); };
+      state.recoveryReads = [];
+      const query = adapter.queryEvents!.bind(adapter);
+      adapter.queryEvents = async (filters, options) => {
+        const result = await query(filters, options);
+        state.recoveryReads.push({ authors: filters.flatMap(filter => filter.authors ?? []), events: result.events.length });
+        return result;
+      };
+    });
+    const { profileId } = await createDriveProfile(page, 'Pending Recovery');
+    await uploadFile(page, 'first-upload.txt');
+    await page.goto(`${new URL(page.url()).origin}/#/settings/account/recovery`);
+    await expect(page.getByText('Uploaded first-upload.txt')).toHaveCount(0, { timeout: 10_000 });
+    const phrase = (await createRecoveryPhrase(page, undefined, false)).join(' ');
+    const recoveryKey = getPublicKey(privateKeyFromSeedWords(phrase));
+    // A real relay has answered the phrase's query, while its files are held.
+    await expect.poll(() => page.evaluate(key => (window as unknown as {
+      recoveryReads: Array<{ authors: string[]; events: number }>;
+    }).recoveryReads.some(read => read.authors.includes(key) && read.events > 0), recoveryKey), { timeout: 30_000 }).toBe(true);
+    await expect(page.getByTestId('recovery-phrase-saved')).toHaveCount(0);
+    await page.evaluate(() => (window as unknown as { releaseRecoveryUpload: () => void }).releaseRecoveryUpload());
+    await expect(page.getByTestId('recovery-phrase-saved')).toBeVisible({ timeout: 90_000 });
+    await page.close();
+    const fresh = await browser.newContext();
+    try {
+      const other = await fresh.newPage();
+      await prepareFreshSession(other, relayUrl);
+      await other.goto(`${new URL(other.url()).origin}/#/users/existing`);
+      await expect(other.getByTestId('identity-recovery-section')).toBeVisible();
+      await other.getByRole('button', { name: 'Recovery phrase' }).click();
+      await other.getByLabel('Recovery phrase').fill(phrase);
+      await other.getByRole('button', { name: 'Continue' }).click();
+      await expect(other).toHaveURL(new RegExp(`#/${profileId}/main`), { timeout: 60_000 });
+      await expect(fileRow(other, 'first-upload.txt')).toBeVisible({ timeout: 90_000 });
+    } finally { await fresh.close(); }
+  });
+
   test('made in Settings, it signs a fresh browser in to the same Drive', async ({ page, browser, relayUrl }, testInfo) => {
     test.setTimeout(300_000);
     await prepareFreshSession(page, relayUrl);
