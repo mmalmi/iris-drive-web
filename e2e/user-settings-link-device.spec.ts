@@ -154,17 +154,23 @@ async function approveDeviceApprovalRequest(page: Page, approvalUrl: string, exp
       const { treeRootRegistry } = await import('/src/TreeRootRegistry');
       const { profileDriveProjection } = await import('/src/drive/profileDriveProjection');
       const { keyValueStore } = await import('/src/lib/keyValueStore');
+      const { getTree } = await import('/src/store');
       const session = getCurrentNostrIdentitySession();
       if (!session) return { activeSession: false };
       const hex = (value?: Uint8Array) => value ? Array.from(value, byte => byte.toString(16).padStart(2, '0')).join('') : null;
       const root = treeRootRegistry.get(session.profileId, 'main');
       const shared = await keyValueStore<{ key: string; hash: string; rootKey?: string; seq: number }>('iris-drive-tab-roots', 'roots').get(`${session.profileId}/main`);
       const contribution = profileDriveProjection.contributionRoot(session.profileId, 'main', session.appKeyPubkey);
+      const directory = root ? await Promise.race([
+        getTree().listDirectory(root).then(entries => ({ entries: entries.map(entry => entry.name) }), error => ({ error: String(error) })),
+        new Promise(resolve => setTimeout(() => resolve({ error: 'Diagnostic read exceeded two seconds' }), 2000)),
+      ]) : null;
       return {
         activeSession: session.status,
         root: root ? { hash: hex(root.hash), source: root.source, dirty: root.dirty, updatedAt: root.updatedAt } : null,
         shared: shared ? { hash: shared.hash, seq: shared.seq, keyMatches: shared.rootKey === hex(root?.key) } : null,
         contributionHash: hex(contribution?.hash),
+        directory,
       };
     });
     await test.info().attach('approval-root-state.json', { body: JSON.stringify(state, null, 2), contentType: 'application/json' });
@@ -850,6 +856,7 @@ async function createLinkedDriveBrowsers(
 }
 
 test.describe('Drive user settings link device', () => {
+  test.use({ trace: 'retain-on-failure' });
   test('restores a deletion from private Trash on another approved browser', async ({ page, browser, relayUrl }) => {
     test.setTimeout(180000);
     const { deviceContext, devicePage, profileId } = await createLinkedDriveBrowsers(page, browser as Browser, relayUrl);
