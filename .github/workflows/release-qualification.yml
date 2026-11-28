@@ -32,7 +32,7 @@ jobs:
             --setenv="PATH=$RUNNER_TEMP/drive-tools/bin:$PATH" \
             --setenv="DRIVE_CHECK_TOOLS=$RUNNER_TEMP/drive-tools" \
             --setenv="TMPDIR=$RUNNER_TEMP/drive-tools/tmp" \
-            --setenv="DRIVE_CHECK_SCOPE=${{ inputs.scope || 'performance' }}" \
+            --setenv="DRIVE_CHECK_SCOPE=${{ inputs.scope || 'review' }}" \
             --setenv=CI=true --setenv=NODE_OPTIONS=--max-old-space-size=2304 \
             python3 scripts/release-check/review.py
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
