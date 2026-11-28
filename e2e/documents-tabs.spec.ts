@@ -56,6 +56,40 @@ test.describe('one account in two tabs', () => {
     await second.goto(leftUrl);
     await expect(documentBody(second)).toBeVisible({ timeout: 60_000 });
 
+    // Retain the order of root changes and publications when this regression fails.
+    for (const tab of [page, second]) {
+      tab.on('console', message => {
+        if (message.text().startsWith('[tab-save]')) console.log(message.text());
+      });
+      await tab.evaluate(async (label) => {
+        const { treeRootRegistry } = await import('/src/TreeRootRegistry.ts');
+        const { getWorkerAdapter } = await import('/src/workerAdapter.ts');
+        const { profileDriveProjection } = await import('/src/drive/profileDriveProjection.ts');
+        const { toHex } = await import('@hashtree/core');
+        const log = (kind: string, details: unknown) => console.log('[tab-save]', label, kind, JSON.stringify(details));
+        for (const method of ['setLocal', 'setFromResolver'] as const) {
+          const original = treeRootRegistry[method].bind(treeRootRegistry);
+          treeRootRegistry[method] = ((...args: Parameters<typeof original>) => {
+            log(method, { scope: args[0], drive: args[1], hash: toHex(args[2]), time: args[3] && typeof args[3] === 'number' ? args[3] : undefined });
+            return Reflect.apply(original, treeRootRegistry, args);
+          }) as typeof original;
+        }
+        const adapter = getWorkerAdapter()!;
+        const push = adapter.pushToBlossom.bind(adapter);
+        adapter.pushToBlossom = async (...args: Parameters<typeof push>) => {
+          log('upload-start', toHex(args[0]));
+          const result = await push(...args);
+          log('upload-end', toHex(args[0]));
+          return result;
+        };
+        const add = profileDriveProjection.add.bind(profileDriveProjection);
+        profileDriveProjection.add = (...args: Parameters<typeof add>) => {
+          log('contribution', { id: args[0].id, at: args[0].created_at, parsed: { seq: args[1]?.app_key_seq } });
+          return add(...args);
+        };
+      }, tab === page ? 'right' : 'left');
+    }
+
     for (let round = 1; round <= 3; round += 1) {
       await typeInDocument(second, ` Left ${round}.`);
       await typeInDocument(page, ` Right ${round}.`);
