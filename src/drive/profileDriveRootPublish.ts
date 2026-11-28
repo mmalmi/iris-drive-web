@@ -1,5 +1,5 @@
 import { treeRootRegistry } from '../TreeRootRegistry';
-import { isLatestAnnouncedRoot } from '../lib/driveRootTabs';
+import { isCurrentDriveRoot, isLatestAnnouncedRoot } from '../lib/driveRootTabs';
 import { activeShareScope } from './shareScope';
 import { toHex, type CID } from '@hashtree/core';
 import { getPublicKey, type Event } from 'nostr-tools';
@@ -193,8 +193,9 @@ async function rewrapRoot(rootScopeId: string, driveId: string): Promise<void> {
 
 function currentRootGuard(scope: string, driveId: string): () => Promise<boolean> {
   const queued = treeRootRegistry.get(scope, driveId);
-  return async () => treeRootRegistry.get(scope, driveId) === queued
-    && (queued?.source !== 'local-write' || await isLatestAnnouncedRoot(scope, driveId, queued.hash, queued.key));
+  return async () => !!queued && isCurrentDriveRoot(scope, driveId, queued)
+    && (queued.source !== 'local-write' || await isLatestAnnouncedRoot(scope, driveId, queued.hash, queued.key))
+    && isCurrentDriveRoot(scope, driveId, queued);
 }
 
 interface DriveRootPublishOptions {

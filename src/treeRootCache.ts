@@ -14,7 +14,7 @@ import { treeRootRegistry } from './TreeRootRegistry';
 import { isNostrIdentityId, parseRoute } from './utils/route';
 import { publishNostrIdentityDriveRootIfAvailable } from './drive/profileDriveRootPublish';
 import { requeueUnpublishedRoots } from './lib/unpublishedRoots';
-import { announceLocalRoot, isLatestAnnouncedRoot, startDriveRootTabSync } from './lib/driveRootTabs';
+import { announceLocalRoot, isCurrentDriveRoot, isLatestAnnouncedRoot, startDriveRootTabSync } from './lib/driveRootTabs';
 
 /**
  * Initialize the publish function on the registry.
@@ -75,8 +75,9 @@ export async function initializePublishFn(): Promise<void> {
         rootScopeId: npub,
         // A queued upload may outlive a newer save in either tab. Reading the
         // shared record also covers a background tab whose broadcast is late.
-        onlyIfCurrent: async () => treeRootRegistry.get(npub, treeName) === record
-          && await isLatestAnnouncedRoot(npub, treeName, record.hash, record.key),
+        onlyIfCurrent: async () => isCurrentDriveRoot(npub, treeName, rootCid)
+          && await isLatestAnnouncedRoot(npub, treeName, record.hash, record.key)
+          && isCurrentDriveRoot(npub, treeName, rootCid),
         publishedAt: record.updatedAt,
         publishedAtMs: Math.max(Date.now(), record.updatedAt * 1000),
       });

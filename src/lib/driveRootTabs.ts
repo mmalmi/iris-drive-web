@@ -13,7 +13,7 @@
  * (document saves) do so under a lock shared by the tabs, reading the shared
  * record inside it, so two tabs never build on the same version.
  */
-import { fromHex, toHex, type Hash, type TreeVisibility } from '@hashtree/core';
+import { fromHex, toHex, type CID, type Hash, type TreeVisibility } from '@hashtree/core';
 import { treeRootRegistry } from '../TreeRootRegistry';
 import { keyValueStore } from './keyValueStore';
 
@@ -87,6 +87,13 @@ export function announceLocalRoot(scope: string, treeName: string, hash: Hash, r
     });
   pending.set(key, writing);
   return writing;
+}
+
+/** Metadata refreshes may replace the registry object without changing its content. */
+export function isCurrentDriveRoot(scope: string, treeName: string, root: CID): boolean {
+  const current = treeRootRegistry.get(scope, treeName);
+  return !!current && toHex(current.hash) === toHex(root.hash)
+    && (current.key ? toHex(current.key) : undefined) === (root.key ? toHex(root.key) : undefined);
 }
 
 /** Whether no other tab has saved a different root since this one was queued. */

@@ -21,6 +21,7 @@ const shared = vi.hoisted(() => ({
   session: null as null | Record<string, unknown>,
   secretKey: null as Uint8Array | null,
   tree: null as HashTree | null,
+  registryRoot: null as null | { hash: Uint8Array; key?: Uint8Array; source?: string },
   adapter: null as null | { pushToBlossom: ReturnType<typeof vi.fn> },
   publish: vi.fn(async () => {}),
 }));
@@ -41,6 +42,10 @@ vi.mock('../src/workerAdapter', () => ({
 vi.mock('../src/lib/nostrPublish', () => ({
   publishEvent: (event: unknown) => shared.publish(event),
 }));
+
+vi.mock('../src/TreeRootRegistry', () => ({ treeRootRegistry: { get: () => shared.registryRoot } }));
+vi.mock('../src/stores/treeRoot', () => ({ getTreeRootSync: () => shared.registryRoot }));
+vi.mock('../src/stores/treeRootResolver', () => ({ rebuildRetainedDriveRootProjection: () => {} }));
 
 const PROFILE_ID = '89f3d04f-41fb-437b-9339-75df537bf291';
 
@@ -96,6 +101,7 @@ describe('profile Drive root durability before publish', () => {
     shared.session = null;
     shared.secretKey = null;
     shared.tree = null;
+    shared.registryRoot = null;
     shared.adapter = null;
     shared.publish.mockReset();
     shared.publish.mockResolvedValue(undefined);
@@ -298,6 +304,23 @@ describe('profile Drive root durability before publish', () => {
       vi.unstubAllGlobals();
     }
     expect(shared.publish).toHaveBeenCalledTimes(1);
+  });
+
+  it('rewraps recovery keys when a metadata refresh replaces the same root object during upload', async () => {
+    activateProfile();
+    const tree = new HashTree({ store: new MemoryStore() });
+    shared.tree = tree;
+    const root = await rootWithFile(tree, 'kept.txt', 'kept');
+    shared.registryRoot = { ...root, source: 'nostr' };
+    shared.adapter = { pushToBlossom: vi.fn(async () => {
+      shared.registryRoot = { ...root, source: 'nostr' };
+      return { pushed: 1, skipped: 0, failed: 0 };
+    }) };
+    const { publishNostrIdentityDriveRootIfAvailable, scheduleDriveRootRewrap } = await import('../src/drive/profileDriveRootPublish');
+    await publishNostrIdentityDriveRootIfAvailable('main', root);
+    expect(shared.publish).toHaveBeenCalledTimes(1);
+    scheduleDriveRootRewrap(PROFILE_ID);
+    await vi.waitFor(() => expect(shared.publish).toHaveBeenCalledTimes(2), { timeout: 2000 });
   });
 
 });
