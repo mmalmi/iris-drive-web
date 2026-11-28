@@ -44,17 +44,28 @@ try:
     receipt['installedManifestSHA256'] = sha(pathlib.Path('package.json').read_bytes())
     receipt['installedLockSHA256'] = sha(pathlib.Path('pnpm-lock.yaml').read_bytes())
     assert run('install', ['pnpm', 'install', '--frozen-lockfile', '--store-dir', os.environ['DRIVE_CHECK_TOOLS'] + '/store']) == 0
-    for name in FIXES:
-        pathlib.Path(name).write_bytes(subprocess.check_output(['git', 'show', BASE + ':' + name]))
-    red = run('red', ['pnpm', 'exec', 'vitest', 'run', *TESTS, '--maxWorkers=2', '--reporter=json', '--outputFile=' + str(OUT / 'red.json')])
-    red_report = json.loads((OUT / 'red.json').read_text())
-    assert red != 0 and red_report['numFailedTests'] >= 9, 'Regression proof must fail the new behavior assertions'
-    for name in FIXES:
-        pathlib.Path(name).write_bytes(original[name])
-    assert run('green', ['pnpm', 'exec', 'vitest', 'run', *TESTS, '--maxWorkers=2', '--reporter=json', '--outputFile=' + str(OUT / 'green.json')]) == 0
-    assert run('lint', ['pnpm', 'run', 'lint']) == 0
-    assert run('check', ['pnpm', 'run', 'check']) == 0
-    assert run('unit', ['pnpm', 'exec', 'vitest', 'run', '--maxWorkers=2', '--reporter=json', '--outputFile=' + str(OUT / 'unit.json')]) == 0
+    if os.environ.get('DRIVE_CHECK_SCOPE') == 'performance':
+        # Runtime source is unchanged from the accepted red/green run. Alternate
+        # samples on the same isolated runner; no unrelated suites are repeated.
+        for sample in range(3):
+            for label in (['baseline', 'candidate'] if sample % 2 == 0 else ['candidate', 'baseline']):
+                for name in FIXES:
+                    pathlib.Path(name).write_bytes(original[name] if label == 'candidate'
+                                                  else subprocess.check_output(['git', 'show', BASE + ':' + name]))
+                os.environ['DRIVE_FLOW_METRICS'] = str((OUT / (label + '-flows.jsonl')).resolve())
+                assert run(f'{label}-flows-{sample}', ['pnpm', 'exec', 'vitest', 'run', 'tests/reviewFlows.bench.test.ts', '--maxWorkers=1']) == 0
+    else:
+        for name in FIXES:
+            pathlib.Path(name).write_bytes(subprocess.check_output(['git', 'show', BASE + ':' + name]))
+        red = run('red', ['pnpm', 'exec', 'vitest', 'run', *TESTS, '--maxWorkers=2', '--reporter=json', '--outputFile=' + str(OUT / 'red.json')])
+        red_report = json.loads((OUT / 'red.json').read_text())
+        assert red != 0 and red_report['numFailedTests'] >= 9, 'Regression proof must fail the new behavior assertions'
+        for name in FIXES:
+            pathlib.Path(name).write_bytes(original[name])
+        assert run('green', ['pnpm', 'exec', 'vitest', 'run', *TESTS, '--maxWorkers=2', '--reporter=json', '--outputFile=' + str(OUT / 'green.json')]) == 0
+        assert run('lint', ['pnpm', 'run', 'lint']) == 0
+        assert run('check', ['pnpm', 'run', 'check']) == 0
+        assert run('unit', ['pnpm', 'exec', 'vitest', 'run', '--maxWorkers=2', '--reporter=json', '--outputFile=' + str(OUT / 'unit.json')]) == 0
     assert sha(pathlib.Path('pnpm-lock.yaml').read_bytes()) == receipt['installedLockSHA256']
 finally:
     for name in ['package.json', 'pnpm-lock.yaml', *FIXES]:
