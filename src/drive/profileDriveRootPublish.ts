@@ -167,28 +167,34 @@ export function adoptRecoveredDrive(profileId: string, driveId = 'main'): void {
   }, ADOPT_AFTER_MS));
 }
 
-function scheduleRootRewrap(rootScopeId: string, driveId = 'main'): void {
+function scheduleRootRewrap(rootScopeId: string, driveId = 'main', attempt = 0): void {
   const key = `${rootScopeId}/${driveId}`;
   const pending = rewrapTimers.get(key);
+  // A new roster change already scheduled a fresher request.
+  if (pending && attempt > 0) return;
   if (pending) clearTimeout(pending);
   rewrapTimers.set(key, setTimeout(() => {
     rewrapTimers.delete(key);
-    void rewrapRoot(rootScopeId, driveId).catch((error) => {
+    void rewrapRoot(rootScopeId, driveId, attempt).catch((error) => {
+      scheduleRootRewrap(rootScopeId, driveId, attempt + 1);
       console.warn('[driveRoot] Could not publish a Drive again for its new devices:', error);
     });
-  }, 500));
+  }, Math.min(30_000, 500 * 2 ** Math.min(attempt, 6))));
 }
 
-async function rewrapRoot(rootScopeId: string, driveId: string): Promise<void> {
+async function rewrapRoot(rootScopeId: string, driveId: string, attempt: number): Promise<void> {
   const session = getCurrentNostrIdentitySession();
   if (!session || session.status !== 'active') return;
   if (rootScopeId !== session.profileId && !activeShareScope(rootScopeId)?.canWrite) return;
   if (!profileDriveProjection.contributionRoot(rootScopeId, driveId, session.appKeyPubkey)) return;
   const { getTreeRootSync } = await import('../stores/treeRoot');
   const root = getTreeRootSync(rootScopeId, driveId);
-  if (root?.key) await publishNostrIdentityDriveRootIfAvailable(driveId, root, {
+  const published = root?.key && await publishNostrIdentityDriveRootIfAvailable(driveId, root, {
     rootScopeId, onlyIfCurrent: currentRootGuard(rootScopeId, driveId),
   });
+  // A newer view may replace the queued snapshot, or temporarily be rebuilding.
+  // The new recipients still need a root; retry with the latest view and back off.
+  if (!published) scheduleRootRewrap(rootScopeId, driveId, attempt + 1);
 }
 
 function currentRootGuard(scope: string, driveId: string): () => Promise<boolean> {

@@ -323,4 +323,26 @@ describe('profile Drive root durability before publish', () => {
     await vi.waitFor(() => expect(shared.publish).toHaveBeenCalledTimes(2), { timeout: 2000 });
   });
 
+  it('retries recovery wrapping with the latest root after the queued root changes during upload', async () => {
+    const { appKeyPubkey } = activateProfile();
+    const tree = new HashTree({ store: new MemoryStore() });
+    shared.tree = tree;
+    const before = await rootWithFile(tree, 'before.txt', 'before');
+    const latest = await rootWithFile(tree, 'latest.txt', 'latest');
+    shared.registryRoot = { ...before, source: 'nostr' };
+    let uploads = 0;
+    shared.adapter = { pushToBlossom: vi.fn(async () => {
+      uploads += 1;
+      if (uploads === 2) shared.registryRoot = { ...latest, source: 'nostr' };
+      return { pushed: 1, skipped: 0, failed: 0 };
+    }) };
+    const { publishNostrIdentityDriveRootIfAvailable, scheduleDriveRootRewrap } = await import('../src/drive/profileDriveRootPublish');
+    await publishNostrIdentityDriveRootIfAvailable('main', before);
+    scheduleDriveRootRewrap(PROFILE_ID);
+    await vi.waitFor(() => expect(shared.publish).toHaveBeenCalledTimes(2), { timeout: 4000 });
+    const published = profileDriveProjection.contributionRoot(PROFILE_ID, 'main', appKeyPubkey)!;
+    expect(await tree.resolvePath(published, ['latest.txt'])).not.toBeNull();
+    expect(uploads).toBe(3);
+  });
+
 });
