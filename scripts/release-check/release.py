@@ -82,7 +82,7 @@ run('portable', ['node', 'scripts/smoke-files-iris-portable.mjs'])
 run('graph', ['node', 'scripts/check-graph-bootstrap-browser.mjs', '--evidence', str(OUT / 'graph.json')])
 run('recovery', ['pnpm', 'exec', 'playwright', 'test', 'e2e/recovery-phrase.spec.ts', '--project=chromium', '--retries=0'])
 if os.environ.get('DRIVE_CHECK_SCOPE') == 'documents':
-    run('browser', ['pnpm', 'exec', 'playwright', 'test', 'e2e/documents-tabs.spec.ts', '--project=chromium', '--retries=0'])
+    run('browser', ['pnpm', 'exec', 'playwright', 'test', 'e2e/documents-tabs.spec.ts', '--project=chromium', '--retries=0', '--repeat-each=3'])
     raise SystemExit(0)
 manifest = json.loads(pathlib.Path('package.json').read_text())
 browser = shlex.split(manifest['scripts']['test:e2e:release:local'].split('playwright test ', 1)[1].split(' && ')[0])

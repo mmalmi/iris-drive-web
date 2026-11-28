@@ -9,7 +9,7 @@ const hash = new Uint8Array([1]);
 const key = new Uint8Array([2]);
 
 describe('queued roots and other tabs', () => {
-  beforeEach(() => shared.get.mockReset());
+  beforeEach(() => { shared.get.mockReset(); });
 
   it('accepts the exact shared root and its key, or a root not announced yet', async () => {
     shared.get.mockResolvedValue({ hash: '01', rootKey: '02' });
