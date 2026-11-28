@@ -244,4 +244,60 @@ describe('profile Drive root durability before publish', () => {
     expect(profileDriveProjection.contributionRoot(PROFILE_ID, 'main', appKeyPubkey))
       .toEqual(deleted);
   });
+  it('does not start an obsolete snapshot superseded while queued', async () => {
+    activateProfile();
+    const tree = new HashTree({ store: new MemoryStore() });
+    shared.tree = tree;
+    shared.adapter = { pushToBlossom: vi.fn(async () => ({ pushed: 1, skipped: 0, failed: 0 })) };
+    const { publishNostrIdentityDriveRootIfAvailable } = await import('../src/drive/profileDriveRootPublish');
+    await expect(publishNostrIdentityDriveRootIfAvailable('main', await rootWithFile(tree, 'old.txt', 'old'), {
+      onlyIfCurrent: () => false,
+    })).resolves.toBe(false);
+    expect(shared.adapter.pushToBlossom).not.toHaveBeenCalled();
+    expect(shared.publish).not.toHaveBeenCalled();
+  });
+
+  it('does not announce a snapshot superseded during its upload', async () => {
+    activateProfile();
+    const tree = new HashTree({ store: new MemoryStore() });
+    shared.tree = tree;
+    let current = true;
+    shared.adapter = { pushToBlossom: vi.fn(async () => {
+      current = false; // The other tab saved while these blocks were uploading.
+      return { pushed: 1, skipped: 0, failed: 0 };
+    }) };
+    const { publishNostrIdentityDriveRootIfAvailable } = await import('../src/drive/profileDriveRootPublish');
+    await expect(publishNostrIdentityDriveRootIfAvailable('main', await rootWithFile(tree, 'old.txt', 'old'), {
+      onlyIfCurrent: () => current,
+    })).resolves.toBe(false);
+    expect(shared.adapter.pushToBlossom).toHaveBeenCalledTimes(1);
+    expect(shared.publish).not.toHaveBeenCalled();
+  });
+
+  it('waits while another tab is publishing before uploading or assigning a version', async () => {
+    activateProfile();
+    const tree = new HashTree({ store: new MemoryStore() });
+    shared.tree = tree;
+    shared.adapter = { pushToBlossom: vi.fn(async () => ({ pushed: 1, skipped: 0, failed: 0 })) };
+    let unlock!: () => void;
+    const occupied = new Promise<void>(resolve => { unlock = resolve; });
+    const request = vi.fn(async (_name: string, run: () => Promise<boolean>) => {
+      await occupied;
+      return run();
+    });
+    vi.stubGlobal('navigator', { locks: { request } });
+    const { publishNostrIdentityDriveRootIfAvailable } = await import('../src/drive/profileDriveRootPublish');
+    const publishing = publishNostrIdentityDriveRootIfAvailable('main', await rootWithFile(tree, 'new.txt', 'new'));
+    try {
+      await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(1));
+      expect(shared.adapter.pushToBlossom).not.toHaveBeenCalled();
+      expect(shared.publish).not.toHaveBeenCalled();
+    } finally {
+      unlock();
+      await publishing;
+      vi.unstubAllGlobals();
+    }
+    expect(shared.publish).toHaveBeenCalledTimes(1);
+  });
+
 });

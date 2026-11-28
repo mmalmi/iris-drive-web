@@ -1,3 +1,5 @@
+import { treeRootRegistry } from '../TreeRootRegistry';
+import { isLatestAnnouncedRoot } from '../lib/driveRootTabs';
 import { activeShareScope } from './shareScope';
 import { toHex, type CID } from '@hashtree/core';
 import { getPublicKey, type Event } from 'nostr-tools';
@@ -158,7 +160,9 @@ export function adoptRecoveredDrive(profileId: string, driveId = 'main'): void {
       if (!session || session.status !== 'active' || session.profileId !== profileId) return;
       const { getTreeRootSync } = await import('../stores/treeRoot');
       const root = getTreeRootSync(profileId, driveId);
-      if (root?.key) await publishNostrIdentityDriveRootIfAvailable(driveId, root, { rootScopeId: profileId });
+      if (root?.key) await publishNostrIdentityDriveRootIfAvailable(driveId, root, {
+        rootScopeId: profileId, onlyIfCurrent: currentRootGuard(profileId, driveId),
+      });
     })().catch((error) => console.warn('[driveRoot] Could not keep the recovered Drive:', error));
   }, ADOPT_AFTER_MS));
 }
@@ -182,7 +186,15 @@ async function rewrapRoot(rootScopeId: string, driveId: string): Promise<void> {
   if (!profileDriveProjection.contributionRoot(rootScopeId, driveId, session.appKeyPubkey)) return;
   const { getTreeRootSync } = await import('../stores/treeRoot');
   const root = getTreeRootSync(rootScopeId, driveId);
-  if (root?.key) await publishNostrIdentityDriveRootIfAvailable(driveId, root, { rootScopeId });
+  if (root?.key) await publishNostrIdentityDriveRootIfAvailable(driveId, root, {
+    rootScopeId, onlyIfCurrent: currentRootGuard(rootScopeId, driveId),
+  });
+}
+
+function currentRootGuard(scope: string, driveId: string): () => Promise<boolean> {
+  const queued = treeRootRegistry.get(scope, driveId);
+  return async () => treeRootRegistry.get(scope, driveId) === queued
+    && (queued?.source !== 'local-write' || await isLatestAnnouncedRoot(scope, driveId, queued.hash, queued.key));
 }
 
 interface DriveRootPublishOptions {
@@ -194,6 +206,8 @@ interface DriveRootPublishOptions {
   awaitRelay?: boolean;
   /** Require readback of the exact signed root from a configured relay before a cross-account removal. */
   confirmStored?: boolean;
+  /** A queued snapshot must still be current after its upload, before it replaces the relay root. */
+  onlyIfCurrent?: () => boolean | Promise<boolean>;
 }
 
 const publishQueues = new Map<string, Promise<unknown>>();
@@ -232,7 +246,13 @@ export function publishNostrIdentityDriveRootIfAvailable(
   const queueKey = `${scope}/${driveId}`;
   const publishing = (publishQueues.get(queueKey) ?? Promise.resolve())
     .catch(() => {})
-    .then(() => publishDriveRootNow(driveId, rootCid, options));
+    .then(() => {
+      const run = () => publishDriveRootNow(driveId, rootCid, options);
+      // Tabs share a signing key and relay slot. Their separate in-memory
+      // queues cannot keep uploads or the persistent sequence counter ordered.
+      const locks = typeof navigator === 'undefined' ? undefined : navigator.locks;
+      return locks ? locks.request(`iris-drive-publish:${queueKey}`, run) : run();
+    });
   publishQueues.set(queueKey, publishing);
   void publishing.catch(() => {}).then(() => {
     if (publishQueues.get(queueKey) === publishing) publishQueues.delete(queueKey);
@@ -245,6 +265,7 @@ async function publishDriveRootNow(
   rootCid: CID,
   options: DriveRootPublishOptions,
 ): Promise<boolean> {
+  if (options.onlyIfCurrent && !await options.onlyIfCurrent()) return false;
   const session = getCurrentNostrIdentitySession();
   const secretKey = getSecretKey();
   if (!session || session.status !== 'active' || !secretKey) return driveId !== 'trash' && !options.confirmStored;
@@ -330,6 +351,7 @@ async function publishDriveRootNow(
       || JSON.stringify([latest.activeAppKeyPubkeys, latest.recoveryPubkeys, latest.keyEpoch])
         !== JSON.stringify([projected.activeAppKeyPubkeys, projected.recoveryPubkeys, projected.keyEpoch])) return false;
   }
+  if (options.onlyIfCurrent && !await options.onlyIfCurrent()) return false;
   const rawEvent = buildDriveRootEvent({
     deviceSecretKey: secretKey,
     rootScopeId,

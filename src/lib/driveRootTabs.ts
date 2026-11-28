@@ -89,6 +89,14 @@ export function announceLocalRoot(scope: string, treeName: string, hash: Hash, r
   return writing;
 }
 
+/** Whether no other tab has saved a different root since this one was queued. */
+export async function isLatestAnnouncedRoot(scope: string, treeName: string, hash: Hash, rootKey?: Hash): Promise<boolean> {
+  const key = rootKeyOf(scope, treeName);
+  await pending.get(key);
+  const shared = await store.get(key);
+  return !shared || (shared.hash === toHex(hash) && shared.rootKey === (rootKey ? toHex(rootKey) : undefined));
+}
+
 /** Verify the exact destination is committed before releasing a recovery copy. Caller holds this Drive's lock. */
 export async function keepRestoredDriveRoot(scope: string, treeName: string, hash: Hash, rootKey?: Hash): Promise<void> {
   const key = rootKeyOf(scope, treeName);
