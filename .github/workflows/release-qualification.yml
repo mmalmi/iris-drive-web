@@ -1,0 +1,39 @@
+name: Drive release qualification
+on:
+  push:
+    branches: [codex/drive-runtime-review]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: drive-release-qualification
+  cancel-in-progress: false
+jobs:
+  review:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Qualify pinned toolchain
+        run: python3 scripts/release-check/toolchain.py
+      - name: Verify review fixes within 2 CPUs and 3 GiB
+        run: |
+          sudo systemd-run --wait --pipe --collect --unit=drive-review \
+            -p CPUQuota=200% -p MemoryMax=3G -p MemorySwapMax=0 \
+            --uid="$(id -u)" --working-directory="$GITHUB_WORKSPACE" \
+            --setenv="PATH=$RUNNER_TEMP/drive-tools/bin:$PATH" \
+            --setenv="DRIVE_CHECK_TOOLS=$RUNNER_TEMP/drive-tools" \
+            --setenv="TMPDIR=$RUNNER_TEMP/drive-tools/tmp" \
+            --setenv=CI=true --setenv=NODE_OPTIONS=--max-old-space-size=2304 \
+            python3 scripts/release-check/review.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: drive-review-${{ github.sha }}
+          path: work/release-check/evidence/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 30

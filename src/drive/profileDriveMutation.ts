@@ -238,10 +238,15 @@ export async function spliceEntriesInTree(
       }
 
       let subCid: CID | null = existing?.type === LinkType.Dir ? existing.cid : null;
+      if (child.leaf?.entry.type === LinkType.Dir
+        && (!child.leaf.ensureDir || existing?.type !== LinkType.Dir)) {
+        // A restored/copied directory can also have descendant writes in this
+        // batch. Start from its supplied contents, not an empty directory.
+        subCid = child.leaf.entry.cid;
+      }
       if (existing && existing.type !== LinkType.Dir) {
         deletedPaths.push(pathStr);
         replacementPaths.push(pathStr);
-        subCid = null;
       }
       const sub = await apply(subCid, child);
       if (sub.changed || existing?.type !== LinkType.Dir) {

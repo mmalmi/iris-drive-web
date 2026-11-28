@@ -430,14 +430,24 @@ async function uploadItemsNow(
     upload.progress(i, item.displayName, 0, 'reading');
 
     let stored: { cid: CID; size: number };
-    if (options.checkArchive && isArchiveFile(item.file.name)) {
-      const archiveResult = await readArchiveOrPut(item.file, i, upload);
-      if (!archiveResult || archiveResult === 'opened-extract-modal') {
-        return { uploadedNames, aborted: true };
+    try {
+      if (options.checkArchive && isArchiveFile(item.file.name)) {
+        // The dialog ends this upload batch. Commit earlier files before handing
+        // control to it, including when the person decides not to extract.
+        if (!await flushPending()) return { uploadedNames, aborted: true };
+        const archiveResult = await readArchiveOrPut(item.file, i, upload);
+        if (!archiveResult || archiveResult === 'opened-extract-modal') {
+          return { uploadedNames, aborted: true };
+        }
+        stored = archiveResult;
+      } else {
+        stored = await streamFileToTree(item.file, item.displayName, i, upload);
       }
-      stored = archiveResult;
-    } else {
-      stored = await streamFileToTree(item.file, item.displayName, i, upload);
+    } catch (error) {
+      // A later unreadable file must not discard earlier completed uploads.
+      // Cancellation and identity changes still prevent these writes.
+      if (upload.isCurrent()) await flushPending();
+      throw error;
     }
 
     if (!upload.isCurrent()) return { uploadedNames, aborted: true };

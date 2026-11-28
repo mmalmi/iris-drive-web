@@ -5,7 +5,7 @@ import { LinkType, type CID } from '@hashtree/core';
 import { autosaveIfOwn, nostrStore } from '../nostr';
 import { getTree } from '../store';
 import { markFilesChanged } from '../stores/recentlyChanged';
-import { setUploadProgress } from '../stores/upload';
+import { getUploadProgress, setUploadProgress, type UploadProgress } from '../stores/upload';
 import { parseRoute } from '../utils/route';
 import { getCurrentRootCid, getCurrentPathFromUrl, updateRoute } from './route';
 import { initVirtualTree } from './tree';
@@ -177,15 +177,17 @@ export async function uploadSingleFile(fileName: string, data: Uint8Array): Prom
  * written once.
  */
 export async function uploadExtractedFiles(archiveData: Uint8Array, archiveName: string, subdirName?: string): Promise<void> {
-  const isCurrent = captureRouteWriteGuard();
-  setUploadProgress({
+  const routeIsCurrent = captureRouteWriteGuard();
+  let progress: UploadProgress = {
     current: 0,
     total: 1,
     fileName: 'Extracting archive...',
     bytes: 0,
     totalBytes: archiveData.length,
     status: 'writing',
-  });
+  };
+  setUploadProgress(progress);
+  const isCurrent = () => routeIsCurrent() && getUploadProgress() === progress;
 
   try {
     // Allow UI to render progress before sync archive decompression.
@@ -206,32 +208,33 @@ export async function uploadExtractedFiles(archiveData: Uint8Array, archiveName:
     let completed = 0;
     let bytesProcessed = 0;
     const limit = createLimiter(EXTRACT_PUT_CONCURRENCY);
-    const writes: DriveEntryWrite[] = [];
-
-    await Promise.all(extractedFiles.map((file) => limit(async () => {
-      if (!isCurrent()) return;
+    const stored = await Promise.all(extractedFiles.map((file) => limit(async (): Promise<DriveEntryWrite | null> => {
+      if (!isCurrent()) return null;
       const { cid: fileCid, size } = await tree.putFile(file.data);
       completed += 1;
       bytesProcessed += file.data.length;
       if (isCurrent()) {
-        setUploadProgress({
+        progress = {
           current: completed,
           total,
           fileName: file.name,
           bytes: bytesProcessed,
           totalBytes,
           status: 'writing',
-        });
+        };
+        setUploadProgress(progress);
       }
       const parts = file.name.split('/').filter(Boolean);
       const name = parts.pop();
-      if (!name) return;
-      writes.push({
+      if (!name) return null;
+      return {
         parentPath: [...basePath, ...parts],
         name,
         entry: { cid: fileCid, size, type: LinkType.Blob },
-      });
+      };
     })));
+    // Keep archive order even when parallel storage completes out of order.
+    const writes = stored.filter((write): write is DriveEntryWrite => write !== null);
 
     if (!isCurrent() || writes.length === 0) return;
 
@@ -269,6 +272,6 @@ export async function uploadExtractedFiles(archiveData: Uint8Array, archiveName:
       }
     });
   } finally {
-    setUploadProgress(null);
+    if (getUploadProgress() === progress) setUploadProgress(null);
   }
 }

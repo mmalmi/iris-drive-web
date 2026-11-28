@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { HashTree, LinkType, MemoryStore, type CID } from '@hashtree/core';
 import { prepareProfileDriveRootForPublish } from '../src/drive/profileDriveMutation';
 import { readPathKindReplacements } from '../src/drive/profileDrivePathKindMetadata';
+import { zipSync } from 'fflate';
+import type { UploadProgress } from '../src/stores/upload';
 
 const PROFILE_ID = '123e4567-e89b-42d3-a456-426614174170';
 const APP_KEY = 'a'.repeat(64);
@@ -9,6 +11,7 @@ const shared = vi.hoisted(() => ({
   tree: null as HashTree | null,
   root: null as CID | null,
   savedRoot: null as CID | null,
+  progress: null as UploadProgress | null,
   routeScope: '123e4567-e89b-42d3-a456-426614174170',
   state: {
     isLoggedIn: true,
@@ -65,7 +68,10 @@ vi.mock('../src/actions/route', () => ({
   buildRouteUrl: vi.fn(),
 }));
 
-vi.mock('../src/stores/upload', () => ({ setUploadProgress: vi.fn() }));
+vi.mock('../src/stores/upload', () => ({
+  setUploadProgress: (progress: UploadProgress | null) => { shared.progress = progress; },
+  getUploadProgress: () => shared.progress,
+}));
 vi.mock('../src/stores/recentlyChanged', () => ({ markFilesChanged: vi.fn() }));
 vi.mock('../src/treeRootCache', () => ({
   getLocalRootCache: vi.fn(),
@@ -74,7 +80,7 @@ vi.mock('../src/treeRootCache', () => ({
 vi.mock('../src/utils/navigate', () => ({ navigate: vi.fn() }));
 vi.mock('../src/stores/trees', () => ({ storeLinkKey: vi.fn() }));
 
-import { createFile } from '../src/actions/file';
+import { createFile, uploadExtractedFiles } from '../src/actions/file';
 import { createFolder } from '../src/actions/tree';
 
 describe('profile Drive UI actions', () => {
@@ -82,7 +88,31 @@ describe('profile Drive UI actions', () => {
     shared.tree = new HashTree({ store: new MemoryStore() });
     shared.root = null;
     shared.savedRoot = null;
+    shared.progress = null;
     shared.routeScope = PROFILE_ID;
+  });
+
+  it('stops extraction without clearing a newer upload progress indicator', async () => {
+    const tree = shared.tree!;
+    shared.root = (await tree.putDirectory([])).cid;
+    const put = tree.putFile.bind(tree);
+    let resume!: () => void;
+    let started!: () => void;
+    const writing = new Promise<void>(resolve => { started = resolve; });
+    const paused = new Promise<void>(resolve => { resume = resolve; });
+    vi.spyOn(tree, 'putFile').mockImplementationOnce(async (...args) => {
+      started();
+      await paused;
+      return put(...args);
+    });
+    const extracting = uploadExtractedFiles(zipSync({ 'old.txt': new Uint8Array([1]) }), 'old.zip');
+    await writing;
+    const newer: UploadProgress = { current: 1, total: 1, fileName: 'new.txt', status: 'reading' };
+    shared.progress = newer;
+    resume();
+    await extracting;
+    expect(shared.savedRoot).toBeNull();
+    expect(shared.progress).toBe(newer);
   });
 
   it('does not publish a delayed private file into a newly selected public route', async () => {

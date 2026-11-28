@@ -301,12 +301,21 @@ export async function restoreTrashItems(account: string, ids: string[], skipMiss
     requireTrashAccess(account, scope);
     restored.clear();
     const writes: DriveEntryWrite[] = [];
+    let next = root;
     const parentListings = new Map<string, { siblings: Map<string, TreeEntry>; taken: Set<string> }>();
+    const flush = async () => {
+      if (!writes.length) return;
+      next = await setEntriesForDriveRoute(tree, next, writes, { npub: scope, treeName }, nostrStore.getState());
+      writes.length = 0;
+      parentListings.clear();
+    };
+    const contains = (parent: string[], child: string[]) => parent.length <= child.length
+      && parent.every((part, index) => part === child[index]);
     const readParent = async (parent: string[]) => {
       const key = parent.join('\0');
       let cached = parentListings.get(key);
       if (!cached) {
-        const folder = await folderAt(tree, root, parent);
+        const folder = await folderAt(tree, next, parent);
         const list = folder ? await tree.listDirectory(folder) : [];
         cached = {
           siblings: new Map(list.map((item) => [item.name, item])),
@@ -325,10 +334,14 @@ export async function restoreTrashItems(account: string, ids: string[], skipMiss
       if (record.scope !== scope || record.treeName !== treeName) throw new Error('The selection belongs to several Drives');
       await recoverContents(tree, record);
       const { entry } = record;
+      // Restoring a folder and one of its former children must see earlier
+      // restored contents when resolving collisions and blocked parents.
+      if (writes.some(write => contains([...write.parentPath, write.name], record.path)
+        || contains([...record.path, entry.name], write.parentPath))) await flush();
       // A saved tree and its Trash row are in different stores. If the tab closed
       // between those commits, finish the pending restore without adding a second copy.
       if (record.destination) {
-        const existing = await tree.resolvePath(root, record.destination);
+        const existing = await tree.resolvePath(next, record.destination);
         if (existing && sameEntry(existing, entry)) {
           restored.set(id, record.destination);
           continue;
@@ -338,7 +351,7 @@ export async function restoreTrashItems(account: string, ids: string[], skipMiss
       // Recreate missing parents. If a file took a parent's name, keep that file
       // and restore to the nearest containing folder instead.
       for (let depth = 1; depth <= parent.length; depth++) {
-        const ancestor = await tree.resolvePath(root, parent.slice(0, depth));
+        const ancestor = await tree.resolvePath(next, parent.slice(0, depth));
         if (!ancestor) break;
         if (ancestor.type !== LinkType.Dir) {
           parent = parent.slice(0, depth - 1);
@@ -358,9 +371,7 @@ export async function restoreTrashItems(account: string, ids: string[], skipMiss
       writes.push({ parentPath: parent, name, entry, preserveModifiedAt: identical });
       restored.set(id, destination);
     }
-    const next = writes.length > 0
-      ? await setEntriesForDriveRoute(tree, root, writes, { npub: scope, treeName }, nostrStore.getState())
-      : root;
+    await flush();
     requireTrashAccess(account, scope);
     if (privateSync && (!privateSync.canReadPrivateTrash(account)
       || [...restored.values()].some(path => !privateSync.isUnsharedTrashPath(account, path)))) {

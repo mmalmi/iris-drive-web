@@ -13,6 +13,7 @@ import {
 import { isEditableDriveRouteScope } from './profileRoute';
 import { activeShareScope } from './shareScope';
 import { withModifiedAt } from '../lib/modifiedAt';
+import { cidCacheKey } from './profileDrivePathKindMetadata';
 
 type DriveRoute = {
   npub: string | null | undefined;
@@ -69,21 +70,27 @@ export async function setEntriesForDriveRoute(
       shareTools = { key, ...proto };
     }
 
-    const parentCache = new Map<string, Promise<Map<string, TreeEntry> | null>>();
-    const lookupExisting = async (parentPath: string[], name: string): Promise<TreeEntry | null> => {
-      const key = parentPath.join('\0');
-      let pending = parentCache.get(key);
+    const directoryCache = new Map<string, Promise<Map<string, TreeEntry>>>();
+    const pendingEntries = new Map<string, TreeEntry>();
+    const list = (cid: CID) => {
+      const key = cidCacheKey(cid);
+      let pending = directoryCache.get(key);
       if (!pending) {
-        pending = (async () => {
-          const parent = parentPath.length > 0
-            ? await tree.resolvePath(root, parentPath)
-            : { cid: root, type: LinkType.Dir };
-          if (!parent?.cid || parent.type !== LinkType.Dir) return null;
-          return new Map((await tree.listDirectory(parent.cid)).map((e) => [e.name, e]));
-        })();
-        parentCache.set(key, pending);
+        pending = tree.listDirectory(cid).then(entries => new Map(entries.map(entry => [entry.name, entry])));
+        directoryCache.set(key, pending);
       }
-      return (await pending)?.get(name) ?? null;
+      return pending;
+    };
+    const lookupExisting = async (parentPath: string[], name: string): Promise<TreeEntry | null> => {
+      const parts = [...parentPath, name];
+      let directory: CID | null = root;
+      for (let depth = 0; depth < parts.length; depth++) {
+        const entry: TreeEntry | undefined = pendingEntries.get(parts.slice(0, depth + 1).join('\0'))
+          ?? (directory ? (await list(directory)).get(parts[depth]!) : undefined);
+        if (depth === parts.length - 1) return entry ?? null;
+        directory = entry?.type === LinkType.Dir ? entry.cid : null;
+      }
+      return null;
     };
 
     for (const item of items) {
@@ -94,6 +101,14 @@ export async function setEntriesForDriveRoute(
       const path = [...item.parentPath, item.name].flatMap((part) => part.split('/')).filter(Boolean);
       const name = path.at(-1)!;
       const parentPath = path.slice(0, -1);
+      if (share) {
+        for (let depth = 0; depth < parentPath.length; depth++) {
+          const ancestor = await lookupExisting(parentPath.slice(0, depth), parentPath[depth]!);
+          if (ancestor && ancestor.type !== LinkType.Dir) {
+            throw new Error('A shared file already uses this folder name');
+          }
+        }
+      }
       if (entry.type === LinkType.Dir) {
         const existing = await lookupExisting(parentPath, name);
         // Directory-upload setup and document initialization are ensure-style
@@ -133,6 +148,7 @@ export async function setEntriesForDriveRoute(
         }
       }
       writes.push({ path, entry, ensureDir: entry.type === LinkType.Dir });
+      pendingEntries.set(path.join('\0'), { ...entry, name });
     }
     if (writes.length === 0) return root;
     return setProfileDriveEntries(tree, root, writes);

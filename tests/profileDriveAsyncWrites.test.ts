@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { File } from 'node:buffer';
 import { HashTree, MemoryStore, type CID } from '@hashtree/core';
+import { zipSync } from 'fflate';
 
 const shared = vi.hoisted(() => ({
   tree: null as HashTree | null,
@@ -13,6 +14,7 @@ vi.mock('../src/store', () => ({ getTree: () => shared.tree }));
 vi.mock('../src/nostr', () => ({
   autosaveIfOwn: (root: CID) => { shared.savedRoot = root; shared.savedTo = ['open page']; },
   saveOwnTreeRoot: (scope: string, treeName: string, root: CID) => {
+    shared.root = root;
     shared.savedRoot = root;
     shared.savedTo = [scope, treeName];
     return true;
@@ -45,6 +47,7 @@ vi.mock('../src/stores/settings', () => ({ settingsStore: { subscribe: () => () 
 vi.mock('../src/stores/toast', () => ({ toast: { warning: vi.fn(), success: vi.fn() } }));
 
 import { cancelUpload, getUploadProgress, uploadFiles, uploadFilesWithPaths } from '../src/stores/upload';
+import { open as openExtractModal } from '../src/components/Modals/ExtractModal.svelte';
 
 function leavePrivateRoute(): void {
   shared.route = { npub: 'npub1owner', treeName: 'public', path: [] };
@@ -80,6 +83,34 @@ describe('async profile Drive write destinations', () => {
     vi.stubGlobal('window', { location: { hash: '#/private' } });
   });
   afterEach(() => vi.unstubAllGlobals());
+
+  it('saves pending files before opening an archive dialog', async () => {
+    const files = [
+      new File(['first'], 'first.txt'),
+      new File(['second'], 'second.txt'),
+      new File([zipSync({ 'inside.txt': new TextEncoder().encode('inside') })], 'archive.zip'),
+    ];
+    await uploadFiles(files as unknown as globalThis.File[]);
+    expect(openExtractModal).toHaveBeenCalled();
+    expect(await shared.tree!.resolvePath(shared.savedRoot!, ['first.txt'])).not.toBeNull();
+    expect(await shared.tree!.resolvePath(shared.savedRoot!, ['second.txt'])).not.toBeNull();
+    expect(getUploadProgress()).toBeNull();
+  });
+
+  it.each(['files', 'paths'])('saves completed %s before a later file fails to read', async (kind) => {
+    const failed = new File(['unreadable'], 'failed.txt');
+    vi.spyOn(failed, 'stream').mockImplementation(() => new ReadableStream({
+      start(controller) { controller.error(new Error('Read failed')); },
+    }));
+    const files = [new File(['first'], 'first.txt'), new File(['second'], 'second.txt'), failed] as unknown as globalThis.File[];
+    const running = kind === 'files' ? uploadFiles(files)
+      : uploadFilesWithPaths(files.map(file => ({ file, relativePath: file.name })));
+    await expect(running).rejects.toThrow('Read failed');
+    expect(await shared.tree!.resolvePath(shared.savedRoot!, ['first.txt'])).not.toBeNull();
+    expect(await shared.tree!.resolvePath(shared.savedRoot!, ['second.txt'])).not.toBeNull();
+    expect(await shared.tree!.resolvePath(shared.savedRoot!, ['failed.txt'])).toBeNull();
+    expect(getUploadProgress()).toBeNull();
+  });
 
   it.each(['files', 'paths'])('still publishes a %s upload when its destination remains current', async (kind) => {
     const file = new File(['private content'], 'private.txt');

@@ -18,7 +18,7 @@ vi.mock('../src/nostr/auth', () => ({
   getCurrentNostrIdentitySession: () => mocks.session,
 }));
 
-import { markFolderChanged, setEntryForDriveRoute } from '../src/drive/profileDriveRouteEntry';
+import { markFolderChanged, setEntriesForDriveRoute, setEntryForDriveRoute } from '../src/drive/profileDriveRouteEntry';
 
 const ACTIVE_STATE = { isLoggedIn: true, pubkey: APP_KEY };
 
@@ -29,6 +29,20 @@ describe('profile Drive route entry writes', () => {
       profileId: PROFILE_ID,
       appKeyPubkey: APP_KEY,
     };
+  });
+
+  it('keeps restored directory contents when the same batch writes a descendant', async () => {
+    const tree = new HashTree({ store: new MemoryStore() });
+    const kept = await tree.putFile(new TextEncoder().encode('keep me'));
+    const folder = await tree.putDirectory([{ name: 'kept.txt', ...kept, type: LinkType.Blob }]);
+    const added = await tree.putFile(new TextEncoder().encode('add me'));
+    const root = (await tree.putDirectory([])).cid;
+    const next = await setEntriesForDriveRoute(tree, root, [
+      { parentPath: [], name: 'Restored', entry: { ...folder, type: LinkType.Dir } },
+      { parentPath: ['Restored'], name: 'added.txt', entry: { ...added, type: LinkType.Blob } },
+    ], { npub: PROFILE_ID, treeName: 'main' }, ACTIVE_STATE);
+    expect((await tree.resolvePath(next, ['Restored', 'kept.txt']))?.cid).toEqual(kept.cid);
+    expect((await tree.resolvePath(next, ['Restored', 'added.txt']))?.cid).toEqual(added.cid);
   });
 
   it('routes a production file-over-folder write through an exact durable role', async () => {

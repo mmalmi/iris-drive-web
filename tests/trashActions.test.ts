@@ -132,4 +132,19 @@ describe('moving files to Trash and restoring them', () => {
     expect(state.records.size).toBe(1);
   });
 
+  it.each([false, true])('keeps all bytes when restoring a folder and an earlier child (child first: %s)', async (childFirst) => {
+    await deleteEntries(['old.txt']);
+    const childId = [...state.records.keys()][0];
+    const replacement = await state.tree.putFile(new Uint8Array([2]));
+    state.root = await state.tree.setEntry(state.root, ['folder'], 'old.txt', replacement.cid, replacement.size);
+    await deleteEntries(['folder'], []);
+    const folderId = [...state.records.keys()].find(id => id !== childId)!;
+    await restoreTrashItems('one', childFirst ? [childId, folderId] : [folderId, childId]);
+    const original = await state.tree.resolvePath(state.root, ['folder', childFirst ? 'old.txt' : 'old (2).txt']);
+    const replaced = await state.tree.resolvePath(state.root, [childFirst ? 'folder (2)' : 'folder', 'old.txt']);
+    expect(await state.tree.readFile(original!.cid)).toEqual(new Uint8Array([1]));
+    expect(await state.tree.readFile(replaced!.cid)).toEqual(new Uint8Array([2]));
+    expect(state.records.size).toBe(0);
+  });
+
 });
