@@ -27,7 +27,9 @@ TOOLS = {
 }
 for name, pin in TOOLS.items():
     archive = ROOT / (name + '.tar.gz')
-    with urllib.request.urlopen(pin['url'], timeout=120) as response:
+    print('Downloading pinned ' + name + ' archive', flush=True)
+    request = urllib.request.Request(pin['url'], headers={'User-Agent': 'Mozilla/5.0'})
+    with urllib.request.urlopen(request, timeout=120) as response:
         archive.write_bytes(response.read())
     assert hashlib.sha256(archive.read_bytes()).hexdigest() == pin['archiveSHA256'], name
     with tarfile.open(archive) as tar:

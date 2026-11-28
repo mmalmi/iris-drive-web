@@ -16,7 +16,8 @@ records = []
 pattern = r"^  (.+):\n    resolution: \{integrity: ([^,}]+), tarball: ([^}]+)\}"
 for key, integrity, url in re.findall(pattern, lock, re.M):
     name = key.strip("'").split('@https:', 1)[0]
-    with urllib.request.urlopen(url, timeout=120) as response:
+    request = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+    with urllib.request.urlopen(request, timeout=120) as response:
         data = response.read()
     algorithm, expected = integrity.split('-', 1)
     assert base64.b64encode(hashlib.new(algorithm, data).digest()).decode() == expected, name
